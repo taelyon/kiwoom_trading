@@ -1,0 +1,105 @@
+[LOGIN]
+username = YOUR_USERNAME
+password = YOUR_PASSWORD
+certpassword = YOUR_CERTPASSWORD
+autologin = True
+
+[KIWOOM_API]
+appkey = YOUR_APP_KEY
+secretkey = YOUR_SECRET_KEY
+simulation = False
+account_number = YOUR_ACCOUNT_NUMBER
+account_product_code = 01
+
+[SLACK]
+token = YOUR_SLACK_BOT_TOKEN
+channel = #stock
+
+[SETTINGS]
+last_strategy = 
+
+[STRATEGIES]
+stg_integrated = 통합 전략
+stg_1 = VI 발동
+stg_2 = 급등주
+stg_3 = 갭상승
+
+[STRATEGY_TYPES]
+static = 전일급등,전일거래량급증,52주신고가,이격도상승,신고가돌파
+dynamic = 급등주,갭상승,거래량급증,돌파,급등돌파
+max_static_load = 10
+
+[TRADING]
+evaluation_interval = 5
+event_based_evaluation = True
+min_evaluation_gap = 3
+
+[DATA_SAVING]
+interval_seconds = 5
+
+[BUYCOUNT]
+target_buy_count = 3
+
+[VI 발동]
+buy_stg_1 = {"name": "골든크로스", "content": "(MAT5[-1] > MAT20[-1] > MAT60[-1]) and (min_close_price[-1] > MAM5[-1] > MAM10[-1]) and (OSCT[-1] > 0) and RSIT[-1] > 60 and (OSC[-1] > 0) and RSI[-1] > 60 and (tick_close_price[-1] > bb_upper[-1] * 1.02) and positive_candle and (min_close_price[-1] > VWAP[-1])"}
+sell_stg_1 = {"name": "상한가 매도", "content": "all(x == y for x, y in zip(tick_high_price[-3:], tick_low_price[-3:])) and (tick_high_price[-1] == tick_high_price[-2] == tick_high_price[-3])"}
+sell_stg_2 = {"name": "stop_loss 매도", "content": "tick_close_price[-1] < self.trader.highest_price[code] * 0.995 and self.stock_rate > 0.3"}
+sell_stg_3 = {"name": "OSCT 음수 전환", "content": "(OSCT[-2] < OSCT[-1] < 0)"}
+
+[급등주]
+# ===== 매수 전략 (5개) =====
+buy_stg_1 = {"name": "급등 초기 포착", "content": "strength >= 140 and (MAT5 > MAT20 > MAT60) and (C > MAT5) and (MAM5 > MAM10) and (40 < RSIT < 75)"}
+buy_stg_2 = {"name": "모멘텀 + 거래량", "content": "strength >= 150 and (C > tick_VWAP) and (min_close > min_VWAP) and (OSCT > 0) and (STOCHK > 40) and (STOCHK < 80)"}
+buy_stg_3 = {"name": "볼린저 돌파 초기", "content": "(C > BB_MIDDLE) and (BB_POSITION > 0.5) and (BB_POSITION < 1.2) and strength >= 130 and (MAT5 > MAT20)"}
+buy_stg_4 = {"name": "RSI 건전성 + 추세", "content": "(45 < RSIT < 70) and (RSIT > RSIT_SIGNAL) and (MAT5 > MAT20 > MAT60) and (MAM5 > MAM10) and strength >= 120"}
+buy_stg_5 = {"name": "연속 상승 확인", "content": "len(tick_C_recent) >= 3 and (tick_C_recent[-1] > tick_C_recent[-2] > tick_C_recent[-3]) and strength >= 130 and (MAT5 > MAT20)"}
+
+# ===== 매도 전략 (6개) =====
+sell_stg_1 = {"name": "목표 익절 (+3.5%)", "content": "current_profit_pct >= 3.5"}
+sell_stg_2 = {"name": "손절 (-0.8%)", "content": "current_profit_pct < -0.8"}
+sell_stg_3 = {"name": "추적 손절 (고점 보호)", "content": "current_profit_pct > 1.8 and from_peak_pct < -0.9"}
+sell_stg_4 = {"name": "시간 손절 (90분)", "content": "hold_minutes > 90 and current_profit_pct < 0.5"}
+sell_stg_5 = {"name": "급등 후 반전", "content": "(MAT5 < MAT20 or MAM5 < MAM10) and (OSCT < 0) and current_profit_pct < 1.5"}
+sell_stg_6 = {"name": "과매수 청산", "content": "(STOCHK > 80 or RSIT > 75) and current_profit_pct > 2.5 and from_peak_pct < -0.7"}
+
+[갭상승]
+# ===== 매수 전략 (4개) =====
+buy_stg_1 = {"name": "갭 유지 + 강세", "content": "gap_hold and strength >= 130 and (MAT5 > MAT20 > MAT60) and (C > tick_VWAP) and (40 < RSIT < 75)"}
+buy_stg_2 = {"name": "갭 상승 + 모멘텀", "content": "gap_hold and strength >= 140 and (MAM5 > MAM10) and (OSCT > 0) and (STOCHK > 40) and (STOCHK < 80)"}
+buy_stg_3 = {"name": "갭 메우기 후 반등", "content": "gap_hold and (C > MAT5) and (MAT5 > MAT20) and (RSIT > 45) and (min_close > MAM5) and strength >= 120"}
+buy_stg_4 = {"name": "갭 + 볼린저 돌파", "content": "gap_hold and (C > BB_MIDDLE) and (BB_POSITION > 0.3) and strength >= 130 and (MAT5 > MAT20)"}
+
+# ===== 매도 전략 (5개) =====
+sell_stg_1 = {"name": "목표 익절 (+3.0%)", "content": "current_profit_pct >= 3.0"}
+sell_stg_2 = {"name": "손절 (-0.7%)", "content": "current_profit_pct < -0.7"}
+sell_stg_3 = {"name": "갭 메움 + 약세", "content": "not gap_hold and (MAT5 < MAT20 or MAM5 < MAM10) and current_profit_pct < 1.0"}
+sell_stg_4 = {"name": "추적 손절", "content": "current_profit_pct > 1.5 and from_peak_pct < -0.8"}
+sell_stg_5 = {"name": "시간 손절 (100분)", "content": "hold_minutes > 100 and current_profit_pct < 0.5"}
+
+[통합 전략]
+
+# ===== 매수 전략 (15개) =====
+buy_stg_1 = {"name": "1단계: 급등주 + 이평 정배열 (30틱)", "content": "strength >= 130 and MAT5 > MAT20 > MAT60 and C > MAT5 and MAM5 > MAM10 > MAM20 and min_close > MAM5"}
+buy_stg_2 = {"name": "2단계: RSI 건전성 체크", "content": "40 < RSIT < 75 and 35 < min_RSI < 70 and RSIT > RSIT_SIGNAL"}
+buy_stg_3 = {"name": "3단계: Stochastic 골든존", "content": "20 < STOCHK < 80 and STOCHK > STOCHD and min_STOCHK > min_STOCHD"}
+buy_stg_4 = {"name": "4단계: MACD 상승 추세", "content": "OSCT > 0 and MACDT > MACDT_SIGNAL and min_OSC > 0"}
+buy_stg_5 = {"name": "5단계: 볼린저 돌파 초기", "content": "C > BB_MIDDLE and BB_POSITION > 0.3 and BB_POSITION < 1.2 and BB_BANDWIDTH > 0.02"}
+buy_stg_6 = {"name": "6단계: ATR 변동성 체크", "content": "ATR > C * 0.01 and ATR < C * 0.05"}
+buy_stg_7 = {"name": "7단계: 체결강도 + VWAP (30틱)", "content": "strength >= 140 and C > tick_VWAP and min_close > min_VWAP"}
+buy_stg_8 = {"name": "8단계: 상승 모멘텀 확인", "content": "len(tick_C_recent) >= 3 and tick_C_recent[-1] > tick_C_recent[-2] > tick_C_recent[-3]"}
+buy_stg_9 = {"name": "변동성 돌파 전략", "content": "volatility_breakout and strength >= 150 and MAT5 > MAT20"}
+buy_stg_10 = {"name": "갭 상승 전략", "content": "gap_hold and strength >= 150 and MAT5 > MAT20 > MAT60 and RSIT < 70"}
+buy_stg_11 = {"name": "Williams %R 반등 + 강세", "content": "WILLIAMS_R > -80 and WILLIAMS_R < -40 and min_WILLIAMS_R > -70 and MAT5 > MAT20 and strength >= 130"}
+buy_stg_12 = {"name": "ROC 가속 + OBV 상승", "content": "ROC > 1.5 and len(ROC_recent) >= 3 and ROC_recent[-1] > ROC_recent[-2] and OBV > OBV_MA20"}
+buy_stg_13 = {"name": "Volume Profile 돌파", "content": "volume_profile_breakout and VP_POSITION > 0.02 and strength >= 140 and MAT5 > MAT20"}
+buy_stg_14 = {"name": "복합 모멘텀 (Williams + ROC + OBV)", "content": "WILLIAMS_R > -70 and ROC > 1.0 and OBV > OBV_MA20 and MAT5 > MAT20 > MAT60 and RSIT > 50"}
+buy_stg_15 = {"name": "과매도 반등 (Williams + Stochastic)", "content": "WILLIAMS_R < -70 and min_WILLIAMS_R < -70 and STOCHK < 30 and STOCHK > STOCHD and strength >= 140"}
+
+# ===== 매도 전략 (7개로 축소) =====
+sell_stg_1 = {"name": "목표 익절 (+3.0%)", "content": "current_profit_pct >= 3.0"}
+sell_stg_2 = {"name": "손절 (-0.7%)", "content": "current_profit_pct < -0.7"}
+sell_stg_3 = {"name": "추적 손절 (수익 보호)", "content": "current_profit_pct > 1.5 and from_peak_pct < -0.8"}
+sell_stg_4 = {"name": "시간 손절 (90분)", "content": "hold_minutes > 90 and current_profit_pct < 0.5"}
+sell_stg_5 = {"name": "장 마감 청산 (14:45)", "content": "after_market_close"}
+sell_stg_6 = {"name": "기술적 매도 (이평선 + MACD)", "content": "(MAT5 < MAT20 or MAM5 < MAM10) and OSCT < 0 and current_profit_pct < 1.0"}
+sell_stg_7 = {"name": "과매수 청산 (복합)", "content": "(STOCHK > 80 or WILLIAMS_R > -20) and current_profit_pct > 2.0 and from_peak_pct < -0.5"}
