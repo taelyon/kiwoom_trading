@@ -99,19 +99,29 @@ def setup_logging():
         # 로그 파일명 (날짜별)
         log_filename = f"{log_dir}/kiwoom_trader_{datetime.now().strftime('%Y%m%d')}.log"
         
-        # 로깅 설정
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            handlers=[
-                logging.FileHandler(log_filename, encoding='utf-8'),
-                logging.StreamHandler()
-            ]
-        )
+        # 로그 포맷
+        log_format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        formatter = logging.Formatter(log_format)
         
-        # root 로거의 레벨을 INFO로 설정 (DEBUG 로그 줄이기)
+        # root 로거 설정 (DEBUG 레벨로 설정하여 모든 로그 받기)
         root_logger = logging.getLogger()
-        root_logger.setLevel(logging.INFO)
+        root_logger.setLevel(logging.DEBUG)
+        
+        # 기존 핸들러 제거
+        for handler in root_logger.handlers[:]:
+            root_logger.removeHandler(handler)
+        
+        # 파일 핸들러 (DEBUG 레벨 - 모든 로그 저장)
+        file_handler = logging.FileHandler(log_filename, encoding='utf-8')
+        file_handler.setLevel(logging.DEBUG)
+        file_handler.setFormatter(formatter)
+        root_logger.addHandler(file_handler)
+        
+        # 콘솔/터미널 핸들러 (DEBUG 레벨 - 개발 시 상세 로그 확인용)
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(logging.DEBUG)
+        console_handler.setFormatter(formatter)
+        root_logger.addHandler(console_handler)
         
         # aiosqlite DEBUG 로그 비활성화
         aiosqlite_logger = logging.getLogger('aiosqlite')
@@ -709,6 +719,14 @@ class KiwoomTrader(QObject):
     def place_buy_order(self, code, quantity, price=0, strategy=""):
         """매수 주문 (키움 REST API 기반)"""
         try:
+            # 보유 종목 확인 (이미 보유 중인 종목은 매수 제외)
+            if self.parent and hasattr(self.parent, 'boughtBox'):
+                for i in range(self.parent.boughtBox.count()):
+                    item_code = self.parent.boughtBox.item(i).text()
+                    if item_code == code:
+                        logging.info(f"⚠️ 매수 주문 취소: {code}는 이미 보유 중인 종목입니다.")
+                        return False
+            
             # 키움 REST API를 통한 매수 주문
             success = self.client.place_buy_order(code, quantity, price)
             
@@ -1388,6 +1406,14 @@ class AutoTrader(QObject):
             code = signal_data.get('code')
             price = signal_data.get('price', 0)
             
+            # 보유 종목 확인 (이미 보유 중인 종목은 매수 제외)
+            if self.parent and hasattr(self.parent, 'boughtBox'):
+                for i in range(self.parent.boughtBox.count()):
+                    item_code = self.parent.boughtBox.item(i).text()
+                    if item_code == code:
+                        logging.info(f"⚠️ 매수 주문 취소: {code}는 이미 보유 중인 종목입니다.")
+                        return False
+            
             # 실제 투자가능금액 조회 (예수금상세현황 API)
             available_cash = self.trader.get_available_cash()
             logging.debug(f"💰 투자가능금액 조회: {available_cash:,}원")
@@ -1692,17 +1718,12 @@ class LoginHandler:
             logging.error(f"API 연결 처리 실패: {ex}")
     
     def buycount_setting(self):
-        """투자 종목수 설정"""
-        try:
-            buycount = int(self.parent.buycountEdit.text())
-            if buycount > 0:
-                logging.debug(f"최대 투자 종목수 설정: {buycount}")
-            else:
-                logging.warning("1 이상의 숫자를 입력해주세요.")
-        except ValueError:
-            logging.warning("올바른 숫자를 입력해주세요.")
-        except Exception as ex:
-            logging.error(f"투자 종목수 설정 실패: {ex}")
+        """투자 종목수 설정 (MyWindow의 메서드 호출)"""
+        # MyWindow 클래스의 buycount_setting() 메서드를 호출하여 중복 제거
+        if hasattr(self.parent, 'buycount_setting'):
+            self.parent.buycount_setting()
+        else:
+            logging.warning("MyWindow의 buycount_setting 메서드를 찾을 수 없습니다.")
 
 # ==================== 메인 윈도우 ====================
 class MyWindow(QWidget):
@@ -2127,20 +2148,12 @@ class MyWindow(QWidget):
         secondButtonLayout.addWidget(self.sellAllButton)     
         boughtBoxLayout.addLayout(secondButtonLayout)
 
-        # ===== 출력 버튼 =====
-        printLayout = QHBoxLayout()
-        self.printChartButton = QPushButton("차트 출력")
-        printLayout.addWidget(self.printChartButton)
-        self.dataOutputButton2 = QPushButton("차트데이터 저장")
-        printLayout.addWidget(self.dataOutputButton2)
-
         # ===== 왼쪽 영역 통합 =====
         listBoxesLayout = QVBoxLayout()
         listBoxesLayout.addLayout(loginLayout)
         listBoxesLayout.addLayout(buycountLayout)
         listBoxesLayout.addLayout(monitoringBoxLayout, 6)
         listBoxesLayout.addLayout(boughtBoxLayout, 4)
-        listBoxesLayout.addLayout(printLayout)
 
         # ===== 실시간 차트 영역 =====
         chartLayout = QVBoxLayout()
@@ -2283,10 +2296,6 @@ class MyWindow(QWidget):
         self.boughtBox.setEnabled(True)
         logging.debug("✅ 리스트박스 활성화 완료")
         
-
-        self.printChartButton.clicked.connect(self.print_chart)
-        self.dataOutputButton2.clicked.connect(self.output_current_data)
-
         self.comboStg.currentIndexChanged.connect(self.stgChanged)
         self.comboBuyStg.currentIndexChanged.connect(self.buyStgChanged)
         self.comboSellStg.currentIndexChanged.connect(self.sellStgChanged)
@@ -2867,67 +2876,50 @@ class MyWindow(QWidget):
         except Exception as ex:
             logging.error(f"전략 콤보박스 로드 실패: {ex}")
     
-    def load_buy_strategies(self):
-        """매수전략 콤보박스 로드"""
+    def _load_strategy_list(self, combo_widget, key_prefix, strategy_type):
+        """전략 목록 로드 (공통 로직)
+        
+        Args:
+            combo_widget: 콤보박스 위젯
+            key_prefix: 전략 키 접두사 ('buy_stg_' 또는 'sell_stg_')
+            strategy_type: 전략 타입 ('buy' 또는 'sell')
+        """
         try:
             config = configparser.RawConfigParser()
             config.read('settings.ini', encoding='utf-8')
             
-            self.comboBuyStg.clear()
+            combo_widget.clear()
             current_strategy = self.comboStg.currentText()
             
             if config.has_section(current_strategy):
-                buy_strategies = []
+                strategies = []
                 for key, value in config.items(current_strategy):
-                    if key.startswith('buy_stg_'):
+                    if key.startswith(key_prefix):
                         try:
                             strategy_data = eval(value)  # JSON 파싱
                             if isinstance(strategy_data, dict) and 'name' in strategy_data:
-                                buy_strategies.append(strategy_data['name'])
+                                strategies.append(strategy_data['name'])
                         except:
                             continue
                 
-                for strategy_name in buy_strategies:
-                    self.comboBuyStg.addItem(strategy_name)
+                for strategy_name in strategies:
+                    combo_widget.addItem(strategy_name)
                 
-                if buy_strategies:
-                    self.comboBuyStg.setCurrentIndex(0)
-                    # 첫 번째 매수전략 내용 로드
-                    self.load_strategy_content(buy_strategies[0], 'buy')
+                if strategies:
+                    combo_widget.setCurrentIndex(0)
+                    # 첫 번째 전략 내용 로드
+                    self.load_strategy_content(strategies[0], strategy_type)
                     
         except Exception as ex:
-            logging.error(f"매수전략 로드 실패: {ex}")
+            logging.error(f"{strategy_type} 전략 로드 실패: {ex}")
+    
+    def load_buy_strategies(self):
+        """매수전략 콤보박스 로드"""
+        self._load_strategy_list(self.comboBuyStg, 'buy_stg_', 'buy')
     
     def load_sell_strategies(self):
         """매도전략 콤보박스 로드"""
-        try:
-            config = configparser.RawConfigParser()
-            config.read('settings.ini', encoding='utf-8')
-            
-            self.comboSellStg.clear()
-            current_strategy = self.comboStg.currentText()
-            
-            if config.has_section(current_strategy):
-                sell_strategies = []
-                for key, value in config.items(current_strategy):
-                    if key.startswith('sell_stg_'):
-                        try:
-                            strategy_data = eval(value)  # JSON 파싱
-                            if isinstance(strategy_data, dict) and 'name' in strategy_data:
-                                sell_strategies.append(strategy_data['name'])
-                        except:
-                            continue
-                
-                for strategy_name in sell_strategies:
-                    self.comboSellStg.addItem(strategy_name)
-                
-                if sell_strategies:
-                    self.comboSellStg.setCurrentIndex(0)
-                    # 첫 번째 매도전략 내용 로드
-                    self.load_strategy_content(sell_strategies[0], 'sell')
-                    
-        except Exception as ex:
-            logging.error(f"매도전략 로드 실패: {ex}")
+        self._load_strategy_list(self.comboSellStg, 'sell_stg_', 'sell')
     
     def load_initial_strategy_content(self):
         """초기 전략 내용을 텍스트박스에 로드"""
@@ -3152,6 +3144,15 @@ class MyWindow(QWidget):
                 code = current_item.text()
                
                 logging.debug(f"매입 요청: {code}")
+                
+                # 보유 종목 확인 (이미 보유 중인 종목은 매수 제외)
+                if hasattr(self, 'boughtBox'):
+                    for i in range(self.boughtBox.count()):
+                        item_code = self.boughtBox.item(i).text()
+                        if item_code == code:
+                            logging.info(f"⚠️ 매수 주문 취소: {code}는 이미 보유 중인 종목입니다.")
+                            QMessageBox.warning(self, "매수 불가", f"{code}는 이미 보유 중인 종목입니다.")
+                            return
                 
                 # 매수 수량 입력 받기
                 quantity, ok = QInputDialog.getInt(self, "매수 수량", f"{code} 매수 수량을 입력하세요:", 1, 1, 1000)
@@ -3420,20 +3421,6 @@ class MyWindow(QWidget):
         except Exception as ex:
             logging.error(f"❌ 차트 데이터 매매 판단 위임 실패: {code} - {ex}")
 
-    def print_chart(self):
-        """차트 출력"""
-        try:
-            logging.debug("차트 출력 기능은 준비 중입니다.")
-        except Exception as ex:
-            logging.error(f"차트 출력 실패: {ex}")
-    
-    def output_current_data(self):
-        """현재 데이터 출력"""
-        try:
-            logging.debug("데이터 저장 기능은 준비 중입니다.")
-        except Exception as ex:
-            logging.error(f"데이터 저장 실패: {ex}")
-    
     def stgChanged(self):
         """전략 변경"""
         try:
@@ -3554,23 +3541,30 @@ class MyWindow(QWidget):
         except Exception as ex:
             logging.error(f"백테스팅 전략 콤보박스 로드 실패: {ex}")
     
-    def save_buystrategy(self):
-        """매수 전략 저장"""
+    def _save_strategy(self, text_widget, combo_widget, key_prefix, strategy_type):
+        """전략 저장 (공통 로직)
+        
+        Args:
+            text_widget: 전략 내용이 있는 텍스트 위젯
+            combo_widget: 전략 선택 콤보박스 위젯
+            key_prefix: 전략 키 접두사 ('buy_stg_' 또는 'sell_stg_')
+            strategy_type: 전략 타입 ('매수' 또는 '매도')
+        """
         try:
-            strategy_text = self.buystgInputWidget.toPlainText()
+            strategy_text = text_widget.toPlainText()
             current_strategy = self.comboStg.currentText()
-            current_buy_strategy = self.comboBuyStg.currentText()
+            current_strategy_name = combo_widget.currentText()
             
             # settings.ini 파일 업데이트
             config = configparser.RawConfigParser()
             config.read('settings.ini', encoding='utf-8')
             
-            # 해당 전략의 매수 전략 내용 업데이트
+            # 해당 전략의 내용 업데이트
             for key, value in config.items(current_strategy):
                 try:
                     strategy_data = eval(value)
-                    if isinstance(strategy_data, dict) and strategy_data.get('name') == current_buy_strategy:
-                        if key.startswith('buy_stg_'):
+                    if isinstance(strategy_data, dict) and strategy_data.get('name') == current_strategy_name:
+                        if key.startswith(key_prefix):
                             strategy_data['content'] = strategy_text
                             config.set(current_strategy, key, str(strategy_data))
                             break
@@ -3581,40 +3575,17 @@ class MyWindow(QWidget):
             with open('settings.ini', 'w', encoding='utf-8') as configfile:
                 config.write(configfile)
             
-            logging.debug(f"매수 전략 '{current_buy_strategy}'이 저장되었습니다.")
+            logging.debug(f"{strategy_type} 전략 '{current_strategy_name}'이 저장되었습니다.")
         except Exception as ex:
-            logging.error(f"매수 전략 저장 실패: {ex}")
+            logging.error(f"{strategy_type} 전략 저장 실패: {ex}")
+    
+    def save_buystrategy(self):
+        """매수 전략 저장"""
+        self._save_strategy(self.buystgInputWidget, self.comboBuyStg, 'buy_stg_', '매수')
     
     def save_sellstrategy(self):
         """매도 전략 저장"""
-        try:
-            strategy_text = self.sellstgInputWidget.toPlainText()
-            current_strategy = self.comboStg.currentText()
-            current_sell_strategy = self.comboSellStg.currentText()
-            
-            # settings.ini 파일 업데이트
-            config = configparser.RawConfigParser()
-            config.read('settings.ini', encoding='utf-8')
-            
-            # 해당 전략의 매도 전략 내용 업데이트
-            for key, value in config.items(current_strategy):
-                try:
-                    strategy_data = eval(value)
-                    if isinstance(strategy_data, dict) and strategy_data.get('name') == current_sell_strategy:
-                        if key.startswith('sell_stg_'):
-                            strategy_data['content'] = strategy_text
-                            config.set(current_strategy, key, str(strategy_data))
-                            break
-                except:
-                    continue
-            
-            # 파일 저장
-            with open('settings.ini', 'w', encoding='utf-8') as configfile:
-                config.write(configfile)
-            
-            logging.debug(f"매도 전략 '{current_sell_strategy}'이 저장되었습니다.")
-        except Exception as ex:
-            logging.error(f"매도 전략 저장 실패: {ex}")
+        self._save_strategy(self.sellstgInputWidget, self.comboSellStg, 'sell_stg_', '매도')
     
     def load_db_period(self):
         """DB 기간 불러오기"""
@@ -3649,11 +3620,11 @@ class MyWindow(QWidget):
     async def post_login_setup(self):
         """로그인 후 설정"""
         try:
-            # 로거 설정
+            # 로거 설정: UI 로그창에는 INFO 레벨까지만 표시 (터미널은 DEBUG까지 표시)
             logger = logging.getLogger()
             if not any(isinstance(handler, QTextEditLogger) for handler in logger.handlers):
                 text_edit_logger = QTextEditLogger(self.terminalOutput)
-                text_edit_logger.setLevel(logging.INFO)
+                text_edit_logger.setLevel(logging.INFO)  # UI 창은 INFO 이상만 표시
                 logger.addHandler(text_edit_logger)
 
             # 1. 트레이더 객체 확인 (이미 API 연결 시 생성됨)
@@ -6886,23 +6857,15 @@ class ChartDataCache(QObject):
             logging.error(f"모니터링 종목 분석표 출력 실패: {ex}")
     
     def get_stock_name(self, code):
-        """종목코드로 종목명 조회"""
+        """종목코드로 종목명 조회 (MyWindow 메서드 참조)"""
         try:
-            # 간단한 종목명 매핑 (실제로는 API에서 조회해야 함)
-            stock_names = {
-                '005930': '삼성전자',
-                '005380': '현대차',
-                '000660': 'SK하이닉스',
-                '035420': 'NAVER',
-                '051910': 'LG화학',
-                '006400': '삼성SDI',
-                '035720': '카카오',
-                '207940': '삼성바이오로직스',
-                '068270': '셀트리온',
-                '323410': '카카오뱅크'
-            }
-            return stock_names.get(code, f"종목{code}")
-        except Exception:
+            # MyWindow의 get_stock_name_by_code() 메서드를 사용하여 API에서 실제 조회
+            if hasattr(self.parent, 'get_stock_name_by_code'):
+                return self.parent.get_stock_name_by_code(code)
+            else:
+                return f"종목{code}"
+        except Exception as ex:
+            logging.warning(f"종목명 조회 실패 ({code}): {ex}")
             return f"종목{code}"
     
     def log_ohlc_indicators_table(self, data, title, data_type):
@@ -9873,6 +9836,23 @@ class KiwoomRestClient:
             self.logger.error(f"주식 가격 데이터 파싱 오류: {e}")
             return {}
     
+    def _safe_float_conversion(self, value, default=0.0):
+        """안전한 숫자 변환 함수 (중복 제거를 위한 공통 메서드)"""
+        if value == '' or value is None:
+            return default
+        try:
+            # 문자열에서 숫자만 추출 (음수 부호, 소수점 포함)
+            if isinstance(value, str):
+                # 공백 제거
+                value = value.strip()
+                # 빈 문자열 체크
+                if not value:
+                    return default
+            return float(value)
+        except (ValueError, TypeError):
+            self.logger.warning(f"가격 데이터 변환 실패: '{value}' -> 기본값 {default} 사용")
+            return default
+    
     def _parse_chart_data(self, data: Dict) -> pd.DataFrame:
         """차트 데이터 파싱"""
         try:
@@ -10013,28 +9993,12 @@ class KiwoomRestClient:
                 raw_close = item.get('cur_prc', '')
                 raw_volume = item.get('trde_qty', '')
                 
-                # 안전한 숫자 변환 함수
-                def safe_float(value, default=0.0):
-                    if value == '' or value is None:
-                        return default
-                    try:
-                        # 문자열에서 숫자만 추출 (음수 부호, 소수점 포함)
-                        if isinstance(value, str):
-                            # 공백 제거
-                            value = value.strip()
-                            # 빈 문자열 체크
-                            if not value:
-                                return default
-                        return float(value)
-                    except (ValueError, TypeError):
-                        self.logger.warning(f"가격 데이터 변환 실패: '{value}' -> 기본값 {default} 사용")
-                        return default
-                
-                open_price = abs(safe_float(raw_open))
-                high_price = abs(safe_float(raw_high))
-                low_price = abs(safe_float(raw_low))
-                close_price = abs(safe_float(raw_close))
-                volume = int(abs(safe_float(raw_volume, 0)))  # 음수면 양수로 전환
+                # 클래스 메서드 사용 (중복 제거)
+                open_price = abs(self._safe_float_conversion(raw_open))
+                high_price = abs(self._safe_float_conversion(raw_high))
+                low_price = abs(self._safe_float_conversion(raw_low))
+                close_price = abs(self._safe_float_conversion(raw_close))
+                volume = int(abs(self._safe_float_conversion(raw_volume, 0)))  # 음수면 양수로 전환
                 
                 # OHLC 논리 검증
                 if not (low_price <= min(open_price, close_price) and max(open_price, close_price) <= high_price):
@@ -10153,28 +10117,12 @@ class KiwoomRestClient:
                 raw_close = item.get('cur_prc', '')
                 raw_volume = item.get('trde_qty', '')
                 
-                # 안전한 숫자 변환 함수
-                def safe_float(value, default=0.0):
-                    if value == '' or value is None:
-                        return default
-                    try:
-                        # 문자열에서 숫자만 추출 (음수 부호, 소수점 포함)
-                        if isinstance(value, str):
-                            # 공백 제거
-                            value = value.strip()
-                            # 빈 문자열 체크
-                            if not value:
-                                return default
-                        return float(value)
-                    except (ValueError, TypeError):
-                        self.logger.warning(f"가격 데이터 변환 실패: '{value}' -> 기본값 {default} 사용")
-                        return default
-                
-                open_price = abs(safe_float(raw_open))
-                high_price = abs(safe_float(raw_high))
-                low_price = abs(safe_float(raw_low))
-                close_price = abs(safe_float(raw_close))
-                volume = int(abs(safe_float(raw_volume, 0)))  # 음수면 양수로 전환
+                # 클래스 메서드 사용 (중복 제거)
+                open_price = abs(self._safe_float_conversion(raw_open))
+                high_price = abs(self._safe_float_conversion(raw_high))
+                low_price = abs(self._safe_float_conversion(raw_low))
+                close_price = abs(self._safe_float_conversion(raw_close))
+                volume = int(abs(self._safe_float_conversion(raw_volume, 0)))  # 음수면 양수로 전환
                 
                 # OHLC 논리 검증
                 if not (low_price <= min(open_price, close_price) and max(open_price, close_price) <= high_price):
