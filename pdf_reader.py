@@ -3,11 +3,14 @@ PDF 파일을 텍스트로 변환하는 스크립트
 키움 REST API 문서를 읽기 위해 사용
 """
 
-import PyPDF2
-import pdfplumber
-import fitz  # PyMuPDF
-import sys
+# 표준 라이브러리
 import os
+import sys
+
+# 서드파티 라이브러리
+import PyPDF2
+import fitz  # PyMuPDF
+import pdfplumber
 
 def read_pdf_with_pypdf2(pdf_path):
     """PyPDF2를 사용하여 PDF 읽기"""
