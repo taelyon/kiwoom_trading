@@ -280,13 +280,6 @@ class KiwoomIndicatorExtractor:
                 additional['min_ROC'] = min(roc_recent) if roc_recent else 0
                 additional['max_ROC'] = max(roc_recent) if roc_recent else 0
             
-            # 최근 Williams %R 리스트
-            if 'WILLIAMS_R' in indicators:
-                williams_recent = [indicators.get('WILLIAMS_R', -50)]
-                additional['WILLIAMS_R_recent'] = williams_recent
-                additional['min_WILLIAMS_R'] = min(williams_recent) if williams_recent else -50
-                additional['max_WILLIAMS_R'] = max(williams_recent) if williams_recent else -50
-            
             # 최근 OSC 리스트
             if 'OSC' in indicators:
                 osc_recent = [indicators.get('OSC', 0)]

@@ -22,7 +22,8 @@ from strategy_utils import (
     STRATEGY_SAFE_GLOBALS,
     build_backtest_buy_locals,
     build_backtest_sell_locals,
-    evaluate_strategies
+    evaluate_strategies,
+    load_strategies_from_config
 )
 
 plt.rcParams['font.family'] = 'Malgun Gothic'
@@ -60,49 +61,13 @@ class KiwoomBacktester:
         self.trades = []
         self.equity_curve = []
         
-        # 전략 로드
-        self.strategies = self.load_strategies()
+        # 전략 로드 (strategy_utils의 공통 함수 사용)
+        self.strategies = load_strategies_from_config(config_file)
         
         # 백테스팅 결과
         self.results = {}
         
         logging.info(f"키움 백테스터 초기화 완료 (초기 자금: {initial_cash:,}원)")
-    
-    def load_strategies(self):
-        """전략 로드"""
-        try:
-            strategies = {}
-            strategy_sections = ['VI 발동', '급등주', '갭상승', '통합 전략']
-            
-            for section in strategy_sections:
-                if self.config.has_section(section):
-                    strategies[section] = {
-                        'buy_strategies': [],
-                        'sell_strategies': []
-                    }
-                    
-                    # 섹션의 모든 옵션 확인
-                    for option in self.config.options(section):
-                        if option.startswith('buy_stg_'):
-                            try:
-                                strategy_data = json.loads(self.config.get(section, option))
-                                strategies[section]['buy_strategies'].append(strategy_data)
-                            except json.JSONDecodeError:
-                                logging.warning(f"매수 전략 파싱 실패: {section}.{option}")
-                        
-                        elif option.startswith('sell_stg_'):
-                            try:
-                                strategy_data = json.loads(self.config.get(section, option))
-                                strategies[section]['sell_strategies'].append(strategy_data)
-                            except json.JSONDecodeError:
-                                logging.warning(f"매도 전략 파싱 실패: {section}.{option}")
-            
-            logging.info(f"전략 로드 완료: {list(strategies.keys())}")
-            return strategies
-            
-        except Exception as ex:
-            logging.error(f"전략 로드 실패: {ex}")
-            return {}
     
     def load_stock_data(self, code, start_date, end_date, data_type='auto'):
         """통합 주식 데이터 로드 (stock_data 테이블 사용)
