@@ -191,7 +191,8 @@ class KiwoomIndicatorExtractor:
             # ROC (Rate of Change)
             if len(close) >= 12:
                 roc = talib.ROC(close, timeperiod=12)
-                indicators['ROC'] = roc[-1] if len(roc) > 0 else 0
+                indicators['ROC'] = roc  # 전체 배열 저장 (ROC_recent 계산용)
+                indicators['ROCT'] = roc[-1] if len(roc) > 0 else 0  # 현재 ROC 값
             
             # OBV (On Balance Volume)
             if len(close) >= 1 and len(volume) >= 1:
@@ -273,12 +274,18 @@ class KiwoomIndicatorExtractor:
                 additional['min_WILLIAMS_R'] = min(williams_recent) if williams_recent else -50
                 additional['max_WILLIAMS_R'] = max(williams_recent) if williams_recent else -50
             
-            # 최근 ROC 리스트
+            # 최근 ROC 리스트 (최근 30개)
             if 'ROC' in indicators:
-                roc_recent = [indicators.get('ROC', 0)]
-                additional['ROC_recent'] = roc_recent
-                additional['min_ROC'] = min(roc_recent) if roc_recent else 0
-                additional['max_ROC'] = max(roc_recent) if roc_recent else 0
+                roc_array = indicators.get('ROC')
+                if isinstance(roc_array, np.ndarray) and len(roc_array) > 0:
+                    roc_recent = roc_array[-30:].tolist()  # 최근 30개
+                    additional['ROC_recent'] = roc_recent
+                    additional['min_ROC'] = min(roc_recent) if roc_recent else 0
+                    additional['max_ROC'] = max(roc_recent) if roc_recent else 0
+                else:
+                    additional['ROC_recent'] = []
+                    additional['min_ROC'] = 0
+                    additional['max_ROC'] = 0
             
             # 최근 OSC 리스트
             if 'OSC' in indicators:
@@ -404,18 +411,36 @@ def build_realtime_buy_locals(code, kiwoom_data, chart_data, portfolio_info=None
         # 실시간 데이터 지표 추출
         realtime_indicators = KiwoomIndicatorExtractor.extract_realtime_indicators(kiwoom_data)
         
-        # 차트 데이터 지표 추출
+        # 틱봉 차트 데이터 지표 추출 (30틱)
         chart_indicators = {}
-        additional_indicators = {}
         if not chart_data.empty:
             chart_indicators = KiwoomIndicatorExtractor.extract_chart_indicators(chart_data)
-            additional_indicators = KiwoomIndicatorExtractor.calculate_additional_indicators(chart_indicators, chart_data)
+        
+        # 3분봉 데이터 지표 추출 (min_data)
+        min_chart_indicators = {}
+        min_data = kiwoom_data.get('min_data', {})
+        if min_data and min_data.get('close'):
+            # 3분봉 데이터를 DataFrame으로 변환
+            min_chart_df = pd.DataFrame({
+                'close': min_data.get('close', []),
+                'high': min_data.get('high', []),
+                'low': min_data.get('low', []),
+                'open': min_data.get('open', []),
+                'volume': min_data.get('volume', [])
+            })
+            if not min_chart_df.empty:
+                min_chart_indicators = KiwoomIndicatorExtractor.extract_chart_indicators(min_chart_df)
         
         # 로컬 변수 딕셔너리 생성
         locals_dict = {}
         locals_dict.update(realtime_indicators)
         locals_dict.update(chart_indicators)
-        locals_dict.update(additional_indicators)
+        
+        # 3분봉 지표를 min_ 접두사로 추가
+        for key, value in min_chart_indicators.items():
+            # 배열이 아닌 스칼라 값만 min_ 접두사로 추가
+            if not isinstance(value, (list, np.ndarray)):
+                locals_dict[f'min_{key}'] = value
         
         # 키움 API 특화 변수들
         locals_dict['code'] = code
@@ -435,8 +460,10 @@ def build_realtime_buy_locals(code, kiwoom_data, chart_data, portfolio_info=None
         if not chart_data.empty:
             recent_prices = chart_data['close'].tail(30).tolist()
             locals_dict['tick_C_recent'] = recent_prices
-            locals_dict['min_close'] = min(recent_prices) if recent_prices else current_price
-            locals_dict['min_VWAP'] = vwap  # VWAP 최소값은 현재 VWAP과 동일
+            
+            # tick_data['close'] 리스트 (전체 틱 데이터)
+            all_close_prices = chart_data['close'].tolist()
+            locals_dict['tick_close'] = all_close_prices
         
         # 갭 관련 변수 (전일 종가 대비)
         previous_close = kiwoom_data.get('previous_close', 0)
@@ -455,17 +482,39 @@ def build_realtime_buy_locals(code, kiwoom_data, chart_data, portfolio_info=None
         else:
             locals_dict['volatility_breakout'] = False
         
-        # Volume Profile 관련 변수 (간단한 구현)
+        # Volume Profile 관련 변수 계산 (거래량 가중 분석)
         volume = kiwoom_data.get('volume', 0)
-        locals_dict['VP_POC'] = current_price  # Price of Control (간단히 현재가로 설정)
-        locals_dict['VP_POSITION'] = 0.5  # 기본값
         
-        # 볼륨 프로파일 돌파 (거래량 급증)
         if not chart_data.empty and len(chart_data) > 0:
+            # VWAP (Volume Weighted Average Price) 계산
+            typical_price = (chart_data['high'] + chart_data['low'] + chart_data['close']) / 3
+            total_volume = chart_data['volume'].sum()
+            
+            if total_volume > 0:
+                vwap = (typical_price * chart_data['volume']).sum() / total_volume
+                locals_dict['VP_POC'] = vwap  # VWAP을 POC로 근사
+                
+                # VP_POSITION: 현재가가 VWAP 대비 어느 위치인지
+                # VWAP을 중심(0.5)으로 ±1 표준편차 범위를 0~1로 매핑
+                price_std = chart_data['close'].std()
+                if price_std > 0:
+                    # (현재가 - VWAP) / 표준편차를 -1~1 범위로 정규화 후 0~1로 변환
+                    normalized = (current_price - vwap) / price_std
+                    # -2σ ~ +2σ 범위를 0~1로 매핑 (대부분의 데이터가 이 범위 내)
+                    locals_dict['VP_POSITION'] = max(0, min(1, (normalized + 2) / 4))
+                else:
+                    locals_dict['VP_POSITION'] = 0.5
+            else:
+                locals_dict['VP_POC'] = current_price
+                locals_dict['VP_POSITION'] = 0.5
+            
+            # 볼륨 프로파일 돌파 (거래량 급증)
             avg_volume = chart_data['volume'].mean()
             volume_ratio = volume / avg_volume if avg_volume > 0 else 1
             locals_dict['volume_profile_breakout'] = volume_ratio > 2  # 평균 거래량의 2배 이상
         else:
+            locals_dict['VP_POC'] = current_price
+            locals_dict['VP_POSITION'] = 0.5
             locals_dict['volume_profile_breakout'] = False
         
         # 포지티브 캔들 확인
@@ -488,18 +537,36 @@ def build_realtime_sell_locals(code, kiwoom_data, chart_data, buy_price, buy_tim
         # 실시간 데이터 지표 추출
         realtime_indicators = KiwoomIndicatorExtractor.extract_realtime_indicators(kiwoom_data)
         
-        # 차트 데이터 지표 추출
+        # 틱봉 차트 데이터 지표 추출 (30틱)
         chart_indicators = {}
-        additional_indicators = {}
         if not chart_data.empty:
             chart_indicators = KiwoomIndicatorExtractor.extract_chart_indicators(chart_data)
-            additional_indicators = KiwoomIndicatorExtractor.calculate_additional_indicators(chart_indicators, chart_data)
+        
+        # 3분봉 데이터 지표 추출 (min_data)
+        min_chart_indicators = {}
+        min_data = kiwoom_data.get('min_data', {})
+        if min_data and min_data.get('close'):
+            # 3분봉 데이터를 DataFrame으로 변환
+            min_chart_df = pd.DataFrame({
+                'close': min_data.get('close', []),
+                'high': min_data.get('high', []),
+                'low': min_data.get('low', []),
+                'open': min_data.get('open', []),
+                'volume': min_data.get('volume', [])
+            })
+            if not min_chart_df.empty:
+                min_chart_indicators = KiwoomIndicatorExtractor.extract_chart_indicators(min_chart_df)
         
         # 로컬 변수 딕셔너리 생성
         locals_dict = {}
         locals_dict.update(realtime_indicators)
         locals_dict.update(chart_indicators)
-        locals_dict.update(additional_indicators)
+        
+        # 3분봉 지표를 min_ 접두사로 추가
+        for key, value in min_chart_indicators.items():
+            # 배열이 아닌 스칼라 값만 min_ 접두사로 추가
+            if not isinstance(value, (list, np.ndarray)):
+                locals_dict[f'min_{key}'] = value
         
         # 매매 관련 변수
         current_price = kiwoom_data.get('current_price', 0)
@@ -551,6 +618,15 @@ def build_realtime_sell_locals(code, kiwoom_data, chart_data, buy_price, buy_tim
         else:
             locals_dict['gap_hold'] = False
             locals_dict['gap_rate'] = 0
+        
+        # 최근 가격 변수들 (매도 전략용)
+        if not chart_data.empty:
+            recent_prices = chart_data['close'].tail(30).tolist()
+            locals_dict['tick_C_recent'] = recent_prices
+            
+            # tick_data['close'] 리스트 (전체 틱 데이터)
+            all_close_prices = chart_data['close'].tolist()
+            locals_dict['tick_close'] = all_close_prices
         
         return locals_dict
         
