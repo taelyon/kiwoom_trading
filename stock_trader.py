@@ -2369,7 +2369,7 @@ class LoginHandler(QObject):
     def get_available_buy_count(self):
         """매수가능 종목수 계산 (최대투자종목수 - 현재보유종목수)"""
         try:
-            max_count = self.get_target_buy_count()
+            max_count = self.parent.trading_manager.get_target_buy_count()
             current_count = self.get_current_holdings_count()
             available_count = max(0, max_count - current_count)
             
@@ -2540,10 +2540,6 @@ class LoginHandler(QObject):
         except Exception as ex:
             logging.error(f"API 연결 처리 실패: {ex}")
     
-    def handle_connection_toggle(self):
-        """연결/해제 버튼 클릭 처리 (비동기 래퍼)"""
-        asyncio.create_task(self._handle_connection_toggle_async())
-
     async def _handle_connection_toggle_async(self):
         """연결/해제 버튼 클릭 비동기 처리"""
         try:
@@ -2576,14 +2572,6 @@ class LoginHandler(QObject):
                 self.connection_status_changed.emit(True) # 임시로 연결됨 상태로 변경
         except Exception as ex:
             logging.error(f"❌ 연결/해제 처리 중 오류: {ex}")
-
-    def buycount_setting(self):
-        """투자 종목수 설정 (MyWindow의 메서드 호출)"""
-        # MyWindow 클래스의 buycount_setting() 메서드를 호출하여 중복 제거
-        if hasattr(self.parent, 'buycount_setting'):
-            self.parent.buycount_setting()
-        else:
-            logging.warning("MyWindow의 buycount_setting 메서드를 찾을 수 없습니다.")
 
 # ==================== MyWindow Manager 클래스들 ====================
 
@@ -2935,6 +2923,30 @@ class UIComponentsManager:
     def __init__(self, parent):
         self.parent = parent
     
+    def update_connection_ui(self, is_connected):
+        """연결 상태에 따라 UI를 업데이트하는 중앙 함수"""
+        try:
+            if is_connected:
+                self.parent.connectionStatusLabel.setText("연결 상태: 연결됨")
+                self.parent.connectionStatusLabel.setProperty("class", "connected")
+                self.parent.connectButton.setText("해제")
+                self.parent.connectButton.setProperty("class", "danger")
+                self.parent.tradingModeCombo.setEnabled(False)
+            else:
+                self.parent.connectionStatusLabel.setText("연결 상태: 미연결")
+                self.parent.connectionStatusLabel.setProperty("class", "disconnected")
+                self.parent.connectButton.setText("연결")
+                self.parent.connectButton.setProperty("class", "success")
+                self.parent.tradingModeCombo.setEnabled(True)
+
+            # 스타일시트 갱신
+            self.parent.style().polish(self.parent.connectionStatusLabel)
+            self.parent.style().polish(self.parent.connectButton)
+            self.parent.style().polish(self.parent.tradingModeCombo)
+
+        except Exception as ex:
+            logging.error(f"❌ 연결 UI 업데이트 실패: {ex}")
+
     def update_condition_status(self, status, count=None):
         """조건검색 상태 표시 업데이트"""
         try:
@@ -3710,8 +3722,10 @@ class UIComponentsManager:
         # ===== 이벤트 연결 =====
         parent.tradingModeCombo.currentIndexChanged.connect(parent.trading_mode_changed)
         parent.buycountButton.clicked.connect(parent.buycount_setting)
-        parent.addStockButton.clicked.connect(parent.add_stock_to_list)
-        parent.connectButton.clicked.connect(parent.handle_connection_toggle)
+        parent.addStockButton.clicked.connect(parent.trading_manager.add_stock_to_list)
+        # 연결 버튼 클릭 시 LoginHandler의 비동기 메서드를 직접 호출
+        parent.connectButton.clicked.connect(
+            lambda: asyncio.create_task(parent.login_handler._handle_connection_toggle_async()))
         parent.stockInputEdit.returnPressed.connect(parent.add_stock_to_list)
 
         parent.buyButton.clicked.connect(parent.buy_item)
@@ -4043,8 +4057,8 @@ class StrategyManager:
             # 통합 전략인 경우 모든 조건검색식 실행
             if strategy_name == "통합 전략":
                 if hasattr(self.parent, 'condition_search_list') and self.parent.condition_search_list:
-                    logging.debug("🔍 통합 전략 실행: 모든 조건검색식 적용")
-                    asyncio.create_task(self.parent.handle_integrated_condition_search())
+                    logging.debug("🔍 통합 전략 실행: 모든 조건검색식 적용 (ConditionSearchManager)")
+                    asyncio.create_task(self.parent.condition_search_manager.handle_integrated_condition_search())
                     return
             
             # 일반 투자전략인 경우 기존 로직 실행
@@ -4136,6 +4150,19 @@ class TradingManager:
     def __init__(self, parent):
         self.parent = parent
     
+    def get_target_buy_count(self):
+        """settings.ini에서 최대투자 종목수 읽기"""
+        try:
+            config = configparser.RawConfigParser()
+            config.read('settings.ini', encoding='utf-8')
+            if config.has_option('BUYCOUNT', 'target_buy_count'):
+                return config.getint('BUYCOUNT', 'target_buy_count')
+            else:
+                return 3  # 기본값
+        except Exception as ex:
+            logging.error(f"target_buy_count 읽기 실패: {ex}")
+            return 3  # 기본값
+
     def buycount_setting(self):
         """투자 종목수 설정"""
         try:
@@ -4856,13 +4883,13 @@ class AccountManager:
                         for stock in holdings:
                             # 키움 API 공식 문서 기준 필드명 (구 버전 호환)
                             raw_code = stock.get('stk_cd', stock.get('pdno', '알 수 없음'))
-                            stock_code = parent.normalize_stock_code(raw_code)  # A 접두사 제거
+                            stock_code = parent.data_manager.normalize_stock_code(raw_code)  # A 접두사 제거
                             stock_name = stock.get('stk_nm', stock.get('prdt_name', '알 수 없음'))
-                            quantity = parent.safe_int(stock.get('rmnd_qty', stock.get('hldg_qty', 0)))
-                            current_price = parent.safe_int(stock.get('cur_prc', stock.get('prpr', 0)))
-                            avg_price = parent.safe_int(stock.get('avg_prc', stock.get('pchs_avg_pric', 0)))
-                            profit_loss = parent.safe_int(stock.get('pl_amt', stock.get('evlu_pfls_amt', 0)))
-                            profit_rate = parent.safe_float(stock.get('pl_rt', stock.get('evlu_pfls_rt', 0)))
+                            quantity = parent.data_manager.safe_int(stock.get('rmnd_qty', stock.get('hldg_qty', 0)))
+                            current_price = parent.data_manager.safe_int(stock.get('cur_prc', stock.get('prpr', 0)))
+                            avg_price = parent.data_manager.safe_int(stock.get('avg_prc', stock.get('pchs_avg_pric', 0)))
+                            profit_loss = parent.data_manager.safe_int(stock.get('pl_amt', stock.get('evlu_pfls_amt', 0)))
+                            profit_rate = parent.data_manager.safe_float(stock.get('pl_rt', stock.get('evlu_pfls_rt', 0)))
                             
                             if quantity > 0:
                                 logging.info(f"  📊 {stock_name}({stock_code})")
@@ -4880,9 +4907,9 @@ class AccountManager:
                         # 보유종목을 모니터링과 보유종목 리스트에 추가
                         for stock in holdings:
                             raw_code = stock.get('stk_cd', stock.get('pdno', ''))
-                            stock_code = parent.normalize_stock_code(raw_code)  # A 접두사 제거
+                            stock_code = parent.data_manager.normalize_stock_code(raw_code)  # A 접두사 제거
                             stock_name = stock.get('stk_nm', stock.get('prdt_name', ''))
-                            quantity = parent.safe_int(stock.get('rmnd_qty', stock.get('hldg_qty', 0)))
+                            quantity = parent.data_manager.safe_int(stock.get('rmnd_qty', stock.get('hldg_qty', 0)))
                             
                             if stock_code and quantity > 0:
                                 # 모니터링 리스트에 추가
@@ -4900,7 +4927,7 @@ class AccountManager:
                                         break
                                 
                                 if not monitoring_exists:
-                                    parent.add_stock_to_monitoring(stock_code, stock_name)
+                                    parent.monitoring_manager.add_stock_to_monitoring(stock_code, stock_name)
                                     logging.debug(f"   ✅ 모니터링 추가: {stock_code} ({stock_name})")
                                 
                                 # 보유종목 리스트에 추가
@@ -4974,13 +5001,13 @@ class AccountManager:
                 try:
                     # REST API 필드명 매핑
                     raw_code = stock.get('stk_cd', stock.get('pdno', ''))
-                    stock_code = parent.normalize_stock_code(raw_code)  # A 접두사 제거
+                    stock_code = parent.data_manager.normalize_stock_code(raw_code)  # A 접두사 제거
                     stock_name = stock.get('stk_nm', stock.get('prdt_name', ''))
-                    quantity = parent.safe_int(stock.get('rmnd_qty', stock.get('hldg_qty', 0)))
-                    current_price = parent.safe_int(stock.get('cur_prc', stock.get('prpr', 0)))
-                    average_price = parent.safe_int(stock.get('avg_prc', stock.get('pchs_avg_pric', 0)))
-                    profit_loss = parent.safe_int(stock.get('pl_amt', stock.get('evlu_pfls_amt', 0)))
-                    profit_rate = parent.safe_float(stock.get('pl_rt', stock.get('evlu_pfls_rt', 0)))
+                    quantity = parent.data_manager.safe_int(stock.get('rmnd_qty', stock.get('hldg_qty', 0)))
+                    current_price = parent.data_manager.safe_int(stock.get('cur_prc', stock.get('prpr', 0)))
+                    average_price = parent.data_manager.safe_int(stock.get('avg_prc', stock.get('pchs_avg_pric', 0)))
+                    profit_loss = parent.data_manager.safe_int(stock.get('pl_amt', stock.get('evlu_pfls_amt', 0)))
+                    profit_rate = parent.data_manager.safe_float(stock.get('pl_rt', stock.get('evlu_pfls_rt', 0)))
                     
                     if stock_code and quantity > 0:
                         # 평가금액 계산
@@ -5053,6 +5080,41 @@ class ConditionSearchManager:
     
     def __init__(self, parent):
         self.parent = parent
+
+    async def handle_condition_search_list_query(self):
+        """조건검색 목록조회 (웹소켓 기반)"""
+        try:
+            logging.debug("🔍 조건검색 목록조회 시작 (웹소켓)")
+
+            if not hasattr(self.parent, 'trader') or not self.parent.trader:
+                logging.warning("⚠️ 트레이더가 초기화되지 않았습니다")
+                return
+
+            if not hasattr(self.parent.trader, 'client') or not self.parent.trader.client:
+                logging.warning("⚠️ API 클라이언트가 연결되지 않았습니다")
+                return
+
+            # 웹소켓 클라이언트 확인
+            if not hasattr(self.parent.login_handler, 'websocket_client') or not self.parent.login_handler.websocket_client:
+                logging.warning("⚠️ 웹소켓 클라이언트가 연결되지 않았습니다")
+                return
+
+            # 웹소켓을 통한 조건검색 목록조회
+            try:
+                await self.parent.login_handler.websocket_client.send_message({
+                    'trnm': 'CNSRLST', # TR명
+                })
+                logging.debug("✅ 조건검색 목록조회 요청 전송 완료 (웹소켓)")
+
+                # 웹소켓 응답은 receive_messages에서 처리됨
+                logging.debug("💾 조건검색 목록조회 요청 완료 - 응답은 웹소켓에서 처리됩니다")
+
+            except Exception as websocket_ex:
+                logging.error(f"❌ 조건검색 목록조회 웹소켓 요청 실패: {websocket_ex}")
+                self.parent.condition_search_list = None
+        except Exception as ex:
+            logging.error(f"❌ 조건검색 목록조회 실패: {ex}")
+            self.parent.condition_search_list = None
     
     def load_condition_list(self):
         """조건검색식 목록을 투자전략 콤보박스에 추가"""
@@ -5202,6 +5264,29 @@ class ConditionSearchManager:
             logging.error(f"❌ 저장된 조건검색식 확인 및 자동 실행 실패: {ex}")
             logging.error(f"저장된 조건검색식 확인 에러 상세: {traceback.format_exc()}")
             return False  # 오류 발생
+    
+    async def handle_integrated_condition_search(self):
+        """통합 전략 실행: 모든 조건검색식 순차적으로 실행"""
+        try:
+            if not hasattr(self.parent, 'condition_search_list') or not self.parent.condition_search_list:
+                logging.warning("⚠️ 조건검색 목록이 없어 통합 검색을 실행할 수 없습니다.")
+                return
+
+            logging.info(f"🔄 통합 조건검색 시작: {len(self.parent.condition_search_list)}개 조건식 실행")
+
+            for condition in self.parent.condition_search_list:
+                seq = condition.get('seq')
+                name = condition.get('title')
+                if seq and name:
+                    logging.info(f"  - 조건검색 실행: {name} (seq: {seq})")
+                    # 각 조건검색을 순차적으로 실행하고, API 제한을 피하기 위해 약간의 지연을 둡니다.
+                    await self.parent.start_condition_realtime(seq, name)
+                    await asyncio.sleep(1) # API 요청 간격
+
+            logging.info("✅ 모든 조건검색식에 대한 실시간 모니터링이 시작되었습니다.")
+
+        except Exception as ex:
+            logging.error(f"❌ 통합 조건검색 실행 실패: {ex}")
 
 
 # ==================== 메인 윈도우 ====================
@@ -5256,11 +5341,6 @@ class MyWindow(QWidget):
     
     # 차트 위젯 설정 로드 메서드 제거됨 - PyQtGraph 고정 사용
 
-    def handle_connection_toggle(self):
-        """연결/해제 버튼 클릭 처리 (LoginHandler에 위임)"""
-        if hasattr(self, 'login_handler'):
-            self.login_handler.handle_connection_toggle()
-        
     def apply_modern_style(self):
         """현대적이고 눈에 피로하지 않은 스타일 적용 (UIComponentsManager로 위임)"""
         self.ui_manager.apply_modern_style()
@@ -5292,180 +5372,6 @@ class MyWindow(QWidget):
         except Exception as ex:
             logging.error(f"자동 연결 시도 실패: {ex}")    
 
-    def update_connection_ui(self, is_connected):
-        """연결 상태에 따라 UI를 업데이트하는 중앙 함수"""
-        try:
-            if is_connected:
-                self.connectionStatusLabel.setText("연결 상태: 연결됨")
-                self.connectionStatusLabel.setProperty("class", "connected")
-                self.connectButton.setText("해제")
-                self.connectButton.setProperty("class", "danger")
-                self.tradingModeCombo.setEnabled(False)
-            else:
-                self.connectionStatusLabel.setText("연결 상태: 미연결")
-                self.connectionStatusLabel.setProperty("class", "disconnected")
-                self.connectButton.setText("연결")
-                self.connectButton.setProperty("class", "success")
-                self.tradingModeCombo.setEnabled(True)
-
-            # 스타일시트 갱신
-            self.style().polish(self.connectionStatusLabel)
-            self.style().polish(self.connectButton)
-            self.style().polish(self.tradingModeCombo)
-
-        except Exception as ex:
-            logging.error(f"❌ 연결 UI 업데이트 실패: {ex}")
-
-    
-    def safe_int(self, value, default=0):
-        """안전한 정수 변환 함수 (DataManager로 위임)"""
-        return self.data_manager.safe_int(value, default)
-    
-    def safe_float(self, value, default=0.0):
-        """안전한 실수 변환 함수 (DataManager로 위임)"""
-        return self.data_manager.safe_float(value, default)
-    
-    def normalize_stock_code(self, code):
-        """종목코드 정규화 (DataManager로 위임)"""
-        return self.data_manager.normalize_stock_code(code)
-    
-    async def handle_condition_search_list_query(self):
-        """조건검색 목록조회 (웹소켓 기반)"""
-        try:
-            logging.debug("🔍 조건검색 목록조회 시작 (웹소켓)")
-            
-            if not hasattr(self, 'trader') or not self.trader:
-                logging.warning("⚠️ 트레이더가 초기화되지 않았습니다")
-                return
-                
-            if not hasattr(self.trader, 'client') or not self.trader.client:
-                logging.warning("⚠️ API 클라이언트가 연결되지 않았습니다")
-                return
-                    
-            # 웹소켓 클라이언트 확인
-            if not hasattr(self.login_handler, 'websocket_client') or not self.login_handler.websocket_client:
-                logging.warning("⚠️ 웹소켓 클라이언트가 연결되지 않았습니다")
-                return
-                    
-            # 웹소켓을 통한 조건검색 목록조회
-            try:
-                await self.login_handler.websocket_client.send_message({ 
-                    'trnm': 'CNSRLST', # TR명
-                })
-                logging.debug("✅ 조건검색 목록조회 요청 전송 완료 (웹소켓)")
-                
-                # 웹소켓 응답은 receive_messages에서 처리됨
-                logging.debug("💾 조건검색 목록조회 요청 완료 - 응답은 웹소켓에서 처리됩니다")
-                    
-            except Exception as websocket_ex:
-                logging.error(f"❌ 조건검색 목록조회 웹소켓 요청 실패: {websocket_ex}")
-                logging.error(f"웹소켓 요청 예외 상세: {traceback.format_exc()}")
-                self.condition_search_list = None
-                
-        except Exception as ex:
-            logging.error(f"❌ 조건검색 목록조회 실패: {ex}")
-            logging.error(f"조건검색 목록조회 예외 상세: {traceback.format_exc()}")
-            self.condition_search_list = None
-    
-    def handle_acnt_balance_query(self):
-        """계좌 잔고조회 (AccountManager로 위임)"""
-        self.account_manager.handle_acnt_balance_query()
-    
-    def _update_stock_table_from_rest_api(self, holdings):
-        """REST API 잔고 데이터로 투자현황표 직접 업데이트 (웹소켓 무관)"""
-        try:
-            logging.info("🔧 REST API 잔고 데이터로 투자현황표 업데이트 시작...")
-            
-            # stock_table이 없으면 리턴
-            if not hasattr(self, 'stock_table'):
-                logging.warning("⚠️ stock_table이 없습니다")
-                return
-            
-            # 테이블 초기화
-            self.stock_table.setRowCount(0)
-            
-            # 보유 종목이 없으면 리턴
-            if not holdings:
-                logging.info("📊 투자 현황표: 보유 종목 없음")
-                return
-            
-            # 종목별로 테이블에 추가
-            row = 0
-            for stock in holdings:
-                try:
-                    # REST API 필드명 매핑
-                    raw_code = stock.get('stk_cd', stock.get('pdno', ''))
-                    stock_code = self.normalize_stock_code(raw_code)
-                    stock_name = stock.get('stk_nm', stock.get('prdt_name', ''))
-                    quantity = self.safe_int(stock.get('rmnd_qty', stock.get('hldg_qty', 0)))
-                    current_price = self.safe_int(stock.get('cur_prc', stock.get('prpr', 0)))
-                    average_price = self.safe_int(stock.get('avg_prc', stock.get('pchs_avg_pric', 0)))
-                    profit_loss = self.safe_int(stock.get('pl_amt', stock.get('evlu_pfls_amt', 0)))
-                    profit_rate = self.safe_float(stock.get('pl_rt', stock.get('evlu_pfls_rt', 0)))
-                    
-                    if stock_code and quantity > 0:
-                        self.stock_table.insertRow(row)
-                        
-                        # 종목코드
-                        code_item = QTableWidgetItem(stock_code)
-                        code_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                        self.stock_table.setItem(row, 0, code_item)
-                        
-                        # 현재가
-                        price_item = QTableWidgetItem(f"{current_price:,.0f}")
-                        price_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-                        self.stock_table.setItem(row, 1, price_item)
-                        
-                        # 보유수량
-                        qty_item = QTableWidgetItem(f"{quantity:,}")
-                        qty_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-                        self.stock_table.setItem(row, 2, qty_item)
-                        
-                        # 매입단가
-                        buy_item = QTableWidgetItem(f"{average_price:,.0f}")
-                        buy_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-                        self.stock_table.setItem(row, 3, buy_item)
-                        
-                        # 평가손익
-                        pl_item = QTableWidgetItem(f"{profit_loss:,.0f}")
-                        pl_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-                        
-                        # 손익에 따라 색상 변경
-                        if profit_loss > 0:
-                            pl_item.setForeground(QColor(0, 128, 0))  # 녹색 (수익)
-                        elif profit_loss < 0:
-                            pl_item.setForeground(QColor(255, 0, 0))  # 빨강 (손실)
-                        
-                        self.stock_table.setItem(row, 4, pl_item)
-                        
-                        # 수익률(%)
-                        rate_item = QTableWidgetItem(f"{profit_rate:.2f}")
-                        rate_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-                        
-                        # 수익률에 따라 색상 변경
-                        if profit_rate > 0:
-                            rate_item.setForeground(QColor(0, 128, 0))  # 녹색 (수익)
-                        elif profit_rate < 0:
-                            rate_item.setForeground(QColor(255, 0, 0))  # 빨강 (손실)
-                        
-                        self.stock_table.setItem(row, 5, rate_item)
-                        
-                        logging.debug(f"  📌 {stock_code}({stock_name}): {current_price:,}원, {quantity:,}주, 손익 {profit_loss:,}원 ({profit_rate:.2f}%)")
-                        
-                        row += 1
-                        
-                except Exception as item_ex:
-                    logging.error(f"❌ 투자 현황표 항목 추가 실패 ({stock_code}): {item_ex}")
-                    continue
-            
-        except Exception as ex:
-            logging.error(f"❌ 투자 현황표 업데이트 실패: {ex}")
-            logging.error(f"투자 현황표 업데이트 예외: {traceback.format_exc()}")
-    
-    def _initialize_balance_data_from_rest_api(self, holdings):
-        """REST API 잔고 데이터 초기화 (AccountManager로 위임)"""
-        self.account_manager._initialize_balance_data_from_rest_api(holdings)
-    
     def subscribe_holdings_realtime(self, holding_codes):
         """보유종목에 대한 실시간 구독 실행 (중단됨)"""
         try:
@@ -5696,7 +5602,7 @@ class MyWindow(QWidget):
             try:
                 # 웹소켓 클라이언트가 연결되어 있는지 확인
                 if hasattr(self.login_handler, 'websocket_client') and self.login_handler.websocket_client:
-                    if self.login_handler.websocket_client.connected:
+                    if self.login_handler.websocket_client.connected: # 조건검색 목록조회
                         # 웹소켓을 통한 조건검색 목록조회
                         await self.handle_condition_search_list_query()
                         logging.debug("✅ 조건검색 목록조회 완료 (웹소켓)")
@@ -5714,7 +5620,7 @@ class MyWindow(QWidget):
 
             # 7. 계좌 잔고조회 (즉시 실행)
             try:
-                self.handle_acnt_balance_query()
+                self.account_manager.handle_acnt_balance_query()
                 logging.debug("✅ 계좌 잔고조회 즉시 실행 완료")
             except Exception as balance_ex:
                 logging.error(f"❌ 계좌 잔고조회 실행 실패: {balance_ex}")
@@ -5745,27 +5651,56 @@ class MyWindow(QWidget):
             logging.error(f"초기화 실패 예외 상세: {traceback.format_exc()}")
             logging.debug("⚠️ 초기화 실패했지만 프로그램을 계속 실행합니다")
     
+    # --- UI 업데이트 및 이벤트 핸들러 (각 Manager에 위임) ---
+
+    def update_connection_ui(self, is_connected):
+        """연결 상태 UI 업데이트 (UIComponentsManager 위임)"""
+        self.ui_manager.update_connection_ui(is_connected)
+
     def update_acnt_balance_display(self, balance_data):
-        """잔고 정보 표시 업데이트 (UIComponentsManager로 위임)"""
+        """잔고 정보 UI 업데이트 (UIComponentsManager 위임)"""
         self.ui_manager.update_acnt_balance_display(balance_data)
-    
+
     def update_stock_table(self):
-        """투자 현황표 업데이트 (UIComponentsManager로 위임)"""
+        """투자 현황표 UI 업데이트 (UIComponentsManager 위임)"""
         self.ui_manager.update_stock_table()
-    
+
     def update_order_result(self, code, order_type, quantity, price, success):
-        """주문 결과 업데이트 (UIComponentsManager로 위임)"""
+        """주문 결과 UI 업데이트 (UIComponentsManager 위임)"""
         self.ui_manager.update_order_result(code, order_type, quantity, price, success)
-    
+
     def update_strategy_result(self, code, action, data):
-        """전략 결과 업데이트 (UIComponentsManager로 위임)"""
+        """전략 결과 UI 업데이트 (UIComponentsManager 위임)"""
         self.ui_manager.update_strategy_result(code, action, data)
-    
+
+    def on_chart_data_updated(self, code):
+        """차트 데이터 업데이트 시그널 핸들러 (UIComponentsManager 위임)"""
+        self.ui_manager.on_chart_data_updated(code)
+
+    def on_chart_data_updated_for_trading(self, code):
+        """차트 데이터 업데이트 시 매매 판단 위임 (TradingManager 위임)"""
+        self.trading_manager.on_chart_data_updated_for_trading(code)
+
+    def listBoxChanged(self, current):
+        """리스트박스 클릭 이벤트 (UIComponentsManager 위임)"""
+        self.ui_manager.listBoxChanged(current)
+
+    # --- 조건검색 관련 메서드 (ConditionSearchManager 위임) ---
+
+    async def handle_condition_search_list_query(self):
+        """조건검색 목록 조회 (ConditionSearchManager 위임)"""
+        await self.condition_search_manager.handle_condition_search_list_query()
+
+    async def handle_integrated_condition_search(self):
+        """통합 조건검색 실행 (ConditionSearchManager 위임)"""
+        if hasattr(self, 'condition_search_manager'):
+            await self.condition_search_manager.handle_integrated_condition_search()
+
     def closeEvent(self, event):
         """윈도우 종료 이벤트"""
         try:
-            # 현재 선택된 투자전략을 settings.ini에 저장
-            self.save_current_strategy()
+            # 현재 선택된 투자전략을 settings.ini에 저장 (StrategyManager 위임)
+            self.strategy_manager.save_current_strategy()
             
             # 지연된 태스크 취소
             if hasattr(self, '_delayed_search_task') and self._delayed_search_task:
@@ -5923,116 +5858,6 @@ class MyWindow(QWidget):
             logging.error(f"윈도우 종료 처리 실패: {ex}")
             event.accept()
     
-    # ==================== 조건검색 관련 메서드 ====================
-    def load_condition_list(self):
-        """조건검색식 목록을 투자전략 콤보박스에 추가 (ConditionSearchManager로 위임)"""
-        self.condition_search_manager.load_condition_list()
-
-    def check_and_auto_execute_saved_condition(self):
-        """저장된 조건검색식이 있는지 확인하고 자동 실행 (ConditionSearchManager로 위임)"""
-        return self.condition_search_manager.check_and_auto_execute_saved_condition()
-
-    async def handle_condition_search(self):
-        """조건검색 버튼 클릭 처리"""
-        try:
-            current_text = self.comboStg.currentText()
-            logging.debug(f"🔍 조건검색 실행 요청: {current_text}")
-            
-            # 조건검색식인지 확인 (조건검색 목록에 있는지 확인)
-            if not hasattr(self, 'condition_search_list') or not self.condition_search_list:
-                logging.warning("⚠️ 조건검색 목록이 없습니다")
-                return
-            
-            condition_names = [condition['title'] for condition in self.condition_search_list]
-            if current_text not in condition_names:
-                logging.warning("⚠️ 선택된 항목이 조건검색식이 아닙니다")
-                logging.debug(f"📋 사용 가능한 조건검색식: {condition_names}")
-                return
-            
-            # 키움 클라이언트 참조 확인            
-            if not self.login_handler.kiwoom_client:
-                logging.error("❌ 키움 클라이언트가 초기화되지 않았습니다")
-                self.update_condition_status("실패")
-                return
-            
-            # 웹소켓 연결 상태 확인
-            websocket_connected = False
-            if hasattr(self.login_handler, 'websocket_client') and self.login_handler.websocket_client:
-                websocket_connected = self.login_handler.websocket_client.connected
-                logging.debug(f"🔍 웹소켓 연결 상태: {websocket_connected}")
-            
-            if not websocket_connected:
-                logging.error("❌ 웹소켓이 연결되지 않았습니다.")
-                self.update_condition_status("웹소켓 미연결")
-                return
-            
-            logging.debug("✅ 웹소켓 연결 상태 확인 완료")
-            
-            # 조건검색식 이름에서 일련번호 찾기
-            condition_name = current_text  # [조건검색] 접두사가 이미 제거됨
-            condition_seq = None
-            
-            logging.debug(f"🔍 조건검색식 일련번호 검색: {condition_name}")
-            for seq, name in self.condition_list:
-                if name == condition_name:
-                    condition_seq = seq
-                    break
-            
-            if not condition_seq:
-                logging.error(f"❌ 조건검색식 일련번호를 찾을 수 없습니다: {condition_name}")
-                logging.debug("📋 조건검색식 목록을 다시 로드하거나 키움증권 HTS에서 확인하세요")
-                return
-            
-            logging.debug(f"✅ 조건검색식 일련번호 확인: {condition_name} (seq: {condition_seq})")
-            logging.debug("🔍 조건검색 실행 시작")
-            logging.debug("📋 조건검색은 웹소켓을 통해 실시간 검색을 실행합니다")
-            
-            # 조건검색 상태를 실행중으로 업데이트
-            self.update_condition_status("실행중")
-            
-            # 조건검색 실시간 요청으로 종목 추출 및 지속적 모니터링 시작
-            logging.debug("🔍 조건검색 실시간 요청 시작")
-            await self.start_condition_realtime(condition_seq, condition_name)
-            
-            # 조건검색 상태를 완료로 업데이트
-            self.update_condition_status("완료")
-            logging.debug("✅ 조건검색 실행 완료")
-            logging.debug("📋 조건검색 결과가 API 큐에 추가되어 차트 데이터 수집 후 모니터링에 추가됩니다")
-            
-        except Exception as ex:
-            logging.error(f"❌ 조건검색 처리 실패: {ex}")
-            logging.error(f"조건검색 처리 에러 상세: {traceback.format_exc()}")
-            # 조건검색 상태를 실패로 업데이트
-            self.update_condition_status("실패")
-
-    async def handle_integrated_condition_search(self):
-        """통합 전략: 모든 조건검색식 실행"""
-        try:
-            logging.debug("🔍 통합 조건검색 실행 시작")
-            
-            if not hasattr(self, 'condition_search_list') or not self.condition_search_list:
-                logging.warning("⚠️ 조건검색 목록이 없습니다")
-                return
-            
-            # 모든 조건검색식 실행
-            for condition in self.condition_search_list:
-                condition_name = condition['title']
-                condition_seq = condition['seq']
-                
-                logging.debug(f"🔍 조건검색 실행: {condition_name} (seq: {condition_seq})")
-                
-                # 조건검색 실시간 요청으로 종목 추출 및 지속적 모니터링 시작
-                await self.start_condition_realtime(condition_seq, condition_name)
-                
-                # 잠시 대기 (서버 부하 방지)
-                await asyncio.sleep(0.5)
-            
-            logging.debug("✅ 통합 조건검색 실행 완료")
-            
-        except Exception as ex:
-            logging.error(f"❌ 통합 조건검색 처리 실패: {ex}")
-            logging.error(f"통합 조건검색 처리 에러 상세: {traceback.format_exc()}")
-
     async def start_condition_realtime(self, seq, condition_name=None):
         """조건검색 실시간 요청으로 지속적 모니터링 시작 (웹소켓 기반)"""
         try:
@@ -6099,34 +5924,6 @@ class MyWindow(QWidget):
         except Exception as ex:
             logging.error(f"❌ 조건검색 실시간 해제 실패: {ex}")
             logging.error(f"조건검색 실시간 해제 에러 상세: {traceback.format_exc()}")
-
-    def remove_condition_stocks_from_monitoring(self, seq):
-        """조건검색으로 추가된 종목들을 모니터링에서 제거 (MonitoringManager로 위임)"""
-        self.monitoring_manager.remove_condition_stocks_from_monitoring(seq)
-
-    def add_stock_to_monitoring(self, code, name):
-        """종목을 모니터링 목록에 추가 (MonitoringManager로 위임)"""
-        return self.monitoring_manager.add_stock_to_monitoring(code, name)
-
-    def _subscribe_realtime_execution_data(self, code):
-        """실시간 체결 데이터 구독 시작 (MonitoringManager로 위임)"""
-        self.monitoring_manager.subscribe_realtime_execution_data(code)
-
-    def _unsubscribe_realtime_execution_data(self, code):
-        """실시간 체결 데이터 구독 해제 (MonitoringManager로 위임)"""
-        self.monitoring_manager.unsubscribe_realtime_execution_data(code)
-
-    def remove_stock_from_monitoring(self, code):
-        """종목을 모니터링 목록에서 제거 (MonitoringManager로 위임)"""
-        return self.monitoring_manager.remove_stock_from_monitoring(code)
-    
-    def update_condition_status(self, status, count=None):
-        """조건검색 상태 UI 업데이트 (UIComponentsManager로 위임)"""
-        self.ui_manager.update_condition_status(status, count)
-
-    def save_current_strategy(self):
-        """현재 선택된 투자전략을 settings.ini에 저장 (StrategyManager로 위임)"""
-        self.strategy_manager.save_current_strategy()
 
 
 # ==================== 메인 실행 ====================
@@ -7333,6 +7130,14 @@ class PyQtGraphRealtimeWidget(QWidget):
             return
             
         try:
+            now = datetime.now()
+            
+            # 장 시작 시간(09:00) 이전에는 차트 렌더링 업데이트 중지
+            market_open_time = now.replace(hour=9, minute=0, second=0, microsecond=0)
+            if now < market_open_time:
+                logging.debug(f"⏰ 장 시작 시간({market_open_time.strftime('%H:%M:%S')}) 이전이므로 차트 렌더링 업데이트를 중지합니다.")
+                return
+
             current_time = time.time()
             
             # 업데이트 간격 제한 (성능 최적화)
@@ -7879,8 +7684,15 @@ class ChartDataCache(QObject):
     def update_all_charts(self):
         """모든 모니터링 종목 차트 데이터 업데이트 - 큐 시스템 사용"""
         try:
-            # 장 마감 시간(15:30) 이후에는 업데이트 중지
             now = datetime.now()
+            
+            # 장 시작 시간(09:00) 이전에는 업데이트 중지
+            market_open_time = now.replace(hour=9, minute=0, second=0, microsecond=0)
+            if now < market_open_time:
+                logging.debug(f"⏰ 장 시작 시간({market_open_time.strftime('%H:%M:%S')}) 이전이므로 전체 차트 데이터 업데이트를 중지합니다.")
+                return
+                
+            # 장 마감 시간(15:30) 이후에는 업데이트 중지
             market_close_time = now.replace(hour=15, minute=30, second=0, microsecond=0)
             
             if now > market_close_time:
@@ -8109,8 +7921,15 @@ class ChartDataCache(QObject):
     async def save_to_database(self):
         """차트 데이터를 DB에 저장 (비동기 I/O)"""
         try:
-            # 장 마감 시간(15:30) 이후에는 DB 저장 중지
             now = datetime.now()
+            
+            # 장 시작 시간(09:00) 이전에는 DB 저장 중지
+            market_open_time = now.replace(hour=9, minute=0, second=0, microsecond=0)
+            if now < market_open_time:
+                logging.debug(f"⏰ 장 시작 시간({market_open_time.strftime('%H:%M:%S')}) 이전이므로 DB 저장을 중지합니다.")
+                return
+                
+            # 장 마감 시간(15:30) 이후에는 DB 저장 중지
             market_close_time = now.replace(hour=15, minute=30, second=0, microsecond=0)
             
             if now > market_close_time:
@@ -10156,7 +9975,7 @@ class KiwoomWebSocketClient:
                     
                     # 저장된 조건검색식이 있는지 확인하고 자동 실행
                     self.logger.info("🔍 저장된 조건검색식 자동 실행 확인 시작")
-                    saved_condition_executed = self.parent.check_and_auto_execute_saved_condition()
+                    saved_condition_executed = self.parent.condition_search_manager.check_and_auto_execute_saved_condition()
                     
                     # 저장된 조건검색식이 없으면 첫 번째 조건검색 자동 실행
                     if not saved_condition_executed:
@@ -10229,7 +10048,7 @@ class KiwoomWebSocketClient:
                     
                     if raw_code:
                         # A 접두사 제거 (A004560 -> 004560)
-                        clean_code = self.parent.normalize_stock_code(raw_code) if hasattr(self, 'parent') and self.parent else raw_code
+                        clean_code = self.parent.data_manager.normalize_stock_code(raw_code) if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'data_manager') else raw_code
                         current_price = ''  # 현재가 정보 없음
                         change_rate = ''    # 등락율 정보 없음
                         
