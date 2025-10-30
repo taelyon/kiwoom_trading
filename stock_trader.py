@@ -42,6 +42,7 @@ import websockets
 # 프로젝트 내부 모듈
 import strategy_utils
 # from chart_pyqtgraph import PyQtGraphRealtimeWidget  # 파일 없음 - 주석 처리
+from backtester import KiwoomBacktester
 # from chart_data_cache import ChartDataCache  # 파일 없음 - 주석 처리
 
 # PyQt6 관련
@@ -193,9 +194,9 @@ class ApiLimitManager:
     # API 요청 간격 관리 (초 단위)
     _last_request_time = {}
     _request_intervals = {
-        'tick_chart': 1.5,    # 틱 차트: 1.5초 간격 (429 에러 방지)
+        'tic_chart': 1.5,    # 틱 차트: 1.5초 간격 (429 에러 방지)
         'minute_chart': 1.5,  # 분봉 차트: 1.5초 간격 (429 에러 방지)
-        'tick': 0.5,          # 틱 데이터: 0.5초 간격
+        'tic': 0.5,          # 틱 데이터: 0.5초 간격
         'minute': 0.5,        # 분봉 데이터: 0.5초 간격
         'default': 0.5        # 기본: 0.5초 간격
     }
@@ -233,8 +234,8 @@ class ApiLimitManager:
     @classmethod
     def _get_request_type(cls, operation_name):
         """요청 타입 결정"""
-        if '틱' in operation_name or 'tick' in operation_name.lower():
-            return 'tick_chart'
+        if '틱' in operation_name or 'tic' in operation_name.lower():
+            return 'tic_chart'
         elif '분봉' in operation_name or 'minute' in operation_name.lower():
             return 'minute_chart'
         else:
@@ -338,28 +339,23 @@ class AsyncDatabaseManager:
             ''')
             
                 # 통합 주식 데이터 테이블 동적 생성
-                tick_indicator_cols = ", ".join([f"tick_{col.lower()} REAL" for col in self.indicator_list])
-                min_indicator_cols = ", ".join([f"min_{col.lower()} REAL" for col in self.indicator_list])
+                tic_indicator_cols = ", ".join([f"tic_{col.lower()} REAL" for col in self.indicator_list])
+                min_indicator_cols = ", ".join([f"min3_{col.lower()} REAL" for col in self.indicator_list])
                 
                 create_table_sql = f'''
                     CREATE TABLE IF NOT EXISTS stock_data (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         code TEXT NOT NULL,
                         datetime TEXT NOT NULL,
-                        open REAL,
-                        high REAL,
-                        low REAL,
-                        close REAL,
-                        volume INTEGER,
                         -- 틱봉 데이터
-                        tick_open REAL,
-                        tick_high REAL,
-                        tick_low REAL,
-                        tick_close REAL,
-                        tick_volume INTEGER,
-                        tick_strength REAL,
+                        tic_open REAL,
+                        tic_high REAL,
+                        tic_low REAL,
+                        tic_close REAL,
+                        tic_volume INTEGER,
+                        tic_strength REAL,
                         -- 기술적 지표 (틱봉)
-                        {tick_indicator_cols},
+                        {tic_indicator_cols},
                         -- 기술적 지표 (분봉)
                         {min_indicator_cols},
                         created_at TEXT,
@@ -376,10 +372,10 @@ class AsyncDatabaseManager:
             logging.error(f"데이터베이스 초기화 실패: {ex}")
             raise ex
     
-    async def save_stock_data(self, code, tick_data, min_data):
+    async def save_stock_data(self, code, tic_data, min_data):
         """통합 주식 데이터 저장 (틱봉 기준, 분봉 데이터 포함)"""
         try:
-            if not tick_data or not min_data:
+            if not tic_data or not min_data:
                 return
             
             async with aiosqlite.connect(self.db_path) as conn:
@@ -388,72 +384,65 @@ class AsyncDatabaseManager:
                 current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 
                 # 틱봉 데이터 기준으로 저장
-                tick_times = tick_data.get('time', [])
-                tick_opens = tick_data.get('open', [])
-                tick_highs = tick_data.get('high', [])
-                tick_lows = tick_data.get('low', [])
-                tick_closes = tick_data.get('close', [])
-                tick_volumes = tick_data.get('volume', [])
-                tick_strengths = tick_data.get('strength', [])
+                tic_times = tic_data.get('time', [])
+                tic_opens = tic_data.get('open', [])
+                tic_highs = tic_data.get('high', [])
+                tic_lows = tic_data.get('low', [])
+                tic_closes = tic_data.get('close', [])
+                tic_volumes = tic_data.get('volume', [])
+                tic_strengths = tic_data.get('strength', [])
 
                 # 실제 캐시 데이터에서 기술적 지표 키 추출 (OHLCV 제외)
                 basic_keys = {'time', 'open', 'high', 'low', 'close', 'volume', 'strength'}
-                tick_indicators = [key for key in tick_data.keys() if key not in basic_keys]
+                tic_indicators = [key for key in tic_data.keys() if key not in basic_keys]
                 min_indicators = [key for key in min_data.keys() if key not in basic_keys]
                 
                 # 모든 지표 통합 (중복 제거)
-                all_indicators = list(set(tick_indicators + min_indicators))
+                all_indicators = list(set(tic_indicators + min_indicators))
                 all_indicators.sort()  # 정렬하여 일관성 유지
                 
-                logging.debug(f"📊 {code}: 감지된 기술적 지표 - 틱봉: {tick_indicators}, 분봉: {min_indicators}, 통합: {all_indicators}")
+                logging.debug(f"📊 {code}: 감지된 기술적 지표 - 틱봉: {tic_indicators}, 분봉: {min_indicators}, 통합: {all_indicators}")
                 
                 # 테이블 스키마 동적 업데이트
                 await self._ensure_table_schema(cursor, all_indicators)
 
                 # 동적으로 컬럼명과 플레이스홀더 생성
-                tick_indicator_cols = ", ".join([f"tick_{col.lower()}" for col in all_indicators])
-                min_indicator_cols = ", ".join([f"min_{col.lower()}" for col in all_indicators])
+                tic_indicator_cols = ", ".join([f"tic_{col.lower()}" for col in all_indicators])
+                min_indicator_cols = ", ".join([f"min3_{col.lower()}" for col in all_indicators])
                 
                 columns = (
-                    "code, datetime, open, high, low, close, volume, "
-                    "tick_open, tick_high, tick_low, tick_close, tick_volume, tick_strength, "
-                    f"{tick_indicator_cols}, {min_indicator_cols}, created_at"
+                    "code, datetime, tic_open, tic_high, tic_low, tic_close, tic_volume, tic_strength, "
+                    f"{tic_indicator_cols}, {min_indicator_cols}, created_at"
                 )
                 
-                placeholders = ", ".join(["?"] * (14 + len(all_indicators) * 2))
+                placeholders = ", ".join(["?"] * (9 + len(all_indicators) * 2))
 
                 sql = f"INSERT OR REPLACE INTO stock_data ({columns}) VALUES ({placeholders})"
                 
                 # 틱봉 데이터 개수만큼 저장
-                for i in range(len(tick_times)):
+                for i in range(len(tic_times)):
                     # 해당 시점의 분봉 데이터 찾기 (시간 기준으로 매칭)
-                    min_idx = self._find_matching_minute_data(tick_times[i], min_data.get('time', []))
+                    min_idx = self._find_matching_minute_data(tic_times[i], min_data.get('time', []))
                     
                     # datetime 객체를 일반 형식으로 변환
-                    datetime_str = tick_times[i].strftime('%Y-%m-%d %H:%M:%S') if hasattr(tick_times[i], 'strftime') else str(tick_times[i])
+                    datetime_str = tic_times[i].strftime('%Y-%m-%d %H:%M:%S') if hasattr(tic_times[i], 'strftime') else str(tic_times[i])
                     
                     values = [
                         code,
                         datetime_str,
-                        # 기본 OHLCV (틱봉 기준)
-                        tick_opens[i] if i < len(tick_opens) else 0,
-                        tick_highs[i] if i < len(tick_highs) else 0,
-                        tick_lows[i] if i < len(tick_lows) else 0,
-                        tick_closes[i] if i < len(tick_closes) else 0,
-                        tick_volumes[i] if i < len(tick_volumes) else 0,
                         # 틱봉 데이터
-                        tick_opens[i] if i < len(tick_opens) else 0,
-                        tick_highs[i] if i < len(tick_highs) else 0,
-                        tick_lows[i] if i < len(tick_lows) else 0,
-                        tick_closes[i] if i < len(tick_closes) else 0,
-                        tick_volumes[i] if i < len(tick_volumes) else 0,
-                        tick_strengths[i] if i < len(tick_strengths) else 0,
+                        tic_opens[i] if i < len(tic_opens) else 0,
+                        tic_highs[i] if i < len(tic_highs) else 0,
+                        tic_lows[i] if i < len(tic_lows) else 0,
+                        tic_closes[i] if i < len(tic_closes) else 0,
+                        tic_volumes[i] if i < len(tic_volumes) else 0,
+                        tic_strengths[i] if i < len(tic_strengths) else 0,
                     ]
 
                     # 틱봉 기술적 지표 값 추가
                     for indicator in all_indicators:
                         try:
-                            indicator_data = tick_data.get(indicator, [])
+                            indicator_data = tic_data.get(indicator, [])
                             
                             # 배열인 경우 특정 인덱스 접근
                             if isinstance(indicator_data, (list, tuple, np.ndarray)):
@@ -539,12 +528,12 @@ class AsyncDatabaseManager:
             # 새로 추가할 컬럼들 확인
             new_columns = []
             for indicator in indicators:
-                tick_col = f"tick_{indicator.lower()}"
-                min_col = f"min_{indicator.lower()}"
+                tic_col = f"tic_{indicator.lower()}"
+                min_col = f"min3_{indicator.lower()}"
                 
-                if tick_col not in existing_columns:
-                    new_columns.append(tick_col)
-                if min_col not in existing_columns:
+                if tic_col not in existing_columns:
+                    new_columns.append(tic_col)
+                if min_col not in existing_columns: # min_ -> min3_
                     new_columns.append(min_col)
             
             # 새 컬럼들 추가
@@ -560,19 +549,19 @@ class AsyncDatabaseManager:
         except Exception as ex:
             logging.error(f"❌ 테이블 스키마 확인/업데이트 실패: {ex}")
     
-    def _find_matching_minute_data(self, tick_time, min_times):
+    def _find_matching_minute_data(self, tic_time, min_times):
         """틱봉 시간에 해당하는 분봉 데이터 인덱스 찾기 (가장 가까운 분봉 찾기)"""
         try:
             if not min_times:
                 return -1
                 
-            # tick_time이 datetime 객체인지 문자열인지 확인
-            if hasattr(tick_time, 'strftime'):
+            # tic_time이 datetime 객체인지 문자열인지 확인
+            if hasattr(tic_time, 'strftime'):
                 # datetime 객체인 경우
-                tick_dt = tick_time
+                tic_dt = tic_time
             else:
                 # 문자열인 경우 파싱
-                tick_dt = datetime.strptime(str(tick_time), '%Y-%m-%d %H:%M:%S')
+                tic_dt = datetime.strptime(str(tic_time), '%Y-%m-%d %H:%M:%S')
             
             best_match_idx = -1
             min_time_diff = float('inf')
@@ -587,10 +576,10 @@ class AsyncDatabaseManager:
                     min_dt = datetime.strptime(str(min_time), '%Y-%m-%d %H:%M:%S')
                 
                 # 시간 차이 계산 (절댓값)
-                time_diff = abs((tick_dt - min_dt).total_seconds())
+                time_diff = abs((tic_dt - min_dt).total_seconds())
                 
                 # 같은 분 내의 데이터를 우선적으로 찾기
-                if tick_dt.replace(second=0, microsecond=0) == min_dt.replace(second=0, microsecond=0):
+                if tic_dt.replace(second=0, microsecond=0) == min_dt.replace(second=0, microsecond=0):
                     return i
                 
                 # 가장 가까운 시간의 분봉 데이터 찾기 (5분 이내)
@@ -1240,21 +1229,21 @@ class KiwoomStrategy(QObject):
             # 차트 데이터 가져오기 (틱/분봉) - chart_cache에서 직접 가져오기
             chart_data = pd.DataFrame()
             if hasattr(self.parent, 'chart_cache') and self.parent.chart_cache:
-                # chart_cache.get_cached_data()를 사용하여 tick_data 가져오기
+                # chart_cache.get_cached_data()를 사용하여 tic_data 가져오기
                 cache_data = self.parent.chart_cache.get_cached_data(code)
                 if cache_data:
-                    tick_data = cache_data.get('tick_data', {})
-                    if tick_data and len(tick_data.get('close', [])) > 0:
+                    tic_data = cache_data.get('tic_data', {})
+                    if tic_data and len(tic_data.get('close', [])) > 0:
                         # 데이터 타입을 명시적으로 float로 변환 (talib 에러 방지)
                         try:
                             # OHLCV 기본 데이터
                             df_dict = {
-                                'time': tick_data.get('time', []),
-                                'open': pd.to_numeric(tick_data.get('open', []), errors='coerce'),
-                                'high': pd.to_numeric(tick_data.get('high', []), errors='coerce'),
-                                'low': pd.to_numeric(tick_data.get('low', []), errors='coerce'),
-                                'close': pd.to_numeric(tick_data.get('close', []), errors='coerce'),
-                                'volume': pd.to_numeric(tick_data.get('volume', []), errors='coerce')
+                                'time': tic_data.get('time', []),
+                                'open': pd.to_numeric(tic_data.get('open', []), errors='coerce'),
+                                'high': pd.to_numeric(tic_data.get('high', []), errors='coerce'),
+                                'low': pd.to_numeric(tic_data.get('low', []), errors='coerce'),
+                                'close': pd.to_numeric(tic_data.get('close', []), errors='coerce'),
+                                'volume': pd.to_numeric(tic_data.get('volume', []), errors='coerce')
                             }
                             
                             # 캐시된 기술적 지표도 포함 (있는 경우)
@@ -1267,8 +1256,8 @@ class KiwoomStrategy(QObject):
                             
                             indicators_included = 0
                             for key in indicator_keys:
-                                if key in tick_data and tick_data[key] is not None:
-                                    indicator_data = tick_data[key]
+                                if key in tic_data and tic_data[key] is not None:
+                                    indicator_data = tic_data[key]
                                     # 길이가 OHLCV와 같은지 확인
                                     if hasattr(indicator_data, '__len__') and len(indicator_data) == len(df_dict['close']):
                                         df_dict[key] = indicator_data
@@ -1287,7 +1276,7 @@ class KiwoomStrategy(QObject):
                             chart_data = pd.DataFrame()
                     else:
                         if is_first_check:
-                            logging.warning(f"⚠️ [{code}] tick_data가 비어있음")
+                            logging.warning(f"⚠️ [{code}] tic_data가 비어있음")
                 else:
                     if is_first_check:
                         logging.warning(f"⚠️ [{code}] cache_data가 없음")
@@ -1501,18 +1490,18 @@ class KiwoomStrategy(QObject):
             if hasattr(self.parent, 'chart_cache') and self.parent.chart_cache:
                 cache_data = self.parent.chart_cache.get_cached_data(code)
                 if cache_data:
-                    tick_data = cache_data.get('tick_data', {})
-                    if tick_data and len(tick_data.get('close', [])) > 0:
+                    tic_data = cache_data.get('tic_data', {})
+                    if tic_data and len(tic_data.get('close', [])) > 0:
                         # 데이터 타입을 명시적으로 float로 변환 (talib 에러 방지)
                         try:
                             # OHLCV 기본 데이터
                             df_dict = {
-                                'time': tick_data.get('time', []),
-                                'open': pd.to_numeric(tick_data.get('open', []), errors='coerce'),
-                                'high': pd.to_numeric(tick_data.get('high', []), errors='coerce'),
-                                'low': pd.to_numeric(tick_data.get('low', []), errors='coerce'),
-                                'close': pd.to_numeric(tick_data.get('close', []), errors='coerce'),
-                                'volume': pd.to_numeric(tick_data.get('volume', []), errors='coerce')
+                                'time': tic_data.get('time', []),
+                                'open': pd.to_numeric(tic_data.get('open', []), errors='coerce'),
+                                'high': pd.to_numeric(tic_data.get('high', []), errors='coerce'),
+                                'low': pd.to_numeric(tic_data.get('low', []), errors='coerce'),
+                                'close': pd.to_numeric(tic_data.get('close', []), errors='coerce'),
+                                'volume': pd.to_numeric(tic_data.get('volume', []), errors='coerce')
                             }
                             
                             # 캐시된 기술적 지표도 포함 (있는 경우)
@@ -1524,8 +1513,8 @@ class KiwoomStrategy(QObject):
                             ]
                             
                             for key in indicator_keys:
-                                if key in tick_data and tick_data[key] is not None:
-                                    indicator_data = tick_data[key]
+                                if key in tic_data and tic_data[key] is not None:
+                                    indicator_data = tic_data[key]
                                     # 길이가 OHLCV와 같은지 확인
                                     if hasattr(indicator_data, '__len__') and len(indicator_data) == len(df_dict['close']):
                                         df_dict[key] = indicator_data
@@ -1981,16 +1970,16 @@ class AutoTrader(QObject):
                     logging.debug(f"ℹ️ [{code}] 캐시 데이터 수집 대기 중")
                 return False
             
-            tick_data = cache_data.get('tick_data', {})
+            tic_data = cache_data.get('tic_data', {})
             min_data = cache_data.get('min_data', {})
             
-            if not tick_data or not min_data:
+            if not tic_data or not min_data:
                 if is_first_debug:
-                    has_tick = bool(tick_data and tick_data.get('close'))
+                    has_tic = bool(tic_data and tic_data.get('close'))
                     has_min = bool(min_data and min_data.get('close'))
-                    tick_len = len(tick_data.get('close', [])) if tick_data else 0
+                    tic_len = len(tic_data.get('close', [])) if tic_data else 0
                     min_len = len(min_data.get('close', [])) if min_data else 0
-                    logging.debug(f"ℹ️ [{code}] 차트 데이터 수집 대기 중 (틱:{has_tick}({tick_len}개), 분:{has_min}({min_len}개))")
+                    logging.debug(f"ℹ️ [{code}] 차트 데이터 수집 대기 중 (틱:{has_tic}({tic_len}개), 분:{has_min}({min_len}개))")
                 return False
 
             # KiwoomStrategy.evaluate_strategy를 사용하여 매매 판단
@@ -2003,11 +1992,11 @@ class AutoTrader(QObject):
             previous_close = cache_data.get('previous_close', 0)
             
             # market_data 구성
-            current_price = tick_data.get('close', [0])[-1] if tick_data.get('close') else 0
-            volume = tick_data.get('volume', [0])[-1] if tick_data.get('volume') else 0
+            current_price = tic_data.get('close', [0])[-1] if tic_data.get('close') else 0
+            volume = tic_data.get('volume', [0])[-1] if tic_data.get('volume') else 0
             
             market_data = {
-                'tick_data': tick_data,
+                'tic_data': tic_data,
                 'min_data': min_data,
                 'current_price': current_price,
                 'volume': volume,
@@ -2322,10 +2311,14 @@ class AutoTrader(QObject):
             return False
 
 # ==================== 로그인 핸들러 ====================
-class LoginHandler:
-    """로그인 처리 클래스"""
+class LoginHandler(QObject):
+    """로그인 및 연결 관리 클래스"""
+    
+    # 시그널 정의: 연결 상태가 변경될 때 UI 업데이트를 위해 사용
+    connection_status_changed = pyqtSignal(bool)
     
     def __init__(self, parent_window):
+        super().__init__()
         self.parent = parent_window
         self.config = configparser.RawConfigParser()
         self.kiwoom_client = None
@@ -2516,8 +2509,7 @@ class LoginHandler:
             
             if self.kiwoom_client and self.kiwoom_client.is_connected:
                 # 연결 상태 업데이트
-                self.parent.connectionStatusLabel.setText("연결 상태: 연결됨")
-                self.parent.connectionStatusLabel.setProperty("class", "connected")
+                self.parent.update_connection_ui(is_connected=True)
                 
                 # 거래 모드에 따른 메시지
                 mode = "모의투자" if self.parent.tradingModeCombo.currentIndex() == 0 else "실제투자"
@@ -2543,10 +2535,48 @@ class LoginHandler:
                 
             else:
                 logging.error("키움 REST API 연결 실패! settings.ini 파일의 appkey와 appsecret을 확인해주세요.")
+                self.parent.update_connection_ui(is_connected=False)
                 
         except Exception as ex:
             logging.error(f"API 연결 처리 실패: {ex}")
     
+    def handle_connection_toggle(self):
+        """연결/해제 버튼 클릭 처리 (비동기 래퍼)"""
+        asyncio.create_task(self._handle_connection_toggle_async())
+
+    async def _handle_connection_toggle_async(self):
+        """연결/해제 버튼 클릭 비동기 처리"""
+        try:
+            # 키움 클라이언트가 있고 연결된 상태인지 확인
+            is_connected = (hasattr(self, 'kiwoom_client') and 
+                            self.kiwoom_client and 
+                            self.kiwoom_client.is_connected)
+
+            if is_connected:
+                # --- 연결 해제 로직 ---
+                logging.info("🔌 API 연결 해제를 시도합니다...")
+                # 웹소켓 종료
+                if hasattr(self, 'websocket_client') and self.websocket_client:
+                    await self.websocket_client.disconnect()
+                # REST 클라이언트 연결 해제
+                self.kiwoom_client.disconnect()
+                
+                # UI 업데이트 시그널 발생
+                self.connection_status_changed.emit(False)
+                logging.info("✅ API 연결이 해제되었습니다.")
+
+            else:
+                # --- 연결 로직 ---
+                logging.info("🔌 API 연결을 시도합니다...")
+                self.handle_api_connection()
+                await self.start_websocket_client()
+
+                # 연결 성공 시 UI 업데이트는 post_login_setup에서 처리됨
+                # 여기서는 연결 시도 상태를 UI에 반영할 수 있음 (예: 버튼 텍스트 변경)
+                self.connection_status_changed.emit(True) # 임시로 연결됨 상태로 변경
+        except Exception as ex:
+            logging.error(f"❌ 연결/해제 처리 중 오류: {ex}")
+
     def buycount_setting(self):
         """투자 종목수 설정 (MyWindow의 메서드 호출)"""
         # MyWindow 클래스의 buycount_setting() 메서드를 호출하여 중복 제거
@@ -3017,12 +3047,12 @@ class UIComponentsManager:
                     if (hasattr(self.parent, 'chart_cache') and self.parent.chart_cache):
                         cache_data = self.parent.chart_cache.get_cached_data(stock_code)
                         if cache_data:
-                            tick_data = cache_data.get('tick_data', {})
-                            if tick_data and tick_data.get('close'):
-                                tick_close_list = tick_data.get('close', [])
-                                if len(tick_close_list) > 0:
+                            tic_data = cache_data.get('tic_data', {})
+                            if tic_data and tic_data.get('close'):
+                                tic_close_list = tic_data.get('close', [])
+                                if len(tic_close_list) > 0:
                                     # 매매 판단에 사용하는 현재가 (틱 데이터의 마지막 종가)
-                                    current_price = tick_close_list[-1]
+                                    current_price = tic_close_list[-1]
                     
                     price_item = QTableWidgetItem(f"{current_price:,.0f}")
                     price_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
@@ -3133,7 +3163,7 @@ class UIComponentsManager:
                     cache_data = self.parent.chart_cache.get_cached_data(code)
                     if cache_data:
                         self.parent.realtime_chart_widget.update_chart_data(
-                            cache_data.get('tick_data'), 
+                            cache_data.get('tic_data'), 
                             cache_data.get('min_data')
                         )
                         logging.debug(f"📊 실시간 차트 업데이트: {code}")
@@ -3460,7 +3490,11 @@ class UIComponentsManager:
         parent.connectionStatusLabel = QLabel("연결 상태: 미연결")
         parent.connectionStatusLabel.setProperty("class", "disconnected")
         statusLayout.addWidget(parent.connectionStatusLabel)
+
         statusLayout.addStretch()
+        # 자동 연결 설정 (연결 상태 옆으로 이동)
+        parent.autoConnectCheckBox = QCheckBox("자동 연결")
+        statusLayout.addWidget(parent.autoConnectCheckBox)
         
         # 모의투자/실제투자 구분
         tradingModeLayout = QHBoxLayout()
@@ -3471,9 +3505,12 @@ class UIComponentsManager:
         parent.tradingModeCombo.setFixedWidth(120)
         tradingModeLayout.addWidget(parent.tradingModeCombo)
         
-        # 자동 연결 설정
-        parent.autoConnectCheckBox = QCheckBox("자동 연결")
-        tradingModeLayout.addWidget(parent.autoConnectCheckBox)
+        tradingModeLayout.addStretch()
+        # 연결/해제 토글 버튼 추가
+        parent.connectButton = QPushButton("연결")
+        parent.connectButton.setFixedWidth(80)
+        parent.connectButton.setProperty("class", "success") # 초기 상태는 '연결' (성공 클래스)
+        tradingModeLayout.addWidget(parent.connectButton)
 
         loginLayout.addLayout(statusLayout)
         loginLayout.addLayout(tradingModeLayout)
@@ -3498,14 +3535,10 @@ class UIComponentsManager:
         
         parent.buycountEdit = QLineEdit(str(saved_buycount))
         buycountLayout.addWidget(parent.buycountEdit)
+        buycountLayout.addStretch()
         parent.buycountButton = QPushButton("설정")
         parent.buycountButton.setFixedWidth(70)
         buycountLayout.addWidget(parent.buycountButton)
-        
-        # 구분선 추가
-        separator2 = QFrame()
-        separator2.setProperty("class", "separator")
-        buycountLayout.addWidget(separator2)
 
         # ===== 모니터링 종목 리스트 =====
         monitoringBoxLayout = QVBoxLayout()
@@ -3678,6 +3711,7 @@ class UIComponentsManager:
         parent.tradingModeCombo.currentIndexChanged.connect(parent.trading_mode_changed)
         parent.buycountButton.clicked.connect(parent.buycount_setting)
         parent.addStockButton.clicked.connect(parent.add_stock_to_list)
+        parent.connectButton.clicked.connect(parent.handle_connection_toggle)
         parent.stockInputEdit.returnPressed.connect(parent.add_stock_to_list)
 
         parent.buyButton.clicked.connect(parent.buy_item)
@@ -4430,9 +4464,9 @@ class TradingManager:
                     if hasattr(self.parent.login_handler, 'websocket_client') and self.parent.login_handler.websocket_client:
                         ws_client = self.parent.login_handler.websocket_client
                         if hasattr(ws_client, 'chart_cache'):
-                            tick_data = ws_client.chart_cache.get_tick_chart(code)
-                            if tick_data and tick_data.get('close') and len(tick_data['close']) > 0:
-                                current_price = float(tick_data['close'][-1])
+                            tic_data = ws_client.chart_cache.get_tic_chart(code)
+                            if tic_data and tic_data.get('close') and len(tic_data['close']) > 0:
+                                current_price = float(tic_data['close'][-1])
                                 price_source = "캐시"
                     
                     # 캐시에 없으면 REST API로 현재가 조회
@@ -4708,9 +4742,62 @@ class BacktestManager:
     def run_backtest(self):
         """백테스팅 실행"""
         try:
-            logging.debug("백테스팅 기능은 준비 중입니다.")
+            # 1. KiwoomBacktester 인스턴스 생성 (기간 조회를 위해 먼저 생성)
+            backtester = KiwoomBacktester(db_path='stock_data.db')
+
+            # 2. DB에서 실제 데이터 기간 자동 조회
+            start_date, end_date = backtester.get_db_data_range()
+            if not start_date or not end_date:
+                QMessageBox.warning(self.parent, "데이터 없음", "DB에서 백테스팅을 위한 데이터 기간을 찾을 수 없습니다.")
+                return
+
+            # 3. UI에 조회된 기간 설정 및 파라미터 가져오기
+            self.parent.bt_start_date.setText(start_date)
+            self.parent.bt_end_date.setText(end_date)
+            initial_cash = int(self.parent.bt_initial_cash.text())
+            strategy_name = self.parent.bt_strategy_combo.currentText()
+            backtester.initial_cash = initial_cash # 초기 자금 설정
+
+            if not all([start_date, end_date, strategy_name]):
+                QMessageBox.warning(self.parent, "입력 오류", "시작일, 종료일, 투자 전략을 모두 선택해주세요.")
+                return
+
+            logging.info(f"백테스팅 시작: {strategy_name} ({start_date} ~ {end_date})")
+            self.parent.bt_results_text.clear()
+            self.parent.bt_results_text.append(f"백테스팅을 시작합니다: {strategy_name}\n")
+            QApplication.processEvents()
+
+            # 4. 백테스팅 대상 종목 가져오기 (모니터링 중인 종목 사용)
+            codes = self.parent.get_monitoring_stock_codes()
+            if not codes:
+                QMessageBox.warning(self.parent, "오류", "백테스팅을 실행할 모니터링 대상 종목이 없습니다.")
+                return
+
+            self.parent.bt_results_text.append(f"대상 종목: {', '.join(codes)}\n")
+            QApplication.processEvents()
+
+            # 5. 백테스팅 실행
+            success = backtester.run_backtest(codes, start_date, end_date, strategy_name)
+
+            # 6. 결과 표시
+            if success and strategy_name in backtester.results:
+                result = backtester.results[strategy_name]
+                summary = (
+                    f"총 수익률: {result['total_return']:.2f}%\n"
+                    f"최종 자산: {result['final_value']:,.0f}원\n"
+                    f"승률: {result['win_rate']:.2f}%\n"
+                    f"총 거래 수: {result['total_trades']}\n"
+                    f"최대 낙폭: {result['max_drawdown']:.2f}%"
+                )
+                self.parent.bt_results_text.append("\n=== 백테스팅 결과 ===\n" + summary)
+                backtester.plot_results(strategy_name)
+                backtester.export_results(strategy_name)
+            else:
+                self.parent.bt_results_text.append("\n백테스팅 실행에 실패했거나 결과가 없습니다.")
+
         except Exception as ex:
             logging.error(f"백테스팅 실행 실패: {ex}")
+            QMessageBox.critical(self.parent, "백테스팅 오류", f"백테스팅 실행 중 오류가 발생했습니다:\n{ex}")
 
 
 class AccountManager:
@@ -5160,11 +5247,19 @@ class MyWindow(QWidget):
         # 로그인 핸들러 생성
         self.login_handler = LoginHandler(self)
         self.login_handler.load_settings_sync()
+        
+        # LoginHandler의 시그널을 MyWindow의 UI 업데이트 메서드에 연결
+        self.login_handler.connection_status_changed.connect(self.update_connection_ui)
 
         # 자동 연결 시도 (qasync 방식)
         asyncio.create_task(self.attempt_auto_connect())
     
     # 차트 위젯 설정 로드 메서드 제거됨 - PyQtGraph 고정 사용
+
+    def handle_connection_toggle(self):
+        """연결/해제 버튼 클릭 처리 (LoginHandler에 위임)"""
+        if hasattr(self, 'login_handler'):
+            self.login_handler.handle_connection_toggle()
         
     def apply_modern_style(self):
         """현대적이고 눈에 피로하지 않은 스타일 적용 (UIComponentsManager로 위임)"""
@@ -5196,6 +5291,31 @@ class MyWindow(QWidget):
                 
         except Exception as ex:
             logging.error(f"자동 연결 시도 실패: {ex}")    
+
+    def update_connection_ui(self, is_connected):
+        """연결 상태에 따라 UI를 업데이트하는 중앙 함수"""
+        try:
+            if is_connected:
+                self.connectionStatusLabel.setText("연결 상태: 연결됨")
+                self.connectionStatusLabel.setProperty("class", "connected")
+                self.connectButton.setText("해제")
+                self.connectButton.setProperty("class", "danger")
+                self.tradingModeCombo.setEnabled(False)
+            else:
+                self.connectionStatusLabel.setText("연결 상태: 미연결")
+                self.connectionStatusLabel.setProperty("class", "disconnected")
+                self.connectButton.setText("연결")
+                self.connectButton.setProperty("class", "success")
+                self.tradingModeCombo.setEnabled(True)
+
+            # 스타일시트 갱신
+            self.style().polish(self.connectionStatusLabel)
+            self.style().polish(self.connectButton)
+            self.style().polish(self.tradingModeCombo)
+
+        except Exception as ex:
+            logging.error(f"❌ 연결 UI 업데이트 실패: {ex}")
+
     
     def safe_int(self, value, default=0):
         """안전한 정수 변환 함수 (DataManager로 위임)"""
@@ -5743,17 +5863,7 @@ class MyWindow(QWidget):
                             handler.close()
                         except Exception:
                             # 핸들러 제거 실패 시 무시
-                            pass
-                    
-                    # QTextEdit 위젯 정리 (핸들러 제거 후)
-                    try:
-                        self.terminalOutput.clear()
-                        self.terminalOutput.setParent(None)
-                        self.terminalOutput = None
-                    except (RuntimeError, AttributeError):
-                        # 위젯이 이미 삭제된 경우 무시
-                        pass
-                        
+                            pass                    
                 except Exception as e:
                     # QTextEdit 정리 실패 시 무시 (프로그램 종료 중이므로)
                     pass
@@ -6037,8 +6147,8 @@ async def main():
 
     await loop.create_future()
 
-# ==================== PyQtGraph CandlestickItem 클래스 ====================
-class CandlestickItem(pg.GraphicsObject):
+# ==================== PyQtGraph CandlesticItem 클래스 ====================
+class CandlesticItem(pg.GraphicsObject):
     """PyQtGraph용 캔들스틱 아이템"""
     def __init__(self, data):
         """
@@ -6147,26 +6257,26 @@ class PyQtGraphWidget(pg.PlotWidget):
         # 데이터 초기화
         self.current_data = None
         
-    def add_candlestick_data(self, data, chart_type="default"):
+    def add_candlestic_data(self, data, chart_type="default"):
         """캔들스틱 데이터 추가"""
         try:
             # 데이터 유효성 검사
             if not data or len(data) == 0:
-                logging.warning("🔍 PyQtGraphWidget add_candlestick_data: 빈 데이터")
+                logging.warning("🔍 PyQtGraphWidget add_candlestic_data: 빈 데이터")
                 return
                 
-            logging.debug(f"🔍 PyQtGraphWidget add_candlestick_data 호출됨 - 데이터 수: {len(data)}")
+            logging.debug(f"🔍 PyQtGraphWidget add_candlestic_data 호출됨 - 데이터 수: {len(data)}")
             
             # 데이터 형식 검사
             if not isinstance(data, (list, tuple)):
-                logging.error(f"🔍 PyQtGraphWidget add_candlestick_data: 잘못된 데이터 형식 - {type(data)}")
+                logging.error(f"🔍 PyQtGraphWidget add_candlestic_data: 잘못된 데이터 형식 - {type(data)}")
                 return
                 
             # 첫 번째 데이터 항목 검사
             if len(data) > 0:
                 first_item = data[0]
                 if not isinstance(first_item, (list, tuple)) or len(first_item) < 5:
-                    logging.error(f"🔍 PyQtGraphWidget add_candlestick_data: 잘못된 데이터 구조 - {first_item}")
+                    logging.error(f"🔍 PyQtGraphWidget add_candlestic_data: 잘못된 데이터 구조 - {first_item}")
                     return
                     
             # 기존 캔들 아이템 제거
@@ -6213,8 +6323,8 @@ class PyQtGraphWidget(pg.PlotWidget):
             # numpy 배열로 변환
             np_data = np.array(data_list)
             
-            # CandlestickItem 생성 및 추가
-            self.candle_item = CandlestickItem(np_data)
+            # CandlesticItem 생성 및 추가
+            self.candle_item = CandlesticItem(np_data)
             self.addItem(self.candle_item)
             
             # 데이터 저장
@@ -6333,7 +6443,7 @@ class PyQtGraphWidget(pg.PlotWidget):
         """아이템 추가"""
         self.plotItem.addItem(item)
     
-    def add_moving_averages(self, data, ma_data, chart_type="tick"):
+    def add_moving_averages(self, data, ma_data, chart_type="tic"):
         """이동평균선 추가"""
         try:
             logging.debug(f"🔍 add_moving_averages 호출됨 - data: {type(data)}, ma_data: {type(ma_data)}")
@@ -6347,7 +6457,7 @@ class PyQtGraphWidget(pg.PlotWidget):
             self.clear_moving_averages()
             
             # 차트 유형별 이동평균선 색상 정의
-            if chart_type == "tick":
+            if chart_type == "tic":
                 # 30틱 차트: MA5, MA20, MA60, MA120
                 ma_colors = {
                     'MA5': (255, 0, 0),      # 빨간색
@@ -6542,7 +6652,7 @@ class PyQtGraphWidget(pg.PlotWidget):
         
         # X축 눈금 설정
         if x:
-            self._setup_x_axis_ticks()
+            self._setup_x_axis_tics()
     
     def plotItem(self):
         """플롯 아이템 반환"""
@@ -6557,7 +6667,7 @@ class PyQtGraphWidget(pg.PlotWidget):
         else:
             return None
     
-    def _setup_x_axis_ticks(self):
+    def _setup_x_axis_tics(self):
         """X축 눈금 설정"""
         try:
             # X축 설정
@@ -6580,7 +6690,7 @@ class PyQtGraphWidget(pg.PlotWidget):
             # X축 레이블 수동 설정 (PyQtChart의 QBarCategoryAxis와 동일한 방식)
             axis = self.getAxis('bottom')
             
-            ticks = []  # (index, "label") 튜플의 리스트
+            tics = []  # (index, "label") 튜플의 리스트
             last_label_minute = -1
             
             # 실제 데이터에서 분 단위를 확인하여 동적으로 레이블 간격 설정
@@ -6613,7 +6723,7 @@ class PyQtGraphWidget(pg.PlotWidget):
             # 데이터에 있는 분 단위를 기반으로 레이블 간격 설정
             if minutes_in_data:
                 # 30분 단위로 가장 가까운 분들을 찾기
-                if chart_type == "tick":
+                if chart_type == "tic":
                     # 틱차트: 30분 단위로 가장 가까운 분들
                     target_minutes = [0, 30]
                 elif chart_type == "minute":
@@ -6670,16 +6780,16 @@ class PyQtGraphWidget(pg.PlotWidget):
                         last_label_minute = -1
                     
                     if label:
-                        ticks.append((i, label))  # (X축 인덱스, 표시할 텍스트)
+                        tics.append((i, label))  # (X축 인덱스, 표시할 텍스트)
                         
                 except Exception as e:
                     logging.debug(f"X축 레이블 설정 중 오류 (무시됨): {e}")
                     continue
             
             # pyqtgraph는 겹치는 레이블을 자동으로 숨겨 "..." 문제가 발생하지 않음
-            if ticks:
-                axis.setTicks([ticks])
-                logging.debug(f"🔍 PyQtGraphWidget X축 레이블 설정 완료: {len(ticks)}개 레이블 ({chart_type} 차트)")
+            if tics:
+                axis.setTicks([tics])
+                logging.debug(f"🔍 PyQtGraphWidget X축 레이블 설정 완료: {len(tics)}개 레이블 ({chart_type} 차트)")
                 
         except Exception as ex:
             logging.error(f"❌ X축 레이블 설정 실패: {ex}")
@@ -6692,17 +6802,17 @@ class PyQtGraphRealtimeWidget(QWidget):
         super().__init__(parent)
         self.parent_window = parent
         self.current_code = None
-        self.chart_data = {'ticks': [], 'minutes': []}
+        self.chart_data = {'tics': [], 'minutes': []}
         
         # 성능 최적화 설정
-        self.max_tick_data_points = 100  # 틱 데이터 최대 표시 수
+        self.max_tic_data_points = 100  # 틱 데이터 최대 표시 수
         self.max_minute_data_points = 50  # 분봉 데이터 최대 표시 수
         self.update_batch_size = 20
         self.last_update_time = 0
         self.update_interval = 1.0  # 1초 간격 (실시간 업데이트)
         
         # 메모리 최적화를 위한 데이터 캐시
-        self.data_cache = {'ticks': [], 'minutes': []}
+        self.data_cache = {'tics': [], 'minutes': []}
         self.cache_size = 100
         
         # 차트 위젯 초기화
@@ -6726,10 +6836,10 @@ class PyQtGraphRealtimeWidget(QWidget):
             self.setLayout(layout)
             
             # 틱 차트 위젯
-            self.tick_chart_widget = PyQtGraphWidget(parent=self, title="30틱 차트")
-            self.tick_chart_widget.setMinimumHeight(200)  # 최소 높이 설정
-            self.tick_chart_widget.setWindowFlags(Qt.WindowType.Widget)  # 독립 창 방지
-            layout.addWidget(self.tick_chart_widget, 1)
+            self.tic_chart_widget = PyQtGraphWidget(parent=self, title="30틱 차트")
+            self.tic_chart_widget.setMinimumHeight(200)  # 최소 높이 설정
+            self.tic_chart_widget.setWindowFlags(Qt.WindowType.Widget)  # 독립 창 방지
+            layout.addWidget(self.tic_chart_widget, 1)
             
             # 분봉 차트 위젯
             self.minute_chart_widget = PyQtGraphWidget(parent=self, title="3분봉 차트")
@@ -6760,20 +6870,20 @@ class PyQtGraphRealtimeWidget(QWidget):
                     logging.debug(f"🔍 PyQtGraph 캐시 데이터 조회 결과: {cache_data is not None}")
                     
                     if cache_data:
-                        tick_data = cache_data.get('tick_data')
+                        tic_data = cache_data.get('tic_data')
                         min_data = cache_data.get('min_data')
                         
                         logging.debug(f"🔍 PyQtGraph 캐시 데이터 구조: {list(cache_data.keys())}")
-                        logging.debug(f"🔍 PyQtGraph 틱 데이터: {tick_data is not None}, 분봉 데이터: {min_data is not None}")
+                        logging.debug(f"🔍 PyQtGraph 틱 데이터: {tic_data is not None}, 분봉 데이터: {min_data is not None}")
                         
-                        if tick_data:
-                            logging.debug(f"🔍 PyQtGraph 틱 데이터 타입: {type(tick_data)}")
-                            if isinstance(tick_data, dict):
-                                logging.debug(f"🔍 PyQtGraph 틱 데이터 키: {list(tick_data.keys())}")
-                                if 'output' in tick_data:
-                                    logging.debug(f"🔍 PyQtGraph 틱 output 길이: {len(tick_data['output']) if tick_data['output'] else 0}")
-                            elif isinstance(tick_data, list):
-                                logging.debug(f"🔍 PyQtGraph 틱 리스트 길이: {len(tick_data)}")
+                        if tic_data:
+                            logging.debug(f"🔍 PyQtGraph 틱 데이터 타입: {type(tic_data)}")
+                            if isinstance(tic_data, dict):
+                                logging.debug(f"🔍 PyQtGraph 틱 데이터 키: {list(tic_data.keys())}")
+                                if 'output' in tic_data:
+                                    logging.debug(f"🔍 PyQtGraph 틱 output 길이: {len(tic_data['output']) if tic_data['output'] else 0}")
+                            elif isinstance(tic_data, list):
+                                logging.debug(f"🔍 PyQtGraph 틱 리스트 길이: {len(tic_data)}")
                         
                         if min_data:
                             logging.debug(f"🔍 PyQtGraph 분봉 데이터 타입: {type(min_data)}")
@@ -6784,9 +6894,9 @@ class PyQtGraphRealtimeWidget(QWidget):
                             elif isinstance(min_data, list):
                                 logging.debug(f"🔍 PyQtGraph 분봉 리스트 길이: {len(min_data)}")
                         
-                        if tick_data or min_data:
+                        if tic_data or min_data:
                             logging.debug(f"🔍 PyQtGraph update_chart_data 호출 시작: {code}")
-                            self.update_chart_data(tick_data, min_data)
+                            self.update_chart_data(tic_data, min_data)
                             # logging.debug(f"📊 PyQtGraph 차트 데이터 로드 완료: {code}")
                         else:
                             logging.warning(f"⚠️ PyQtGraph 차트 데이터가 없습니다: {code}")
@@ -6801,19 +6911,19 @@ class PyQtGraphRealtimeWidget(QWidget):
     
     def clear_charts(self):
         """차트 데이터 초기화"""
-        self.chart_data = {'ticks': [], 'minutes': []}
-        self.data_cache = {'ticks': [], 'minutes': []}
+        self.chart_data = {'tics': [], 'minutes': []}
+        self.data_cache = {'tics': [], 'minutes': []}
         
         # 속성 존재 여부 확인 후 초기화
-        if hasattr(self, 'tick_chart_widget') and self.tick_chart_widget is not None:
-            self.tick_chart_widget.clear_chart()
+        if hasattr(self, 'tic_chart_widget') and self.tic_chart_widget is not None:
+            self.tic_chart_widget.clear_chart()
         if hasattr(self, 'minute_chart_widget') and self.minute_chart_widget is not None:
             self.minute_chart_widget.clear_chart()
     
-    def update_chart_data(self, tick_data=None, minute_data=None):
+    def update_chart_data(self, tic_data=None, minute_data=None):
         """PyQtGraph 차트 데이터 업데이트"""
         try:
-            logging.debug(f"🔍 PyQtGraph update_chart_data 호출됨 - 틱: {tick_data is not None}, 분봉: {minute_data is not None}")
+            logging.debug(f"🔍 PyQtGraph update_chart_data 호출됨 - 틱: {tic_data is not None}, 분봉: {minute_data is not None}")
             current_time = time.time()
             
             # 중복 업데이트 방지
@@ -6823,10 +6933,10 @@ class PyQtGraphRealtimeWidget(QWidget):
                 
             data_updated = False
             
-            if tick_data:
-                if len(tick_data) > self.max_tick_data_points:
-                    tick_data = tick_data[-self.max_tick_data_points:]
-                self.chart_data['ticks'] = tick_data
+            if tic_data:
+                if len(tic_data) > self.max_tic_data_points:
+                    tic_data = tic_data[-self.max_tic_data_points:]
+                self.chart_data['tics'] = tic_data
                 data_updated = True
                 
             if minute_data:
@@ -6856,8 +6966,8 @@ class PyQtGraphRealtimeWidget(QWidget):
                 self.last_render_time = current_time
             
             # 틱 차트 그리기
-            if self.chart_data.get('ticks'):
-                self._draw_pyqtchart_tick_chart()
+            if self.chart_data.get('tics'):
+                self._draw_pyqtchart_tic_chart()
             
             # 분봉 차트 그리기
             if self.chart_data.get('minutes'):
@@ -6866,29 +6976,29 @@ class PyQtGraphRealtimeWidget(QWidget):
         except Exception as ex:
             logging.error(f"❌ PyQtGraph 차트 그리기 실패: {ex}")
     
-    def _draw_pyqtchart_tick_chart(self):
+    def _draw_pyqtchart_tic_chart(self):
         """PyQtGraph 틱 차트 그리기"""
         try:
             # 위젯 초기화 확인
-            if not hasattr(self, 'tick_chart_widget') or self.tick_chart_widget is None:
+            if not hasattr(self, 'tic_chart_widget') or self.tic_chart_widget is None:
                 logging.error("❌ PyQtGraph 틱 차트 위젯이 초기화되지 않았습니다")
                 return
                 
             logging.debug("🔍 PyQtGraph 틱 차트 그리기 시작")
-            self.tick_chart_widget.clear_chart()
+            self.tic_chart_widget.clear_chart()
             
             # technical_indicators 변수 초기화
             if not hasattr(self, 'technical_indicators'):
                 self.technical_indicators = {}
             
             # 틱 데이터 가져오기
-            tick_data = self.chart_data.get('ticks')
-            if not tick_data:
+            tic_data = self.chart_data.get('tics')
+            if not tic_data:
                 logging.warning("⚠️ PyQtGraph 틱 데이터가 없습니다")
                 return
                 
             # 데이터 처리 및 변환
-            data_list = self._process_tick_data(tick_data)
+            data_list = self._process_tic_data(tic_data)
             if not data_list:
                 return
             
@@ -6897,63 +7007,63 @@ class PyQtGraphRealtimeWidget(QWidget):
             logging.debug(f"🔍 틱 차트 데이터 처리: 표시 {len(display_data)}개")
             
             # 캔들스틱 데이터 생성
-            candlestick_data = self._create_candlestick_data(display_data)
-            if not candlestick_data:
+            candlestic_data = self._create_candlestic_data(display_data)
+            if not candlestic_data:
                 logging.warning("⚠️ 틱 차트 캔들스틱 데이터가 없습니다")
                 return
             
             # 차트에 데이터 추가
-            self.tick_chart_widget.add_candlestick_data(candlestick_data, chart_type="tick")
+            self.tic_chart_widget.add_candlestic_data(candlestic_data, chart_type="tic")
             logging.debug("✅ 틱 차트 캔들스틱 데이터 추가 완료")
             
             # 이동평균선 표시
-            self._add_moving_averages_to_tick_chart(candlestick_data)
+            self._add_moving_averages_to_tic_chart(candlestic_data)
             
             # 차트 위젯 업데이트
-            self.tick_chart_widget.update()
-            self.tick_chart_widget.repaint()
+            self.tic_chart_widget.update()
+            self.tic_chart_widget.repaint()
             logging.debug("✅ 틱 차트 위젯 업데이트 완료")
                                           
         except Exception as ex:
             logging.error(f"❌ PyQtGraph 틱 차트 그리기 실패: {ex}")
             logging.error(f"❌ PyQtGraph 틱 차트 오류 상세: {traceback.format_exc()}")
     
-    def _process_tick_data(self, tick_data):
+    def _process_tic_data(self, tic_data):
         """틱 데이터 처리 및 변환"""
-        if isinstance(tick_data, dict):
-            if 'output' in tick_data and tick_data['output']:
+        if isinstance(tic_data, dict):
+            if 'output' in tic_data and tic_data['output']:
                 # API 응답 구조: {'output': [...]}
-                data_list = tick_data['output']
-                self._extract_moving_averages(tick_data)
-            elif 'close' in tick_data and isinstance(tick_data.get('close'), list):
+                data_list = tic_data['output']
+                self._extract_moving_averages(tic_data)
+            elif 'close' in tic_data and isinstance(tic_data.get('close'), list):
                 # API 응답 구조: {'time': [...], 'open': [...], 'high': [...], 'low': [...], 'close': [...]}
-                data_list = self._convert_list_to_dict_format(tick_data)
-                self._extract_moving_averages(tick_data)
-            elif 'time' in tick_data and 'close' in tick_data:
+                data_list = self._convert_list_to_dict_format(tic_data)
+                self._extract_moving_averages(tic_data)
+            elif 'time' in tic_data and 'close' in tic_data:
                 # 단일 데이터
-                data_list = [tick_data]
+                data_list = [tic_data]
             else:
                 # 기타 키 확인
                 possible_keys = ['time', 'open', 'high', 'low', 'close', 'volume']
-                if any(key in tick_data for key in possible_keys):
-                    data_list = [tick_data]
+                if any(key in tic_data for key in possible_keys):
+                    data_list = [tic_data]
                 else:
                     logging.warning("⚠️ 틱 데이터에 필요한 키가 없음")
                     return None
-        elif isinstance(tick_data, list):
-            data_list = tick_data
+        elif isinstance(tic_data, list):
+            data_list = tic_data
         else:
-            logging.warning(f"⚠️ 틱 데이터 형식이 예상과 다름: {type(tick_data)}")
+            logging.warning(f"⚠️ 틱 데이터 형식이 예상과 다름: {type(tic_data)}")
             return None
             
         return data_list
     
-    def _extract_moving_averages(self, tick_data):
+    def _extract_moving_averages(self, tic_data):
         """이동평균선 데이터 추출"""
         ma_indicators = {}
         for key in ['MA5', 'MA20', 'MA60', 'MA120']:
-            if key in tick_data and tick_data[key] is not None:
-                ma_indicators[key] = tick_data[key]
+            if key in tic_data and tic_data[key] is not None:
+                ma_indicators[key] = tic_data[key]
         
         if ma_indicators:
             self.technical_indicators = ma_indicators
@@ -6961,14 +7071,14 @@ class PyQtGraphRealtimeWidget(QWidget):
         else:
             logging.warning("⚠️ 이동평균선 데이터를 찾을 수 없습니다")
     
-    def _convert_list_to_dict_format(self, tick_data):
+    def _convert_list_to_dict_format(self, tic_data):
         """리스트 형식 데이터를 딕셔너리 리스트로 변환"""
-        close_data = tick_data.get('close', [])
-        time_data = tick_data.get('time', [])
-        open_data = tick_data.get('open', [])
-        high_data = tick_data.get('high', [])
-        low_data = tick_data.get('low', [])
-        volume_data = tick_data.get('volume', [0] * len(close_data))
+        close_data = tic_data.get('close', [])
+        time_data = tic_data.get('time', [])
+        open_data = tic_data.get('open', [])
+        high_data = tic_data.get('high', [])
+        low_data = tic_data.get('low', [])
+        volume_data = tic_data.get('volume', [0] * len(close_data))
         
         data_list = []
         for i in range(len(close_data)):
@@ -6997,9 +7107,9 @@ class PyQtGraphRealtimeWidget(QWidget):
         logging.debug(f"🔍 API 응답 구조 변환: {len(data_list)}개 (OHLC 보정 완료)")
         return data_list
     
-    def _create_candlestick_data(self, display_data):
+    def _create_candlestic_data(self, display_data):
         """캔들스틱 데이터 생성"""
-        candlestick_data = []
+        candlestic_data = []
         for i, item in enumerate(display_data):
             # 시간 변환
             timestamp = self._convert_time_to_timestamp(item.get('time', ''))
@@ -7010,9 +7120,9 @@ class PyQtGraphRealtimeWidget(QWidget):
             low_price = safe_float_conversion(item.get('low', 0))
             close_price = safe_float_conversion(item.get('close', 0))
             
-            candlestick_data.append((timestamp, open_price, high_price, low_price, close_price))
+            candlestic_data.append((timestamp, open_price, high_price, low_price, close_price))
         
-        return candlestick_data
+        return candlestic_data
     
     def _convert_time_to_timestamp(self, time_data):
         """시간 데이터를 타임스탬프로 변환"""
@@ -7054,7 +7164,7 @@ class PyQtGraphRealtimeWidget(QWidget):
         # 기본값: 현재 시간
         return int(datetime.now().timestamp() * 1000)
     
-    def _add_moving_averages_to_tick_chart(self, candlestick_data):
+    def _add_moving_averages_to_tic_chart(self, candlestic_data):
         """틱 차트에 이동평균선 추가"""
         if not hasattr(self, 'technical_indicators') or not self.technical_indicators:
             logging.warning("⚠️ technical_indicators 변수를 찾을 수 없습니다")
@@ -7065,7 +7175,7 @@ class PyQtGraphRealtimeWidget(QWidget):
             return
         
         ma_indicators = {}
-        chart_length = len(candlestick_data)
+        chart_length = len(candlestic_data)
         
         for key in ['MA5', 'MA20', 'MA60', 'MA120']:
             if key in self.technical_indicators and self.technical_indicators[key] is not None:
@@ -7083,7 +7193,7 @@ class PyQtGraphRealtimeWidget(QWidget):
                 ma_indicators[key] = sliced_ma_data
         
         if ma_indicators:
-            self.tick_chart_widget.add_moving_averages(candlestick_data, ma_indicators, "tick")
+            self.tic_chart_widget.add_moving_averages(candlestic_data, ma_indicators, "tic")
             logging.debug(f"✅ 틱 차트 이동평균선 표시 완료: {list(ma_indicators.keys())}")
         else:
             logging.warning("⚠️ 이동평균선 데이터를 찾을 수 없습니다")
@@ -7119,17 +7229,17 @@ class PyQtGraphRealtimeWidget(QWidget):
             logging.debug(f"🔍 분봉 차트 데이터 처리: 표시 {len(display_data)}개")
             
             # 캔들스틱 데이터 생성
-            candlestick_data = self._create_candlestick_data(display_data)
-            if not candlestick_data:
+            candlestic_data = self._create_candlestic_data(display_data)
+            if not candlestic_data:
                 logging.warning("⚠️ 분봉 차트 캔들스틱 데이터가 없습니다")
                 return
             
             # 차트에 데이터 추가
-            self.minute_chart_widget.add_candlestick_data(candlestick_data, chart_type="minute")
+            self.minute_chart_widget.add_candlestic_data(candlestic_data, chart_type="minute")
             logging.debug("✅ 분봉 차트 캔들스틱 데이터 추가 완료")
             
             # 이동평균선 표시
-            self._add_moving_averages_to_minute_chart(candlestick_data)
+            self._add_moving_averages_to_minute_chart(candlestic_data)
             
             # 차트 위젯 업데이트
             self.minute_chart_widget.update()
@@ -7183,7 +7293,7 @@ class PyQtGraphRealtimeWidget(QWidget):
         else:
             logging.warning("⚠️ 분봉 이동평균선 데이터를 찾을 수 없습니다")
     
-    def _add_moving_averages_to_minute_chart(self, candlestick_data):
+    def _add_moving_averages_to_minute_chart(self, candlestic_data):
         """분봉 차트에 이동평균선 추가"""
         if not hasattr(self, 'technical_indicators') or not self.technical_indicators:
             logging.warning("⚠️ technical_indicators 변수를 찾을 수 없습니다")
@@ -7194,7 +7304,7 @@ class PyQtGraphRealtimeWidget(QWidget):
             return
         
         ma_indicators = {}
-        chart_length = len(candlestick_data)
+        chart_length = len(candlestic_data)
         
         for key in ['MA5', 'MA10', 'MA20']:
             if key in self.technical_indicators and self.technical_indicators[key] is not None:
@@ -7212,7 +7322,7 @@ class PyQtGraphRealtimeWidget(QWidget):
                 ma_indicators[key] = sliced_ma_data
         
         if ma_indicators:
-            self.minute_chart_widget.add_moving_averages(candlestick_data, ma_indicators, "minute")
+            self.minute_chart_widget.add_moving_averages(candlestic_data, ma_indicators, "minute")
             logging.debug(f"✅ 분봉 차트 이동평균선 표시 완료: {list(ma_indicators.keys())}")
         else:
             logging.warning("⚠️ 이동평균선 데이터를 찾을 수 없습니다")
@@ -7233,7 +7343,7 @@ class PyQtGraphRealtimeWidget(QWidget):
             if hasattr(self.parent_window, 'chart_cache') and self.parent_window.chart_cache:
                 cache_data = self.parent_window.chart_cache.get_cached_data(self.current_code)
                 if cache_data:
-                    self.update_chart_data(cache_data.get('tick_data'), cache_data.get('min_data'))
+                    self.update_chart_data(cache_data.get('tic_data'), cache_data.get('min_data'))
                     
         except Exception as ex:
             logging.error(f"❌ 최적화된 차트 업데이트 실패: {ex}")
@@ -7250,7 +7360,7 @@ class ChartDataCache(QObject):
             super().__init__(parent)            
             self.trader = trader            
             self.parent = parent  # MyWindow 객체 저장
-            self.cache = {}  # {종목코드: {'tick_data': {}, 'min_data': {}, 'last_update': datetime}}
+            self.cache = {}  # {종목코드: {'tic_data': {}, 'min_data': {}, 'last_update': datetime}}
             self.api_request_count = 0  # API 요청 카운터
             self.last_api_request_time = 0  # 마지막 API 요청 시간
             
@@ -7315,15 +7425,15 @@ class ChartDataCache(QObject):
         except Exception as ex:
             logging.error(f"❌ 비동기 차트 데이터 수집 실패: {code} - {ex}")
     
-    def _on_chart_data_ready(self, code, tick_data, min_data):
+    def _on_chart_data_ready(self, code, tic_data, min_data):
         """차트 데이터 수집 완료 시그널 핸들러"""
         try:
-            logging.debug(f"✅ 차트 데이터 수집 완료: {code} (tick: {tick_data is not None}, min: {min_data is not None})")
+            logging.debug(f"✅ 차트 데이터 수집 완료: {code} (tic: {tic_data is not None}, min: {min_data is not None})")
             
             # 캐시에 데이터 저장
             if code not in self.cache:
                 self.cache[code] = {
-                    'tick_data': None,
+                    'tic_data': None,
                     'min_data': None,
                     'last_update': None,
                     'last_save': None,
@@ -7332,12 +7442,12 @@ class ChartDataCache(QObject):
                 logging.debug(f"📝 {code}: 캐시 초기화")
             
             # 기술적 지표 계산
-            if tick_data:
-                tick_data = self._calculate_technical_indicators(tick_data, "tick")
+            if tic_data:
+                tic_data = self._calculate_technical_indicators(tic_data, "tic")
             if min_data:
                 min_data = self._calculate_technical_indicators(min_data, "minute")
             
-            self.cache[code]['tick_data'] = tick_data
+            self.cache[code]['tic_data'] = tic_data
             self.cache[code]['min_data'] = min_data
             self.cache[code]['last_update'] = datetime.now()
             
@@ -7377,7 +7487,7 @@ class ChartDataCache(QObject):
             self._remove_completed_thread(code)
             
             # 데이터 수집 결과 로그 (간소화)
-            if not tick_data and not min_data:
+            if not tic_data and not min_data:
                 logging.warning(f"⚠️ 차트 데이터 수집 실패: {code}")
             
         except Exception as ex:
@@ -7422,16 +7532,16 @@ class ChartDataCache(QObject):
         """실제 데이터 수집 및 저장"""
         try:
             # 틱 데이터 수집
-            tick_data = self.get_tick_data_from_api(code)
+            tic_data = self.get_tic_data_from_api(code)
             
             # 분봉 데이터 수집
             min_data = self.get_min_data_from_api(code)
             
             # 부분적 성공 허용: 틱 데이터 또는 분봉 데이터 중 하나라도 있으면 저장
-            if tick_data or min_data:
+            if tic_data or min_data:
                 # 기술적 지표 계산
-                if tick_data:
-                    tick_data = self._calculate_technical_indicators(tick_data, "tick")
+                if tic_data:
+                    tic_data = self._calculate_technical_indicators(tic_data, "tic")
                 if min_data:
                     min_data = self._calculate_technical_indicators(min_data, "minute")
                 
@@ -7439,7 +7549,7 @@ class ChartDataCache(QObject):
                 previous_close = self.cache.get(code, {}).get('previous_close', 0)
                 
                 self.cache[code] = {
-                    'tick_data': tick_data,
+                    'tic_data': tic_data,
                     'min_data': min_data,
                     'last_update': datetime.now(),
                     'last_save': self.cache.get(code, {}).get('last_save'),
@@ -7452,7 +7562,7 @@ class ChartDataCache(QObject):
             logging.error(f"❌ 실제 데이터 수집 실패: {code} - {ex}")
             logging.error(f"데이터 수집 예외 상세: {traceback.format_exc()}")
   
-    def _collect_tick_data_sync(self, code, max_retries=3):
+    def _collect_tic_data_sync(self, code, max_retries=3):
         """동기 방식 틱 데이터 수집"""
         for attempt in range(max_retries):
             try:
@@ -7463,7 +7573,7 @@ class ChartDataCache(QObject):
                     QTimer.singleShot(int(wait_time * 1000), lambda: None)  # QTimer로 대기
                 
                 logging.debug(f"🔧 API 틱 데이터 조회 시작: {code} (시도 {attempt + 1}/{max_retries})")
-                data = self.trader.client.get_stock_tick_chart(code, tic_scope=30)
+                data = self.trader.client.get_stock_tic_chart(code, tic_scope=30)
                 
                 if data and data.get('close'):
                     logging.debug(f"✅ 틱 데이터 조회 성공: {code} - 데이터 개수: {len(data['close'])}")
@@ -7527,7 +7637,7 @@ class ChartDataCache(QObject):
                         logging.error(f"❌ {code} 전일종가 조회 중 오류: {e}")
                 
                 self.cache[code] = {
-                    'tick_data': None,
+                    'tic_data': None,
                     'min_data': None,
                     'last_update': None,
                     'last_save': None,
@@ -7769,6 +7879,14 @@ class ChartDataCache(QObject):
     def update_all_charts(self):
         """모든 모니터링 종목 차트 데이터 업데이트 - 큐 시스템 사용"""
         try:
+            # 장 마감 시간(15:30) 이후에는 업데이트 중지
+            now = datetime.now()
+            market_close_time = now.replace(hour=15, minute=30, second=0, microsecond=0)
+            
+            if now > market_close_time:
+                logging.debug(f"⏰ 장 마감 시간({market_close_time.strftime('%H:%M:%S')}) 이후이므로 전체 차트 데이터 업데이트를 중지합니다.")
+                return
+
             cached_codes = list(self.cache.keys())
             logging.debug(f"🔧 전체 차트 데이터 업데이트 시작 - 캐시된 종목: {cached_codes}")
             
@@ -7794,26 +7912,26 @@ class ChartDataCache(QObject):
         try:
             cached_data = self.cache.get(code, None)
             if cached_data:
-                tick_data = cached_data.get('tick_data')
+                tic_data = cached_data.get('tic_data')
                 min_data = cached_data.get('min_data')
-                if tick_data and min_data:
-                    tick_count = len(tick_data.get('close', []))
+                if tic_data and min_data:
+                    tic_count = len(tic_data.get('close', []))
                     min_count = len(min_data.get('close', []))
-                    logging.debug(f"📊 ChartDataCache에서 {code} 데이터 조회 성공 - 틱:{tick_count}개, 분봉:{min_count}개")
+                    logging.debug(f"📊 ChartDataCache에서 {code} 데이터 조회 성공 - 틱:{tic_count}개, 분봉:{min_count}개")
                     return cached_data
                 else:
                     logging.debug(f"📊 ChartDataCache에 {code} 데이터가 있지만 틱/분봉 데이터가 없음")
                     # 상세 디버깅 정보 추가
                     logging.debug(f"📊 {code} 캐시 상세: {cached_data.keys()}")
                     
-                    # tick_data와 min_data의 실제 값 확인
-                    logging.debug(f"📊 {code} tick_data 타입: {type(tick_data)}, 값: {tick_data}")
+                    # tic_data와 min_data의 실제 값 확인
+                    logging.debug(f"📊 {code} tic_data 타입: {type(tic_data)}, 값: {tic_data}")
                     logging.debug(f"📊 {code} min_data 타입: {type(min_data)}, 값: {min_data}")
                     
-                    if tick_data and isinstance(tick_data, dict):
-                        logging.debug(f"📊 {code} 틱데이터 키: {tick_data.keys()}")
-                        if 'close' in tick_data:
-                            logging.debug(f"📊 {code} 틱데이터 close 길이: {len(tick_data.get('close', []))}")
+                    if tic_data and isinstance(tic_data, dict):
+                        logging.debug(f"📊 {code} 틱데이터 키: {tic_data.keys()}")
+                        if 'close' in tic_data:
+                            logging.debug(f"📊 {code} 틱데이터 close 길이: {len(tic_data.get('close', []))}")
                     if min_data and isinstance(min_data, dict):
                         logging.debug(f"📊 {code} 분봉데이터 키: {min_data.keys()}")
                         if 'close' in min_data:
@@ -7829,31 +7947,31 @@ class ChartDataCache(QObject):
             logging.error(f"ChartDataCache 데이터 조회 실패 ({code}): {ex}")
             return None
     
-    def save_chart_data(self, code, tick_data, min_data):
+    def save_chart_data(self, code, tic_data, min_data):
         """차트 데이터를 캐시에 저장"""
         try:
             # 기존 캐시의 previous_close 값 유지
             previous_close = self.cache.get(code, {}).get('previous_close', 0)
             
             self.cache[code] = {
-                'tick_data': tick_data,
+                'tic_data': tic_data,
                 'min_data': min_data,
                 'last_update': datetime.now(),
                 'last_save': None,
                 'previous_close': previous_close  # 전일종가 유지
             }
             
-            tick_count = len(tick_data.get('close', [])) if tick_data else 0
+            tic_count = len(tic_data.get('close', [])) if tic_data else 0
             min_count = len(min_data.get('close', [])) if min_data else 0
             
-            logging.debug(f"📊 ChartDataCache에 {code} 데이터 저장 완료 - 틱:{tick_count}개, 분봉:{min_count}개")
+            logging.debug(f"📊 ChartDataCache에 {code} 데이터 저장 완료 - 틱:{tic_count}개, 분봉:{min_count}개")
             return True
             
         except Exception as ex:
             logging.error(f"ChartDataCache 데이터 저장 실패 ({code}): {ex}")
             return False
     
-    def get_tick_data_from_api(self, code, max_retries=3):
+    def get_tic_data_from_api(self, code, max_retries=3):
         """30틱봉 데이터 조회 (재시도 로직 포함)"""
         
         for attempt in range(max_retries):
@@ -7866,7 +7984,7 @@ class ChartDataCache(QObject):
                     QTimer.singleShot(int(wait_time * 1000), lambda: None)
                 
                 logging.debug(f"🔧 API 틱 데이터 조회 시작: {code} (시도 {attempt + 1}/{max_retries})")
-                data = self.trader.client.get_stock_tick_chart(code, tic_scope=30)
+                data = self.trader.client.get_stock_tic_chart(code, tic_scope=30)
                 
                 # API 응답 상세 로깅
                 if data:
@@ -7991,6 +8109,14 @@ class ChartDataCache(QObject):
     async def save_to_database(self):
         """차트 데이터를 DB에 저장 (비동기 I/O)"""
         try:
+            # 장 마감 시간(15:30) 이후에는 DB 저장 중지
+            now = datetime.now()
+            market_close_time = now.replace(hour=15, minute=30, second=0, microsecond=0)
+            
+            if now > market_close_time:
+                logging.debug(f"⏰ 장 마감 시간({market_close_time.strftime('%H:%M:%S')}) 이후이므로 DB 저장을 중지합니다.")
+                return
+
             if not hasattr(self.trader, 'db_manager') or not self.trader.db_manager:
                 logging.warning("❌ DB 매니저가 없어서 저장할 수 없습니다")
                 return
@@ -8002,13 +8128,13 @@ class ChartDataCache(QObject):
             logging.debug(f"🔍 캐시 상태 확인: {cache_count}개 종목")
             
             for code, data in self.cache.items():
-                tick_data = data.get('tick_data')
+                tic_data = data.get('tic_data')
                 min_data = data.get('min_data')
                 
-                logging.debug(f"🔍 {code}: tick_data={tick_data is not None}, min_data={min_data is not None}")
+                logging.debug(f"🔍 {code}: tic_data={tic_data is not None}, min_data={min_data is not None}")
                 
-                if not tick_data or not min_data:
-                    logging.warning(f"⚠️ {code}: 데이터 부족으로 저장 건너뜀 (tick: {tick_data is not None}, min: {min_data is not None})")
+                if not tic_data or not min_data:
+                    logging.warning(f"⚠️ {code}: 데이터 부족으로 저장 건너뜀 (tic: {tic_data is not None}, min: {min_data is not None})")
                     continue
                 
                 # 1분마다 저장 (마지막 저장 시간 확인)
@@ -8022,7 +8148,7 @@ class ChartDataCache(QObject):
                 logging.debug(f"💾 {code}: DB 저장 시작")
                 
                 # 통합 주식 데이터 저장 (틱봉 기준, 분봉 데이터 포함)
-                await self.trader.db_manager.save_stock_data(code, tick_data, min_data)
+                await self.trader.db_manager.save_stock_data(code, tic_data, min_data)
                 
                 # 저장 시간 업데이트
                 data['last_save'] = current_time
@@ -8039,7 +8165,7 @@ class ChartDataCache(QObject):
             logging.error(f"통합 차트 데이터 DB 저장 실패: {ex}")
             logging.error(f"상세 오류: {traceback.format_exc()}")
     
-    def log_single_stock_analysis(self, code, tick_data, min_data):
+    def log_single_stock_analysis(self, code, tic_data, min_data):
         """단일 종목 분석표 출력 (차트 데이터 저장 시) - 비활성화됨"""
         try:
             # 종목명 조회
@@ -8182,7 +8308,7 @@ class ChartDataCache(QObject):
             indicators = {}
             
             # 차트 유형별 이동평균선 계산
-            if chart_type == "tick":
+            if chart_type == "tic":
                 # 30틱 차트: MA5, MA20, MA60, MA120
                 if len(close_array) >= 5:
                     indicators['MA5'] = talib.SMA(close_array, timeperiod=5)
@@ -8284,23 +8410,23 @@ class ChartDataCache(QObject):
             logging.error(f"❌ 캐시 데이터 조회 실패: {code} - {ex}")
             return None
     
-    def update_realtime_chart_data(self, code, tick_data, min_data):
+    def update_realtime_chart_data(self, code, tic_data, min_data):
         """실시간 차트 데이터 업데이트"""
         try:
             if code not in self.cache:
                 self.cache[code] = {}
             
             # 기존 데이터와 실시간 데이터 병합
-            if 'tick_data' in self.cache[code] and tick_data:
+            if 'tic_data' in self.cache[code] and tic_data:
                 # 틱 데이터 병합
-                existing_tick = self.cache[code]['tick_data']
+                existing_tic = self.cache[code]['tic_data']
                 for key in ['time', 'open', 'high', 'low', 'close', 'volume', 'strength', 'MA5', 'MA10', 'MA20', 'MA50', 'EMA5', 'EMA10', 'EMA20', 'RSI', 'MACD', 'MACD_SIGNAL', 'MACD_HIST']:
-                    if key in tick_data and key in existing_tick:
-                        existing_tick[key].extend(tick_data[key])
+                    if key in tic_data and key in existing_tic:
+                        existing_tic[key].extend(tic_data[key])
                         # 최대 데이터 수 제한
-                        if len(existing_tick[key]) > 300:
-                            existing_tick[key] = existing_tick[key][-300:]
-                self.cache[code]['tick_data'] = existing_tick
+                        if len(existing_tic[key]) > 300:
+                            existing_tic[key] = existing_tic[key][-300:]
+                self.cache[code]['tic_data'] = existing_tic
             
             if 'min_data' in self.cache[code] and min_data:
                 # 분봉 데이터 병합
@@ -8348,14 +8474,14 @@ class ChartDataCollectionThread(QThread):
             
             # 틱 데이터 수집
             self.progress_updated.emit(self.code, f"틱 데이터 수집 중: {self.code}")
-            tick_data = self._collect_tick_data()
+            tic_data = self._collect_tic_data()
             
             if self._is_cancelled:
                 return
             
             # 틱 데이터가 None인 경우 빈 딕셔너리로 초기화
-            if tick_data is None:
-                tick_data = {'time': [], 'open': [], 'high': [], 'low': [], 'close': [], 'volume': [], 'strength': []}
+            if tic_data is None:
+                tic_data = {'time': [], 'open': [], 'high': [], 'low': [], 'close': [], 'volume': [], 'strength': []}
                 logging.warning(f"틱 데이터가 None입니다. 빈 데이터로 초기화: {self.code}")
                 
             # 분봉 데이터 수집
@@ -8371,13 +8497,13 @@ class ChartDataCollectionThread(QThread):
                 logging.warning(f"분봉 데이터가 None입니다. 빈 데이터로 초기화: {self.code}")
                 
             self.progress_updated.emit(self.code, f"차트 데이터 수집 완료: {self.code}")
-            self.data_ready.emit(self.code, tick_data, min_data)
+            self.data_ready.emit(self.code, tic_data, min_data)
             
         except Exception as e:
             if not self._is_cancelled:
                 self.error_occurred.emit(self.code, str(e))
     
-    def _collect_tick_data(self):
+    def _collect_tic_data(self):
         """틱 데이터 수집"""
         for attempt in range(self.max_retries):
             if self._is_cancelled:
@@ -8385,10 +8511,10 @@ class ChartDataCollectionThread(QThread):
                 
             try:
                 # API 제한 확인
-                if not ApiLimitManager.check_api_limit_and_wait(request_type='tick'):
+                if not ApiLimitManager.check_api_limit_and_wait(request_type='tic'):
                     time.sleep(0.1)
                 
-                data = self.client.get_stock_tick_chart(
+                data = self.client.get_stock_tic_chart(
                     self.code, 
                     tic_scope=30, 
                 )
@@ -9473,11 +9599,11 @@ class KiwoomWebSocketClient:
                 logging.debug(f"⚠️ 차트 데이터 추가 건너뜀: {stock_code} (캐시 데이터 없음)")
                 return
             
-            # tick_data와 min_data가 유효한지 확인
-            tick_data = cached_data.get('tick_data')
+            # tic_data와 min_data가 유효한지 확인
+            tic_data = cached_data.get('tic_data')
             min_data = cached_data.get('min_data')
             
-            if not tick_data or not isinstance(tick_data, dict):
+            if not tic_data or not isinstance(tic_data, dict):
                 logging.debug(f"⚠️ 차트 데이터 추가 건너뜀: {stock_code} (틱 데이터 없음 또는 잘못된 타입)")
                 return
             
@@ -9486,11 +9612,11 @@ class KiwoomWebSocketClient:
                 return
             
             # 실시간 데이터를 틱/분봉 데이터에 추가
-            self._update_tick_chart_with_realtime(stock_code, cached_data, realtime_data)
+            self._update_tic_chart_with_realtime(stock_code, cached_data, realtime_data)
             self._update_minute_chart_with_realtime(stock_code, cached_data, realtime_data)
             
             # 차트 캐시 업데이트 (코드와 데이터를 캐시에 저장)
-            cached_data['tick_data'] = cached_data.get('tick_data')
+            cached_data['tic_data'] = cached_data.get('tic_data')
             cached_data['min_data'] = cached_data.get('min_data')
             chart_cache.cache[stock_code] = cached_data
             
@@ -9498,9 +9624,9 @@ class KiwoomWebSocketClient:
             self._calculate_technical_indicators_for_realtime(stock_code, cached_data)
             
             # 틱/분봉 데이터 개수 확인 (안전하게)
-            tick_count = len(tick_data.get('close', []))
+            tic_count = len(tic_data.get('close', []))
             min_count = len(min_data.get('close', []))
-            logging.debug(f"📊 차트 업데이트 완료: {stock_code} - 틱봉: {tick_count}개, 분봉: {min_count}개")
+            logging.debug(f"📊 차트 업데이트 완료: {stock_code} - 틱봉: {tic_count}개, 분봉: {min_count}개")
             
         except Exception as e:
             self.logger.error(f"실시간 차트 데이터 추가 실패: {e}")
@@ -9514,10 +9640,10 @@ class KiwoomWebSocketClient:
                 logging.debug(f"⚠️ 기술적 지표 계산 건너뜀: {stock_code} (캐시 데이터 없음)")
                 return
             
-            tick_data = cached_data.get('tick_data', {})
+            tic_data = cached_data.get('tic_data', {})
             min_data = cached_data.get('min_data', {})
             
-            if not tick_data or not min_data:
+            if not tic_data or not min_data:
                 return
             
             # chart_cache를 통해 기술적 지표 계산
@@ -9530,9 +9656,9 @@ class KiwoomWebSocketClient:
             chart_cache = self.parent.chart_cache
             
             # 30틱봉 기술적 지표 계산
-            if tick_data and len(tick_data.get('close', [])) > 0:
-                tick_data = chart_cache._calculate_technical_indicators(tick_data, "tick")
-                cached_data['tick_data'] = tick_data
+            if tic_data and len(tic_data.get('close', [])) > 0:
+                tic_data = chart_cache._calculate_technical_indicators(tic_data, "tic")
+                cached_data['tic_data'] = tic_data
             
             # 3분봉 기술적 지표 계산
             if min_data and len(min_data.get('close', [])) > 0:
@@ -9544,7 +9670,7 @@ class KiwoomWebSocketClient:
         except Exception as e:
             self.logger.error(f"실시간 기술적 지표 계산 실패: {e}")
     
-    def _update_tick_chart_with_realtime(self, stock_code, cached_data, realtime_data):
+    def _update_tic_chart_with_realtime(self, stock_code, cached_data, realtime_data):
         """틱 차트에 실시간 데이터 추가 (30틱 = 1봉) - 통합된 함수"""
         try:
             # cached_data가 None이거나 dict가 아니면 리턴
@@ -9552,16 +9678,16 @@ class KiwoomWebSocketClient:
                 logging.debug(f"⚠️ 틱 차트 업데이트 건너뜀: {stock_code} (캐시 데이터 없음)")
                 return
             
-            tick_data = cached_data.get('tick_data', {})
-            if not tick_data:
+            tic_data = cached_data.get('tic_data', {})
+            if not tic_data:
                 logging.debug(f"⚠️ 틱 차트 업데이트 건너뜀: {stock_code} (틱 데이터 없음)")
                 return
             
             # 필수 키가 없으면 초기화
             required_keys = ['time', 'open', 'high', 'low', 'close', 'volume', 'strength']
             for key in required_keys:
-                if key not in tick_data:
-                    tick_data[key] = []
+                if key not in tic_data:
+                    tic_data[key] = []
             
             # 실시간 데이터에서 시간 파싱
             execution_time = realtime_data.get('execution_time', '')
@@ -9587,7 +9713,7 @@ class KiwoomWebSocketClient:
             strength = abs(realtime_data.get('strength', 0))  # 음수면 양수로 전환
             
             # API 조회의 마지막 틱 개수 확인
-            last_tic_cnt = tick_data.get('last_tic_cnt', 0)
+            last_tic_cnt = tic_data.get('last_tic_cnt', 0)
             
             # last_tic_cnt 타입 검증 및 변환
             if isinstance(last_tic_cnt, list) and len(last_tic_cnt) > 0:
@@ -9600,16 +9726,16 @@ class KiwoomWebSocketClient:
                 last_tic_cnt = 0
             
             # 기존 봉이 없는 경우 (초기 상태)
-            if len(tick_data.get('close', [])) == 0:
+            if len(tic_data.get('close', [])) == 0:
                 # 첫 봉 생성
-                tick_data['time'].append(dt)
-                tick_data['open'].append(current_price)
-                tick_data['high'].append(current_price)
-                tick_data['low'].append(current_price)
-                tick_data['close'].append(current_price)
-                tick_data['volume'].append(volume)
-                tick_data['strength'].append(strength)
-                tick_data['last_tic_cnt'] = 1
+                tic_data['time'].append(dt)
+                tic_data['open'].append(current_price)
+                tic_data['high'].append(current_price)
+                tic_data['low'].append(current_price)
+                tic_data['close'].append(current_price)
+                tic_data['volume'].append(volume)
+                tic_data['strength'].append(strength)
+                tic_data['last_tic_cnt'] = 1
                 
                 self.logger.info(f"🎯 첫 번째 30틱봉 생성: {stock_code}, 가격={current_price}")
                 return
@@ -9619,48 +9745,48 @@ class KiwoomWebSocketClient:
                 last_index = -1
                 
                 # 종가 업데이트
-                tick_data['close'][last_index] = current_price
+                tic_data['close'][last_index] = current_price
                 
                 # 고가 업데이트 (현재가가 더 높으면)
-                if tick_data['high'][last_index] < current_price:
-                    tick_data['high'][last_index] = current_price
+                if tic_data['high'][last_index] < current_price:
+                    tic_data['high'][last_index] = current_price
                 
                 # 저가 업데이트 (현재가가 더 낮으면)
-                if tick_data['low'][last_index] > current_price:
-                    tick_data['low'][last_index] = current_price
+                if tic_data['low'][last_index] > current_price:
+                    tic_data['low'][last_index] = current_price
                 
                 # 거래량 누적
-                tick_data['volume'][last_index] += volume
+                tic_data['volume'][last_index] += volume
                 
                 # 체결강도를 실시간 체결강도로 업데이트
-                tick_data['strength'][last_index] = strength
+                tic_data['strength'][last_index] = strength
 
                 # 마지막 틱 개수 증가
-                tick_data['last_tic_cnt'] = last_tic_cnt + 1
+                tic_data['last_tic_cnt'] = last_tic_cnt + 1
                 
-                self.logger.debug(f"틱 봉 업데이트 (틱수: {tick_data['last_tic_cnt']}/30): OHLC={tick_data['open'][last_index]}/{tick_data['high'][last_index]}/{tick_data['low'][last_index]}/{tick_data['close'][last_index]}, 거래량={tick_data['volume'][last_index]}")
+                self.logger.debug(f"틱 봉 업데이트 (틱수: {tic_data['last_tic_cnt']}/30): OHLC={tic_data['open'][last_index]}/{tic_data['high'][last_index]}/{tic_data['low'][last_index]}/{tic_data['close'][last_index]}, 거래량={tic_data['volume'][last_index]}")
                     
             else:
                 # 31번째 틱부터 새로운 봉 생성
-                tick_data['time'].append(dt)
-                tick_data['open'].append(current_price)
-                tick_data['high'].append(current_price)
-                tick_data['low'].append(current_price)
-                tick_data['close'].append(current_price)
-                tick_data['volume'].append(volume)
-                tick_data['strength'].append(strength)
+                tic_data['time'].append(dt)
+                tic_data['open'].append(current_price)
+                tic_data['high'].append(current_price)
+                tic_data['low'].append(current_price)
+                tic_data['close'].append(current_price)
+                tic_data['volume'].append(volume)
+                tic_data['strength'].append(strength)
                 
                 # 틱 카운트를 1로 리셋 (새 봉의 첫 번째 틱)
-                tick_data['last_tic_cnt'] = 1              
+                tic_data['last_tic_cnt'] = 1              
                 
                 # 새 봉 데이터 로그 표시
-                self._log_last_tick_bar_data(stock_code, tick_data, -1)
+                self._log_last_tic_bar_data(stock_code, tic_data, -1)
             
             # 최대 데이터 수 제한 (300개)
             max_data = 300
             for key in ['time', 'open', 'high', 'low', 'close', 'volume', 'strength']:
-                if key in tick_data and len(tick_data[key]) > max_data:
-                    tick_data[key] = tick_data[key][-max_data:]
+                if key in tic_data and len(tic_data[key]) > max_data:
+                    tic_data[key] = tic_data[key][-max_data:]
                         
         except Exception as e:
             self.logger.error(f"틱 차트 실시간 데이터 추가 실패: {e}")
@@ -9782,13 +9908,13 @@ class KiwoomWebSocketClient:
         except Exception as e:
             logging.error(f"분봉 데이터 로그 표시 실패: {e}")
     
-    def _log_last_tick_bar_data(self, stock_code, tick_data, bar_index):
+    def _log_last_tic_bar_data(self, stock_code, tic_data, bar_index):
         """마지막 틱 봉 데이터를 로그에 표시"""
         try:
-            if 'tick_bars' not in tick_data or not tick_data:
+            if 'tic_bars' not in tic_data or not tic_data:
                 return
             
-            bars = tick_data
+            bars = tic_data
             if not bars.get('time') or len(bars['time']) == 0:
                 return
             
@@ -10757,14 +10883,14 @@ class KiwoomRestClient:
             self.logger.error(f"차트 데이터 조회 중 오류: {e}")
             return pd.DataFrame()
     
-    def get_stock_tick_chart(self, code: str, tic_scope: int = 30, cont_yn: str = 'N', next_key: str = '') -> Dict:
+    def get_stock_tic_chart(self, code: str, tic_scope: int = 30, cont_yn: str = 'N', next_key: str = '') -> Dict:
         """주식 틱 차트 데이터 조회 (ka10079) - 참고 코드 기반 개선"""
         try:
             if not self.check_token_validity():
                 return {}
             
             # API 요청 제한 확인 및 대기
-            ApiLimitManager.check_api_limit_and_wait("틱 차트 조회", request_type="tick_chart")
+            ApiLimitManager.check_api_limit_and_wait("틱 차트 조회", request_type="tic_chart")
             
             # 모의투자 여부에 따라 서버 선택
             server_url = self.mock_url if self.is_mock else self.base_url
@@ -10797,14 +10923,14 @@ class KiwoomRestClient:
                 self.logger.debug(f"틱 차트 API 응답 성공: {code}")
                 
                 # 틱 차트 데이터 파싱
-                tick_data = self._parse_tick_chart_data(response_data)
+                tic_data = self._parse_tic_chart_data(response_data)
                 
                 # 체결강도 데이터는 제거됨 (ka10046 API 사용 안함)
                 # 체결강도 데이터가 없으면 기본값 0.0으로 설정
-                if 'strength' not in tick_data or not tick_data['strength']:
-                    tick_data['strength'] = [0.0] * len(tick_data.get('close', []))
+                if 'strength' not in tic_data or not tic_data['strength']:
+                    tic_data['strength'] = [0.0] * len(tic_data.get('close', []))
                 
-                return tick_data
+                return tic_data
             else:
                 self.logger.error(f"틱 차트 데이터 조회 실패: {response.status_code}")
                 try:
@@ -11224,7 +11350,7 @@ class KiwoomRestClient:
             self.logger.error(f"차트 데이터 파싱 오류: {e}")
             return pd.DataFrame()
     
-    def _parse_tick_chart_data(self, data: Dict) -> Dict:
+    def _parse_tic_chart_data(self, data: Dict) -> Dict:
         """틱 차트 데이터 파싱 (ka10079 응답 형식) - 키움 API 문서 참고"""
         try:
             # API 응답 구조 확인
@@ -11238,8 +11364,8 @@ class KiwoomRestClient:
                 self.logger.warning("stk_tic_chart_qry 필드가 응답에 없습니다")
                 return {}
             
-            tick_data = data['stk_tic_chart_qry']
-            if not tick_data:
+            tic_data = data['stk_tic_chart_qry']
+            if not tic_data:
                 self.logger.warning("틱 차트 데이터가 비어있습니다")
                 return {}
             
@@ -11256,14 +11382,14 @@ class KiwoomRestClient:
             }
             
             # 디버깅: 원본 데이터 시간 순서 확인
-            if tick_data:
-                original_first = tick_data[0].get('cntr_tm', '')
-                original_last = tick_data[-1].get('cntr_tm', '')
-                self.logger.debug(f"틱 원본 데이터: 총 {len(tick_data)}개, 첫번째={original_first}, 마지막={original_last}")
+            if tic_data:
+                original_first = tic_data[0].get('cntr_tm', '')
+                original_last = tic_data[-1].get('cntr_tm', '')
+                self.logger.debug(f"틱 원본 데이터: 총 {len(tic_data)}개, 첫번째={original_first}, 마지막={original_last}")
                 
                 # 원본 데이터 구조 디버깅 (첫 번째 항목)
-                if tick_data:
-                    first_item = tick_data[0]
+                if tic_data:
+                    first_item = tic_data[0]
                     
                     # 시간 관련 필드들 확인
                     time_fields = ['cntr_tm', 'time', 'timestamp', 'dt', 'date_time']
@@ -11280,10 +11406,10 @@ class KiwoomRestClient:
                         return str(item.get(field))
                 return ''
             
-            tick_data.sort(key=get_sort_key)
+            tic_data.sort(key=get_sort_key)
             
             # 모든 데이터 처리 (정렬 후)
-            data_to_process = tick_data
+            data_to_process = tic_data
             
             # 디버깅: 시간 순서 확인
             if data_to_process:

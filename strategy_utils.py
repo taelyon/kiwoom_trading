@@ -406,6 +406,20 @@ def build_backtest_buy_locals(code, chart_data, portfolio_info=None):
         locals_dict.update(indicators)
         locals_dict.update(additional)
         
+        # 백테스팅에서 실시간 전략과 호환성을 위해 접두사(tic_, min3_)가 붙은 변수 생성
+        # chart_data (DataFrame)의 컬럼명을 기반으로 변수 생성
+        if not chart_data.empty:
+            last_row = chart_data.iloc[-1]
+            for col_name in chart_data.columns:
+                if col_name.startswith('tic_') or col_name.startswith('min3_'):
+                    # 예: 'tic_ma5' -> 'tic_MA5'
+                    try:
+                        parts = col_name.split('_', 1)
+                        var_name = parts[0] + '_' + parts[1].upper()
+                        locals_dict[var_name] = last_row[col_name]
+                    except IndexError:
+                        locals_dict[col_name] = last_row[col_name]
+        
         # 포트폴리오 정보 추가
         if portfolio_info:
             locals_dict.update(portfolio_info)
@@ -442,6 +456,20 @@ def build_backtest_sell_locals(code, chart_data, buy_price, buy_time, current_pr
         locals_dict = {}
         locals_dict.update(indicators)
         locals_dict.update(additional)
+        
+        # 백테스팅에서 실시간 전략과 호환성을 위해 접두사(tic_, min3_)가 붙은 변수 생성
+        # chart_data (DataFrame)의 컬럼명을 기반으로 변수 생성
+        if not chart_data.empty:
+            last_row = chart_data.iloc[-1]
+            for col_name in chart_data.columns:
+                if col_name.startswith('tic_') or col_name.startswith('min3_'):
+                    # 예: 'tic_ma5' -> 'tic_MA5'
+                    try:
+                        parts = col_name.split('_', 1)
+                        var_name = parts[0] + '_' + parts[1].upper()
+                        locals_dict[var_name] = last_row[col_name]
+                    except IndexError:
+                        locals_dict[col_name] = last_row[col_name]
         
         # 매매 관련 변수
         locals_dict['code'] = code
@@ -601,9 +629,9 @@ def build_realtime_buy_locals(code, kiwoom_data, chart_data, portfolio_info=None
         
         # 캐시 틱 데이터의 VWAP을 우선 사용 (스칼라 값)
         try:
-            tick_cache = kiwoom_data.get('tick_data', {}) if isinstance(kiwoom_data, dict) else {}
-            if isinstance(tick_cache, dict):
-                cache_vwap = tick_cache.get('VWAP', None)
+            tic_cache = kiwoom_data.get('tic_data', {}) if isinstance(kiwoom_data, dict) else {}
+            if isinstance(tic_cache, dict):
+                cache_vwap = tic_cache.get('VWAP', None)
                 if cache_vwap is not None and not isinstance(cache_vwap, (list, np.ndarray)):
                     locals_dict['tic_VWAP'] = cache_vwap
         except Exception:
@@ -619,7 +647,7 @@ def build_realtime_buy_locals(code, kiwoom_data, chart_data, portfolio_info=None
 
         # 캐시 틱 지표 배열에서 최신값으로 보강 (MA/RSI/MACD 등)
         try:
-            if isinstance(tick_cache, dict):
+            if isinstance(tic_cache, dict):
                 def _last_scalar(arr):
                     try:
                         if isinstance(arr, (list, np.ndarray)) and len(arr) > 0:
@@ -638,8 +666,8 @@ def build_realtime_buy_locals(code, kiwoom_data, chart_data, portfolio_info=None
                     'MACD_HIST': 'tic_MACD_HIST',
                 }
                 for src_key, dst_key in cache_map.items():
-                    if dst_key not in locals_dict and src_key in tick_cache:
-                        val = _last_scalar(tick_cache.get(src_key))
+                    if dst_key not in locals_dict and src_key in tic_cache:
+                        val = _last_scalar(tic_cache.get(src_key))
                         if val is not None and not np.isnan(val):
                             locals_dict[dst_key] = val
         except Exception:
@@ -696,12 +724,12 @@ def build_realtime_buy_locals(code, kiwoom_data, chart_data, portfolio_info=None
         locals_dict['current_price'] = current_price
         # C는 데이터 캐시의 틱 차트 종가를 우선 사용, 없을 때만 실시간 현재가 사용
         try:
-            tick_close_scalar = None
+            tic_close_scalar = None
             if 'tic_close' in locals_dict and isinstance(locals_dict['tic_close'], (int, float)):
-                tick_close_scalar = float(locals_dict['tic_close'])
+                tic_close_scalar = float(locals_dict['tic_close'])
             elif not chart_data.empty and 'close' in chart_data.columns and len(chart_data['close']) > 0:
-                tick_close_scalar = float(chart_data['close'].iloc[-1])
-            locals_dict['C'] = tick_close_scalar if tick_close_scalar is not None else current_price
+                tic_close_scalar = float(chart_data['close'].iloc[-1])
+            locals_dict['C'] = tic_close_scalar if tic_close_scalar is not None else current_price
         except Exception:
             locals_dict['C'] = current_price
         
@@ -895,9 +923,9 @@ def build_realtime_sell_locals(code, kiwoom_data, chart_data, buy_price, buy_tim
         
         # 캐시 틱 데이터의 VWAP을 우선 사용 (스칼라 값)
         try:
-            tick_cache = kiwoom_data.get('tick_data', {}) if isinstance(kiwoom_data, dict) else {}
-            if isinstance(tick_cache, dict):
-                cache_vwap = tick_cache.get('VWAP', None)
+            tic_cache = kiwoom_data.get('tic_data', {}) if isinstance(kiwoom_data, dict) else {}
+            if isinstance(tic_cache, dict):
+                cache_vwap = tic_cache.get('VWAP', None)
                 if cache_vwap is not None and not isinstance(cache_vwap, (list, np.ndarray)):
                     locals_dict['tic_VWAP'] = cache_vwap
         except Exception:
@@ -913,7 +941,7 @@ def build_realtime_sell_locals(code, kiwoom_data, chart_data, buy_price, buy_tim
 
         # 캐시 틱 지표 배열에서 최신값으로 보강 (MA/RSI/MACD 등)
         try:
-            if isinstance(tick_cache, dict):
+            if isinstance(tic_cache, dict):
                 def _last_scalar(arr):
                     try:
                         if isinstance(arr, (list, np.ndarray)) and len(arr) > 0:
@@ -932,8 +960,8 @@ def build_realtime_sell_locals(code, kiwoom_data, chart_data, buy_price, buy_tim
                     'MACD_HIST': 'tic_MACD_HIST',
                 }
                 for src_key, dst_key in cache_map.items():
-                    if dst_key not in locals_dict and src_key in tick_cache:
-                        val = _last_scalar(tick_cache.get(src_key))
+                    if dst_key not in locals_dict and src_key in tic_cache:
+                        val = _last_scalar(tic_cache.get(src_key))
                         if val is not None and not np.isnan(val):
                             locals_dict[dst_key] = val
         except Exception:
@@ -988,12 +1016,12 @@ def build_realtime_sell_locals(code, kiwoom_data, chart_data, buy_price, buy_tim
         locals_dict['current_price'] = current_price
         # C는 데이터 캐시의 틱 차트 종가를 우선 사용, 없을 때만 실시간 현재가 사용
         try:
-            tick_close_scalar = None
+            tic_close_scalar = None
             if 'tic_close' in locals_dict and isinstance(locals_dict['tic_close'], (int, float)):
-                tick_close_scalar = float(locals_dict['tic_close'])
+                tic_close_scalar = float(locals_dict['tic_close'])
             elif not chart_data.empty and 'close' in chart_data.columns and len(chart_data['close']) > 0:
-                tick_close_scalar = float(chart_data['close'].iloc[-1])
-            locals_dict['C'] = tick_close_scalar if tick_close_scalar is not None else current_price
+                tic_close_scalar = float(chart_data['close'].iloc[-1])
+            locals_dict['C'] = tic_close_scalar if tic_close_scalar is not None else current_price
         except Exception:
             locals_dict['C'] = current_price
         

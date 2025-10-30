@@ -70,33 +70,63 @@ class KiwoomBacktester:
         
         # 백테스팅 결과
         self.results = {}
+
+        # '통합 전략' 동적 생성
+        if '통합 전략' not in self.strategies:
+            integrated_buy = []
+            integrated_sell = []
+            
+            # '급등주' 전략이 있으면 추가
+            if '급등주' in self.strategies:
+                integrated_buy.extend(self.strategies['급등주'].get('buy_strategies', []))
+                integrated_sell.extend(self.strategies['급등주'].get('sell_strategies', []))
+            
+            # '갭상승' 전략이 있으면 추가
+            if '갭상승' in self.strategies:
+                integrated_buy.extend(self.strategies['갭상승'].get('buy_strategies', []))
+                integrated_sell.extend(self.strategies['갭상승'].get('sell_strategies', []))
+
+            if integrated_buy or integrated_sell:
+                self.strategies['통합 전략'] = {
+                    'buy_strategies': integrated_buy,
+                    'sell_strategies': integrated_sell
+                }
+                logging.info("✅ '통합 전략'을 동적으로 생성했습니다 (급등주 + 갭상승).")
         
         logging.info(f"키움 백테스터 초기화 완료 (초기 자금: {initial_cash:,}원)")
+
+    def get_db_data_range(self):
+        """데이터베이스에 저장된 데이터의 전체 기간을 조회"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            # stock_data 테이블에서 전체 기간 조회
+            cursor.execute("SELECT MIN(datetime), MAX(datetime) FROM stock_data")
+            result = cursor.fetchone()
+            conn.close()
+            
+            if result and result[0] and result[1]:
+                start_date = datetime.strptime(result[0], '%Y-%m-%d %H:%M:%S').strftime('%Y%m%d')
+                end_date = datetime.strptime(result[1], '%Y-%m-%d %H:%M:%S').strftime('%Y%m%d')
+                return start_date, end_date
+            else:
+                return None, None
+        except Exception as ex:
+            logging.error(f"DB 데이터 기간 조회 실패: {ex}")
+            return None, None
     
-    def load_stock_data(self, code, start_date, end_date, data_type='auto'):
+    def load_stock_data(self, code, start_date, end_date):
         """통합 주식 데이터 로드 (stock_data 테이블 사용)
         
         Args:
             code: 종목코드
             start_date: 시작일
             end_date: 종료일
-            data_type: 'auto', 'tick', 'minute'
         """
         try:
             conn = sqlite3.connect(self.db_path)
-            
-            if data_type == 'auto':
-                # 통합 데이터 로드 (틱봉 기준)
-                df = self._load_integrated_data(conn, code, start_date, end_date)
-            elif data_type == 'tick':
-                # 틱봉 데이터만 로드 (통합 테이블에서)
-                df = self._load_tick_from_integrated(conn, code, start_date, end_date)
-            elif data_type == 'minute':
-                # 분봉 데이터만 로드 (통합 테이블에서)
-                df = self._load_minute_from_integrated(conn, code, start_date, end_date)
-            else:
-                logging.error(f"지원하지 않는 데이터 타입: {data_type}")
-                return pd.DataFrame()
+            df = self._load_integrated_data(conn, code, start_date, end_date)
             
             conn.close()
             
@@ -111,7 +141,7 @@ class KiwoomBacktester:
             # 결측값 처리
             df = df.ffill().fillna(0)
             
-            logging.info(f"데이터 로드 완료: {code} ({len(df)}개 레코드, 타입: {data_type})")
+            logging.info(f"데이터 로드 완료: {code} ({len(df)}개 레코드)")
             return df
             
         except Exception as ex:
@@ -127,22 +157,24 @@ class KiwoomBacktester:
             columns_info = cursor.fetchall()
             available_columns = [col[1] for col in columns_info]
             
-            # 기본 컬럼들
-            base_columns = ['datetime', 'open', 'high', 'low', 'close', 'volume']
+            # 기본 컬럼 (datetime)
+            base_columns = ['datetime']
             
-            # 틱봉 데이터 컬럼들
-            tick_columns = ['tick_open', 'tick_high', 'tick_low', 'tick_close', 'tick_volume', 'tick_strength']
+            # 틱봉 데이터 컬럼들 (tic_ 접두사)
+            tic_columns = ['tic_open', 'tic_high', 'tic_low', 'tic_close', 'tic_volume', 'tic_strength'] # 이 컬럼들이 이제 기본 OHLCV가 됨
             
             # 기술적 지표 컬럼들 (실제 존재하는 것만)
             indicator_columns = []
             for col in available_columns:
-                if col.startswith('tick_') and col not in tick_columns and col != 'tick_last_tic_cnt':
-                    indicator_columns.append(col)
-                elif col.startswith('min_') and col != 'min_last_tic_cnt':
-                    indicator_columns.append(col)
+                if col.startswith('tic_') and col not in tic_columns and col != 'tic_last_tic_cnt':
+                    indicator_columns.append(col) # tic_ 접두사 컬럼
+                elif col.startswith('min3_') and col != 'min3_last_tic_cnt': # min_ -> min3_
+                    indicator_columns.append(col) # min3_ 접두사 컬럼
+                elif col.startswith('tic_') and col not in tic_columns and col != 'tic_last_tic_cnt':
+                    indicator_columns.append(col) # tic_ 접두사 컬럼
             
             # 모든 컬럼 결합
-            all_columns = base_columns + tick_columns + indicator_columns
+            all_columns = base_columns + tic_columns + indicator_columns # base_columns에서 중복 OHLCV 제거
             existing_columns = [col for col in all_columns if col in available_columns]
             
             # SQL 쿼리 생성
@@ -150,12 +182,16 @@ class KiwoomBacktester:
             query = f'''
                 SELECT {columns_str}
                 FROM stock_data 
-                WHERE code = ? AND datetime BETWEEN ? AND ?
+                WHERE code = ? AND datetime >= ? AND datetime <= ?
                 ORDER BY datetime
             '''
             
-            df = pd.read_sql_query(query, conn, params=(code, start_date, end_date))
+            # YYYYMMDD 형식의 날짜를 YYYY-MM-DD HH:MM:SS 형식으로 변환하여 쿼리
+            start_datetime = f"{start_date[:4]}-{start_date[4:6]}-{start_date[6:]} 00:00:00"
+            end_datetime = f"{end_date[:4]}-{end_date[4:6]}-{end_date[6:]} 23:59:59"
             
+            df = pd.read_sql_query(query, conn, params=(code, start_datetime, end_datetime))
+
             if not df.empty:
                 logging.info(f"통합 데이터 로드 완료: {code} ({len(df)}개 레코드, {len(existing_columns)}개 컬럼)")
                 # 컬럼명 정리 (백워드 호환성)
@@ -167,17 +203,17 @@ class KiwoomBacktester:
             logging.error(f"통합 데이터 로드 실패 ({code}): {ex}")
             return pd.DataFrame()
     
-    def _load_tick_from_integrated(self, conn, code, start_date, end_date):
+    def _load_tic_from_integrated(self, conn, code, start_date, end_date):
         """통합 테이블에서 틱봉 데이터만 로드"""
         try:
             query = '''
-                SELECT 
+                SELECT
                     datetime,
-                    tick_open as open, tick_high as high, tick_low as low, 
-                    tick_close as close, tick_volume as volume, tick_strength as strength,
-                    tick_ma5 as ma5, tick_ma10 as ma10, tick_ma20 as ma20, tick_ma50 as ma50,
-                    tick_ema5 as ema5, tick_ema10 as ema10, tick_ema20 as ema20,
-                    tick_rsi as rsi, tick_macd as macd, tick_macd_signal as macd_signal, tick_macd_hist as macd_hist
+                    tic_open as open, tic_high as high, tic_low as low,
+                    tic_close as close, tic_volume as volume, tic_strength as strength,
+                    tic_ma5 as ma5, tic_ma10 as ma10, tic_ma20 as ma20, tic_ma50 as ma50,
+                    tic_ema5 as ema5, tic_ema10 as ema10, tic_ema20 as ema20,
+                    tic_rsi as rsi, tic_macd as macd, tic_macd_signal as macd_signal, tic_macd_hist as macd_hist
                 FROM stock_data 
                 WHERE code = ? AND datetime BETWEEN ? AND ?
                 ORDER BY datetime
@@ -225,13 +261,15 @@ class KiwoomBacktester:
         """컬럼명을 표준화하여 기존 백테스팅 코드와 호환"""
         try:
             # 기본 OHLCV는 그대로 사용
-            # 기술적 지표는 접두사 제거하여 표준화
-            column_mapping = {
-                'tick_ma5': 'ma5', 'tick_ma10': 'ma10', 'tick_ma20': 'ma20', 'tick_ma50': 'ma50',
-                'tick_ema5': 'ema5', 'tick_ema10': 'ema10', 'tick_ema20': 'ema20',
-                'tick_rsi': 'rsi', 'tick_macd': 'macd', 'tick_macd_signal': 'macd_signal', 'tick_macd_hist': 'macd_hist',
-                'tick_strength': 'strength'
+            # tic_ 접두사가 붙은 컬럼들을 접두사 없는 표준 컬럼명으로 변경
+            # 예: tic_open -> open, tic_ma5 -> ma5
+            column_mapping = {col: col[4:] for col in df.columns if col.startswith('tic_')}
+            base_mapping = {
+                'tic_open': 'open', 'tic_high': 'high', 'tic_low': 'low',
+                'tic_close': 'close', 'tic_volume': 'volume'
             }
+            # 기본 매핑을 먼저 적용하고, 나머지 지표 매핑을 덮어씀
+            column_mapping.update(base_mapping)
             
             df = df.rename(columns=column_mapping)
             return df
@@ -240,12 +278,12 @@ class KiwoomBacktester:
             logging.error(f"컬럼명 표준화 실패: {ex}")
             return df
     
-    def _load_tick_data(self, conn, code, start_date, end_date):
+    def _load_tic_data(self, conn, code, start_date, end_date):
         """틱 데이터 로드"""
         try:
             query = """
                 SELECT timestamp as datetime, open, high, low, close, volume 
-                FROM tick_data 
+                FROM tic_data 
                 WHERE code = ? AND timestamp BETWEEN ? AND ?
                 ORDER BY timestamp
             """
@@ -432,7 +470,7 @@ class KiwoomBacktester:
         except Exception as ex:
             logging.error(f"포트폴리오 가치 업데이트 실패: {ex}")
     
-    def run_backtest(self, codes, start_date, end_date, strategy_name='통합 전략', data_type='auto'):
+    def run_backtest(self, codes, start_date, end_date, strategy_name='통합 전략'):
         """백테스팅 실행
         
         Args:
@@ -440,10 +478,9 @@ class KiwoomBacktester:
             start_date: 시작일
             end_date: 종료일
             strategy_name: 전략명
-            data_type: 데이터 타입 ('auto', 'tick', 'minute')
         """
         try:
-            logging.info(f"백테스팅 시작: {strategy_name} ({start_date} ~ {end_date}, 데이터타입: {data_type})")
+            logging.info(f"백테스팅 시작: {strategy_name} ({start_date} ~ {end_date})")
             
             if strategy_name not in self.strategies:
                 logging.error(f"전략을 찾을 수 없음: {strategy_name}")
@@ -452,7 +489,7 @@ class KiwoomBacktester:
             # 데이터 로드 (틱 데이터 우선)
             all_data = {}
             for code in codes:
-                data = self.load_stock_data(code, start_date, end_date, data_type)
+                data = self.load_stock_data(code, start_date, end_date)
                 if not data.empty:
                     all_data[code] = data
             
@@ -762,7 +799,7 @@ class KiwoomBacktester:
             # 사용 가능한 종목과 데이터 타입 확인
             available_data = {
                 'integrated_data': {},
-                'tick_data': {},
+                'tic_data': {},
                 'minute_data': {},
                 'trade_records': {}
             }
@@ -798,34 +835,34 @@ class KiwoomBacktester:
             # 기존 테이블들도 확인 (백워드 호환성)
             try:
                 # 틱 데이터 확인
-                tick_query = """
+                tic_query = """
                     SELECT code, COUNT(*) as count, 
                            MIN(timestamp) as start_date, 
                            MAX(timestamp) as end_date
-                    FROM tick_data 
+                    FROM tic_data 
                     GROUP BY code
                 """
                 if code:
-                    tick_query = """
+                    tic_query = """
                         SELECT code, COUNT(*) as count, 
                                MIN(timestamp) as start_date, 
                                MAX(timestamp) as end_date
-                        FROM tick_data 
+                        FROM tic_data 
                         WHERE code = ?
                         GROUP BY code
                     """
-                    tick_df = pd.read_sql_query(tick_query, conn, params=(code,))
+                    tic_df = pd.read_sql_query(tic_query, conn, params=(code,))
                 else:
-                    tick_df = pd.read_sql_query(tick_query, conn)
+                    tic_df = pd.read_sql_query(tic_query, conn)
                 
-                for _, row in tick_df.iterrows():
-                    available_data['tick_data'][row['code']] = {
+                for _, row in tic_df.iterrows():
+                    available_data['tic_data'][row['code']] = {
                         'count': row['count'],
                         'start_date': row['start_date'],
                         'end_date': row['end_date']
                     }
             except Exception:
-                pass  # tick_data 테이블이 없을 수 있음
+                pass  # tic_data 테이블이 없을 수 있음
             
             try:
                 # 분봉 데이터 확인
@@ -898,22 +935,10 @@ class KiwoomBacktester:
                 logging.info(f"통합 데이터: {len(available_data['integrated_data'])}개 종목")
                 for code, info in available_data['integrated_data'].items():
                     logging.info(f"  {code}: {info['count']}개 레코드 ({info['start_date']} ~ {info['end_date']})")
-            else:
-                logging.info("통합 데이터: 없음")
             
-            if available_data['tick_data']:
-                logging.info(f"틱 데이터: {len(available_data['tick_data'])}개 종목")
-                for code, info in available_data['tick_data'].items():
-                    logging.info(f"  {code}: {info['count']}개 레코드 ({info['start_date']} ~ {info['end_date']})")
-            else:
-                logging.info("틱 데이터: 없음")
-            
-            if available_data['minute_data']:
-                logging.info(f"분봉 데이터: {len(available_data['minute_data'])}개 종목")
-                for code, info in available_data['minute_data'].items():
-                    logging.info(f"  {code}: {info['count']}개 레코드 ({info['start_date']} ~ {info['end_date']})")
-            else:
-                logging.info("분봉 데이터: 없음")
+            # 틱 데이터와 분봉 데이터는 통합 데이터에 포함되므로 별도 로그 제거
+            # if available_data['tic_data']: ...
+            # if available_data['minute_data']: ...
             
             if available_data['trade_records']:
                 logging.info(f"거래 기록: {len(available_data['trade_records'])}개 종목")
@@ -944,8 +969,8 @@ def main():
         codes = []
         if available_data['integrated_data']:
             codes.extend(list(available_data['integrated_data'].keys())[:3])  # 최대 3개 종목
-        elif available_data['tick_data']:
-            codes.extend(list(available_data['tick_data'].keys())[:3])  # 최대 3개 종목
+        elif available_data['tic_data']:
+            codes.extend(list(available_data['tic_data'].keys())[:3])  # 최대 3개 종목
         elif available_data['minute_data']:
             codes.extend(list(available_data['minute_data'].keys())[:3])  # 최대 3개 종목
         
@@ -969,7 +994,7 @@ def main():
                 logging.info(f"{'='*50}")
                 
                 # 백테스팅 실행 (틱 데이터 우선)
-                success = backtester.run_backtest(codes, start_date, end_date, strategy, 'auto')
+                success = backtester.run_backtest(codes, start_date, end_date, strategy)
                 
                 if success:
                     # 결과 차트 생성
