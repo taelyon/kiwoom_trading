@@ -10,8 +10,12 @@ import logging
 import sqlite3
 from datetime import datetime, timedelta
 
+# matplotlib 백엔드 설정 (PyQt5 충돌 방지) - pyplot 임포트 전에 설정해야 합니다.
+import matplotlib
+matplotlib.use('Agg')  # GUI 없는 백엔드 사용
+
 # 서드파티 라이브러리
-import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt  # 백엔드 설정 후에 임포트
 import numpy as np
 import pandas as pd
 from matplotlib.figure import Figure

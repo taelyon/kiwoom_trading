@@ -3,3 +3,7 @@ backup/
 temp/
 __pycache__/
 settings.ini
+dist/
+build/
+.venv/
+logs/
