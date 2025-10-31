@@ -8,17 +8,14 @@ import copy
 import json
 import logging
 import sqlite3
-from datetime import datetime, timedelta
-
-# matplotlib 백엔드 설정 (PyQt5 충돌 방지) - pyplot 임포트 전에 설정해야 합니다.
-import matplotlib
-matplotlib.use('Agg')  # GUI 없는 백엔드 사용
+from datetime import datetime
 
 # 서드파티 라이브러리
-import matplotlib.pyplot as plt  # 백엔드 설정 후에 임포트
 import numpy as np
 import pandas as pd
-from matplotlib.figure import Figure
+import pyqtgraph as pg
+from pyqtgraph.exporters import ImageExporter
+from PyQt6.QtWidgets import QApplication
 
 # 로컬 모듈
 from strategy_utils import (
@@ -29,9 +26,6 @@ from strategy_utils import (
     evaluate_strategies,
     load_strategies_from_config
 )
-
-plt.rcParams['font.family'] = 'Malgun Gothic'
-plt.rcParams['axes.unicode_minus'] = False
 
 class KiwoomBacktester:
     """키움 REST API 기반 백테스팅 엔진"""
@@ -46,7 +40,6 @@ class KiwoomBacktester:
         if config_file:
             try:
                 self.config.read(config_file, encoding='utf-8')
-                logging.info(f"✅ 설정 파일 로드: {config_file}")
             except Exception as ex:
                 logging.error(f"설정 파일 로드 실패: {ex}")
         
@@ -93,7 +86,7 @@ class KiwoomBacktester:
                 }
                 logging.info("✅ '통합 전략'을 동적으로 생성했습니다 (급등주 + 갭상승).")
         
-        logging.info(f"키움 백테스터 초기화 완료 (초기 자금: {initial_cash:,}원)")
+        logging.debug(f"키움 백테스터 초기화 완료 (초기 자금: {initial_cash:,}원)")
 
     def get_db_data_range(self):
         """데이터베이스에 저장된 데이터의 전체 기간을 조회"""
@@ -470,6 +463,44 @@ class KiwoomBacktester:
         except Exception as ex:
             logging.error(f"포트폴리오 가치 업데이트 실패: {ex}")
     
+    def _analyze_daily_performance(self):
+        """일별 성과 분석"""
+        if not self.trades:
+            return []
+
+        trades_df = pd.DataFrame(self.trades)
+        trades_df['date'] = pd.to_datetime(trades_df['timestamp']).dt.date
+
+        daily_stats = []
+        for date, group in trades_df.groupby('date'):
+            sell_trades = group[group['action'] == 'sell']
+            
+            daily_profit_loss = sell_trades['profit_loss'].sum()
+            
+            # 일일 수익률 계산을 위한 기준 자산 (해당일 첫 거래 시점의 자산)
+            try:
+                equity_df = pd.DataFrame(self.equity_curve)
+                equity_df['date'] = pd.to_datetime(equity_df['timestamp']).dt.date
+                start_of_day_equity = equity_df[equity_df['date'] == date]['total_value'].iloc[0]
+            except (IndexError, KeyError):
+                start_of_day_equity = self.initial_cash # Fallback
+
+            daily_return_pct = (daily_profit_loss / start_of_day_equity) * 100 if start_of_day_equity > 0 else 0
+            
+            win_trades = sell_trades[sell_trades['profit_loss'] > 0]
+            loss_trades = sell_trades[sell_trades['profit_loss'] <= 0]
+
+            daily_stats.append({
+                'date': date,
+                'daily_profit_loss': daily_profit_loss,
+                'daily_return_pct': daily_return_pct,
+                'trade_count': len(sell_trades),
+                'win_count': len(win_trades),
+                'loss_count': len(loss_trades),
+            })
+
+        return daily_stats
+
     def run_backtest(self, codes, start_date, end_date, strategy_name='통합 전략'):
         """백테스팅 실행
         
@@ -618,6 +649,9 @@ class KiwoomBacktester:
             if not self.trades or not self.equity_curve:
                 logging.warning("분석할 거래 기록이나 자산 곡선이 없습니다.")
                 return
+
+            # 일별 성과 분석
+            daily_performance = self._analyze_daily_performance()
             
             # 기본 통계
             total_trades = len(self.trades)
@@ -666,7 +700,8 @@ class KiwoomBacktester:
                 'final_value': final_value,
                 'initial_cash': self.initial_cash,
                 'trades': self.trades,
-                'equity_curve': self.equity_curve
+                'equity_curve': self.equity_curve,
+                'daily_performance': daily_performance
             }
             
             # 결과 출력
@@ -686,52 +721,91 @@ class KiwoomBacktester:
             logging.error(f"결과 분석 실패: {ex}")
     
     def plot_results(self, strategy_name):
-        """결과 차트 생성"""
+        """결과 차트 생성 (pyqtgraph 사용)"""
         try:
             if strategy_name not in self.results:
                 logging.error(f"결과를 찾을 수 없음: {strategy_name}")
                 return
-            
+
             result = self.results[strategy_name]
             equity_curve = result['equity_curve']
-            
+
             if not equity_curve:
                 logging.warning("자산 곡선 데이터가 없습니다.")
                 return
-            
-            # 차트 생성
-            fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10))
-            
+
+            # QApplication 인스턴스가 없으면 생성 (스크립트 단독 실행 시 필요)
+            app = QApplication.instance()
+            if app is None:
+                app = QApplication([])
+
+            # pyqtgraph 차트 위젯 생성
+            pw = pg.PlotWidget()
+            pw.setBackground('w')
+            pw.setWindowTitle(f'{strategy_name} - 백테스팅 결과')
+            pw.addLegend()
+
             # 자산 곡선
             timestamps = [point['timestamp'] for point in equity_curve]
             values = [point['total_value'] for point in equity_curve]
-            
-            ax1.plot(timestamps, values, label='총 자산', linewidth=2)
-            ax1.axhline(y=self.initial_cash, color='r', linestyle='--', label='초기 자금')
-            ax1.set_title(f'{strategy_name} - 자산 곡선')
-            ax1.set_ylabel('자산 (원)')
-            ax1.legend()
-            ax1.grid(True, alpha=0.3)
-            
+            unix_timestamps = [ts.timestamp() for ts in timestamps]
+
+            # X축을 날짜/시간 축으로 설정
+            axis = pg.DateAxisItem(orientation='bottom')
+            pw.setAxisItems({'bottom': axis})
+
+            # 자산 곡선 플롯
+            pw.plot(x=unix_timestamps, y=values, pen=pg.mkPen('b', width=2), name='총 자산')
+
+            # 초기 자금선
+            initial_cash_line = pg.InfiniteLine(pos=self.initial_cash, angle=0, pen=pg.mkPen('r', style=pg.QtCore.Qt.PenStyle.DashLine), label='초기 자금')
+            pw.addItem(initial_cash_line)
+
+            # 매수/매도 시점 표시
+            trades = result.get('trades', [])
+            buy_points = []
+            sell_points = []
+            for trade in trades:
+                trade_time = trade['timestamp'].timestamp()
+                trade_price = trade['price'] # 거래 가격
+                
+                # 자산 곡선에서 해당 시점의 자산 가치를 찾아 y 좌표로 사용
+                # equity_curve는 시간순으로 정렬되어 있다고 가정
+                y_value = self.initial_cash
+                for point in equity_curve:
+                    if point['timestamp'].timestamp() >= trade_time:
+                        y_value = point['total_value']
+                        break
+
+                if trade['action'] == 'buy':
+                    buy_points.append({'pos': (trade_time, y_value), 'symbol': 't', 'brush': pg.mkBrush('b'), 'size': 15})
+                elif trade['action'] == 'sell':
+                    sell_points.append({'pos': (trade_time, y_value), 'symbol': 't1', 'brush': pg.mkBrush('r'), 'size': 15})
+
+            if buy_points:
+                pw.plotItem.addItems([pg.ScatterPlotItem(buy_points, name='매수')])
+            if sell_points:
+                pw.plotItem.addItems([pg.ScatterPlotItem(sell_points, name='매도')])
+
             # 수익률 곡선
+            p2 = pg.ViewBox()
+            pw.scene().addItem(p2)
+            pw.getAxis('right').linkToView(p2)
+            p2.setXLink(pw)
+
             returns = [(value - self.initial_cash) / self.initial_cash * 100 for value in values]
-            ax2.plot(timestamps, returns, label='수익률', linewidth=2, color='green')
-            ax2.axhline(y=0, color='r', linestyle='--')
-            ax2.set_title(f'{strategy_name} - 수익률 곡선')
-            ax2.set_xlabel('날짜')
-            ax2.set_ylabel('수익률 (%)')
-            ax2.legend()
-            ax2.grid(True, alpha=0.3)
-            
-            plt.tight_layout()
-            
+            p2.addItem(pg.PlotDataItem(x=unix_timestamps, y=returns, pen=pg.mkPen('g', width=2), name='수익률'))
+
+            def update_view():
+                p2.setGeometry(pw.getViewBox().sceneBoundingRect())
+            pw.getViewBox().sigResized.connect(update_view)
+
             # 차트 저장
             chart_filename = f"backtest_result_{strategy_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
-            plt.savefig(chart_filename, dpi=300, bbox_inches='tight')
-            plt.show()
-            
+            exporter = ImageExporter(pw.plotItem)
+            exporter.export(chart_filename)
             logging.info(f"차트 저장: {chart_filename}")
-            
+
         except Exception as ex:
             logging.error(f"차트 생성 실패: {ex}")
     
@@ -756,6 +830,10 @@ class KiwoomBacktester:
                 # 자산 곡선
                 equity_df = pd.DataFrame(result['equity_curve'])
                 equity_df.to_excel(writer, sheet_name='자산곡선', index=False)
+
+                # 일별 성과
+                daily_perf_df = pd.DataFrame(result.get('daily_performance', []))
+                daily_perf_df.to_excel(writer, sheet_name='일별성과', index=False)
                 
                 # 요약 통계
                 summary_data = {

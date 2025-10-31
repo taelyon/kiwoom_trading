@@ -670,6 +670,15 @@ class KiwoomTrader(QObject):
         self.buy_prices = {}  # 매수 가격
         self.buy_times = {}  # 매수 시간
         self.highest_prices = {}  # 최고가 추적
+
+        # 매도 주문 진행 중인 종목 추적 (중복 매도 방지)
+        self.pending_sell_orders = set()
+
+        # 주문 번호별 매도 정보 추적 (부분 매도 완료 알림용)
+        self.sell_order_details = {}  # {order_no: {'code': str, 'total_qty': int, 'filled_qty': int}}
+
+        # 매수 주문 진행 중인 종목 추적 (중복 매수 방지)
+        self.pending_buy_orders = set()
         
         # 웹소켓 실시간 데이터 저장소
         self.balance_data = {}  # 웹소켓 실시간 잔고 데이터
@@ -752,7 +761,11 @@ class KiwoomTrader(QObject):
                     logging.warning(f"   현황: 최대 {max_count}종목, 현재 {current_count}종목, 가능 {available_buy_count}종목")
                     return False
                 else:
-                    logging.info(f"✅ 매수 가능 확인: {code} (현재 {current_count}/{max_count}종목, 가능 {available_buy_count}종목)")
+                    # 매수 주문 진행 중 상태로 설정
+                    self.pending_buy_orders.add(code)
+                    logging.debug(f"⏳ [{code}] 매수 주문 진행 중 상태로 설정 (중복 주문 방지)")
+
+                    logging.debug(f"✅ 매수 가능 확인: {code} (현재 {current_count}/{max_count}종목, 가능 {available_buy_count}종목)")
             
             # 키움 REST API를 통한 매수 주문
             success = self.client.place_buy_order(code, quantity, price)
@@ -760,6 +773,9 @@ class KiwoomTrader(QObject):
             if success:
                 # 매수 기록 저장 (비동기 태스크로 실행)
                 current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                # 매도 주문 진행 중 상태에서 제거 (매수 후 다시 매도 가능하도록)
+                if code in self.pending_sell_orders:
+                    self.pending_sell_orders.discard(code)
                 asyncio.create_task(self.db_manager.save_trade_record(code, current_time, "buy", quantity, price, strategy))
                 
                 # 포트폴리오 업데이트
@@ -773,11 +789,23 @@ class KiwoomTrader(QObject):
                     'average_price': self.buy_prices[code],
                     'current_price': self.buy_prices[code]
                 }
+                # 매수 전략 이름 저장 (섹션 이름만 저장하여 간결화)
+                buy_strategy_name = strategy
+                if buy_strategy_name.startswith('['):
+                    try:
+                        buy_strategy_name = buy_strategy_name.split(']')[0][1:]
+                    except Exception: pass
+                self.holdings[code]['buy_strategy'] = buy_strategy_name
+
                 logging.debug(f"✅ holdings 업데이트: {code} (수량: {quantity}주, 평단: {self.buy_prices[code]:,}원)")
                 
                 # 보유종목 리스트에 즉시 추가 (종목 수 제한 동기화)
                 if self.parent and hasattr(self.parent, 'boughtBox'):
                     # 이미 리스트에 있는지 확인
+                    # 모니터링 리스트에도 추가 (중요)
+                    stock_name = f"종목{code}" # API 호출 없이 기본 이름 사용
+                    self.parent.monitoring_manager.add_stock_to_monitoring(code, stock_name)
+
                     already_in_list = False
                     for i in range(self.parent.boughtBox.count()):
                         if self.parent.boughtBox.item(i).text() == code:
@@ -787,25 +815,41 @@ class KiwoomTrader(QObject):
                     if not already_in_list:
                         self.parent.boughtBox.addItem(code)
                         new_count = self.parent.boughtBox.count()
-                        logging.info(f"✅ 보유종목 리스트에 추가: {code} (총 {new_count}개 종목 보유)")
+                        logging.debug(f"✅ 보유종목 리스트에 추가: {code} (총 {new_count}개 종목 보유)")
                 
                 self.signal_order_result.emit(code, "buy", quantity, price, True)
                 logging.debug(f"✅ 매수 주문 성공: {code} {quantity}주 (키움 REST API)")
                 return True
             else:
                 self.signal_order_result.emit(code, "buy", quantity, price, False)
+                # 주문 실패 시, '매수 주문 진행 중' 상태 해제
+                if code in self.pending_buy_orders:
+                    self.pending_buy_orders.discard(code)
+                    logging.info(f"🟢 [{code}] 매수 주문 실패로 진행 중 상태 해제")
                 logging.error(f"❌ 매수 주문 실패: {code}")
                 return False
                 
         except Exception as ex:
             logging.error(f"❌ 매수 주문 중 오류 ({code}): {ex}")
+            if code in self.pending_buy_orders:
+                self.pending_buy_orders.discard(code)
+                logging.info(f"🟢 [{code}] 매수 주문 오류로 진행 중 상태 해제")
             self.signal_order_result.emit(code, "buy", quantity, price, False)
             return False
     
     def place_sell_order(self, code, quantity, price=0, strategy=""):
         """매도 주문 (키움 REST API 기반)"""
         try:
+            # quantity가 0 이하인 경우 주문을 실행하지 않음
+            if quantity <= 0:
+                logging.warning(f"⚠️ 매도 주문 수량이 0 이하이므로 주문을 실행하지 않습니다: {code}, 수량: {quantity}")
+                return False
+
             # 키움 REST API를 통한 매도 주문
+            # 주문 전, '주문 진행 중' 상태로 설정
+            self.pending_sell_orders.add(code)
+            logging.info(f"⏳ [{code}] 매도 주문 진행 중 상태로 설정 (중복 주문 방지)")
+
             success = self.client.place_sell_order(code, quantity, price)
             
             if success:
@@ -837,6 +881,16 @@ class KiwoomTrader(QObject):
                 if is_full_sell and code in self.highest_prices:
                             del self.highest_prices[code]
                             logging.debug(f"🗑️ {code} 최고가 정보 초기화 (전량 매도)")
+
+                # 부분 매도 주문 정보 추적
+                ord_no = self.client.last_order_no
+                if ord_no:
+                    self.sell_order_details[ord_no] = {
+                        'code': code,
+                        'total_qty': quantity,
+                        'filled_qty': 0
+                    }
+                    logging.info(f"📋 부분 매도 주문 추적 시작: 주문번호={ord_no}, 종목={code}, 수량={quantity}주")
                 
                 # holdings 딕셔너리 업데이트 (매도 평가를 위한 동기화)
                 if is_full_sell:
@@ -872,6 +926,10 @@ class KiwoomTrader(QObject):
                 return True
             else:
                 self.signal_order_result.emit(code, "sell", quantity, price, False)
+                # 주문 실패 시, '주문 진행 중' 상태 해제
+                if code in self.pending_sell_orders:
+                    self.pending_sell_orders.discard(code)
+                    logging.info(f"🟢 [{code}] 매도 주문 실패로 진행 중 상태 해제")
                 logging.error(f"❌ 매도 주문 실패: {code}")
                 return False
                 
@@ -879,11 +937,16 @@ class KiwoomTrader(QObject):
             logging.error(f"❌ 매도 주문 중 오류 ({code}): {ex}")
             self.signal_order_result.emit(code, "sell", quantity, price, False)
             return False
+        finally:
+            # finally 블록은 주문 성공/실패와 관계없이 실행되므로, 실패 시에만 상태를 해제하도록 위로 이동
+            pass
     
     def get_portfolio_status(self):
         """포트폴리오 상태 조회 (웹소켓 balance_data와 동기화)"""
         try:
-            # 기본 holdings는 self.holdings 사용
+            # self.holdings, self.buy_prices, self.buy_times를 웹소켓 잔고와 동기화
+            self._sync_holdings_with_websocket()
+
             merged_holdings = self.holdings.copy()
             merged_buy_prices = self.buy_prices.copy()
             merged_buy_times = self.buy_times.copy()
@@ -939,6 +1002,15 @@ class KiwoomTrader(QObject):
                                     # self.holdings에도 있지만 수량이 다를 수 있음 (웹소켓이 더 정확할 수 있음)
                                     ws_quantity = quantity
                                     holdings_quantity = merged_holdings[code].get('quantity', 0)
+
+                                    # 부분 매도 후 buy_price가 유지되도록 보장
+                                    if code not in merged_buy_prices and code in self.buy_prices:
+                                        merged_buy_prices[code] = self.buy_prices[code]
+                                        logging.debug(f"🔄 [{code}] 부분 매도 후 buy_price 복원: {self.buy_prices[code]:,.0f}원")
+                                    if code not in merged_buy_times and code in self.buy_times:
+                                        merged_buy_times[code] = self.buy_times[code]
+                                        logging.debug(f"🔄 [{code}] 부분 매도 후 buy_time 복원")
+
                                     if ws_quantity != holdings_quantity:
                                         # 웹소켓 수량으로 업데이트
                                         merged_holdings[code]['quantity'] = ws_quantity
@@ -962,6 +1034,50 @@ class KiwoomTrader(QObject):
             logging.error(f"포트폴리오 상태 조회 실패: {ex}")
             return {}
 
+    def _sync_holdings_with_websocket(self):
+        """self.holdings를 웹소켓 잔고 데이터와 동기화"""
+        try:
+            if not (hasattr(self, 'parent') and self.parent and
+                    hasattr(self.parent, 'login_handler') and self.parent.login_handler and
+                    hasattr(self.parent.login_handler, 'websocket_client') and self.parent.login_handler.websocket_client and
+                    hasattr(self.parent.login_handler.websocket_client, 'balance_data')):
+                return
+
+            ws_balance_data = self.parent.login_handler.websocket_client.balance_data
+            if not ws_balance_data:
+                # 웹소켓 데이터가 비어있으면 self.holdings도 비워야 함 (전량 매도된 경우)
+                if self.holdings:
+                    logging.debug("🗑️ 웹소켓 잔고가 비어있어 self.holdings를 초기화합니다.")
+                    self.holdings.clear()
+                    self.buy_prices.clear()
+                    self.buy_times.clear()
+                    self.highest_prices.clear()
+                return
+
+            # 웹소켓에 없는 종목은 self.holdings에서 제거
+            codes_in_holdings = set(self.holdings.keys())
+            codes_in_websocket = set(ws_balance_data.keys())
+            
+            for code in codes_in_holdings - codes_in_websocket:
+                del self.holdings[code]
+                if code in self.buy_prices: del self.buy_prices[code]
+                if code in self.buy_times: del self.buy_times[code]
+                if code in self.highest_prices: del self.highest_prices[code]
+                logging.debug(f"🗑️ [{code}] holdings 동기화: 웹소켓에 없어 제거됨")
+
+            # 웹소켓에 있는 종목은 self.holdings에 추가/업데이트
+            for code, balance_info in ws_balance_data.items():
+                quantity = balance_info.get('quantity', 0)
+                if quantity > 0:
+                    if code not in self.holdings:
+                        self.holdings[code] = {'quantity': quantity}
+                        self.buy_prices[code] = balance_info.get('average_price', 0)
+                        self.buy_times[code] = datetime.now() # 시간 정보가 없으므로 현재 시간으로 설정
+                        logging.debug(f"🆕 [{code}] holdings 동기화: 웹소켓 잔고로 신규 추가")
+                    else:
+                        self.holdings[code]['quantity'] = quantity # 수량 동기화
+        except Exception as ex:
+            logging.warning(f"⚠️ self.holdings와 웹소켓 잔고 동기화 실패: {ex}")
     def get_balance_data(self):
         """웹소켓 실시간 잔고 데이터 조회
         주의: 이 메서드는 웹소켓을 통한 실시간 잔고 데이터를 반환합니다.
@@ -1130,23 +1246,18 @@ class KiwoomStrategy(QObject):
             # 2. 조건검색으로 찾은 종목: 해당 조건검색의 전략 사용
             # 3. 그 외: 현재 선택된 전략 사용
             
-            # 부모 윈도우의 stock_condition_map 접근
             stock_condition_map = self.parent.stock_condition_map if hasattr(self.parent, 'stock_condition_map') else {}
             
-            if self.current_strategy == "통합 전략":
-                strategy_name = "통합 전략"
-                if is_first_eval:
-                    if code in stock_condition_map:
-                        condition_name = stock_condition_map[code]
-                        logging.debug(f"📍 [{code}] 통합 전략 적용 (조건검색: {condition_name})")
-                    else:
-                        logging.debug(f"📍 [{code}] 통합 전략 적용")
-            elif code in stock_condition_map:
+            # 1순위: 조건검색으로 포착된 종목은 해당 조건검색 전략을 사용
+            if code in stock_condition_map:
                 strategy_name = stock_condition_map[code]
                 if is_first_eval:
                     logging.debug(f"📍 [{code}] 조건검색 전략 사용: {strategy_name}")
+            # 2순위: 그 외의 경우(수동 추가 등)는 UI에서 선택된 전략을 사용
             else:
                 strategy_name = self.current_strategy
+                if is_first_eval:
+                    logging.debug(f"📍 [{code}] UI 선택 전략 사용: {strategy_name}")
             
             if strategy_name != "통합 전략" and strategy_name not in self.strategy_config:
                 if is_first_eval:
@@ -1159,7 +1270,7 @@ class KiwoomStrategy(QObject):
             # 매수 신호 평가
             buy_signals = self.get_buy_signals(code, market_data, strategy_name)
             if buy_signals:
-                logging.info(f"📈 [{code}] 매수 신호 {len(buy_signals)}개 발견")
+                logging.debug(f"📈 [{code}] 매수 신호 {len(buy_signals)}개 발견")
                 self.execute_buy_signals(code, buy_signals)
             elif is_first_eval:
                 logging.debug(f"ℹ️ [{code}] 매수 조건 미충족")
@@ -1224,6 +1335,12 @@ class KiwoomStrategy(QObject):
             if code in portfolio['holdings']:
                 if is_first_check:
                     logging.debug(f"⚠️ [{code}] 매수 불가: 이미 보유 중")
+                return signals
+
+            # '매수 주문 진행 중'인 종목은 매수 신호 생성 건너뛰기
+            if code in self.trader.pending_buy_orders:
+                if is_first_check:
+                    logging.debug(f"⏳ [{code}] 매수 주문이 이미 진행 중이므로 신호 생성을 건너뜁니다.")
                 return signals
             
             # 차트 데이터 가져오기 (틱/분봉) - chart_cache에서 직접 가져오기
@@ -1297,7 +1414,7 @@ class KiwoomStrategy(QObject):
 
                 for section_name, section_conf in merged_sections:
                     # buy_stg_* 만 숫자순 정렬해 결합
-                    items = [(k, v) for k, v in section_conf.items() if k.startswith('buy_stg_')]
+                    items = sorted([item for item in section_conf.items() if item[0].startswith('buy_stg_')], key=lambda x: int(x[0].split('_')[-1]))
                     items.sort(key=lambda x: int(x[0].split('_')[-1]) if x[0].split('_')[-1].isdigit() else 999)
                     for key, value in items:
                         try:
@@ -1316,7 +1433,7 @@ class KiwoomStrategy(QObject):
                 # 개별 전략 섹션에서 매수 조건 가져오기
                 if strategy_name in self.strategy_config:
                     strategy_conf = self.strategy_config[strategy_name]
-                    items = [(k, v) for k, v in strategy_conf.items() if k.startswith('buy_stg_')]
+                    items = sorted([item for item in strategy_conf.items() if item[0].startswith('buy_stg_')], key=lambda x: int(x[0].split('_')[-1]))
                     items.sort(key=lambda x: int(x[0].split('_')[-1]) if x[0].split('_')[-1].isdigit() else 999)
                     for key, value in items:
                         try:
@@ -1394,8 +1511,8 @@ class KiwoomStrategy(QObject):
                 
                 strategy_display_name = matched_strategy.get('name', strategy_name)
                 logging.info(f"📈 매수 신호 발생: {code} - {strategy_display_name}")
-                logging.info(f"💰 매수 수량 계산: 가용자금={available_cash:,.0f}원, 매수가능종목={available_buy_count}개")
-                logging.info(f"   종목당예산={budget:,.0f}원, 현재가={current_price:,}원 → {quantity}주")
+                logging.debug(f"💰 매수 수량 계산: 가용자금={available_cash:,.0f}원, 매수가능종목={available_buy_count}개")
+                logging.debug(f"   종목당예산={budget:,.0f}원, 현재가={current_price:,}원 → {quantity}주")
                 
                 signals.append({
                     'strategy': matched_strategy.get('name', strategy_name),
@@ -1429,10 +1546,27 @@ class KiwoomStrategy(QObject):
             if code not in portfolio['holdings']:
                 # 매도 불가 로그 제거 (너무 빈번함)
                 return signals
+
+            # '주문 진행 중'인 종목은 매도 신호 생성 건너뛰기
+            if code in self.trader.pending_sell_orders:
+                if is_first_sell_check:
+                    logging.debug(f"⏳ [{code}] 매도 주문이 이미 진행 중이므로 신호 생성을 건너뜁니다.")
+                return signals
             
             # 최초 매도 평가 시작 로그
             if is_first_sell_check:
                 logging.debug(f"🔍 [{code}] 매도 평가 시작 (전략: {strategy_name})")
+            
+            # 보유 정보
+            holding_info = portfolio['holdings'][code]
+            
+            # 매수 시 사용된 전략 확인
+            buy_strategy_name = holding_info.get('buy_strategy', strategy_name)
+            # 매수 전략 이름에서 섹션 이름 추출 (예: "[급등주] 2순위..." -> "급등주")
+            if buy_strategy_name and buy_strategy_name.startswith('['):
+                try:
+                    strategy_name = buy_strategy_name.split(']')[0][1:]
+                except Exception: pass
             
             # 보유 정보
             holding_info = portfolio['holdings'][code]
@@ -1443,33 +1577,16 @@ class KiwoomStrategy(QObject):
             if buy_price <= 0 or quantity <= 0:
                 # 보유 정보 불완전 로그 제거 (너무 빈번함)
                 return signals
-            
-            # 주문가능수량 확인 (웹소켓 balance_data에서)
-            order_available_qty = quantity  # 기본값은 보유수량
-            try:
-                if (hasattr(self.parent, 'login_handler') and self.parent.login_handler and
-                    hasattr(self.parent.login_handler, 'websocket_client') and self.parent.login_handler.websocket_client and
-                    hasattr(self.parent.login_handler.websocket_client, 'balance_data')):
-                    
-                    ws_balance_data = self.parent.login_handler.websocket_client.balance_data
-                    if ws_balance_data and code in ws_balance_data:
-                        ws_order_available = ws_balance_data[code].get('order_available_qty', quantity)
-                        order_available_qty = ws_order_available
-            except Exception as ws_check_ex:
-                logging.debug(f"⚠️ [{code}] 웹소켓 주문가능수량 체크 중 오류: {ws_check_ex}")
-            
-            # 주문가능수량이 0주 이하면 매도 신호 생성하지 않음 (이미 매도 주문 접수됨 또는 체결 대기 중)
-            if order_available_qty <= 0:
-                if is_first_sell_check:
-                    logging.debug(f"⚠️ [{code}] 주문가능수량 0주 - 매도 신호 생성 안함 (매도 주문 대기 중 또는 체결 완료)")
-                return signals
-            
-            # 실제 매도 가능한 수량은 주문가능수량으로 제한
-            sellable_quantity = min(quantity, order_available_qty)
-            if sellable_quantity <= 0:
-                if is_first_sell_check:
-                    logging.debug(f"⚠️ [{code}] 매도 가능 수량 없음 - 매도 신호 생성 안함")
-                return signals
+
+            # 매수 후 최소 보유 시간(Grace Period) 설정 (예: 60초)
+            min_hold_seconds = 60 
+            if buy_time:
+                time_since_buy = (datetime.now() - buy_time).total_seconds()
+                if time_since_buy < min_hold_seconds:
+                    if is_first_sell_check:
+                        logging.debug(f"⏳ [{code}] 매수 후 {time_since_buy:.1f}초 경과. 매도 평가 유예 중 (최소 {min_hold_seconds}초)")
+                    return signals # 유예 시간 동안 매도 신호 생성 안 함
+
             
             # 최고가 실시간 업데이트
             current_price = market_data.get('current_price', 0)
@@ -1485,6 +1602,23 @@ class KiwoomStrategy(QObject):
                 # 포트폴리오 딕셔너리에 업데이트된 최고가 반영
                 portfolio['highest_prices'] = self.trader.highest_prices.copy()
             
+            # 이동 손절 (Trailing Stop) 로직 추가
+            # 예: 고점 대비 2.5% 하락 시 매도
+            trailing_stop_pct = -2.5 
+            highest_price = self.trader.highest_prices.get(code, 0)
+            if highest_price > buy_price: # 매수가보다 오른 경우에만 작동
+                from_peak_pct = (current_price - highest_price) / highest_price * 100 if highest_price > 0 else 0
+                if from_peak_pct < trailing_stop_pct:
+                    logging.info(f"📉 이동 손절 신호: {code} (고점: {highest_price:,.0f}원, 현재가: {current_price:,.0f}원, {from_peak_pct:.2f}%)")
+                    signals.append({
+                        'strategy': f'이동 손절 ({trailing_stop_pct}%)',
+                        'code': code,
+                        'quantity': quantity,
+                        'price': 0, # 시장가
+                        'reason': f"고점({highest_price:,.0f}원) 대비 {trailing_stop_pct}% 하락"
+                    })
+                    return signals # 이동 손절 조건 만족 시 다른 매도 조건보다 우선하여 즉시 반환
+
             # 차트 데이터 가져오기 (틱/분봉) - chart_cache에서 직접 가져오기
             chart_data = pd.DataFrame()
             if hasattr(self.parent, 'chart_cache') and self.parent.chart_cache:
@@ -1606,15 +1740,60 @@ class KiwoomStrategy(QObject):
             )
                 
             if condition_met and matched_strategy:
+                # 매도 조건 충족 시, 실제 주문 가능한 수량을 REST API로 최종 확인
+                # 부분 익절 비율 확인
+                partial_sell_ratio = matched_strategy.get('partial_sell_ratio')
+
+                order_available_qty = 0
+                try:
+                    if hasattr(self.parent, 'login_handler') and self.parent.login_handler and hasattr(self.parent.login_handler, 'kiwoom_client'):
+                        balance_result = self.parent.login_handler.kiwoom_client.get_acnt_balance()
+                        if balance_result:
+                            api_holdings = balance_result.get('stk_acnt_evlt_prst', balance_result.get('output1', []))
+                            for stock in api_holdings:
+                                raw_code = stock.get('stk_cd', stock.get('pdno', ''))
+                                stock_code = self.parent.data_manager.normalize_stock_code(raw_code)
+                                if stock_code == code:
+                                    # 부분 익절인 경우, 보유 수량의 절반을 계산
+                                    total_holding_qty = self.parent.data_manager.safe_int(stock.get('hldg_qty', 0))
+                                    if partial_sell_ratio and 0 < partial_sell_ratio < 1:
+                                        # 부분 익절 수량 계산 (소수점 버림)
+                                        order_available_qty = int(total_holding_qty * partial_sell_ratio)
+                                        logging.info(f"📡 부분 익절 수량 계산: 보유수량 {total_holding_qty}주 * {partial_sell_ratio} = {order_available_qty}주")
+                                    else:
+                                        # 전량 매도
+                                        order_available_qty = self.parent.data_manager.safe_int(stock.get('rmnd_qty', 0))
+                                        logging.info(f"📡 전량 매도 수량 조회 (REST API): {code} 주문가능수량 {order_available_qty}주")
+                                    break
+                    # REST API 조회 실패 시 웹소켓 데이터로 대체
+                    if order_available_qty <= 0:
+                         if (hasattr(self.parent, 'login_handler') and self.parent.login_handler and hasattr(self.parent.login_handler, 'websocket_client')):
+                            ws_balance_data = self.parent.login_handler.websocket_client.balance_data
+                            if ws_balance_data and code in ws_balance_data:
+                                order_available_qty = ws_balance_data[code].get('order_available_qty', 0)
+                                if partial_sell_ratio and 0 < partial_sell_ratio < 1:
+                                    total_holding_qty = ws_balance_data[code].get('quantity', 0)
+                                    order_available_qty = int(total_holding_qty * partial_sell_ratio)
+                                    logging.info(f"💰 부분 익절 수량 계산 (웹소켓 Fallback): 보유수량 {total_holding_qty}주 * {partial_sell_ratio} = {order_available_qty}주")
+                                else:
+                                    logging.info(f"💰 전량 매도 수량 조회 (웹소켓 Fallback): {code} 주문가능수량 {order_available_qty}주")
+
+                except Exception as qty_check_ex:
+                    logging.error(f"❌ [{code}] 주문가능수량 확인 중 오류: {qty_check_ex}")
+
+                if order_available_qty <= 0:
+                    logging.warning(f"⚠️ 매도 신호가 발생했으나 주문가능수량이 0주입니다. (다른 주문 처리 중일 수 있음): {code}")
+                    return signals
+
                 strategy_display_name = matched_strategy.get('name', strategy_name)
                 logging.info(f"📉 매도 신호 발생: {code} - {strategy_display_name}")
                 logging.info(f"💰 매입가={buy_price:,}원, 현재가={current_price:,}원, 수익률={profit_rate:.2f}%")
-                logging.info(f"📊 보유수량={quantity:,}주, 주문가능수량={order_available_qty:,}주, 매도수량={sellable_quantity:,}주")
+                logging.info(f"📊 보유수량={quantity:,}주, 주문가능수량={order_available_qty:,}주, 매도수량={order_available_qty:,}주")
                 
                 signals.append({
                     'strategy': matched_strategy.get('name', strategy_name),
                     'code': code,
-                    'quantity': sellable_quantity,  # 주문가능수량만큼만 매도
+                    'quantity': order_available_qty,  # 주문가능수량만큼만 매도
                     'price': 0,  # 시장가
                     'reason': f"기술적 지표 기반 매도 조건 충족: {matched_strategy.get('name', '')} (수익률: {profit_rate:.2f}%)"
                 })
@@ -1876,7 +2055,7 @@ class AutoTrader(QObject):
                 if monitoring_codes:
                     logging.debug(f"🔍 자동매매 모니터링 중: {len(monitoring_codes)}개 종목 - {monitoring_codes}")
                 else:
-                    logging.info("🔍 자동매매 실행 중 - 모니터링 종목 없음")
+                    logging.debug("🔍 자동매매 실행 중 - 모니터링 종목 없음")
                 self._last_status_log_time = current_time
             
             # 15:15 자동 청산 이후에는 매매 중지
@@ -2689,7 +2868,7 @@ class DataManager:
 class MonitoringManager:
     """모니터링 종목 관리 매니저"""
     
-    def __init__(self, parent):
+    def __init__(self, parent: 'MyWindow'):
         self.parent = parent
     
     def add_stock_to_monitoring(self, code, name):
@@ -2715,7 +2894,10 @@ class MonitoringManager:
             if hasattr(self.parent, 'login_handler') and hasattr(self.parent.login_handler, 'websocket_client'):
                 ws_client = self.parent.login_handler.websocket_client
                 if ws_client and ws_client.connected:
-                    asyncio.create_task(ws_client.subscribe_stock_execution_data([code], 'monitoring'))
+                    # asyncio.create_task 대신, 이 함수를 async로 만들고 await을 사용해야 함.
+                    # 하지만 이 함수는 동기 컨텍스트에서 호출될 수 있으므로,
+                    # 대신 루프에 안전하게 작업을 제출하는 방식을 사용.
+                    asyncio.get_event_loop().create_task(ws_client.subscribe_stock_execution_data([code], 'monitoring'))
                     logging.debug(f"📡 실시간 체결 데이터 구독: {code}")
             
             return True
@@ -2725,6 +2907,35 @@ class MonitoringManager:
             logging.error(f"모니터링 추가 예외 상세: {traceback.format_exc()}")
             return False
     
+    async def add_stock_to_monitoring_async(self, code, name):
+        """모니터링 리스트박스에 종목 추가 (비동기 버전)"""
+        try:
+            # 중복 체크
+            for i in range(self.parent.monitoringBox.count()):
+                item_text = self.parent.monitoringBox.item(i).text()
+                if code in item_text:
+                    logging.debug(f"종목이 이미 모니터링 목록에 있습니다: {code}")
+                    return True
+            
+            # 리스트박스에 추가
+            item_text = f"{code}"  # 종목코드만 표시
+            self.parent.monitoringBox.addItem(item_text)
+            logging.debug(f"✅ 모니터링 종목 추가: {item_text}")
+            
+            # 차트 캐시에 추가
+            if hasattr(self.parent, 'chart_cache') and self.parent.chart_cache:
+                self.parent.chart_cache.add_monitoring_stock(code)
+            
+            # 실시간 체결 데이터 구독 (await 사용)
+            if hasattr(self.parent, 'login_handler') and hasattr(self.parent.login_handler, 'websocket_client'):
+                ws_client = self.parent.login_handler.websocket_client
+                if ws_client and ws_client.connected:
+                    await ws_client.subscribe_stock_execution_data([code], 'monitoring')
+            return True
+        except Exception as ex:
+            logging.error(f"모니터링 종목 추가 실패 (async) ({code}): {ex}")
+            return False
+
     def remove_stock_from_monitoring(self, code):
         """모니터링 리스트박스에서 종목 제거"""
         try:
@@ -4106,32 +4317,58 @@ class StrategyManager:
             strategy_type: 전략 타입 ('매수' 또는 '매도')
         """
         try:
-            
             strategy_text = text_widget.toPlainText()
             current_strategy = self.parent.comboStg.currentText()
             current_strategy_name = combo_widget.currentText()
-            
+            key_from_combobox = combo_widget.currentData()
+
             # settings.ini 파일 업데이트
             config = configparser.RawConfigParser()
             config.read('settings.ini', encoding='utf-8')
-            
-            # 해당 전략의 내용 업데이트
-            for key, value in config.items(current_strategy):
-                try:
-                    strategy_data = eval(value)
-                    if isinstance(strategy_data, dict) and strategy_data.get('name') == current_strategy_name:
-                        if key.startswith(key_prefix):
-                            strategy_data['content'] = strategy_text
-                            config.set(current_strategy, key, str(strategy_data))
-                            break
-                except:
-                    continue
-            
+
+            target_section = current_strategy
+            target_key = key_from_combobox
+
+            # "통합 전략"일 경우, 실제 섹션과 키를 찾아서 업데이트
+            if current_strategy == "통합 전략":
+                if '.' in key_from_combobox:
+                    section, key = key_from_combobox.split('.', 1)
+                    target_section = section
+                    target_key = key
+                else:
+                    logging.error(f"통합 전략 저장 오류: 잘못된 키 형식 - {key_from_combobox}")
+                    return
+
+            if not config.has_section(target_section):
+                logging.error(f"{strategy_type} 전략 저장 실패: 섹션을 찾을 수 없음 - [{target_section}]")
+                return
+
+            if not config.has_option(target_section, target_key):
+                logging.error(f"{strategy_type} 전략 저장 실패: 키를 찾을 수 없음 - {target_key}")
+                return
+
+            # 기존 전략 데이터 로드 및 수정
+            try:
+                strategy_json_str = config.get(target_section, target_key)
+                strategy_data = json.loads(strategy_json_str)
+                strategy_data['content'] = strategy_text
+                # json.dumps를 사용하여 문자열로 변환
+                config.set(target_section, target_key, json.dumps(strategy_data, ensure_ascii=False))
+            except (json.JSONDecodeError, KeyError) as e:
+                logging.error(f"전략 데이터 파싱 또는 수정 실패: {e}")
+                return
+
             # 파일 저장
             with open('settings.ini', 'w', encoding='utf-8') as configfile:
                 config.write(configfile)
-            
+
             logging.debug(f"{strategy_type} 전략 '{current_strategy_name}'이 저장되었습니다.")
+
+            # 전략 즉시 반영: KiwoomStrategy 객체의 설정을 다시 로드
+            if hasattr(self.parent, 'objstg') and self.parent.objstg:
+                self.parent.objstg.load_strategy_config()
+                logging.info(f"✅ {strategy_type} 전략이 즉시 반영되었습니다.")
+
         except Exception as ex:
             logging.error(f"{strategy_type} 전략 저장 실패: {ex}")
     
@@ -4371,45 +4608,30 @@ class TradingManager:
                 
                 quantity = 0
                 
-                # 1차: 웹소켓 실시간 잔고 데이터에서 보유 수량 조회 시도
-                if (hasattr(self.parent, 'login_handler') and self.parent.login_handler and 
-                    hasattr(self.parent.login_handler, 'websocket_client') and self.parent.login_handler.websocket_client and
-                    hasattr(self.parent.login_handler.websocket_client, 'balance_data')):
-                    
-                    ws_client = self.parent.login_handler.websocket_client
-                    balance_data = ws_client.balance_data
-                    
-                    if code in balance_data:
-                        quantity = balance_data[code].get('quantity', 0)
-                        logging.info(f"💰 웹소켓 잔고 데이터에서 조회: {code} {quantity}주")
-                    else:
-                        logging.warning(f"⚠️ 웹소켓 잔고 데이터에 종목이 없습니다: {code}")
-                        logging.debug(f"현재 웹소켓 잔고 데이터: {list(balance_data.keys())}")
-                else:
-                    logging.warning("⚠️ 웹소켓 잔고 데이터를 사용할 수 없습니다")
-                
-                # 2차: 웹소켓 데이터가 없거나 수량이 0이면 REST API로 조회
+                # 1차: REST API로 주문가능수량 조회 (kt00004)
+                logging.info(f"📡 REST API로 주문가능수량 조회 시도: {code}")
+                try:
+                    if hasattr(self.parent, 'login_handler') and self.parent.login_handler and hasattr(self.parent.login_handler, 'kiwoom_client'):
+                        balance_result = self.parent.login_handler.kiwoom_client.get_acnt_balance()
+                        if balance_result:
+                            holdings = balance_result.get('stk_acnt_evlt_prst', balance_result.get('output1', []))
+                            for stock in holdings:
+                                raw_code = stock.get('stk_cd', stock.get('pdno', ''))
+                                stock_code = self.parent.data_manager.normalize_stock_code(raw_code)
+                                if stock_code == code:
+                                    quantity = self.parent.data_manager.safe_int(stock.get('rmnd_qty', 0))
+                                    logging.info(f"✅ REST API로 주문가능수량 조회 성공: {code} {quantity}주")
+                                    break
+                except Exception as api_ex:
+                    logging.error(f"❌ REST API 잔고 조회 실패: {api_ex}")
+
+                # 2차: REST API 조회 실패 또는 수량 0일 때 웹소켓 데이터로 재확인 (Fallback)
                 if quantity <= 0:
-                    logging.info(f"📡 REST API로 보유수량 조회 시도: {code}")
-                    try:
-                        if hasattr(self.parent, 'login_handler') and self.parent.login_handler and hasattr(self.parent.login_handler, 'kiwoom_client'):
-                            balance_result = self.parent.login_handler.kiwoom_client.get_acnt_balance()
-                            if balance_result:
-                                # 종목별계좌평가현황에서 해당 종목 찾기
-                                holdings = balance_result.get('stk_acnt_evlt_prst', balance_result.get('output1', []))
-                                for stock in holdings:
-                                    raw_code = stock.get('stk_cd', stock.get('pdno', ''))
-                                    stock_code = self.parent.normalize_stock_code(raw_code)
-                                    if stock_code == code:
-                                        quantity = self.parent.data_manager.safe_int(stock.get('rmnd_qty', stock.get('hldg_qty', 0)))
-                                        logging.info(f"✅ REST API로 보유수량 조회 성공: {code} {quantity}주")
-                                        break
-                            else:
-                                logging.warning("⚠️ REST API 잔고 조회 실패")
-                        else:
-                            logging.error("⚠️ 키움 클라이언트가 초기화되지 않았습니다")
-                    except Exception as api_ex:
-                        logging.error(f"❌ REST API 잔고 조회 실패: {api_ex}")
+                    if (hasattr(self.parent, 'login_handler') and self.parent.login_handler and hasattr(self.parent.login_handler, 'websocket_client')):
+                        ws_balance_data = self.parent.login_handler.websocket_client.balance_data
+                        if ws_balance_data and code in ws_balance_data:
+                            quantity = ws_balance_data[code].get('order_available_qty', 0)
+                            logging.info(f"💰 웹소켓 잔고 조회 (Fallback): {code} 주문가능수량 {quantity}주")
                 
                 # 최종 수량 확인
                 if quantity <= 0:
@@ -4712,12 +4934,6 @@ class BacktestManager:
         layout.addWidget(results_tab_widget)
         
         parent.backtest_tab.setLayout(layout)
-        
-        # 초기화 시 DB 기간 자동 로드 (qasync 방식)
-        async def delayed_load_db():
-            await asyncio.sleep(0.1)  # 100ms 대기
-            parent.load_db_period()
-        asyncio.create_task(delayed_load_db())
     
     def load_backtest_strategies(self):
         """백테스팅 전략 콤보박스 로드"""
@@ -4746,17 +4962,12 @@ class BacktestManager:
     def load_db_period(self):
         """DB 기간 불러오기"""
         try:
-            # DB에서 날짜 범위 조회
-            conn = sqlite3.connect('stock_data.db')
-            cursor = conn.cursor()
-            
-            cursor.execute("SELECT MIN(datetime), MAX(datetime) FROM stock_data")
-            result = cursor.fetchone()
-            conn.close()
-            
-            if result and result[0] and result[1]:
-                start_date = result[0][:10].replace('-', '')
-                end_date = result[1][:10].replace('-', '')
+            # KiwoomBacktester 인스턴스를 생성하여 DB 경로를 올바르게 참조
+            # DB 파일 경로는 backtester.py에 정의되어 있음
+            backtester = KiwoomBacktester(db_path='stock_data.db')
+            start_date, end_date = backtester.get_db_data_range()
+
+            if start_date and end_date:
                 self.parent.bt_start_date.setText(start_date)
                 self.parent.bt_end_date.setText(end_date)
                 logging.debug(f"DB 기간 로드: {start_date} ~ {end_date}")
@@ -4830,7 +5041,7 @@ class BacktestManager:
 class AccountManager:
     """계좌 조회 및 잔고 관리 매니저"""
     
-    def __init__(self, parent):
+    def __init__(self, parent: 'MyWindow'):
         self.parent = parent
     
     def handle_acnt_balance_query(self):
@@ -4928,7 +5139,7 @@ class AccountManager:
                                 
                                 if not monitoring_exists:
                                     parent.monitoring_manager.add_stock_to_monitoring(stock_code, stock_name)
-                                    logging.debug(f"   ✅ 모니터링 추가: {stock_code} ({stock_name})")
+                                    logging.debug(f"   ✅ 모니터링 추가 (동기): {stock_code} ({stock_name})")
                                 
                                 # 보유종목 리스트에 추가
                                 holding_exists = False
@@ -4968,6 +5179,73 @@ class AccountManager:
         except Exception as ex:
             logging.error(f"❌ 계좌 잔고 조회 실패: {ex}")
             logging.error(f"계좌 조회 예외 상세: {traceback.format_exc()}")
+
+    async def handle_acnt_balance_query_async(self):
+        """계좌 잔고조회 (비동기 버전) - post_login_setup에서 사용"""
+        parent = self.parent
+        try:
+            logging.debug("🔧 계좌 잔고 조회 시작 (비동기)")
+            
+            if not hasattr(parent, 'trader') or not parent.trader:
+                logging.warning("⚠️ 트레이더가 초기화되지 않았습니다")
+                return
+            
+            # 1. 예수금상세현황 조회
+            try:
+                deposit_data = parent.trader.client.get_deposit_detail()
+                if deposit_data:
+                    parent.ui_manager.display_deposit_info(deposit_data)
+            except Exception as deposit_ex:
+                logging.error(f"❌ 예수금상세현황 조회 실패: {deposit_ex}")
+
+            # 2. REST API 잔고조회
+            try:
+                balance_data = parent.trader.client.get_acnt_balance()
+                if balance_data:
+                    holdings = balance_data.get('stk_acnt_evlt_prst', balance_data.get('output1', []))
+                    
+                    if holdings and len(holdings) > 0:
+                        logging.info(f"📦 보유 종목 수: {len(holdings)}개 (비동기 조회)")
+                        
+                        # 보유종목을 모니터링과 보유종목 리스트에 추가
+                        for stock in holdings:
+                            raw_code = stock.get('stk_cd', stock.get('pdno', ''))
+                            stock_code = parent.data_manager.normalize_stock_code(raw_code)
+                            stock_name = stock.get('stk_nm', stock.get('prdt_name', ''))
+                            quantity = parent.data_manager.safe_int(stock.get('rmnd_qty', stock.get('hldg_qty', 0)))
+                            
+                            if stock_code and quantity > 0:
+                                # 모니터링 리스트에 비동기로 추가 (실시간 구독 포함)
+                                await parent.monitoring_manager.add_stock_to_monitoring_async(stock_code, stock_name)
+                                
+                                # 보유종목 리스트에 추가 (UI)
+                                holding_exists = False
+                                for i in range(parent.boughtBox.count()):
+                                    item_text = parent.boughtBox.item(i).text()
+                                    if stock_code in item_text:
+                                        holding_exists = True
+                                        break
+                                
+                                if not holding_exists:
+                                    parent.boughtBox.addItem(stock_code)
+                                    logging.debug(f"   ✅ 보유종목 UI 추가: {stock_code} ({stock_name})")
+                        
+                        logging.info("✅ 보유종목이 모니터링과 보유종목 리스트에 추가되었습니다 (비동기)")
+                        
+                        # REST API 잔고 데이터를 웹소켓 balance_data에 저장
+                        self._initialize_balance_data_from_rest_api(holdings)
+                        
+                    else:
+                        logging.info("📦 현재 보유 종목이 없습니다 (비동기 조회).")
+                else:
+                    logging.warning("⚠️ 계좌 잔고 조회 실패 또는 보유종목 없음 (비동기 조회)")
+                    
+            except Exception as balance_ex:
+                logging.error(f"❌ 계좌 잔고 조회 실패 (비동기): {balance_ex}")
+                
+        except Exception as ex:
+            logging.error(f"❌ 계좌 잔고 조회 실패 (비동기): {ex}")
+
     
     def _initialize_balance_data_from_rest_api(self, holdings):
         """REST API 잔고 데이터를 웹소켓 balance_data 형식으로 변환하고 투자현황표 업데이트"""
@@ -5278,12 +5556,12 @@ class ConditionSearchManager:
                 seq = condition.get('seq')
                 name = condition.get('title')
                 if seq and name:
-                    logging.info(f"  - 조건검색 실행: {name} (seq: {seq})")
+                    logging.debug(f"  - 조건검색 실행: {name} (seq: {seq})")
                     # 각 조건검색을 순차적으로 실행하고, API 제한을 피하기 위해 약간의 지연을 둡니다.
                     await self.parent.start_condition_realtime(seq, name)
                     await asyncio.sleep(1) # API 요청 간격
 
-            logging.info("✅ 모든 조건검색식에 대한 실시간 모니터링이 시작되었습니다.")
+            logging.debug("✅ 모든 조건검색식에 대한 실시간 모니터링이 시작되었습니다.")
 
         except Exception as ex:
             logging.error(f"❌ 통합 조건검색 실행 실패: {ex}")
@@ -5332,6 +5610,9 @@ class MyWindow(QWidget):
         # 로그인 핸들러 생성
         self.login_handler = LoginHandler(self)
         self.login_handler.load_settings_sync()
+
+        # post_login_setup을 한 번만 실행하기 위한 플래그
+        self._post_login_setup_done = False
         
         # LoginHandler의 시그널을 MyWindow의 UI 업데이트 메서드에 연결
         self.login_handler.connection_status_changed.connect(self.update_connection_ui)
@@ -5365,7 +5646,11 @@ class MyWindow(QWidget):
     async def attempt_auto_connect(self):
         """자동 연결 시도"""
         try:
+            # 자동 연결이 활성화되어 있고, 아직 post_login_setup이 실행되지 않았다면
             if self.login_handler.config.getboolean('LOGIN', 'autoconnect', fallback=False):
+                if self._post_login_setup_done:
+                    logging.debug("이미 자동 연결 및 초기화가 완료되었습니다.")
+                    return
                 self.login_handler.handle_api_connection()
                 await self.login_handler.start_websocket_client()
                 
@@ -5534,6 +5819,11 @@ class MyWindow(QWidget):
     async def post_login_setup(self):
         """로그인 후 설정"""
         try:
+            # 중복 실행 방지
+            if self._post_login_setup_done:
+                logging.debug("post_login_setup이 이미 실행되었습니다. 건너뜁니다.")
+                return
+
             # 로거 설정: UI 로그창에는 INFO 레벨까지만 표시 (터미널은 DEBUG까지 표시)
             logger = logging.getLogger()
             if not any(isinstance(handler, QTextEditLogger) for handler in logger.handlers):
@@ -5620,11 +5910,15 @@ class MyWindow(QWidget):
 
             # 7. 계좌 잔고조회 (즉시 실행)
             try:
-                self.account_manager.handle_acnt_balance_query()
-                logging.debug("✅ 계좌 잔고조회 즉시 실행 완료")
+                await self.account_manager.handle_acnt_balance_query_async()
+                logging.debug("✅ 계좌 잔고조회 즉시 실행 완료 (비동기)")
             except Exception as balance_ex:
                 logging.error(f"❌ 계좌 잔고조회 실행 실패: {balance_ex}")
                 logging.error(f"잔고조회 실행 예외 상세: {traceback.format_exc()}")
+            
+            # 8. 백테스팅 탭의 DB 기간 로드
+            self.load_db_period()
+            logging.debug("✅ 백테스팅 탭 DB 기간 로드 완료")
 
             # 8. 대기 중인 API 큐 처리 (트레이더 객체 생성 후)
             try:
@@ -5650,6 +5944,9 @@ class MyWindow(QWidget):
             logging.error(f"❌ 로그인 후 초기화 실패: {ex}")
             logging.error(f"초기화 실패 예외 상세: {traceback.format_exc()}")
             logging.debug("⚠️ 초기화 실패했지만 프로그램을 계속 실행합니다")
+        finally:
+            # 실행 완료 플래그 설정
+            self._post_login_setup_done = True
     
     # --- UI 업데이트 및 이벤트 핸들러 (각 Manager에 위임) ---
 
@@ -7282,7 +7579,7 @@ class ChartDataCache(QObject):
                     
                     # 존재하지 않을 때만 추가
                     if not already_exists:
-                        self.parent.add_stock_to_monitoring(code, stock_name)
+                        self.parent.monitoring_manager.add_stock_to_monitoring(code, stock_name)
                         logging.debug(f"✅ 모니터링 리스트박스에 추가 완료: {code} - {stock_name}")
                 
                 # pending_stocks에서 제거
@@ -8526,16 +8823,10 @@ class KiwoomWebSocketClient:
                         
                         # 웹소켓 연결 성공 시 post_login_setup 실행
                         try:
-                            async def delayed_post_login_setup():
-                                await asyncio.sleep(1.0)  # 1초 대기
-                                # 부모 윈도우의 post_login_setup 메서드 호출 (async)
-                                if hasattr(self, 'parent') and hasattr(self.parent, 'post_login_setup'):
-                                    await self.parent.post_login_setup()
-                                    logging.debug("✅ post_login_setup 실행 완료")
-                                else:
-                                    logging.warning("⚠️ post_login_setup 메서드를 찾을 수 없습니다")
-                            asyncio.create_task(delayed_post_login_setup())
-                            logging.debug("📋 post_login_setup 실행 예약 (1초 후)")
+                            # post_login_setup을 직접 await하여 순차적으로 실행
+                            if hasattr(self, 'parent') and hasattr(self.parent, 'post_login_setup'):
+                                await self.parent.post_login_setup()
+                                logging.debug("✅ post_login_setup 실행 완료")
                         except Exception as setup_err:
                             logging.error(f"❌ post_login_setup 실행 실패: {setup_err}")
                         
@@ -8616,7 +8907,7 @@ class KiwoomWebSocketClient:
                                     
                                 data_type = data_item.get('type')
                                 if data_type == '00':  # 주문체결
-                                    logging.info(f"📋 주문체결 실시간 수신: {data_item.get('values', {}).get('913', '')}")
+                                    logging.debug(f"📋 주문체결 실시간 수신: {data_item.get('values', {}).get('913', '')}")
                                     try:
                                         self.process_order_execution_data(data_item)
                                     except Exception as order_err:
@@ -8703,7 +8994,7 @@ class KiwoomWebSocketClient:
                                 logging.debug(f"조건검색 이름 매핑 실패: { _map_err }")
 
                             if cond_name == '급등주':
-                                logging.info("⚠️ '급등주' 조건검색 일반 응답은 무시하고 실시간만 처리합니다")
+                                logging.debug("⚠️ '급등주' 조건검색 일반 응답은 무시하고 실시간만 처리합니다")
                                 continue
 
                         if search_type == '1':  # 실시간 요청 응답
@@ -8869,7 +9160,7 @@ class KiwoomWebSocketClient:
             # 실제 키움 API의 실시간 잔고 데이터 구조 파싱
             # data_item 구조: {'type': '04', 'item': 종목코드, 'values': {필드코드: 값}}
             raw_code = data_item.get('item', '')
-            stock_code = self.parent.normalize_stock_code(raw_code) if hasattr(self, 'parent') and self.parent else raw_code  # A 접두사 제거
+            stock_code = self.parent.data_manager.normalize_stock_code(raw_code) if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'data_manager') else raw_code  # A 접두사 제거
             values = data_item.get('values', {})
             
             if stock_code and values:
@@ -8912,8 +9203,6 @@ class KiwoomWebSocketClient:
                     
                     if not is_new_stock:
                         prev_quantity = self.balance_data[stock_code].get('quantity', 0)
-                        if prev_quantity > quantity:  # 수량 감소 = 매도 체결
-                            is_sell_executed = True
                     
                     # 평가금액 및 평가손익 계산
                     evaluation_amount = quantity * current_price
@@ -8989,55 +9278,41 @@ class KiwoomWebSocketClient:
                     
                     # 디버그 로그: balance_data 상태
                     if is_new_stock:
-                        self.logger.info(f"🆕 웹소켓 잔고 추가: {stock_code} ({stock_name}) - 현재 보유 종목 수: {len(self.balance_data)}")
-                        self.logger.info(f"   현재 balance_data 키 목록: {list(self.balance_data.keys())}")
+                        self.logger.debug(f"🆕 웹소켓 잔고 추가: {stock_code} ({stock_name}) - 현재 보유 종목 수: {len(self.balance_data)}")
+                        self.logger.debug(f"   현재 balance_data 키 목록: {list(self.balance_data.keys())}")
                     else:
-                        self.logger.info(f"🔄 웹소켓 잔고 업데이트: {stock_code} (이전 수량: {prev_quantity}, 현재 수량: {quantity})")
+                        self.logger.debug(f"🔄 웹소켓 잔고 업데이트: {stock_code} (이전 수량: {prev_quantity}, 현재 수량: {quantity})")
                         # balance_data 키 목록 로그 제거 (불필요)
                     
                     # 중요 정보만 표시
-                    self.logger.info("=" * 70)
-                    if is_sell_executed:
-                        sold_qty = prev_quantity - quantity
-                        self.logger.info(f"💰 부분 매도 체결 완료: {stock_name}({stock_code}) - {sold_qty:,}주 매도")
+                    self.logger.debug("=" * 70)
+                    self.logger.debug(f"📊 실시간 잔고 수신: {stock_name}({stock_code})")
+                    self.logger.debug("-" * 70)
+                    self.logger.debug(f"  💰 현재가: {current_price:,.0f}원 | 보유수량: {quantity:,}주 | 매입단가: {average_price:,.0f}원")
+                    self.logger.debug(f"  💎 평가금액: {evaluation_amount:,.0f}원 | 매입금액: {purchase_amount:,.0f}원")
+                    
+                    # 평가손익 표시 (색상 구분)
+                    if profit_loss > 0:
+                        self.logger.info(f"  📈 평가손익: +{profit_loss:,.0f}원 (+{profit_loss_rate:.2f}%)")
+                    elif profit_loss < 0:
+                        self.logger.info(f"  📉 평가손익: {profit_loss:,.0f}원 ({profit_loss_rate:.2f}%)")
                     else:
-                        self.logger.info(f"📊 실시간 잔고 수신: {stock_name}({stock_code})")
-                        self.logger.info("-" * 70)
-                        self.logger.info(f"  💰 현재가: {current_price:,.0f}원 | 보유수량: {quantity:,}주 | 매입단가: {average_price:,.0f}원")
-                        self.logger.info(f"  💎 평가금액: {evaluation_amount:,.0f}원 | 매입금액: {purchase_amount:,.0f}원")
-                        
-                        # 평가손익 표시 (색상 구분)
-                        if profit_loss > 0:
-                            self.logger.info(f"  📈 평가손익: +{profit_loss:,.0f}원 (+{profit_loss_rate:.2f}%)")
-                        elif profit_loss < 0:
-                            self.logger.info(f"  📉 평가손익: {profit_loss:,.0f}원 ({profit_loss_rate:.2f}%)")
-                        else:
-                            self.logger.info(f"  ➡️ 평가손익: 0원 (0.00%)")
-                        
-                        self.logger.info(f"  🔢 주문가능수량: {order_available_qty:,}주")
-                        
-                        # 당일 거래 정보 (있는 경우에만 표시)
-                        if daily_net_buy != 0:
-                            self.logger.info(f"  📊 당일순매수량: {daily_net_buy:,}주")
+                        self.logger.info(f"  ➡️ 평가손익: 0원 (0.00%)")
+                    
+                    self.logger.debug(f"  🔢 주문가능수량: {order_available_qty:,}주")
+                    
+                    # 당일 거래 정보 (있는 경우에만 표시)
+                    if daily_net_buy != 0:
+                        self.logger.debug(f"  📊 당일순매수량: {daily_net_buy:,}주")
                         
                         # 매도 손익 정보 (매도 체결 시 강조 표시)
-                        if daily_total_profit != 0:
-                            if is_sell_executed:
-                                profit_symbol = "✅" if daily_total_profit > 0 else "❌"
-                                profit_text = "익절" if daily_total_profit > 0 else "손절"
-                                self.logger.info(f"  {profit_symbol} 당일총매도손익: {daily_total_profit:+,.0f}원 ({profit_text})")
-                            else:
-                                profit_symbol = "📈" if daily_total_profit > 0 else "📉"
-                                self.logger.info(f"  {profit_symbol} 당일총매도손익: {daily_total_profit:,.0f}원")
+                    if daily_total_profit != 0:
+                        profit_symbol = "📈" if daily_total_profit > 0 else "📉"
+                        self.logger.debug(f"  {profit_symbol} 당일총매도손익: {daily_total_profit:,.0f}원")
                         
-                        if daily_realized_profit != 0:
-                            if is_sell_executed:
-                                profit_symbol = "✅" if daily_realized_profit > 0 else "❌"
-                                profit_text = "익절" if daily_realized_profit > 0 else "손절"
-                                self.logger.info(f"  {profit_symbol} 당일실현손익: {daily_realized_profit:+,.0f}원 ({daily_realized_profit_rate:+.2f}%) ({profit_text})")
-                            else:
-                                profit_symbol = "📈" if daily_realized_profit > 0 else "📉"
-                                self.logger.info(f"  {profit_symbol} 당일실현손익: {daily_realized_profit:,.0f}원 ({daily_realized_profit_rate:+.2f}%)")
+                    if daily_realized_profit != 0:
+                        profit_symbol = "📈" if daily_realized_profit > 0 else "📉"
+                        self.logger.info(f"  {profit_symbol} 당일실현손익: {daily_realized_profit:,.0f}원 ({daily_realized_profit_rate:+.2f}%)")
                     
                     self.logger.info("=" * 70)
                     
@@ -9052,6 +9327,24 @@ class KiwoomWebSocketClient:
                     # 수량이 0인 경우 → 매도 체결 완료로 실현손익 표시 후 잔고에서 제거
                     if stock_code in self.balance_data:
                         # 디버그 로그: 제거 전 balance_data 상태
+                        
+                        # 이전 잔고 데이터 가져오기
+                        prev_balance_info = self.balance_data.get(stock_code, {})
+
+                        # 부분 매도 추적 목록에 해당 종목이 있는지 확인
+                        is_partial_sell = False
+                        if hasattr(self.parent, 'trader') and self.parent.trader:
+                            for order_no, details in self.parent.trader.sell_order_details.items():
+                                if details.get('code') == stock_code:
+                                    is_partial_sell = True
+                                    break
+
+                        # 부분 매도가 아닌 '전량 매도'의 경우에만 여기서 알림 전송
+                        if not is_partial_sell:
+                            self.parent.login_handler.kiwoom_client.send_slack_notification_on_sell(
+                                prev_balance_info, daily_realized_profit, daily_realized_profit_rate
+                            )
+
                         self.logger.info(f"🔍 매도 체결 전 balance_data: {list(self.balance_data.keys())} ({len(self.balance_data)}개 종목)")
                         
                         self.logger.info("=" * 70)
@@ -9115,7 +9408,7 @@ class KiwoomWebSocketClient:
             account_no = values.get('9201', '')  # 계좌번호
             order_no = values.get('9203', '')  # 주문번호
             stock_code_raw = values.get('9001', '')  # 종목코드
-            stock_code = self.parent.normalize_stock_code(stock_code_raw) if hasattr(self, 'parent') and self.parent else stock_code_raw
+            stock_code = self.parent.data_manager.normalize_stock_code(stock_code_raw) if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'data_manager') else stock_code_raw
             stock_name = values.get('302', '')  # 종목명
             order_status = values.get('913', '')  # 주문상태: 접수, 체결, 확인, 취소, 거부
             order_type = values.get('905', '')  # 주문구분: 매도, 매수, 정정, 취소 등
@@ -9128,6 +9421,10 @@ class KiwoomWebSocketClient:
             exec_qty = values.get('911', '0')  # 체결량
             exec_no = values.get('909', '')  # 체결번호
             exec_time = values.get('908', '')  # 주문/체결시간
+            # 실현손익 관련 필드
+            daily_realized_profit_str = values.get('990', '0')
+            daily_realized_profit_rate_str = values.get('991', '0')
+
             reject_reason = values.get('919', '')  # 거부사유
             
             # 데이터 변환
@@ -9135,6 +9432,8 @@ class KiwoomWebSocketClient:
             unfilled_qty_int = int(unfilled_qty) if unfilled_qty else 0
             exec_qty_int = int(exec_qty) if exec_qty else 0
             exec_price_float = float(exec_price) if exec_price else 0.0
+            daily_realized_profit = float(daily_realized_profit_str) if daily_realized_profit_str else 0.0
+            daily_realized_profit_rate = float(daily_realized_profit_rate_str) if daily_realized_profit_rate_str else 0.0
             
             # 로그 출력 (상태별)
             self.logger.info("=" * 70)
@@ -9151,36 +9450,62 @@ class KiwoomWebSocketClient:
             # 매수/매도 구분 아이콘
             trade_icon = '🔴' if buy_sell_flag == '1' else '🔵'  # 1=매도(빨강), 2=매수(파랑)
             
-            self.logger.info(f"{status_icon} 주문체결 실시간 수신: {order_status}")
-            self.logger.info("-" * 70)
-            self.logger.info(f"  {trade_icon} 종목: {stock_name}({stock_code})")
-            self.logger.info(f"  📋 주문구분: {order_type} | 매매구분: {trade_type}")
-            self.logger.info(f"  🔢 주문번호: {order_no} | 계좌: {account_no}")
+            self.logger.debug(f"{status_icon} 주문체결 실시간 수신: {order_status}")
+            self.logger.debug("-" * 70)
+            self.logger.debug(f"  {trade_icon} 종목: {stock_name}({stock_code})")
+            self.logger.debug(f"  📋 주문구분: {order_type} | 매매구분: {trade_type}")
+            self.logger.debug(f"  🔢 주문번호: {order_no} | 계좌: {account_no}")
             
             if order_status == '체결':
-                self.logger.info(f"  💰 체결가: {exec_price_float:,.0f}원 | 체결량: {exec_qty_int:,}주")
-                self.logger.info(f"  📊 미체결수량: {unfilled_qty_int:,}주 / 주문수량: {order_qty_int:,}주")
-                self.logger.info(f"  ⏰ 체결시간: {exec_time} | 체결번호: {exec_no}")
+                self.logger.debug(f"  💰 체결가: {exec_price_float:,.0f}원 | 체결량: {exec_qty_int:,}주")
+                self.logger.debug(f"  📊 미체결수량: {unfilled_qty_int:,}주 / 주문수량: {order_qty_int:,}주")
+                self.logger.debug(f"  ⏰ 체결시간: {exec_time} | 체결번호: {exec_no}")
             elif order_status == '접수':
-                self.logger.info(f"  💵 주문가: {order_price}원 | 주문수량: {order_qty_int:,}주")
+                self.logger.debug(f"  💵 주문가: {order_price}원 | 주문수량: {order_qty_int:,}주")
             elif order_status == '거부':
-                self.logger.info(f"  ⚠️ 거부사유: {reject_reason}")
+                self.logger.debug(f"  ⚠️ 거부사유: {reject_reason}")
             
-            self.logger.info("=" * 70)
+            self.logger.debug("=" * 70)
             
+            # 부분 매도 주문 완료 시 슬랙 알림
+            if order_status == '체결' and order_no in self.parent.trader.sell_order_details:
+                order_detail = self.parent.trader.sell_order_details[order_no]
+                order_detail['filled_qty'] += exec_qty_int
+                
+                self.logger.info(f"📊 부분 매도 체결 진행: 주문번호={order_no}, 체결량={exec_qty_int}주, 누적체결량={order_detail['filled_qty']}/{order_detail['total_qty']}")
+
+                # 주문 수량이 모두 체결되었는지 확인
+                if order_detail['filled_qty'] >= order_detail['total_qty']:
+                    self.logger.info(f"🎉 부분 매도 주문 완료: {stock_name}({stock_code}) {order_detail['total_qty']}주")
+
+                    # 추적 목록에서 제거
+                    del self.parent.trader.sell_order_details[order_no]
+
             # 체결 완료 확인: 주문상태='체결' AND 미체결수량=0
             if order_status == '체결' and unfilled_qty_int == 0:
                 self.logger.info(f"🎉 주문 체결 완료: {stock_name}({stock_code})")
                 
                 # 매수 체결 완료 → 보유종목 리스트에 추가 (람다 클로저 문제 방지)
                 if buy_sell_flag == '2' or '매수' in order_type:
-                    self.logger.info(f"✅ 매수 체결 완료 → 보유종목에 추가: {stock_code}")
+
+                    # '매수 주문 진행 중' 상태 해제
+                    if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'trader'):
+                        if stock_code in self.parent.trader.pending_buy_orders:
+                            self.parent.trader.pending_buy_orders.discard(stock_code)
+                            self.logger.debug(f"🟢 [{stock_code}] 매수 체결 완료로 진행 중 상태 해제")
+
                     if hasattr(self, 'parent') and self.parent:
                         QTimer.singleShot(0, lambda code=stock_code, name=stock_name: self._add_stock_to_ui(code, name))
                 
                 # 매도 체결 완료 → 보유종목 리스트에서 제거 (람다 클로저 문제 방지)
                 elif buy_sell_flag == '1' or '매도' in order_type:
                     self.logger.info(f"✅ 매도 체결 완료 → 보유종목에서 제거: {stock_code}")
+
+                    # '주문 진행 중' 상태 해제
+                    if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'trader'):
+                        if stock_code in self.parent.trader.pending_sell_orders:
+                            self.parent.trader.pending_sell_orders.discard(stock_code)
+                            self.logger.info(f"🟢 [{stock_code}] 매도 체결 완료로 진행 중 상태 해제")
                     
                     # 최고가 정보도 제거
                     if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'objtrader'):
@@ -9216,7 +9541,7 @@ class KiwoomWebSocketClient:
                     break
             
             if not monitoring_exists:
-                self.parent.add_stock_to_monitoring(stock_code, stock_name)
+                self.parent.monitoring_manager.add_stock_to_monitoring(stock_code, stock_name)
                 logging.info(f"✅ 모니터링 리스트에 추가: {stock_code} ({stock_name})")
             
             # 2. 보유종목 리스트에 추가
@@ -9281,7 +9606,7 @@ class KiwoomWebSocketClient:
             # data_item에서 실시간 데이터 추출
             if 'item' in data_item and 'values' in data_item:
                 raw_code = data_item['item']
-                stock_code = self.parent.normalize_stock_code(raw_code) if hasattr(self, 'parent') and self.parent else raw_code  # A 접두사 제거
+                stock_code = self.parent.data_manager.normalize_stock_code(raw_code) if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'data_manager') else raw_code  # A 접두사 제거
                 values = data_item['values']
                 data_type = data_item.get('type', '0B')  # 데이터 타입 확인 (기본값: 0B)
                 
@@ -9414,8 +9739,15 @@ class KiwoomWebSocketClient:
             # 차트 캐시에서 기존 데이터 가져오기
             cached_data = chart_cache.get_cached_data(stock_code)
             
-            if not cached_data or not isinstance(cached_data, dict):
-                logging.debug(f"⚠️ 차트 데이터 추가 건너뜀: {stock_code} (캐시 데이터 없음)")
+            if not cached_data or not isinstance(cached_data, dict):                
+                # 캐시가 없는 경우, 디버그 로그를 한 번만 출력하도록 관리
+                if not hasattr(self, '_no_cache_logged'):
+                    self._no_cache_logged = set()
+                
+                if stock_code not in self._no_cache_logged:
+                    logging.debug(f"ℹ️ 실시간 데이터 수신({stock_code}), 차트 캐시 생성 대기 중...")
+                    self._no_cache_logged.add(stock_code)
+                
                 return
             
             # tic_data와 min_data가 유효한지 확인
@@ -9806,8 +10138,8 @@ class KiwoomWebSocketClient:
                 elif action_type == 'D':  # DELETE (이탈)
                     self.logger.info(f"📉 조건검색 실시간 이탈: {stock_code} ({condition_name}, seq: {condition_seq})")
                     # 부모 윈도우에서 종목 제거 요청
-                    if hasattr(self, 'parent') and self.parent:
-                        result = self.parent.remove_stock_from_monitoring(stock_code)
+                    if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'monitoring_manager'):
+                        result = self.parent.monitoring_manager.remove_stock_from_monitoring(stock_code)
                         if result:
                             self.logger.debug(f"✅ 조건검색 이탈 종목 모니터링에서 제거 성공: {stock_code}")
                         else:
@@ -9974,7 +10306,7 @@ class KiwoomWebSocketClient:
                         self.logger.info(f"✅ 조건검색식 추가 ({added_count}/{len(condition_list)}): {condition_text}")
                     
                     # 저장된 조건검색식이 있는지 확인하고 자동 실행
-                    self.logger.info("🔍 저장된 조건검색식 자동 실행 확인 시작")
+                    self.logger.debug("🔍 저장된 조건검색식 자동 실행 확인 시작")
                     saved_condition_executed = self.parent.condition_search_manager.check_and_auto_execute_saved_condition()
                     
                     # 저장된 조건검색식이 없으면 첫 번째 조건검색 자동 실행
@@ -10156,6 +10488,9 @@ class KiwoomRestClient:
         self.access_token = None
         self.token_expires_at = None
         self.token_file = 'kiwoom_token.json'  # 토큰 저장 파일
+
+        # 마지막 주문 번호 저장 (부분 매도 추적용)
+        self.last_order_no = None
         
         # 세션 관리
         self.session = requests.Session()
@@ -10934,7 +11269,7 @@ class KiwoomRestClient:
             ord_uv = ''  # 시장가는 주문단가 빈 문자열
             trde_tp = '3'  # 매매구분: 3=시장가
             
-            self.logger.info(f"매수 주문: {code} {quantity}주 (시장가)")
+            self.logger.debug(f"매수 주문: {code} {quantity}주 (시장가)")
             
             # 헤더 설정 (키움증권 공식 예시 참고)
             headers = {
@@ -10966,6 +11301,7 @@ class KiwoomRestClient:
                     # 응답 상태 확인
                     if result.get('return_code') == 0:
                         ord_no = result.get('ord_no', '')
+                        self.last_order_no = ord_no # 마지막 주문 번호 저장
                         self.logger.info(f"✅ 매수 주문 성공: {code} {quantity}주 (주문번호: {ord_no})")
                         return True
                     else:
@@ -11054,6 +11390,7 @@ class KiwoomRestClient:
                     # 응답 상태 확인
                     if result.get('return_code') == 0:
                         ord_no = result.get('ord_no', '')
+                        self.last_order_no = ord_no # 마지막 주문 번호 저장
                         self.logger.info(f"✅ 매도 주문 성공: {code} {quantity}주 (주문번호: {ord_no})")
                         return True
                     else:
@@ -11115,6 +11452,53 @@ class KiwoomRestClient:
         except Exception as e:
             self.logger.error(f"주문 내역 조회 중 오류: {e}")
             return []    
+
+    def send_slack_notification_on_sell(self, prev_balance_info, daily_realized_profit, daily_realized_profit_rate, sold_qty=None):
+        """매도 체결 시 슬랙 알림 전송"""
+        try:
+            # Slack 설정 로드
+            # [SLACK] 또는 [slack] 섹션 모두 지원
+            if self.config.has_section('SLACK'):
+                slack_webhook_url = self.config.get('SLACK', 'webhook', fallback=None)
+            else:
+                slack_webhook_url = self.config.get('slack', 'webhook', fallback=None)
+            if not slack_webhook_url:
+                self.logger.debug("Slack 웹훅 URL이 설정되지 않아 알림을 보내지 않습니다.")
+                return
+
+            stock_name = prev_balance_info.get('name', '알수없음')
+            stock_code = prev_balance_info.get('code', '000000')
+            
+            # 알림 제목 설정
+            if sold_qty:
+                title = f"부분 매도 완료: {stock_name}({stock_code})"
+                fallback_text = f"부분 매도: {stock_name} {sold_qty}주"
+            else:
+                title = f"전량 매도 완료: {stock_name}({stock_code})"
+                fallback_text = f"전량 매도: {stock_name}"
+
+            # 메시지 포맷
+            profit_text = f"*{daily_realized_profit:+,}원* ({daily_realized_profit_rate:+.2f}%)"
+            color = "#28a745" if daily_realized_profit >= 0 else "#dc3545" # 수익: 녹색, 손실: 빨강
+            
+            message = {
+                "text": title, # 모바일 알림 등에서 기본으로 표시될 텍스트
+                "attachments": [
+                    {
+                        "color": color,
+                        "fallback": f"{fallback_text} - 당일실현손익: {daily_realized_profit:+,}원",
+                        "fields": [
+                            {"title": "체결 수량", "value": f"{sold_qty}주" if sold_qty else "전량", "short": True},
+                            {"title": "당일실현손익", "value": profit_text, "short": True}
+                        ],
+                    }
+                ]
+            }
+            
+            requests.post(slack_webhook_url, json=message, timeout=5)
+        except Exception as e:
+            self.logger.error(f"Slack 알림 전송 실패: {e}")
+            self.logger.debug(f"Slack 알림 실패 상세: {traceback.format_exc()}")
     
     def _parse_stock_price_data(self, data: Dict) -> Dict:
         """주식 가격 데이터 파싱"""

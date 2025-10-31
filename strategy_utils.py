@@ -534,71 +534,23 @@ def build_realtime_buy_locals(code, kiwoom_data, chart_data, portfolio_info=None
         min_additional_indicators = {}
         min_data = kiwoom_data.get('min_data', {})
         if min_data and isinstance(min_data, dict):
-            # 1) min_data에 이미 있는 지표를 우선 직매핑 (최신값)
-            try:
-                def _last_scalar(arr):
-                    try:
-                        if isinstance(arr, (list, np.ndarray)) and len(arr) > 0:
-                            return float(arr[-1])
-                    except Exception:
-                        return None
-                    return None
-                direct_map = {
-                    'MA5': 'MA5_value',
-                    'MA10': 'MA10_value',
-                    'MA20': 'MA20_value',
-                    'RSI': 'RSI_value',
-                    'MACD': 'MACD_value',
-                    'MACD_SIGNAL': 'MACD_SIGNAL_value',
-                    'MACD_HIST': 'MACD_HIST_value',
-                    'STOCH_K': 'STOCHK_value',
-                    'STOCH_D': 'STOCHD_value',
-                    'WILLIAMS_R': 'WILLIAMS_R_value',
-                    'ROC': 'ROC_value',
-                    'OBV': 'OBV_value',
-                    'OBV_MA20': 'OBV_MA20_value',
-                    'ATR': 'ATR_value',
-                }
-                for src, dst in direct_map.items():
-                    if src in min_data and dst not in min_chart_indicators:
-                        val = _last_scalar(min_data.get(src))
-                        if val is not None and not np.isnan(val):
-                            min_chart_indicators[dst] = val
-                # BBANDS 관련: 최근 값으로 POSITION/BANDWIDTH 계산 시도
-                bb_u = _last_scalar(min_data.get('BB_UPPER')) if 'BB_UPPER' in min_data else None
-                bb_m = _last_scalar(min_data.get('BB_MIDDLE')) if 'BB_MIDDLE' in min_data else None
-                bb_l = _last_scalar(min_data.get('BB_LOWER')) if 'BB_LOWER' in min_data else None
-                if bb_u is not None:
-                    min_chart_indicators['BB_UPPER_value'] = bb_u
-                if bb_m is not None:
-                    min_chart_indicators['BB_MIDDLE_value'] = bb_m
-                if bb_l is not None:
-                    min_chart_indicators['BB_LOWER_value'] = bb_l
-                # POSITION/BANDWIDTH 계산 (가능할 때)
-                if all(v is not None for v in [bb_u, bb_m, bb_l]) and 'close' in min_data and min_data.get('close'):
-                    try:
-                        last_close = _last_scalar(min_data.get('close'))
-                        if last_close is not None and bb_u > bb_l:
-                            min_chart_indicators['BB_POSITION'] = (last_close - bb_l) / (bb_u - bb_l)
-                        if bb_m and bb_m != 0:
-                            min_chart_indicators['BB_BANDWIDTH'] = (bb_u - bb_l) / bb_m
-                    except Exception:
-                        pass
-                # VWAP: 스칼라가 캐시에 있을 수 있음
-                if 'VWAP' in min_data and isinstance(min_data.get('VWAP'), (int, float)):
-                    min_chart_indicators['VWAP'] = float(min_data.get('VWAP'))
-            except Exception:
-                pass
-
-            # 2) 부족한 지표만 재계산하여 보충
+            # 분봉 데이터로 DataFrame 생성 및 지표 추출
+            # (틱차트 데이터 처리 방식과 동일하게 단순화)
             if min_data.get('close'):
-                min_chart_df = pd.DataFrame({
+                # DataFrame 생성 시 캐시된 지표도 함께 포함
+                min_df_data = {
                     'close': min_data.get('close', []),
                     'high': min_data.get('high', []),
                     'low': min_data.get('low', []),
                     'open': min_data.get('open', []),
                     'volume': min_data.get('volume', [])
-                })
+                }
+                # min_data에 있는 다른 지표 배열들도 DataFrame에 추가
+                for key, value in min_data.items():
+                    if isinstance(value, (list, np.ndarray)) and key not in min_df_data:
+                        if len(value) == len(min_df_data['close']):
+                            min_df_data[key] = value
+                min_chart_df = pd.DataFrame(min_df_data)
                 if not min_chart_df.empty:
                     calc_inds = KiwoomIndicatorExtractor.extract_chart_indicators(min_chart_df)
                     for k, v in calc_inds.items():
@@ -807,6 +759,15 @@ def build_realtime_buy_locals(code, kiwoom_data, chart_data, portfolio_info=None
         # 포트폴리오 정보 추가
         if portfolio_info:
             locals_dict.update(portfolio_info)
+
+        # 눌림목 판단 변수 추가
+        if 'tic_MA5' in locals_dict and 'tic_MA20' in locals_dict:
+            close_price = locals_dict.get('C', 0)
+            ma5 = locals_dict['tic_MA5']
+            ma20 = locals_dict['tic_MA20']
+            # 현재가가 5틱 이평선 근처에 있고, 5틱 이평선이 20틱 이평선 위에 있는 경우
+            locals_dict['is_pullback'] = (ma5 > 0 and abs(close_price - ma5) / ma5 < 0.005) and (ma5 > ma20) # 0.5% 이내 근접
+
         
         return locals_dict
         
@@ -830,69 +791,23 @@ def build_realtime_sell_locals(code, kiwoom_data, chart_data, buy_price, buy_tim
         min_additional_indicators = {}
         min_data = kiwoom_data.get('min_data', {})
         if min_data and isinstance(min_data, dict):
-            # 1) min_data에 이미 있는 지표를 우선 직매핑 (최신값)
-            try:
-                def _last_scalar(arr):
-                    try:
-                        if isinstance(arr, (list, np.ndarray)) and len(arr) > 0:
-                            return float(arr[-1])
-                    except Exception:
-                        return None
-                    return None
-                direct_map = {
-                    'MA5': 'MA5_value',
-                    'MA10': 'MA10_value',
-                    'MA20': 'MA20_value',
-                    'RSI': 'RSI_value',
-                    'MACD': 'MACD_value',
-                    'MACD_SIGNAL': 'MACD_SIGNAL_value',
-                    'MACD_HIST': 'MACD_HIST_value',
-                    'STOCH_K': 'STOCHK_value',
-                    'STOCH_D': 'STOCHD_value',
-                    'WILLIAMS_R': 'WILLIAMS_R_value',
-                    'ROC': 'ROC_value',
-                    'OBV': 'OBV_value',
-                    'OBV_MA20': 'OBV_MA20_value',
-                    'ATR': 'ATR_value',
-                }
-                for src, dst in direct_map.items():
-                    if src in min_data and dst not in min_chart_indicators:
-                        val = _last_scalar(min_data.get(src))
-                        if val is not None and not np.isnan(val):
-                            min_chart_indicators[dst] = val
-                # BBANDS 관련
-                bb_u = _last_scalar(min_data.get('BB_UPPER')) if 'BB_UPPER' in min_data else None
-                bb_m = _last_scalar(min_data.get('BB_MIDDLE')) if 'BB_MIDDLE' in min_data else None
-                bb_l = _last_scalar(min_data.get('BB_LOWER')) if 'BB_LOWER' in min_data else None
-                if bb_u is not None:
-                    min_chart_indicators['BB_UPPER_value'] = bb_u
-                if bb_m is not None:
-                    min_chart_indicators['BB_MIDDLE_value'] = bb_m
-                if bb_l is not None:
-                    min_chart_indicators['BB_LOWER_value'] = bb_l
-                if all(v is not None for v in [bb_u, bb_m, bb_l]) and 'close' in min_data and min_data.get('close'):
-                    try:
-                        last_close = _last_scalar(min_data.get('close'))
-                        if last_close is not None and bb_u > bb_l:
-                            min_chart_indicators['BB_POSITION'] = (last_close - bb_l) / (bb_u - bb_l)
-                        if bb_m and bb_m != 0:
-                            min_chart_indicators['BB_BANDWIDTH'] = (bb_u - bb_l) / bb_m
-                    except Exception:
-                        pass
-                if 'VWAP' in min_data and isinstance(min_data.get('VWAP'), (int, float)):
-                    min_chart_indicators['VWAP'] = float(min_data.get('VWAP'))
-            except Exception:
-                pass
-
-            # 2) 부족한 지표만 재계산하여 보충
+            # 분봉 데이터로 DataFrame 생성 및 지표 추출
+            # (틱차트 데이터 처리 방식과 동일하게 단순화)
             if min_data.get('close'):
-                min_chart_df = pd.DataFrame({
+                # DataFrame 생성 시 캐시된 지표도 함께 포함
+                min_df_data = {
                     'close': min_data.get('close', []),
                     'high': min_data.get('high', []),
                     'low': min_data.get('low', []),
                     'open': min_data.get('open', []),
                     'volume': min_data.get('volume', [])
-                })
+                }
+                # min_data에 있는 다른 지표 배열들도 DataFrame에 추가
+                for key, value in min_data.items():
+                    if isinstance(value, (list, np.ndarray)) and key not in min_df_data:
+                        if len(value) == len(min_df_data['close']):
+                            min_df_data[key] = value
+                min_chart_df = pd.DataFrame(min_df_data)
                 if not min_chart_df.empty:
                     calc_inds = KiwoomIndicatorExtractor.extract_chart_indicators(min_chart_df)
                     for k, v in calc_inds.items():
@@ -906,21 +821,30 @@ def build_realtime_sell_locals(code, kiwoom_data, chart_data, buy_price, buy_tim
         locals_dict.update(realtime_indicators)
         
         # 30틱 차트 지표를 tic_ 접두사로 추가
-        tic_keys = ['MA5_value', 'MA20_value', 'MA60_value', 'RSI_value', 'RSI_SIGNAL_value',
-                    'MACD_value', 'MACD_SIGNAL_value', 'MACD_HIST_value', 'STOCHK_value', 'STOCHD_value',
-                    'WILLIAMS_R_value', 'ROC_value', 'OBV_value', 'OBV_MA20_value', 'ATR_value',
-                    'BB_UPPER_value', 'BB_MIDDLE_value', 'BB_LOWER_value', 'BB_POSITION', 'BB_BANDWIDTH',
-                    'VWAP', 'close', 'high', 'low']
-        
-        for key in tic_keys:
-            if key in chart_indicators:
-                # _value 접미사 제거하고 tic_ 접두사 추가
-                if key.endswith('_value'):
-                    new_key = f'tic_{key[:-6]}'  # _value 제거
-                else:
-                    new_key = f'tic_{key}'
-                locals_dict[new_key] = chart_indicators[key]
-        
+        if chart_indicators:
+            for key, value in chart_indicators.items():
+                # 배열이 아닌 스칼라 값만 변수로 추가
+                if not isinstance(value, (list, np.ndarray)):
+                    # _value 접미사 제거하고 tic_ 접두사 추가
+                    # 예: 'MA5_value' -> 'tic_MA5', 'VWAP' -> 'tic_VWAP'
+                    if key.endswith('_value'):
+                        new_key = f'tic_{key[:-6]}'
+                    else:
+                        new_key = f'tic_{key}'
+                    locals_dict[new_key] = value
+
+        # 3분봉 지표를 min3_ 접두사로 추가
+        if min_chart_indicators:
+            for key, value in min_chart_indicators.items():
+                # 배열이 아닌 스칼라 값만 변수로 추가
+                if not isinstance(value, (list, np.ndarray)):
+                    # _value 접미사 제거하고 min3_ 접두사 추가
+                    if key.endswith('_value'):
+                        new_key = f'min3_{key[:-6]}'
+                    else:
+                        new_key = f'min3_{key}'
+                    locals_dict[new_key] = value
+
         # 캐시 틱 데이터의 VWAP을 우선 사용 (스칼라 값)
         try:
             tic_cache = kiwoom_data.get('tic_data', {}) if isinstance(kiwoom_data, dict) else {}
@@ -983,25 +907,246 @@ def build_realtime_sell_locals(code, kiwoom_data, chart_data, buy_price, buy_tim
         if 'ROC' in chart_indicators:
             locals_dict['ROC'] = chart_indicators['ROC']
         
-        # 3분봉 지표를 min3_ 접두사로 추가
-        min3_keys = ['MA5_value', 'MA10_value', 'MA20_value', 'RSI_value', 'RSI_SIGNAL_value',
-                     'MACD_value', 'MACD_SIGNAL_value', 'MACD_HIST_value', 'STOCHK_value', 'STOCHD_value',
-                     'WILLIAMS_R_value', 'ROC_value', 'OBV_value', 'OBV_MA20_value', 'ATR_value',
-                     'BB_UPPER_value', 'BB_MIDDLE_value', 'BB_LOWER_value', 'BB_POSITION', 'BB_BANDWIDTH',
-                     'VWAP', 'close', 'high', 'low']
+        # 3분봉 추가 지표 (ROC_recent 등)
+        for key, value in min_additional_indicators.items():
+            if not isinstance(value, (list, np.ndarray)):
+                locals_dict[f'min3_{key}'] = value
         
-        for key in min3_keys:
-            if key in min_chart_indicators:
-                # _value 접미사 제거하고 min3_ 접두사 추가
-                if key.endswith('_value'):
-                    new_key = f'min3_{key[:-6]}'  # _value 제거
+        # 키움 API 특화 변수들
+        locals_dict['code'] = code
+        locals_dict['kiwoom_data'] = kiwoom_data
+        locals_dict['chart_data'] = chart_data
+        
+        # 기본 가격 변수
+        current_price = kiwoom_data.get('current_price', 0)
+        locals_dict['current_price'] = current_price
+        # C는 데이터 캐시의 틱 차트 종가를 우선 사용, 없을 때만 실시간 현재가 사용
+        try:
+            tic_close_scalar = None
+            if 'tic_close' in locals_dict and isinstance(locals_dict['tic_close'], (int, float)):
+                tic_close_scalar = float(locals_dict['tic_close'])
+            elif not chart_data.empty and 'close' in chart_data.columns and len(chart_data['close']) > 0:
+                tic_close_scalar = float(chart_data['close'].iloc[-1])
+            locals_dict['C'] = tic_close_scalar if tic_close_scalar is not None else current_price
+        except Exception:
+            locals_dict['C'] = current_price
+        
+        # 체결강도 계산 (키움 API에서 제공하는 경우)
+        strength = kiwoom_data.get('strength', 0)
+        locals_dict['strength'] = strength
+        
+        # 거래량
+        volume = kiwoom_data.get('volume', 0)
+        locals_dict['volume'] = volume
+        
+        # 최근 가격 변수들
+        if not chart_data.empty:
+            recent_prices = chart_data['close'].tail(30).tolist()
+            locals_dict['tic_C_recent'] = recent_prices
+            
+            # 전체 틱 종가 리스트
+            all_close_prices = chart_data['close'].tolist()
+            locals_dict['tic_close_list'] = all_close_prices
+        
+        # 갭 관련 변수 (전일 종가 대비)
+        previous_close = kiwoom_data.get('previous_close', 0)
+        if previous_close > 0 and current_price > 0:
+            gap_rate = (current_price - previous_close) / previous_close * 100
+            locals_dict['gap_hold'] = gap_rate > 2  # 2% 이상 갭상승 시 True
+            locals_dict['gap_rate'] = gap_rate
+        else:
+            locals_dict['gap_hold'] = False
+            locals_dict['gap_rate'] = 0
+        
+        # 변동성 돌파 변수
+        if 'tic_ATR' in locals_dict and current_price > 0:
+            atr = locals_dict['tic_ATR']
+            locals_dict['volatility_breakout'] = atr > current_price * 0.01  # ATR이 현재가의 1% 이상
+        else:
+            locals_dict['volatility_breakout'] = False
+        
+        # Volume Profile 관련 변수 계산 (거래량 가중 분석)
+        if not chart_data.empty and len(chart_data) > 0:
+            # VWAP (Volume Weighted Average Price) 계산
+            typical_price = (chart_data['high'] + chart_data['low'] + chart_data['close']) / 3
+            total_volume = chart_data['volume'].sum()
+            
+            if total_volume > 0:
+                vwap = (typical_price * chart_data['volume']).sum() / total_volume
+                locals_dict['VP_POC'] = vwap  # VWAP을 POC로 근사
+                
+                # VP_POSITION: 현재가가 VWAP 대비 어느 위치인지
+                # VWAP을 중심(0.5)으로 ±1 표준편차 범위를 0~1로 매핑
+                price_std = chart_data['close'].std()
+                if price_std > 0:
+                    # (현재가 - VWAP) / 표준편차를 -1~1 범위로 정규화 후 0~1로 변환
+                    normalized = (current_price - vwap) / price_std
+                    # -2σ ~ +2σ 범위를 0~1로 매핑 (대부분의 데이터가 이 범위 내)
+                    locals_dict['VP_POSITION'] = max(0, min(1, (normalized + 2) / 4))
                 else:
-                    new_key = f'min3_{key}'
-                locals_dict[new_key] = min_chart_indicators[key]
+                    locals_dict['VP_POSITION'] = 0.5
             else:
-                # MA10이 없으면 기본값 0 설정 (에러 방지)
-                if key == 'MA10_value':
-                    locals_dict['min3_MA10'] = 0
+                locals_dict['VP_POC'] = current_price
+                locals_dict['VP_POSITION'] = 0.5
+            
+            # 볼륨 프로파일 돌파 (거래량 급증)
+            avg_volume = chart_data['volume'].mean()
+            volume_ratio = volume / avg_volume if avg_volume > 0 else 1
+            locals_dict['volume_profile_breakout'] = volume_ratio > 2  # 평균 거래량의 2배 이상
+        else:
+            locals_dict['VP_POC'] = current_price
+            locals_dict['VP_POSITION'] = 0.5
+            locals_dict['volume_profile_breakout'] = False
+        
+        # 포지티브 캔들 확인
+        open_price = kiwoom_data.get('open', 0)
+        locals_dict['positive_candle'] = current_price > open_price if open_price > 0 else False
+        
+        # 포트폴리오 정보 추가
+        if portfolio_info:
+            locals_dict.update(portfolio_info)
+
+        # 눌림목 판단 변수 추가
+        if 'tic_MA5' in locals_dict and 'tic_MA20' in locals_dict:
+            close_price = locals_dict.get('C', 0)
+            ma5 = locals_dict['tic_MA5']
+            ma20 = locals_dict['tic_MA20']
+            # 현재가가 5틱 이평선 근처에 있고, 5틱 이평선이 20틱 이평선 위에 있는 경우
+            locals_dict['is_pullback'] = (ma5 > 0 and abs(close_price - ma5) / ma5 < 0.005) and (ma5 > ma20) # 0.5% 이내 근접
+
+        
+        return locals_dict
+        
+    except Exception as ex:
+        logging.error(f"실시간 매수 로컬 변수 생성 실패 ({code}): {ex}")
+        return {}
+
+def build_realtime_sell_locals(code, kiwoom_data, chart_data, buy_price, buy_time, portfolio_info=None):
+    """실시간 매도 로컬 변수 생성"""
+    try:
+        # 실시간 데이터 지표 추출
+        realtime_indicators = KiwoomIndicatorExtractor.extract_realtime_indicators(kiwoom_data)
+        
+        # 틱봉 차트 데이터 지표 추출 (30틱)
+        chart_indicators = {}
+        if not chart_data.empty:
+            chart_indicators = KiwoomIndicatorExtractor.extract_chart_indicators(chart_data)
+        
+        # 3분봉 데이터 지표 추출 (min_data)
+        min_chart_indicators = {}
+        min_additional_indicators = {}
+        min_data = kiwoom_data.get('min_data', {})
+        if min_data and isinstance(min_data, dict):
+            # 분봉 데이터로 DataFrame 생성 및 지표 추출
+            # (틱차트 데이터 처리 방식과 동일하게 단순화)
+            if min_data.get('close'):
+                # DataFrame 생성 시 캐시된 지표도 함께 포함
+                min_df_data = {
+                    'close': min_data.get('close', []),
+                    'high': min_data.get('high', []),
+                    'low': min_data.get('low', []),
+                    'open': min_data.get('open', []),
+                    'volume': min_data.get('volume', [])
+                }
+                # min_data에 있는 다른 지표 배열들도 DataFrame에 추가
+                for key, value in min_data.items():
+                    if isinstance(value, (list, np.ndarray)) and key not in min_df_data:
+                        if len(value) == len(min_df_data['close']):
+                            min_df_data[key] = value
+                min_chart_df = pd.DataFrame(min_df_data)
+                if not min_chart_df.empty:
+                    calc_inds = KiwoomIndicatorExtractor.extract_chart_indicators(min_chart_df)
+                    for k, v in calc_inds.items():
+                        if k not in min_chart_indicators:
+                            min_chart_indicators[k] = v
+                    # 3분봉 추가 지표 계산
+                    min_additional_indicators = KiwoomIndicatorExtractor.calculate_additional_indicators(min_chart_indicators, min_chart_df)
+        
+        # 로컬 변수 딕셔너리 생성
+        locals_dict = {}
+        locals_dict.update(realtime_indicators)
+        
+        # 30틱 차트 지표를 tic_ 접두사로 추가 (동적 생성)
+        if chart_indicators:
+            for key, value in chart_indicators.items():
+                if not isinstance(value, (list, np.ndarray)):
+                    if key.endswith('_value'):
+                        new_key = f'tic_{key[:-6]}'
+                    else:
+                        new_key = f'tic_{key}'
+                    locals_dict[new_key] = value
+
+        # 3분봉 지표를 min3_ 접두사로 추가 (동적 생성)
+        if min_chart_indicators:
+            for key, value in min_chart_indicators.items():
+                if not isinstance(value, (list, np.ndarray)):
+                    if key.endswith('_value'):
+                        new_key = f'min3_{key[:-6]}'
+                    else:
+                        new_key = f'min3_{key}'
+                    locals_dict[new_key] = value
+
+        # 캐시 틱 데이터의 VWAP을 우선 사용 (스칼라 값)
+        try:
+            tic_cache = kiwoom_data.get('tic_data', {}) if isinstance(kiwoom_data, dict) else {}
+            if isinstance(tic_cache, dict):
+                cache_vwap = tic_cache.get('VWAP', None)
+                if cache_vwap is not None and not isinstance(cache_vwap, (list, np.ndarray)):
+                    locals_dict['tic_VWAP'] = cache_vwap
+        except Exception:
+            pass
+        
+        # 캐시에 없고 지표 계산에서 존재하면 그 값을 사용
+        if 'tic_VWAP' not in locals_dict and 'VWAP' in chart_indicators:
+            locals_dict['tic_VWAP'] = chart_indicators['VWAP']
+        
+        # 최종 안전장치: 여전히 없으면 0으로 설정하여 NameError 방지
+        if 'tic_VWAP' not in locals_dict:
+            locals_dict['tic_VWAP'] = 0
+
+        # 캐시 틱 지표 배열에서 최신값으로 보강 (MA/RSI/MACD 등)
+        try:
+            if isinstance(tic_cache, dict):
+                def _last_scalar(arr):
+                    try:
+                        if isinstance(arr, (list, np.ndarray)) and len(arr) > 0:
+                            return float(arr[-1])
+                    except Exception:
+                        return None
+                    return None
+                cache_map = {
+                    'MA5': 'tic_MA5',
+                    'MA20': 'tic_MA20',
+                    'MA60': 'tic_MA60',
+                    'MA120': 'tic_MA120',
+                    'RSI': 'tic_RSI',
+                    'MACD': 'tic_MACD',
+                    'MACD_SIGNAL': 'tic_MACD_SIGNAL',
+                    'MACD_HIST': 'tic_MACD_HIST',
+                }
+                for src_key, dst_key in cache_map.items():
+                    if dst_key not in locals_dict and src_key in tic_cache:
+                        val = _last_scalar(tic_cache.get(src_key))
+                        if val is not None and not np.isnan(val):
+                            locals_dict[dst_key] = val
+        except Exception:
+            pass
+
+        # 차트 지표 배열에서 보강 (캐시에 없을 때), 최종 기본값 0
+        if 'tic_MACD_HIST' not in locals_dict:
+            if 'MACD_HIST' in chart_indicators:
+                try:
+                    arr = chart_indicators['MACD_HIST']
+                    if isinstance(arr, (list, np.ndarray)) and len(arr) > 0:
+                        locals_dict['tic_MACD_HIST'] = float(arr[-1])
+                except Exception:
+                    pass
+        if 'tic_MACD_HIST' not in locals_dict:
+            locals_dict['tic_MACD_HIST'] = 0
+        
+        # ROC 배열도 추가 (ROC_recent 계산용)
+        if 'ROC' in chart_indicators:
+            locals_dict['ROC'] = chart_indicators['ROC']
         
         # 3분봉 추가 지표 (ROC_recent 등)
         for key, value in min_additional_indicators.items():
