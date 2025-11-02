@@ -35,6 +35,7 @@ import numpy as np
 import pandas as pd
 import pyqtgraph as pg
 import qasync
+from qasync import asyncSlot
 import requests
 import talib
 import websockets
@@ -240,6 +241,34 @@ class ApiLimitManager:
             return 'minute_chart'
         else:
             return 'default'
+    
+    @classmethod
+    async def check_api_limit_and_wait_async(cls, operation_name="API 요청", rqtype=0, request_type=None):
+        """API 제한 확인 및 대기 (비동기 버전)"""
+        try:
+            # 요청 타입별 간격 설정
+            if request_type is None:
+                request_type = cls._get_request_type(operation_name)
+            interval = cls._request_intervals.get(request_type, cls._request_intervals['default'])
+            
+            # 마지막 요청 시간 확인
+            current_time = time.time()
+            last_time = cls._last_request_time.get(request_type, 0)
+            
+            # 필요한 대기 시간 계산
+            elapsed_time = current_time - last_time
+            if elapsed_time < interval:
+                wait_time = interval - elapsed_time
+                # 비동기 대기 (qasync 환경에서 안전)
+                await asyncio.sleep(wait_time)
+            
+            # 요청 시간 업데이트
+            cls._last_request_time[request_type] = time.time()
+            return True
+            
+        except Exception as ex:
+            logging.error(f"API 제한 확인 중 오류: {ex}")
+            return False
     
     @classmethod
     def reset_request_times(cls):
@@ -638,32 +667,6 @@ class KiwoomTrader(QObject):
         self._init_database_async()
         
         # PyQt6에서는 QTextCursor 메타타입 등록이 불필요함
-    
-    def _init_database_async(self):
-        """비동기 데이터베이스 초기화 트리거"""
-        try:
-            
-            def run_async_init():
-                try:
-                    # 새로운 이벤트 루프 생성
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    try:
-                        # 비동기 데이터베이스 초기화 실행
-                        return loop.run_until_complete(self.db_manager.init_database())
-                    finally:
-                        loop.close()
-                except Exception as e:
-                    logging.error(f"비동기 데이터베이스 초기화 실행 오류: {e}")
-                    return None
-            
-            # 별도 스레드에서 비동기 초기화 실행
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(run_async_init)
-                future.result(timeout=30)  # 30초 타임아웃
-                
-        except Exception as ex:
-            logging.error(f"비동기 데이터베이스 초기화 트리거 실패: {ex}")
         
         # 포트폴리오 관리
         self.holdings = {}  # 보유 종목
@@ -693,6 +696,43 @@ class KiwoomTrader(QObject):
 
         logging.debug(f"키움 트레이더 초기화 완료 (목표 매수 종목 수: {self.buycount})")
     
+    def _init_database_async(self):
+        """비동기 데이터베이스 초기화 트리거"""
+        try:
+            # qasync 환경에서 메인 이벤트 루프 사용 시도
+            try:
+                loop = asyncio.get_running_loop()
+                # 이미 실행 중인 이벤트 루프가 있으면 태스크로 실행
+                asyncio.create_task(self.db_manager.init_database())
+                logging.debug("✅ DB 초기화를 비동기 태스크로 시작")
+                return
+            except RuntimeError:
+                # 실행 중인 이벤트 루프가 없음 - ThreadPoolExecutor로 처리
+                logging.debug("⚠️ 실행 중인 이벤트 루프가 없어 ThreadPoolExecutor 사용")
+                pass
+            
+            def run_async_init():
+                try:
+                    # 새로운 이벤트 루프 생성
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        # 비동기 데이터베이스 초기화 실행
+                        return loop.run_until_complete(self.db_manager.init_database())
+                    finally:
+                        loop.close()
+                except Exception as e:
+                    logging.error(f"비동기 데이터베이스 초기화 실행 오류: {e}")
+                    return None
+            
+            # 별도 스레드에서 비동기 초기화 실행
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(run_async_init)
+                future.result(timeout=30)  # 30초 타임아웃
+                
+        except Exception as ex:
+            logging.error(f"비동기 데이터베이스 초기화 트리거 실패: {ex}")
+    
     def load_settings(self):
         """설정 로드"""
         try:
@@ -701,8 +741,6 @@ class KiwoomTrader(QObject):
             
             # 매매 설정
             self.evaluation_interval = config.getint('TRADING', 'evaluation_interval', fallback=5)
-            self.event_based_evaluation = config.getboolean('TRADING', 'event_based_evaluation', fallback=True)
-            self.min_evaluation_gap = config.getint('TRADING', 'min_evaluation_gap', fallback=3)
             
             # 데이터 저장 설정
             self.data_saving_interval = config.getint('DATA_SAVING', 'interval_seconds', fallback=5)
@@ -776,7 +814,12 @@ class KiwoomTrader(QObject):
                 # 매도 주문 진행 중 상태에서 제거 (매수 후 다시 매도 가능하도록)
                 if code in self.pending_sell_orders:
                     self.pending_sell_orders.discard(code)
-                asyncio.create_task(self.db_manager.save_trade_record(code, current_time, "buy", quantity, price, strategy))
+                # qasync 환경에서 안전하게 태스크 생성
+                try:
+                    asyncio.get_running_loop()  # 루프 확인
+                    asyncio.create_task(self.db_manager.save_trade_record(code, current_time, "buy", quantity, price, strategy))
+                except RuntimeError:
+                    logging.warning("⚠️ 이벤트 루프가 없어 매수 기록 저장을 건너뜁니다")
                 
                 # 포트폴리오 업데이트
                 self.buy_prices[code] = price if price > 0 else self.get_current_price(code)
@@ -856,7 +899,12 @@ class KiwoomTrader(QObject):
                 # 매도 기록 저장 (비동기 태스크로 실행)
                 current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 sell_price = price if price > 0 else self.get_current_price(code)
-                asyncio.create_task(self.db_manager.save_trade_record(code, current_time, "sell", quantity, sell_price, strategy))
+                # qasync 환경에서 안전하게 태스크 생성
+                try:
+                    asyncio.get_running_loop()  # 루프 확인
+                    asyncio.create_task(self.db_manager.save_trade_record(code, current_time, "sell", quantity, sell_price, strategy))
+                except RuntimeError:
+                    logging.warning("⚠️ 이벤트 루프가 없어 매도 기록 저장을 건너뜁니다")
                 
                 # 보유 수량 확인 및 전량 매도 판단
                 is_full_sell = False
@@ -1076,6 +1124,17 @@ class KiwoomTrader(QObject):
                         logging.debug(f"🆕 [{code}] holdings 동기화: 웹소켓 잔고로 신규 추가")
                     else:
                         self.holdings[code]['quantity'] = quantity # 수량 동기화
+                else:
+                    # 수량이 0인 경우 (전량 매도 완료) holdings에서 제거
+                    if code in self.holdings:
+                        del self.holdings[code]
+                        logging.debug(f"🗑️ [{code}] holdings 동기화: 웹소켓 수량=0으로 제거됨")
+                    if code in self.buy_prices:
+                        del self.buy_prices[code]
+                    if code in self.buy_times:
+                        del self.buy_times[code]
+                    if code in self.highest_prices:
+                        del self.highest_prices[code]
         except Exception as ex:
             logging.warning(f"⚠️ self.holdings와 웹소켓 잔고 동기화 실패: {ex}")
     def get_balance_data(self):
@@ -1975,8 +2034,9 @@ class AutoTrader(QObject):
         except Exception as ex:
             logging.error(f"❌ 자동매매 중지 실패: {ex}")
     
-    def _periodic_trading_check(self):
-        """evaluation_interval 주기로 실행되는 주기적 매매 판단"""
+    @asyncSlot()
+    async def _periodic_trading_check(self):
+        """evaluation_interval 주기로 실행되는 주기적 매매 판단 (비동기)"""
         try:
             if not self.is_running:
                 logging.debug("⚠️ 자동매매가 실행 중이 아닙니다")
@@ -1992,7 +2052,7 @@ class AutoTrader(QObject):
             # 15:15에 자동 청산 (1회만 실행)
             if current_time_str == "15:15" and not self.auto_liquidation_executed:
                 logging.info("🕒 15:15 도달 - 모든 보유 종목 자동 청산 시작")
-                self.execute_auto_liquidation()
+                asyncio.create_task(self.execute_auto_liquidation_async())
                 self.auto_liquidation_executed = True
             
             # 다음날을 위해 플래그 리셋 (15:31 이후)
@@ -2066,15 +2126,27 @@ class AutoTrader(QObject):
                     self._trading_stopped_logged = True
                 return
             
-            # 모니터링 중인 모든 종목에 대해 매매 판단 실행
-            for code in self.parent.chart_cache.cache.keys():
-                try:
-                    self.analyze_and_execute_trading(code)
-                except Exception as ex:
-                    logging.error(f"❌ 주기적 매매 판단 실패 ({code}): {ex}")
+            # 모니터링 중인 모든 종목에 대해 매매 판단 실행 (동시 처리)
+            codes = list(self.parent.chart_cache.cache.keys())
+            if codes:
+                # 병렬 처리하여 성능 향상
+                await asyncio.gather(
+                    *[self._analyze_and_execute_trading_async(code) for code in codes],
+                    return_exceptions=True
+                )
                     
         except Exception as ex:
             logging.error(f"❌ 주기적 매매 판단 중 오류: {ex}")
+    
+    async def _analyze_and_execute_trading_async(self, code):
+        """매매 판단 및 실행 비동기 래퍼"""
+        try:
+            # 동기 함수를 await 가능하게 래핑
+            loop = asyncio.get_running_loop()
+            # ThreadPoolExecutor에서 실행하여 UI 블로킹 방지
+            await loop.run_in_executor(None, self.analyze_and_execute_trading, code)
+        except Exception as ex:
+            logging.error(f"❌ 비동기 매매 판단 실패 ({code}): {ex}")
     
     def _check_trading_time(self):
         """거래 시간 감시 (1분마다 실행) - 거래 시간이 되면 1초 타이머로 전환"""
@@ -2291,6 +2363,122 @@ class AutoTrader(QObject):
         except Exception as ex:
             logging.error(f"❌ 자동 청산 실행 중 오류: {ex}")
             logging.error(f"상세 오류: {traceback.format_exc()}")
+    
+    async def execute_auto_liquidation_async(self):
+        """15:15 자동 청산 - 비동기 버전 (종목 병렬 처리)"""
+        try:
+            logging.info("=" * 70)
+            logging.info("🕒 15:15 자동 청산 시작 (비동기)")
+            logging.info("=" * 70)
+            
+            # 보유 종목 목록 생성 (boughtBox에서)
+            if not hasattr(self.parent, 'boughtBox') or self.parent.boughtBox.count() == 0:
+                logging.info("ℹ️ 보유 중인 종목이 없습니다 - 자동 청산 종료")
+                return
+            
+            sell_items = []
+            for i in range(self.parent.boughtBox.count()):
+                item = self.parent.boughtBox.item(i)
+                item_text = item.text()
+                code = item_text.split(' - ')[0] if ' - ' in item_text else item_text.split(' ')[0]
+                sell_items.append(code)
+            
+            logging.info(f"📋 청산 대상: {len(sell_items)}개 종목")
+            for code in sell_items:
+                logging.info(f"   - {code}")
+            
+            # 모든 종목 병렬 처리
+            if sell_items:
+                results = await asyncio.gather(
+                    *[self._liquidation_sell_single_stock(code) for code in sell_items],
+                    return_exceptions=True
+                )
+                
+                # 결과 집계
+                success_count = sum(1 for r in results if r is True)
+                fail_count = len(results) - success_count
+                
+                # 결과 로그
+                logging.info("=" * 70)
+                logging.info(f"🕒 15:15 자동 청산 완료")
+                logging.info(f"   ✅ 성공: {success_count}개 종목")
+                logging.info(f"   ❌ 실패: {fail_count}개 종목")
+                logging.info("=" * 70)
+            else:
+                logging.info("ℹ️ 청산할 종목이 없습니다")
+            
+        except Exception as ex:
+            logging.error(f"❌ 자동 청산 실행 중 오류: {ex}")
+            logging.error(f"상세 오류: {traceback.format_exc()}")
+    
+    async def _liquidation_sell_single_stock(self, code):
+        """단일 종목 청산 (비동기)"""
+        try:
+            # 보유 수량 조회 (웹소켓/REST API 이중 체크)
+            quantity = 0
+            
+            # 1차: 웹소켓 실시간 잔고 데이터에서 보유 수량 조회 시도
+            if (hasattr(self.parent, 'login_handler') and self.parent.login_handler and 
+                hasattr(self.parent.login_handler, 'websocket_client') and self.parent.login_handler.websocket_client and
+                hasattr(self.parent.login_handler.websocket_client, 'balance_data')):
+                
+                ws_client = self.parent.login_handler.websocket_client
+                balance_data = ws_client.balance_data
+                
+                if code in balance_data:
+                    quantity = balance_data[code].get('quantity', 0)
+                    logging.info(f"💰 웹소켓 잔고: {code} {quantity:,}주")
+            
+            # 2차: 웹소켓 데이터가 없거나 수량이 0이면 REST API로 조회
+            if quantity <= 0:
+                try:
+                    if hasattr(self.parent, 'login_handler') and self.parent.login_handler and hasattr(self.parent.login_handler, 'kiwoom_client'):
+                        # ThreadPoolExecutor로 동기 API 호출을 비동기화
+                        loop = asyncio.get_running_loop()
+                        balance_result = await loop.run_in_executor(
+                            None,
+                            self.parent.login_handler.kiwoom_client.get_acnt_balance
+                        )
+                        
+                        if balance_result:
+                            holdings = balance_result.get('stk_acnt_evlt_prst', balance_result.get('output1', []))
+                            for stock in holdings:
+                                raw_code = stock.get('stk_cd', stock.get('pdno', ''))
+                                stock_code = self.parent.normalize_stock_code(raw_code)
+                                if stock_code == code:
+                                    quantity = self.parent.safe_int(stock.get('rmnd_qty', stock.get('hldg_qty', 0)))
+                                    logging.info(f"📡 REST API 잔고: {code} {quantity:,}주")
+                                    break
+                except Exception as api_ex:
+                    logging.error(f"❌ REST API 잔고 조회 실패 ({code}): {api_ex}")
+            
+            # 수량 확인
+            if quantity <= 0:
+                logging.warning(f"⚠️ {code} 보유 수량 없음 - 건너뜀")
+                return False
+            
+            # 매도 주문 실행 (시장가) - ThreadPoolExecutor로 비동기화
+            if hasattr(self.parent, 'login_handler') and self.parent.login_handler and hasattr(self.parent.login_handler, 'kiwoom_client'):
+                loop = asyncio.get_running_loop()
+                success = await loop.run_in_executor(
+                    None,
+                    lambda: self.parent.login_handler.kiwoom_client.place_sell_order(code, quantity, 0, "market")
+                )
+                
+                if success:
+                    logging.info(f"✅ 자동 청산 성공: {code} {quantity:,}주 시장가 매도")
+                    return True
+                else:
+                    logging.error(f"❌ 자동 청산 실패: {code}")
+                    return False
+            else:
+                logging.error(f"❌ 키움 클라이언트가 없습니다: {code}")
+                return False
+                
+        except Exception as item_ex:
+            logging.error(f"❌ {code} 매도 중 오류: {item_ex}")
+            logging.error(f"상세 오류: {traceback.format_exc()}")
+            return False
     
     def _check_risk_management(self, signal_type, signal_data):
         """리스크 관리 확인"""
@@ -2894,11 +3082,14 @@ class MonitoringManager:
             if hasattr(self.parent, 'login_handler') and hasattr(self.parent.login_handler, 'websocket_client'):
                 ws_client = self.parent.login_handler.websocket_client
                 if ws_client and ws_client.connected:
-                    # asyncio.create_task 대신, 이 함수를 async로 만들고 await을 사용해야 함.
-                    # 하지만 이 함수는 동기 컨텍스트에서 호출될 수 있으므로,
-                    # 대신 루프에 안전하게 작업을 제출하는 방식을 사용.
-                    asyncio.get_event_loop().create_task(ws_client.subscribe_stock_execution_data([code], 'monitoring'))
-                    logging.debug(f"📡 실시간 체결 데이터 구독: {code}")
+                    # qasync 환경에서 안전하게 태스크 생성
+                    try:
+                        asyncio.get_running_loop()  # 루프 확인
+                        asyncio.create_task(ws_client.subscribe_stock_execution_data([code], 'monitoring'))
+                        logging.debug(f"📡 실시간 체결 데이터 구독: {code}")
+                    except RuntimeError:
+                        # 이벤트 루프가 없으면 무시 (정상적인 상황일 수 있음)
+                        pass
             
             return True
             
@@ -2955,8 +3146,13 @@ class MonitoringManager:
             if hasattr(self.parent, 'login_handler') and hasattr(self.parent.login_handler, 'websocket_client'):
                 ws_client = self.parent.login_handler.websocket_client
                 if ws_client and ws_client.connected:
-                    asyncio.create_task(ws_client.unsubscribe_stock_execution_data([code]))
-                    logging.debug(f"📡 실시간 구독 해제: {code}")
+                    # qasync 환경에서 안전하게 태스크 생성
+                    try:
+                        asyncio.get_running_loop()  # 루프 확인
+                        asyncio.create_task(ws_client.unsubscribe_stock_execution_data([code]))
+                        logging.debug(f"📡 실시간 구독 해제: {code}")
+                    except RuntimeError:
+                        logging.warning("⚠️ 이벤트 루프가 없어 구독 해제를 건너뜁니다")
             
             return True
             
@@ -3098,9 +3294,13 @@ class MonitoringManager:
             if hasattr(self.parent, 'login_handler') and hasattr(self.parent.login_handler, 'websocket_client'):
                 websocket_client = self.parent.login_handler.websocket_client
                 if websocket_client and websocket_client.connected:
-                    # 비동기로 실시간 체결 데이터 구독
-                    asyncio.create_task(websocket_client.subscribe_stock_execution_data([code], 'monitoring'))
-                    logging.debug(f"📡 모니터링 종목 실시간 체결(0B) 구독 요청: {code}")
+                    # qasync 환경에서 안전하게 태스크 생성
+                    try:
+                        asyncio.get_running_loop()  # 루프 확인
+                        asyncio.create_task(websocket_client.subscribe_stock_execution_data([code], 'monitoring'))
+                        logging.debug(f"📡 모니터링 종목 실시간 체결(0B) 구독 요청: {code}")
+                    except RuntimeError:
+                        logging.warning("⚠️ 이벤트 루프가 없어 구독을 건너뜁니다")
                 else:
                     logging.warning(f"⚠️ 웹소켓이 연결되지 않아 실시간 구독을 시작할 수 없습니다: {code}")
             else:
@@ -3116,9 +3316,13 @@ class MonitoringManager:
             if hasattr(self.parent, 'login_handler') and hasattr(self.parent.login_handler, 'websocket_client'):
                 websocket_client = self.parent.login_handler.websocket_client
                 if websocket_client and websocket_client.connected:
-                    # 비동기로 실시간 체결 데이터 구독 해제
-                    asyncio.create_task(websocket_client.unsubscribe_stock_execution_data([code]))
-                    logging.debug(f"📡 실시간 체결 데이터 구독 해제: {code}")
+                    # qasync 환경에서 안전하게 태스크 생성
+                    try:
+                        asyncio.get_running_loop()  # 루프 확인
+                        asyncio.create_task(websocket_client.unsubscribe_stock_execution_data([code]))
+                        logging.debug(f"📡 실시간 체결 데이터 구독 해제: {code}")
+                    except RuntimeError:
+                        logging.warning("⚠️ 이벤트 루프가 없어 구독 해제를 건너뜁니다")
                 else:
                     logging.warning(f"⚠️ 웹소켓이 연결되지 않아 실시간 구독 해제를 할 수 없습니다: {code}")
             else:
@@ -3133,6 +3337,14 @@ class UIComponentsManager:
     
     def __init__(self, parent):
         self.parent = parent
+    
+    def _safe_create_task(self, coro):
+        """qasync 환경에서 안전하게 태스크 생성"""
+        try:
+            asyncio.get_running_loop()  # 루프 확인
+            asyncio.create_task(coro)
+        except RuntimeError:
+            logging.warning("⚠️ 이벤트 루프가 없어 비동기 작업을 실행할 수 없습니다")
     
     def update_connection_ui(self, is_connected):
         """연결 상태에 따라 UI를 업데이트하는 중앙 함수"""
@@ -3936,7 +4148,7 @@ class UIComponentsManager:
         parent.addStockButton.clicked.connect(parent.trading_manager.add_stock_to_list)
         # 연결 버튼 클릭 시 LoginHandler의 비동기 메서드를 직접 호출
         parent.connectButton.clicked.connect(
-            lambda: asyncio.create_task(parent.login_handler._handle_connection_toggle_async()))
+            lambda: self._safe_create_task(parent.login_handler._handle_connection_toggle_async()))
         parent.stockInputEdit.returnPressed.connect(parent.add_stock_to_list)
 
         parent.buyButton.clicked.connect(parent.buy_item)
@@ -4262,14 +4474,22 @@ class StrategyManager:
                 condition_names = [condition['title'] for condition in self.parent.condition_search_list]
                 if strategy_name in condition_names:
                     # 조건검색식 선택 시 바로 실행 (비동기)
-                    asyncio.create_task(self.parent.handle_condition_search())
+                    try:
+                        asyncio.get_running_loop()  # 루프 확인
+                        asyncio.create_task(self.parent.handle_condition_search())
+                    except RuntimeError:
+                        logging.warning("⚠️ 이벤트 루프가 없어 조건검색을 실행할 수 없습니다")
                     return
             
             # 통합 전략인 경우 모든 조건검색식 실행
             if strategy_name == "통합 전략":
                 if hasattr(self.parent, 'condition_search_list') and self.parent.condition_search_list:
                     logging.debug("🔍 통합 전략 실행: 모든 조건검색식 적용 (ConditionSearchManager)")
-                    asyncio.create_task(self.parent.condition_search_manager.handle_integrated_condition_search())
+                    try:
+                        asyncio.get_running_loop()  # 루프 확인
+                        asyncio.create_task(self.parent.condition_search_manager.handle_integrated_condition_search())
+                    except RuntimeError:
+                        logging.warning("⚠️ 이벤트 루프가 없어 통합 전략을 실행할 수 없습니다")
                     return
             
             # 일반 투자전략인 경우 기존 로직 실행
@@ -5923,7 +6143,7 @@ class MyWindow(QWidget):
             # 8. 대기 중인 API 큐 처리 (트레이더 객체 생성 후)
             try:
                 if hasattr(self, 'chart_cache') and self.chart_cache:
-                    if hasattr(self.chart_cache, 'api_request_queue') and self.chart_cache.api_request_queue:
+                    if hasattr(self.chart_cache, 'api_request_queue'):
                         queue_size = len(self.chart_cache.api_request_queue)
                         if queue_size > 0:
                             logging.debug(f"🔧 대기 중인 API 큐 처리 시작: {queue_size}개 종목")
@@ -6054,11 +6274,13 @@ class MyWindow(QWidget):
                         
                         # 웹소켓 연결 강제 종료
                         try:
-                            loop = asyncio.get_event_loop()
-                            if loop and not loop.is_closed():
-                                # 비동기 disconnect 호출
-                                asyncio.create_task(self.login_handler.websocket_client.disconnect())
-                                logging.debug("✅ 웹소켓 비동기 연결 해제 완료")
+                            asyncio.get_running_loop()  # 루프 확인
+                            # 비동기 disconnect 호출
+                            asyncio.create_task(self.login_handler.websocket_client.disconnect())
+                            logging.debug("✅ 웹소켓 비동기 연결 해제 완료")
+                        except RuntimeError:
+                            # 이벤트 루프가 없으면 이미 종료된 것
+                            pass
                         except Exception as async_ex:
                             logging.warning(f"⚠️ 웹소켓 비동기 연결 해제 실패: {async_ex}")
                     
@@ -6112,18 +6334,18 @@ class MyWindow(QWidget):
             
             # asyncio 이벤트 루프 정리
             try:
-                loop = asyncio.get_event_loop()
-                if loop and not loop.is_closed():
-                    # 모든 태스크 취소
-                    tasks = [task for task in asyncio.all_tasks(loop) if not task.done()]
-                    if tasks:
-                        for task in tasks:
-                            task.cancel()
-                        logging.debug(f"✅ {len(tasks)}개 asyncio 태스크 취소 완료")
-                    else:
-                        logging.debug("✅ 취소할 asyncio 태스크 없음")
+                loop = asyncio.get_running_loop()
+                # 모든 태스크 취소
+                tasks = [task for task in asyncio.all_tasks(loop) if not task.done()]
+                if tasks:
+                    for task in tasks:
+                        task.cancel()
+                    logging.debug(f"✅ {len(tasks)}개 asyncio 태스크 취소 완료")
                 else:
-                    logging.debug("✅ asyncio 이벤트 루프가 이미 정리됨")
+                    logging.debug("✅ 취소할 asyncio 태스크 없음")
+            except RuntimeError:
+                # 이벤트 루프가 없으면 이미 정리된 것
+                logging.debug("✅ asyncio 이벤트 루프가 이미 정리됨")
             except Exception as asyncio_ex:
                 logging.error(f"❌ asyncio 정리 실패: {asyncio_ex}")
             
@@ -6234,11 +6456,11 @@ async def main():
     if not app:
         app = QApplication.instance()
 
-    loop = asyncio.get_event_loop()
-
     window = MyWindow()
     window.show()
 
+    # qasync가 관리하는 이벤트 루프가 종료될 때까지 대기
+    loop = asyncio.get_running_loop()
     await loop.create_future()
 
 # ==================== PyQtGraph CandlesticItem 클래스 ====================
@@ -7470,7 +7692,7 @@ class ChartDataCache(QObject):
             self.api_request_queue = []  # API 요청 큐
             self.queue_processing = False  # 큐 처리 중 플래그
             self.queue_timer = None  # 큐 처리 타이머
-            self.active_chart_threads = {} # 활성 차트 데이터 수집 스레드 관리
+            self.active_chart_tasks = {} # 활성 차트 데이터 수집 asyncio 태스크 관리
             self.pending_stocks = {}  # 큐에 대기 중인 종목 정보 (코드: 이름)
             logging.debug("🔍 API 요청 큐 시스템 초기화 완료")
             
@@ -7498,34 +7720,166 @@ class ChartDataCache(QObject):
         pass
     
     def collect_chart_data_async(self, code, max_retries=3):
-        """비동기 차트 데이터 수집 (QThread 사용, UI 블로킹 방지)"""
+        """비동기 차트 데이터 수집 (asyncio 기반, qasync 통합)"""
         try:
-            # logging.debug(f"🔧 비동기 차트 데이터 수집 시작: {code}")
+            # qasync 환경에서 메인 이벤트 루프 사용 시도
+            try:
+                loop = asyncio.get_running_loop()
+                # 이미 실행 중인 이벤트 루프가 있으면 태스크로 실행
+                task = asyncio.create_task(self._collect_chart_data_internal(code, max_retries))
+                self.active_chart_tasks[code] = task
+                logging.debug(f"✅ 차트 데이터 수집 태스크 시작: {code} (활성 태스크 수: {len(self.active_chart_tasks)})")
+                return
+            except RuntimeError:
+                # 실행 중인 이벤트 루프가 없음 - ThreadPoolExecutor로 fallback
+                logging.debug(f"⚠️ 실행 중인 이벤트 루프가 없어 ThreadPoolExecutor 사용: {code}")
+                pass
             
-            # 새로운 차트 데이터 수집 스레드 생성
-            thread = ChartDataCollectionThread(
-                client=self.trader.client,
-                code=code,
-                max_retries=max_retries
-            )
+            # Fallback: ThreadPoolExecutor 사용 (이벤트 루프가 없는 경우)
+            def run_collect():
+                try:
+                    # 새로운 이벤트 루프 생성
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        # 비동기 데이터 수집 실행
+                        return loop.run_until_complete(self._collect_chart_data_internal(code, max_retries))
+                    finally:
+                        loop.close()
+                except Exception as e:
+                    logging.error(f"차트 데이터 수집 실행 오류: {e}")
+                    return None
             
-            # 시그널 연결
-            thread.data_ready.connect(self._on_chart_data_ready)
-            thread.error_occurred.connect(self._on_chart_data_error)
-            thread.progress_updated.connect(self._on_chart_data_progress)
-            
-            # 스레드 시작
-            thread.start()
-            
-            # 활성 스레드 목록에 추가하여 참조 유지
-            self.active_chart_threads[code] = thread
-            
-            logging.debug(f"✅ 차트 데이터 수집 스레드 시작: {code} (활성 스레드 수: {len(self.active_chart_threads)})")
-            
-            # logging.debug(f"✅ 차트 데이터 수집 스레드 시작: {code}")
+            # 별도 스레드에서 데이터 수집 실행
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(run_collect)
+                future.result(timeout=60)  # 60초 타임아웃
             
         except Exception as ex:
             logging.error(f"❌ 비동기 차트 데이터 수집 실패: {code} - {ex}")
+    
+    async def _collect_chart_data_internal(self, code, max_retries=3):
+        """내부 차트 데이터 수집 (asyncio 기반)"""
+        try:
+            logging.debug(f"📊 차트 데이터 수집 시작: {code}")
+            
+            # 비동기로 틱 데이터와 분봉 데이터 수집
+            tic_data, min_data = await asyncio.gather(
+                self._collect_tic_data_async(code, max_retries),
+                self._collect_minute_data_async(code, max_retries),
+                return_exceptions=True
+            )
+            
+            # 예외 처리
+            if isinstance(tic_data, Exception):
+                logging.error(f"틱 데이터 수집 실패: {tic_data}")
+                tic_data = None
+            if isinstance(min_data, Exception):
+                logging.error(f"분봉 데이터 수집 실패: {min_data}")
+                min_data = None
+            
+            # 틱 데이터가 None인 경우 빈 딕셔너리로 초기화
+            if tic_data is None:
+                tic_data = {'time': [], 'open': [], 'high': [], 'low': [], 'close': [], 'volume': [], 'strength': []}
+                logging.warning(f"틱 데이터가 None입니다. 빈 데이터로 초기화: {code}")
+                
+            # 분봉 데이터가 None인 경우 빈 딕셔너리로 초기화
+            if min_data is None:
+                min_data = {'time': [], 'open': [], 'high': [], 'low': [], 'close': [], 'volume': []}
+                logging.warning(f"분봉 데이터가 None입니다. 빈 데이터로 초기화: {code}")
+            
+            # 기술적 지표 계산 (비동기, ThreadPoolExecutor 사용)
+            try:
+                loop = asyncio.get_running_loop()
+                # 틱 데이터와 분봉 데이터를 병렬로 계산
+                if tic_data and min_data:
+                    tic_data, min_data = await asyncio.gather(
+                        loop.run_in_executor(None, self._calculate_technical_indicators, tic_data, "tic"),
+                        loop.run_in_executor(None, self._calculate_technical_indicators, min_data, "minute"),
+                        return_exceptions=True
+                    )
+                    # 예외 처리
+                    if isinstance(tic_data, Exception):
+                        logging.error(f"틱 지표 계산 실패: {tic_data}")
+                        tic_data = None
+                    if isinstance(min_data, Exception):
+                        logging.error(f"분봉 지표 계산 실패: {min_data}")
+                        min_data = None
+                elif tic_data:
+                    tic_data = await loop.run_in_executor(None, self._calculate_technical_indicators, tic_data, "tic")
+                elif min_data:
+                    min_data = await loop.run_in_executor(None, self._calculate_technical_indicators, min_data, "minute")
+            except RuntimeError:
+                # 이벤트 루프가 없으면 동기로 계산
+                if tic_data:
+                    tic_data = self._calculate_technical_indicators(tic_data, "tic")
+                if min_data:
+                    min_data = self._calculate_technical_indicators(min_data, "minute")
+            except Exception as calc_ex:
+                logging.error(f"기술적 지표 계산 중 오류: {calc_ex}")
+            
+            # 메인 스레드에서 콜백 실행
+            QTimer.singleShot(0, lambda: self._on_chart_data_ready(code, tic_data, min_data))
+            
+        except Exception as e:
+            logging.error(f"차트 데이터 수집 실패 ({code}): {e}")
+            QTimer.singleShot(0, lambda: self._on_chart_data_error(code, str(e)))
+        finally:
+            # 태스크 완료 처리
+            if code in self.active_chart_tasks:
+                self.active_chart_tasks.pop(code)
+                logging.debug(f"✅ 차트 데이터 수집 태스크 정리 완료: {code}")
+    
+    async def _collect_tic_data_async(self, code, max_retries=3):
+        """틱 데이터 수집 (asyncio 기반)"""
+        for attempt in range(max_retries):
+            try:
+                # API 제한 확인 (비동기 버전)
+                await ApiLimitManager.check_api_limit_and_wait_async(request_type='tic')
+                
+                # ThreadPoolExecutor를 사용하여 동기 API를 비동기로 실행
+                loop = asyncio.get_running_loop()
+                data = await loop.run_in_executor(
+                    None,  # 기본 ThreadPoolExecutor 사용
+                    self.trader.client.get_stock_tic_chart,
+                    code,
+                    30  # tic_scope
+                )
+                
+                if data:
+                    return data
+                    
+            except Exception as e:
+                logging.warning(f"틱 데이터 수집 시도 {attempt + 1}/{max_retries} 실패: {e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(1)
+        
+        return None
+    
+    async def _collect_minute_data_async(self, code, max_retries=3):
+        """분봉 데이터 수집 (asyncio 기반)"""
+        for attempt in range(max_retries):
+            try:
+                # API 제한 확인 (비동기 버전)
+                await ApiLimitManager.check_api_limit_and_wait_async(request_type='minute')
+                
+                # ThreadPoolExecutor를 사용하여 동기 API를 비동기로 실행
+                loop = asyncio.get_running_loop()
+                data = await loop.run_in_executor(
+                    None,  # 기본 ThreadPoolExecutor 사용
+                    self.trader.client.get_stock_minute_chart,
+                    code
+                )
+                
+                if data:
+                    return data
+                    
+            except Exception as e:
+                logging.warning(f"분봉 데이터 수집 시도 {attempt + 1}/{max_retries} 실패: {e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(1)
+        
+        return None
     
     def _on_chart_data_ready(self, code, tic_data, min_data):
         """차트 데이터 수집 완료 시그널 핸들러"""
@@ -7543,11 +7897,8 @@ class ChartDataCache(QObject):
                 }
                 logging.debug(f"📝 {code}: 캐시 초기화")
             
-            # 기술적 지표 계산
-            if tic_data:
-                tic_data = self._calculate_technical_indicators(tic_data, "tic")
-            if min_data:
-                min_data = self._calculate_technical_indicators(min_data, "minute")
+            # 기술적 지표 계산은 이미 _collect_chart_data_internal에서 완료됨
+            # _on_chart_data_ready는 캐시 저장 및 UI 업데이트만 담당
             
             self.cache[code]['tic_data'] = tic_data
             self.cache[code]['min_data'] = min_data
@@ -7585,9 +7936,6 @@ class ChartDataCache(QObject):
                 # pending_stocks에서 제거
                 del self.pending_stocks[code]
             
-            # 스레드 완료 처리
-            self._remove_completed_thread(code)
-            
             # 데이터 수집 결과 로그 (간소화)
             if not tic_data and not min_data:
                 logging.warning(f"⚠️ 차트 데이터 수집 실패: {code}")
@@ -7601,34 +7949,8 @@ class ChartDataCache(QObject):
         try:
             logging.error(f"❌ 차트 데이터 수집 에러: {code} - {error_message}")
             
-            # 스레드 완료 처리
-            self._remove_completed_thread(code)
-            
         except Exception as ex:
             logging.error(f"❌ 차트 데이터 에러 처리 실패: {code} - {ex}")
-    
-    def _on_chart_data_progress(self, code, progress_message):
-        """차트 데이터 수집 진행상황 시그널 핸들러"""
-        try:
-            logging.debug(f"📊 {progress_message}")
-            
-        except Exception as ex:
-            logging.error(f"❌ 차트 데이터 진행상황 처리 실패: {code} - {ex}")
-    
-    def _remove_completed_thread(self, code):
-        """완료된 스레드 제거"""
-        # 스레드 관리가 제거되어 비워둡니다. -> 이 부분을 수정합니다.
-        try:
-            if code in self.active_chart_threads:
-                thread = self.active_chart_threads.pop(code)
-                thread.quit() # 스레드 이벤트 루프 종료
-                thread.wait() # 스레드가 완전히 종료될 때까지 대기
-                logging.debug(f"✅ 차트 데이터 수집 스레드 정리 완료: {code} (남은 활성 스레드 수: {len(self.active_chart_threads)})")
-            else:
-                logging.debug(f"ℹ️ 정리할 차트 데이터 수집 스레드를 찾을 수 없음: {code}")
-                    
-        except Exception as ex:
-            logging.error(f"❌ 완료된 스레드 제거 실패: {code} - {ex}")
     
     def _collect_and_save_data(self, code):
         """실제 데이터 수집 및 저장"""
@@ -8192,6 +8514,17 @@ class ChartDataCache(QObject):
     def _trigger_async_save_to_database(self):
         """비동기 데이터베이스 저장 트리거"""
         try:
+            # qasync 환경에서 메인 이벤트 루프 사용 시도
+            try:
+                loop = asyncio.get_running_loop()
+                # 이미 실행 중인 이벤트 루프가 있으면 태스크로 실행
+                asyncio.create_task(self.save_to_database())
+                logging.debug("✅ DB 저장을 비동기 태스크로 시작")
+                return
+            except RuntimeError:
+                # 실행 중인 이벤트 루프가 없음 - ThreadPoolExecutor로 처리
+                logging.debug("⚠️ 실행 중인 이벤트 루프가 없어 ThreadPoolExecutor 사용")
+                pass
             
             def run_async_save():
                 try:
@@ -8563,113 +8896,6 @@ class ChartDataCache(QObject):
         except Exception as ex:
             logging.error(f"실시간 차트 데이터 업데이트 실패 ({code}): {ex}")
 
-class ChartDataCollectionThread(QThread):
-    """차트 데이터 수집을 위한 별도 스레드 (UI 블로킹 방지)"""
-    data_ready = pyqtSignal(str, dict, dict)  # 종목코드, 틱데이터, 분봉데이터 시그널
-    error_occurred = pyqtSignal(str, str)  # 종목코드, 에러메시지 시그널
-    progress_updated = pyqtSignal(str, str)  # 종목코드, 진행상황 시그널
-    
-    def __init__(self, client, code, max_retries=3):
-        super().__init__()
-        self.client = client
-        self.code = code
-        self.max_retries = max_retries
-        self._is_cancelled = False
-        
-    def cancel(self):
-        """요청 취소"""
-        self._is_cancelled = True
-        
-    def run(self):
-        """스레드 실행"""
-        try:
-            if self._is_cancelled:
-                return
-                
-            self.progress_updated.emit(self.code, f"차트 데이터 수집 시작: {self.code}")
-            
-            # 틱 데이터 수집
-            self.progress_updated.emit(self.code, f"틱 데이터 수집 중: {self.code}")
-            tic_data = self._collect_tic_data()
-            
-            if self._is_cancelled:
-                return
-            
-            # 틱 데이터가 None인 경우 빈 딕셔너리로 초기화
-            if tic_data is None:
-                tic_data = {'time': [], 'open': [], 'high': [], 'low': [], 'close': [], 'volume': [], 'strength': []}
-                logging.warning(f"틱 데이터가 None입니다. 빈 데이터로 초기화: {self.code}")
-                
-            # 분봉 데이터 수집
-            self.progress_updated.emit(self.code, f"분봉 데이터 수집 중: {self.code}")
-            min_data = self._collect_minute_data()
-            
-            if self._is_cancelled:
-                return
-            
-            # 분봉 데이터가 None인 경우 빈 딕셔너리로 초기화
-            if min_data is None:
-                min_data = {'time': [], 'open': [], 'high': [], 'low': [], 'close': [], 'volume': []}
-                logging.warning(f"분봉 데이터가 None입니다. 빈 데이터로 초기화: {self.code}")
-                
-            self.progress_updated.emit(self.code, f"차트 데이터 수집 완료: {self.code}")
-            self.data_ready.emit(self.code, tic_data, min_data)
-            
-        except Exception as e:
-            if not self._is_cancelled:
-                self.error_occurred.emit(self.code, str(e))
-    
-    def _collect_tic_data(self):
-        """틱 데이터 수집"""
-        for attempt in range(self.max_retries):
-            if self._is_cancelled:
-                return None
-                
-            try:
-                # API 제한 확인
-                if not ApiLimitManager.check_api_limit_and_wait(request_type='tic'):
-                    time.sleep(0.1)
-                
-                data = self.client.get_stock_tic_chart(
-                    self.code, 
-                    tic_scope=30, 
-                )
-                
-                if data:
-                    return data
-                    
-            except Exception as e:
-                logging.warning(f"틱 데이터 수집 시도 {attempt + 1}/{self.max_retries} 실패: {e}")
-                if attempt < self.max_retries - 1:
-                    time.sleep(1)
-        
-        return None
-    
-    def _collect_minute_data(self):
-        """분봉 데이터 수집"""
-        for attempt in range(self.max_retries):
-            if self._is_cancelled:
-                return None
-                
-            try:
-                # API 제한 확인
-                if not ApiLimitManager.check_api_limit_and_wait(request_type='minute'):
-                    time.sleep(0.1)
-                
-                data = self.client.get_stock_minute_chart(
-                    self.code
-                )
-                
-                if data:
-                    return data
-                    
-            except Exception as e:
-                logging.warning(f"분봉 데이터 수집 시도 {attempt + 1}/{self.max_retries} 실패: {e}")
-                if attempt < self.max_retries - 1:
-                    time.sleep(1)
-        
-        return None
-
 class KiwoomWebSocketClient:
     """키움 웹소켓 클라이언트 (asyncio 기반) - 리팩토링된 버전"""
     
@@ -8815,8 +9041,46 @@ class KiwoomWebSocketClient:
                 # 메시지 유형이 LOGIN일 경우 로그인 시도 결과 체크 (키움증권 예시코드 기반)
                 if response.get('trnm') == 'LOGIN':
                     if response.get('return_code') != 0:
-                        logging.error('❌ 웹소켓 로그인 실패하였습니다. : ', response.get('return_msg'))
-                        await self.disconnect()
+                        error_msg = response.get('return_msg', '')
+                        logging.error(f'❌ 웹소켓 로그인 실패하였습니다. : {error_msg}')
+                        
+                        # 토큰 만료나 무효한 경우 토큰 갱신 후 재연결 시도
+                        if 'Token' in error_msg or '토큰' in error_msg or '8005' in error_msg:
+                            logging.info('🔄 토큰 만료로 인한 로그인 실패 - 토큰 갱신 후 재연결 시도')
+                            
+                            # REST 클라이언트를 통해 토큰 갱신 시도
+                            if self.parent and hasattr(self.parent, 'login_handler'):
+                                if hasattr(self.parent.login_handler, 'kiwoom_client'):
+                                    try:
+                                        # 토큰 갱신
+                                        if self.parent.login_handler.kiwoom_client.get_access_token():
+                                            logging.info('✅ 토큰 갱신 성공 - 웹소켓 재연결 시도')
+                                            # 새로운 토큰으로 업데이트
+                                            self.token = self.parent.login_handler.kiwoom_client.access_token
+                                            # keep_running을 True로 설정 (재연결을 위해)
+                                            self.keep_running = True
+                                            # 재연결 시도
+                                            await asyncio.sleep(1)  # 1초 대기
+                                            if await self.connect():
+                                                logging.info('✅ 웹소켓 재연결 성공')
+                                            else:
+                                                logging.error('❌ 웹소켓 재연결 실패')
+                                                await self.disconnect()
+                                        else:
+                                            logging.error('❌ 토큰 갱신 실패')
+                                            await self.disconnect()
+                                    except Exception as token_err:
+                                        logging.error(f'❌ 토큰 갱신 중 오류: {token_err}')
+                                        await self.disconnect()
+                                else:
+                                    logging.error('❌ REST 클라이언트를 찾을 수 없습니다')
+                                    await self.disconnect()
+                            else:
+                                logging.error('❌ 부모 윈도우나 login_handler를 찾을 수 없습니다')
+                                await self.disconnect()
+                        else:
+                            # 토큰 문제가 아닌 다른 오류인 경우
+                            await self.disconnect()
                     else:
                         mode_text = "모의투자" if self.is_mock else "실제투자"
                         logging.debug(f'✅ 웹소켓 로그인 성공하였습니다. ({mode_text} 모드)')
@@ -8921,7 +9185,8 @@ class KiwoomWebSocketClient:
                                         logging.error(f"잔고 데이터 처리 에러 상세: {traceback.format_exc()}")
                                 elif data_type == '0B':  # 주식체결
                                     try:
-                                        self.process_stock_execution_data(data_item)
+                                        # 비동기로 처리하여 기술적 지표 계산이 UI를 블로킹하지 않도록 함
+                                        asyncio.create_task(self.process_stock_execution_data_async(data_item))
                                     except Exception as execution_err:
                                         logging.error(f"체결 데이터 처리 실패: {execution_err}")
                                         logging.error(f"체결 데이터 처리 에러 상세: {traceback.format_exc()}")
@@ -9230,49 +9495,34 @@ class KiwoomWebSocketClient:
                         'updated_at': datetime.now().isoformat()
                     }
                     
-                    # trader.holdings 자동 동기화 (웹소켓 잔고 업데이트 시)
+                    # trader.holdings 자동 동기화 (웹소켓 잔고 업데이트 시, quantity > 0인 경우만)
                     try:
                         if self.parent and hasattr(self.parent, 'trader') and self.parent.trader:
                             trader = self.parent.trader
                             
-                            # 전량 매도 (수량이 0이 되었을 때)
-                            if quantity == 0:
-                                # holdings에서 제거
-                                if stock_code in trader.holdings:
-                                    del trader.holdings[stock_code]
-                                    self.logger.debug(f"🗑️ [{stock_code}] trader.holdings에서 제거 (전량 매도)")
-                                # buy_prices, buy_times도 정리
-                                if stock_code in trader.buy_prices:
-                                    del trader.buy_prices[stock_code]
-                                if stock_code in trader.buy_times:
-                                    del trader.buy_times[stock_code]
-                                # highest_prices도 정리
-                                if stock_code in trader.highest_prices:
-                                    del trader.highest_prices[stock_code]
+                            # 보유 종목 추가 또는 업데이트
+                            if stock_code not in trader.holdings:
+                                # 신규 보유 종목 추가
+                                trader.holdings[stock_code] = {'quantity': quantity}
+                                # 매입 가격 및 시간 설정 (웹소켓 데이터 활용)
+                                if stock_code not in trader.buy_prices:
+                                    trader.buy_prices[stock_code] = average_price
+                                if stock_code not in trader.buy_times:
+                                    trader.buy_times[stock_code] = datetime.now()
+                                self.logger.debug(f"🆕 [{stock_code}] trader.holdings에 추가 (수량: {quantity}주, 매입단가: {average_price}원)")
                             else:
-                                # 보유 종목 추가 또는 업데이트
-                                if stock_code not in trader.holdings:
-                                    # 신규 보유 종목 추가
-                                    trader.holdings[stock_code] = {'quantity': quantity}
-                                    # 매입 가격 및 시간 설정 (웹소켓 데이터 활용)
-                                    if stock_code not in trader.buy_prices:
-                                        trader.buy_prices[stock_code] = average_price
-                                    if stock_code not in trader.buy_times:
-                                        trader.buy_times[stock_code] = datetime.now()
-                                    self.logger.debug(f"🆕 [{stock_code}] trader.holdings에 추가 (수량: {quantity}주, 매입단가: {average_price}원)")
-                                else:
-                                    # 기존 보유 종목 수량 업데이트
-                                    old_quantity = trader.holdings[stock_code].get('quantity', 0)
-                                    trader.holdings[stock_code]['quantity'] = quantity
-                                    # 매입단가가 없으면 웹소켓 평균단가로 업데이트
-                                    if stock_code not in trader.buy_prices or trader.buy_prices[stock_code] == 0:
-                                        trader.buy_prices[stock_code] = average_price
-                                    # 매입 시간이 없으면 현재 시간으로 설정
-                                    if stock_code not in trader.buy_times:
-                                        trader.buy_times[stock_code] = datetime.now()
-                                    
-                                    if old_quantity != quantity:
-                                        self.logger.debug(f"🔄 [{stock_code}] trader.holdings 수량 업데이트 ({old_quantity}주 → {quantity}주)")
+                                # 기존 보유 종목 수량 업데이트
+                                old_quantity = trader.holdings[stock_code].get('quantity', 0)
+                                trader.holdings[stock_code]['quantity'] = quantity
+                                # 매입단가가 없으면 웹소켓 평균단가로 업데이트
+                                if stock_code not in trader.buy_prices or trader.buy_prices[stock_code] == 0:
+                                    trader.buy_prices[stock_code] = average_price
+                                # 매입 시간이 없으면 현재 시간으로 설정
+                                if stock_code not in trader.buy_times:
+                                    trader.buy_times[stock_code] = datetime.now()
+                                
+                                if old_quantity != quantity:
+                                    self.logger.debug(f"🔄 [{stock_code}] trader.holdings 수량 업데이트 ({old_quantity}주 → {quantity}주)")
                     except Exception as sync_ex:
                         self.logger.warning(f"⚠️ [{stock_code}] trader.holdings 동기화 실패: {sync_ex}")
                     
@@ -9374,11 +9624,33 @@ class KiwoomWebSocketClient:
                         self.logger.info(f"✅ 잔고에서 제거 완료: {stock_code}")
                         self.logger.info(f"🔍 제거 후 balance_data: {list(self.balance_data.keys())} ({len(self.balance_data)}개 종목)")
                         
-                        # 최고가 정보도 제거
+                        # trader.holdings 동기화 강화 (수량이 0일 때 제거)
+                        try:
+                            if self.parent and hasattr(self.parent, 'trader') and self.parent.trader:
+                                trader = self.parent.trader
+                                
+                                # holdings에서 제거
+                                if stock_code in trader.holdings:
+                                    del trader.holdings[stock_code]
+                                    self.logger.info(f"🗑️ [{stock_code}] trader.holdings에서 제거 (전량 매도 완료)")
+                                
+                                # buy_prices, buy_times도 정리
+                                if stock_code in trader.buy_prices:
+                                    del trader.buy_prices[stock_code]
+                                if stock_code in trader.buy_times:
+                                    del trader.buy_times[stock_code]
+                                
+                                # highest_prices도 정리
+                                if stock_code in trader.highest_prices:
+                                    del trader.highest_prices[stock_code]
+                        except Exception as sync_ex:
+                            self.logger.warning(f"⚠️ [{stock_code}] trader.holdings 동기화 실패 (전량 매도): {sync_ex}")
+                        
+                        # 최고가 정보도 제거 (objtrader에도 있을 수 있음)
                         if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'objtrader'):
                             if hasattr(self.parent.objtrader, 'highest_prices') and stock_code in self.parent.objtrader.highest_prices:
                                 del self.parent.objtrader.highest_prices[stock_code]
-                                self.logger.info(f"🗑️ {stock_code} 최고가 정보 제거 완료 (웹소켓 체결)")
+                                self.logger.info(f"🗑️ {stock_code} 최고가 정보 제거 완료 (objtrader, 웹소켓 체결)")
                         
                         # UI에서도 제거 (람다 클로저 문제 방지)
                         if hasattr(self, 'parent') and self.parent:
@@ -9668,6 +9940,169 @@ class KiwoomWebSocketClient:
         except Exception as e:
             self.logger.error(f"실시간 데이터 처리 실패: {e}")
             self.logger.error(f"실시간 데이터 처리 에러 상세: {traceback.format_exc()}")
+    
+    async def process_stock_execution_data_async(self, data_item):
+        """실시간 주식 데이터 처리 - 비동기 버전 (기술적 지표 계산 비동기화)"""
+        try:
+            # 원래 동기 함수의 로직을 거의 동일하게 유지
+            # data_item에서 실시간 데이터 추출
+            if 'item' in data_item and 'values' in data_item:
+                raw_code = data_item['item']
+                stock_code = self.parent.data_manager.normalize_stock_code(raw_code) if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'data_manager') else raw_code  # A 접두사 제거
+                values = data_item['values']
+                data_type = data_item.get('type', '0B')  # 데이터 타입 확인 (기본값: 0B)
+                
+                if stock_code and values:
+                    # 현재가 추출 (type='0B' 필드 '10' 사용)
+                    current_price_raw = values.get('10', '0')
+                    
+                    try:
+                        current_price = float(current_price_raw.replace('+', '').replace('-', '').replace(',', ''))
+                    except (ValueError, AttributeError):
+                        self.logger.warning(f"현재가 파싱 실패: {current_price_raw}")
+                        return
+                    
+                    # type='0B' (주식 체결): 차트 업데이트 및 현재가 업데이트
+                    if data_type == '0B':
+                        # 추가 필드 추출 (체결 데이터 전용)
+                        execution_time = values.get('20', '')
+                        volume_raw = values.get('15', '0')
+                        strength_raw = values.get('228', '0')
+                        
+                        try:
+                            volume = int(volume_raw.replace('+', '').replace('-', '').replace(',', ''))
+                        except (ValueError, AttributeError):
+                            volume = 0
+                        
+                        try:
+                            strength = float(strength_raw.replace('%', '').replace(',', ''))
+                        except (ValueError, AttributeError):
+                            strength = 0.0
+                        
+                        logging.debug(f"💰 실시간 체결(0B): {stock_code}, 시간={execution_time}, 가격={current_price:,.0f}원, 거래량={volume:,}, 체결강도={strength:.1f}%")
+                        
+                        # 체결 데이터를 딕셔너리로 생성
+                        execution_info = {
+                            'execution_time': execution_time,
+                            'current_price': current_price,
+                            'volume': volume,
+                            'strength': strength,
+                        }
+                        
+                        # 보유 종목이면 balance_data의 현재가 업데이트
+                        if stock_code in self.balance_data:
+                            self._update_holding_current_price(stock_code, current_price)
+                        
+                        # 실시간 데이터를 차트 데이터에 추가 (비동기)
+                        await self._add_realtime_data_to_chart_async(stock_code, execution_info)
+                        
+                        return
+                    
+                    else:
+                        self.logger.warning(f"알 수 없는 데이터 타입: {data_type}")
+                        return
+
+                else:
+                    self.logger.warning("실시간 데이터에서 종목코드를 찾을 수 없습니다")
+            else:
+                self.logger.warning("실시간 데이터에 item 정보가 없습니다")
+                
+        except Exception as e:
+            self.logger.error(f"실시간 데이터 처리 실패: {e}")
+            self.logger.error(f"실시간 데이터 처리 에러 상세: {traceback.format_exc()}")
+    
+    async def _add_realtime_data_to_chart_async(self, stock_code, realtime_data):
+        """실시간 데이터를 차트 데이터에 추가 - 비동기 버전"""
+        try:
+            # MyWindow의 chart_cache에 접근
+            if not hasattr(self, 'parent') or not self.parent:
+                return
+            
+            if not hasattr(self.parent, 'chart_cache') or not self.parent.chart_cache:
+                return
+            
+            chart_cache = self.parent.chart_cache
+            
+            # 차트 캐시에서 기존 데이터 가져오기
+            cached_data = chart_cache.get_cached_data(stock_code)
+            
+            if not cached_data or not isinstance(cached_data, dict):                
+                # 캐시가 없는 경우, 디버그 로그를 한 번만 출력하도록 관리
+                if not hasattr(self, '_no_cache_logged'):
+                    self._no_cache_logged = set()
+                
+                if stock_code not in self._no_cache_logged:
+                    logging.debug(f"ℹ️ 실시간 데이터 수신({stock_code}), 차트 캐시 생성 대기 중...")
+                    self._no_cache_logged.add(stock_code)
+                
+                return
+            
+            # tic_data와 min_data가 유효한지 확인
+            tic_data = cached_data.get('tic_data')
+            min_data = cached_data.get('min_data')
+            
+            if not tic_data or not isinstance(tic_data, dict):
+                logging.debug(f"⚠️ 차트 데이터 추가 건너뜀: {stock_code} (틱 데이터 없음 또는 잘못된 타입)")
+                return
+            
+            if not min_data or not isinstance(min_data, dict):
+                logging.debug(f"⚠️ 차트 데이터 추가 건너뜀: {stock_code} (분봉 데이터 없음 또는 잘못된 타입)")
+                return
+            
+            # 실시간 데이터를 틱/분봉 데이터에 추가
+            self._update_tic_chart_with_realtime(stock_code, cached_data, realtime_data)
+            self._update_minute_chart_with_realtime(stock_code, cached_data, realtime_data)
+            
+            # 차트 캐시 업데이트 (코드와 데이터를 캐시에 저장)
+            cached_data['tic_data'] = cached_data.get('tic_data')
+            cached_data['min_data'] = cached_data.get('min_data')
+            chart_cache.cache[stock_code] = cached_data
+            
+            # 실시간 기술적 지표 계산 (비동기, ThreadPoolExecutor 사용)
+            try:
+                loop = asyncio.get_running_loop()
+                # 틱 데이터와 분봉 데이터를 병렬로 계산
+                if tic_data and min_data:
+                    tic_data, min_data = await asyncio.gather(
+                        loop.run_in_executor(None, chart_cache._calculate_technical_indicators, tic_data, "tic"),
+                        loop.run_in_executor(None, chart_cache._calculate_technical_indicators, min_data, "minute"),
+                        return_exceptions=True
+                    )
+                    # 예외 처리
+                    if isinstance(tic_data, Exception):
+                        logging.error(f"틱 지표 계산 실패: {tic_data}")
+                        tic_data = None
+                    if isinstance(min_data, Exception):
+                        logging.error(f"분봉 지표 계산 실패: {min_data}")
+                        min_data = None
+                elif tic_data:
+                    tic_data = await loop.run_in_executor(None, chart_cache._calculate_technical_indicators, tic_data, "tic")
+                elif min_data:
+                    min_data = await loop.run_in_executor(None, chart_cache._calculate_technical_indicators, min_data, "minute")
+                
+                # 계산된 결과를 캐시에 다시 저장
+                if tic_data:
+                    cached_data['tic_data'] = tic_data
+                if min_data:
+                    cached_data['min_data'] = min_data
+                chart_cache.cache[stock_code] = cached_data
+                
+            except RuntimeError:
+                # 이벤트 루프가 없으면 동기로 계산
+                self._calculate_technical_indicators_for_realtime(stock_code, cached_data)
+            except Exception as calc_ex:
+                logging.error(f"기술적 지표 계산 중 오류: {calc_ex}")
+                # 계산 실패해도 원본 데이터는 저장
+                pass
+            
+            # 틱/분봉 데이터 개수 확인 (안전하게)
+            tic_count = len(tic_data.get('close', [])) if tic_data else 0
+            min_count = len(min_data.get('close', [])) if min_data else 0
+            logging.debug(f"📊 차트 업데이트 완료: {stock_code} - 틱봉: {tic_count}개, 분봉: {min_count}개")
+            
+        except Exception as e:
+            self.logger.error(f"실시간 차트 데이터 추가 실패: {e}")
+            self.logger.error(f"에러 위치:\n{traceback.format_exc()}")
     
     def _update_holding_current_price(self, stock_code, current_price):
         """보유 종목의 실시간 현재가 업데이트 및 손익 재계산"""
