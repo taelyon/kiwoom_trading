@@ -219,6 +219,36 @@ class ApiLimitManager:
     }
     
     @classmethod
+    def check_api_limit_and_wait(cls, operation_name="API 요청", rqtype=0, request_type=None):
+        """API 제한 확인 및 대기 (개선된 버전)"""
+        try:
+            
+            # 요청 타입별 간격 설정
+            if request_type is None:
+                request_type = cls._get_request_type(operation_name)
+            interval = cls._request_intervals.get(request_type, cls._request_intervals['default'])
+            
+            # 마지막 요청 시간 확인
+            current_time = time.time()
+            last_time = cls._last_request_time.get(request_type, 0)
+            
+            # 필요한 대기 시간 계산
+            elapsed_time = current_time - last_time
+            if elapsed_time < interval:
+                wait_time = interval - elapsed_time
+                # API 간격 조정 로그 제거 (너무 빈번함)
+                # 실제 대기 시간 적용 (스레드에서 실행되므로 안전)
+                time.sleep(wait_time)
+            
+            # 요청 시간 업데이트
+            cls._last_request_time[request_type] = time.time()
+            return True
+            
+        except Exception as ex:
+            cls.logger.error(f"API 제한 확인 중 오류: {ex}")
+            return False
+    
+    @classmethod
     def _get_request_type(cls, operation_name):
         """요청 타입 결정"""
         if '틱' in operation_name or 'tic' in operation_name.lower():
@@ -255,6 +285,12 @@ class ApiLimitManager:
         except Exception as ex:
             cls.logger.error(f"API 제한 확인 중 오류: {ex}")
             return False
+    
+    @classmethod
+    def reset_request_times(cls):
+        """요청 시간 기록 초기화"""
+        cls._last_request_time.clear()
+        # 초기화 로그 제거 (불필요)
 
 # ==================== 로그 핸들러 ====================
 class QTextEditLogger(logging.Handler):
@@ -2451,6 +2487,203 @@ class AutoTrader(QObject):
         except Exception as item_ex:
             self.logger.error(f"{code} 매도 중 오류: {item_ex}", exc_info=True)
             
+            return False
+    
+    def _check_risk_management(self, signal_type, signal_data):
+        """리스크 관리 확인"""
+        try:
+            # 매수 시: 기본적인 데이터 유효성만 확인 (실제 현금 확인은 _execute_buy_order에서 수행)
+            if signal_type == 'buy':
+                required_amount = signal_data.get('amount', 0)
+                if required_amount <= 0:
+                    self.logger.warning(f"매수 금액이 유효하지 않음: {required_amount}")
+                    return False
+                self.logger.debug(f"매수 신호 확인: 필요 금액 {required_amount}")
+            
+            # 매도 시: 웹소켓 실시간 잔고 데이터로 보유 종목 확인
+            elif signal_type == 'sell':
+                balance_data = self.trader.get_balance_data()
+                if not balance_data:
+                    self.logger.warning("웹소켓 잔고 데이터가 없습니다")
+                    return False
+                
+                code = signal_data.get('code')
+                holdings = balance_data.get('holdings', {})
+                if code not in holdings or holdings[code].get('quantity', 0) <= 0:
+                    self.logger.warning(f"보유 종목 없음: {code}")
+                    return False
+            
+            # 손절/익절 확인
+            if not self._check_stop_loss_take_profit(signal_type, signal_data):
+                return False
+            
+            self.logger.debug(f"리스크 관리 확인 통과: {signal_type}")
+            return True
+            
+        except Exception as ex:
+            self.logger.error(f"리스크 관리 확인 실패: {ex}", exc_info=True)
+            return False
+    
+    def _check_stop_loss_take_profit(self, signal_type, signal_data):
+        """손절/익절 확인"""
+        try:
+            # 손절/익절 로직 구현
+            # 현재는 기본적으로 통과
+            return True
+        except Exception as ex:
+            self.logger.error(f"손절/익절 확인 실패: {ex}", exc_info=True)
+            return False
+    
+    async def _execute_buy_order(self, signal_data):
+        """매수 주문 실행 (웹소켓 실시간 잔고 데이터 기반) (비동기)"""
+        try:
+            code = signal_data.get('code')
+            price = signal_data.get('price', 0)
+            
+            # 보유 종목 확인 (이미 보유 중인 종목은 매수 제외)
+            if self.parent and hasattr(self.parent, 'boughtBox'):
+                for i in range(self.parent.boughtBox.count()):
+                    item_code = self.parent.boughtBox.item(i).text()
+                    if item_code == code:
+                        self.logger.info(f"⚠️ 매수 주문 취소: {code}는 이미 보유 중인 종목입니다.")
+                        return False
+            
+            # 실제 투자가능금액 조회 (예수금상세현황 API)
+            available_cash = await self.trader.get_available_cash()
+            self.logger.debug(f"💰 투자가능금액 조회: {available_cash:,}원")
+            
+            # 매수가능 종목수 계산 (최대투자종목수 - 현재보유종목수)
+            if not hasattr(self.parent, 'login_handler') or not self.parent.login_handler:
+                self.logger.error("login_handler에 접근할 수 없습니다")
+                return False
+                
+            available_buy_count = self.parent.login_handler.get_available_buy_count() # type: ignore
+            
+            # 매수가능 종목수가 0이면 매수 불가
+            if available_buy_count <= 0:
+                logging.warning(f"매수 주문 취소: 매수가능 종목수 없음 (최대투자종목수 도달)")
+                return False
+            
+            # 한 종목당 주문금액 계산 (투자가능금액 ÷ 매수가능 종목수)
+            order_amount_per_stock = available_cash // available_buy_count
+            
+            # 현재 가격으로 구매 가능한 수량 계산
+            if price > 0:
+                # 지정가 주문인 경우
+                quantity = order_amount_per_stock // price
+                # 최소 1주는 구매하도록 보장
+                quantity = max(1, quantity)
+            else:
+                # 시장가 주문인 경우 현재가를 조회하여 수량 계산
+                try:
+                    current_price_data = await self.trader.client.get_stock_current_price(code)
+                    current_price = current_price_data.get('current_price', 0)
+                    
+                    if current_price > 0:
+                        quantity = order_amount_per_stock // current_price
+                        # 최소 1주는 구매하도록 보장
+                        quantity = max(1, quantity)
+                        # 시장가이므로 실제 체결가를 현재가로 설정
+                        price = current_price # type: ignore
+                    else:
+                        # 현재가 조회 실패 시 기본 수량 사용
+                        quantity = 1
+                        self.logger.warning(f"현재가 조회 실패, 기본 수량 사용: {code}")
+                except Exception as price_ex:
+                    # 현재가 조회 중 오류 시 기본 수량 사용
+                    quantity = 1
+                    self.logger.error(f"현재가 조회 중 오류 ({code}): {price_ex}", exc_info=True)
+            
+            required_amount = quantity * price # type: ignore
+            
+            if available_cash < required_amount:
+                self.logger.warning(f"매수 주문 취소: 현금 부족 (필요: {required_amount}, 보유: {available_cash})")
+                return False
+            
+            self.logger.info(f"💰 매수 주문 실행: {code}, 수량: {quantity}, 가격: {price}")
+            self.logger.info(f"💰 한 종목당 주문금액: {order_amount_per_stock:,}원 (전체: {available_cash:,}원 ÷ {available_buy_count}매수가능종목)")
+            self.logger.info(f"💰 사용 현금: {required_amount:,}원, 잔여 현금: {available_cash - required_amount:,}원")
+            
+            # 실제 매수 주문 실행 (키움 REST API)
+            strategy_name = signal_data.get('strategy', '') # type: ignore
+            result = await self.trader.place_buy_order(code, quantity, price, strategy_name)
+            
+            if result:
+                logging.info(f"✅ 매수 주문 성공: {code} {quantity}주 @ {price}원")
+            else:
+                logging.error(f"❌ 매수 주문 실패: {code}")
+            
+            return result
+        except Exception as ex:
+            self.logger.error(f"매수 주문 실행 실패: {ex}", exc_info=True)
+            return False
+    
+    async def _execute_sell_order(self, signal_data):
+        """매도 주문 실행 (웹소켓/REST API 이중 잔고 확인) (비동기)"""
+        try:
+            code = signal_data.get('code')
+            quantity = signal_data.get('quantity', 1)
+            price = signal_data.get('price', 0)
+            
+            available_quantity = 0
+            
+            # 1차: 웹소켓 실시간 잔고 데이터 확인 시도
+            try:
+                balance_data = self.trader.get_balance_data()
+                holdings = balance_data.get('holdings', {})
+                
+                if code in holdings:
+                    available_quantity = holdings[code].get('quantity', 0)
+                    self.logger.info(f"💰 웹소켓 잔고 데이터에서 조회: {code} {available_quantity}주")
+                else:
+                    self.logger.warning(f"⚠️ 웹소켓 잔고 데이터에 종목이 없습니다: {code}")
+            except Exception as ws_ex:
+                self.logger.warning(f"웹소켓 잔고 데이터 조회 실패: {ws_ex}", exc_info=True)
+            
+            # 2차: 웹소켓 데이터가 없거나 수량이 0이면 REST API로 조회
+            if available_quantity <= 0:
+                logging.info(f"📡 REST API로 보유수량 조회 시도: {code}")
+                try:
+                    if hasattr(self.parent, 'login_handler') and self.parent.login_handler and hasattr(self.parent.login_handler, 'kiwoom_client'):
+                        balance_result = await self.parent.login_handler.kiwoom_client.get_acnt_balance()
+                        if balance_result:
+                            holdings = balance_result.get('stk_acnt_evlt_prst', balance_result.get('output1', []))
+                            for stock in holdings:
+                                raw_code = stock.get('stk_cd', stock.get('pdno', ''))
+                                stock_code = self.parent.normalize_stock_code(raw_code) if hasattr(self.parent, 'normalize_stock_code') else raw_code
+                                if stock_code == code:
+                                    available_quantity = int(stock.get('rmnd_qty', stock.get('hldg_qty', 0)))
+                                    self.logger.info(f"✅ REST API로 보유수량 조회 성공: {code} {available_quantity}주")
+                                    break
+                        else:
+                            self.logger.warning("⚠️ REST API 잔고 조회 실패")
+                except Exception as api_ex:
+                    self.logger.error(f"REST API 잔고 조회 실패: {api_ex}", exc_info=True)
+            
+            # 최종 수량 확인
+            if available_quantity <= 0:
+                self.logger.warning(f"매도 주문 취소: 보유 종목 없음 ({code})")
+                return False
+            
+            if available_quantity < quantity:
+                self.logger.warning(f"매도 주문 취소: 보유 수량 부족 (필요: {quantity}, 보유: {available_quantity})")
+                return False
+            
+            self.logger.info(f"💰 자동 매도 주문 실행: {code}, 수량: {quantity}, 가격: {price}")
+            self.logger.info(f"💰 보유 수량: {available_quantity}, 매도 후 잔여: {available_quantity - quantity}")
+            
+            # 실제 매도 주문 실행 (키움 REST API)
+            strategy_name = signal_data.get('strategy', '') # type: ignore
+            result = await self.trader.place_sell_order(code, quantity, price, strategy_name)
+            
+            if result:
+                logging.info(f"✅ 매도 주문 성공: {code} {quantity}주 @ {price}원")
+            else:
+                logging.error(f"❌ 매도 주문 실패: {code}")
+            
+            return result
+        except Exception as ex:
+            self.logger.error(f"매도 주문 실행 실패: {ex}", exc_info=True)
             return False
 
 # ==================== 로그인 핸들러 ====================
@@ -7746,6 +7979,38 @@ class ChartDataCache(QObject):
         except Exception as ex:
             self.logger.error(f"❌ 실제 데이터 수집 실패: {code} - {ex}", exc_info=True)
   
+    def _collect_tic_data_sync(self, code, max_retries=3):
+        """동기 방식 틱 데이터 수집"""
+        for attempt in range(max_retries):
+            try:
+                # API 요청 간격 조정
+                if attempt > 0:
+                    wait_time = 2 ** attempt
+                    self.logger.debug(f"⏳ API 제한 대기 중... ({wait_time}초 후 재시도 {attempt + 1}/{max_retries})")
+                    QTimer.singleShot(int(wait_time * 1000), lambda: None)  # QTimer로 대기
+                
+                self.logger.debug(f"🔧 API 틱 데이터 조회 시작: {code} (시도 {attempt + 1}/{max_retries})")
+                # 동기 메서드에서 비동기 호출을 위해 run_until_complete 사용
+                try:
+                    loop = asyncio.get_event_loop()
+                    data = loop.run_until_complete(self.trader.client.get_stock_tic_chart(code, tic_scope=30))
+                except RuntimeError:
+                    # 이벤트 루프가 없으면 새로 생성
+                    data = asyncio.run(self.trader.client.get_stock_tic_chart(code, tic_scope=30))
+                
+                if data and data.get('close'):
+                    self.logger.debug(f"✅ 틱 데이터 조회 성공: {code} - 데이터 개수: {len(data['close'])}")
+                    return data
+                else:
+                    self.logger.warning(f"⚠️ 틱 데이터가 비어있음: {code}")
+                    
+            except Exception as e:
+                self.logger.error(f"❌ 틱 데이터 조회 실패: {code} (시도 {attempt + 1}/{max_retries}) - {e}")
+                if attempt == max_retries - 1:
+                    raise e
+        
+        return None
+    
     def _initialize_timers(self):
         """메인 스레드에서 타이머 초기화"""
         try:
@@ -12018,6 +12283,26 @@ class KiwoomRestClient:
         except Exception as e:
             self.logger.error(f"분봉 차트 데이터 파싱 오류: {e}", exc_info=True)
             return {}
+    
+    def is_market_open(self) -> bool:
+        """시장 개장 여부 확인"""
+        try:
+            # 시장 상태 조회 실패 시 시간대 기반 판단
+            now = datetime.now()
+            current_time = now.time()
+            
+            # 평일 09:00 ~ 15:30 (장중 시간)
+            market_start = dt_time(9, 0)
+            market_end = dt_time(15, 30)
+            
+            # 평일이고 장중 시간이면 개장으로 판단
+            if now.weekday() < 5 and market_start <= current_time <= market_end:
+                return True
+            
+            return False
+            
+        except Exception as e:
+            self.logger.error(f"시장 개장 확인 중 오류: {e}", exc_info=True)
     
     async def get_stock_list(self, market: str = "KOSPI") -> List[Dict]:
         """주식 종목 리스트 조회 (비동기)"""
