@@ -31,6 +31,7 @@ class KiwoomBacktester:
     """키움 REST API 기반 백테스팅 엔진"""
     
     def __init__(self, db_path, config_file='settings.ini', initial_cash=10000000):
+        self.logger = logging.getLogger(self.__class__.__name__)
         self.db_path = db_path
         self.config_file = config_file
         self.initial_cash = initial_cash
@@ -41,7 +42,7 @@ class KiwoomBacktester:
             try:
                 self.config.read(config_file, encoding='utf-8')
             except Exception as ex:
-                logging.error(f"설정 파일 로드 실패: {ex}")
+                self.logger.error(f"설정 파일 로드 실패: {ex}")
         
         # 포트폴리오
         self.cash = initial_cash
@@ -84,9 +85,9 @@ class KiwoomBacktester:
                     'buy_strategies': integrated_buy,
                     'sell_strategies': integrated_sell
                 }
-                logging.info("✅ '통합 전략'을 동적으로 생성했습니다 (급등주 + 갭상승).")
+                self.logger.info("✅ '통합 전략'을 동적으로 생성했습니다 (급등주 + 갭상승).")
         
-        logging.debug(f"키움 백테스터 초기화 완료 (초기 자금: {initial_cash:,}원)")
+        self.logger.debug(f"키움 백테스터 초기화 완료 (초기 자금: {initial_cash:,}원)")
 
     def get_db_data_range(self):
         """데이터베이스에 저장된 데이터의 전체 기간을 조회"""
@@ -106,7 +107,7 @@ class KiwoomBacktester:
             else:
                 return None, None
         except Exception as ex:
-            logging.error(f"DB 데이터 기간 조회 실패: {ex}")
+            self.logger.error(f"DB 데이터 기간 조회 실패: {ex}", exc_info=True)
             return None, None
     
     def load_stock_data(self, code, start_date, end_date):
@@ -124,7 +125,7 @@ class KiwoomBacktester:
             conn.close()
             
             if df.empty:
-                logging.warning(f"데이터 없음: {code} ({start_date} ~ {end_date})")
+                self.logger.warning(f"데이터 없음: {code} ({start_date} ~ {end_date})")
                 return pd.DataFrame()
             
             # datetime 컬럼을 인덱스로 설정
@@ -134,11 +135,11 @@ class KiwoomBacktester:
             # 결측값 처리
             df = df.ffill().fillna(0)
             
-            logging.info(f"데이터 로드 완료: {code} ({len(df)}개 레코드)")
+            self.logger.info(f"데이터 로드 완료: {code} ({len(df)}개 레코드)")
             return df
             
         except Exception as ex:
-            logging.error(f"데이터 로드 실패 ({code}): {ex}")
+            self.logger.error(f"데이터 로드 실패 ({code}): {ex}", exc_info=True)
             return pd.DataFrame()
     
     def _load_integrated_data(self, conn, code, start_date, end_date):
@@ -186,70 +187,16 @@ class KiwoomBacktester:
             df = pd.read_sql_query(query, conn, params=(code, start_datetime, end_datetime))
 
             if not df.empty:
-                logging.info(f"통합 데이터 로드 완료: {code} ({len(df)}개 레코드, {len(existing_columns)}개 컬럼)")
+                self.logger.info(f"통합 데이터 로드 완료: {code} ({len(df)}개 레코드, {len(existing_columns)}개 컬럼)")
                 # 컬럼명 정리 (백워드 호환성)
                 df = self._standardize_column_names(df)
             
             return df
             
         except Exception as ex:
-            logging.error(f"통합 데이터 로드 실패 ({code}): {ex}")
+            self.logger.error(f"통합 데이터 로드 실패 ({code}): {ex}", exc_info=True)
             return pd.DataFrame()
-    
-    def _load_tic_from_integrated(self, conn, code, start_date, end_date):
-        """통합 테이블에서 틱봉 데이터만 로드"""
-        try:
-            query = '''
-                SELECT
-                    datetime,
-                    tic_open as open, tic_high as high, tic_low as low,
-                    tic_close as close, tic_volume as volume, tic_strength as strength,
-                    tic_ma5 as ma5, tic_ma10 as ma10, tic_ma20 as ma20, tic_ma50 as ma50,
-                    tic_ema5 as ema5, tic_ema10 as ema10, tic_ema20 as ema20,
-                    tic_rsi as rsi, tic_macd as macd, tic_macd_signal as macd_signal, tic_macd_hist as macd_hist
-                FROM stock_data 
-                WHERE code = ? AND datetime BETWEEN ? AND ?
-                ORDER BY datetime
-            '''
-            
-            df = pd.read_sql_query(query, conn, params=(code, start_date, end_date))
-            
-            if not df.empty:
-                logging.info(f"틱봉 데이터 로드 완료: {code} ({len(df)}개 레코드)")
-            
-            return df
-            
-        except Exception as ex:
-            logging.error(f"틱봉 데이터 로드 실패 ({code}): {ex}")
-            return pd.DataFrame()
-    
-    def _load_minute_from_integrated(self, conn, code, start_date, end_date):
-        """통합 테이블에서 분봉 데이터만 로드 (중복 제거)"""
-        try:
-            query = '''
-                SELECT 
-                    datetime,
-                    open, high, low, close, volume,
-                    min_ma5 as ma5, min_ma10 as ma10, min_ma20 as ma20, min_ma50 as ma50,
-                    min_ema5 as ema5, min_ema10 as ema10, min_ema20 as ema20,
-                    min_rsi as rsi, min_macd as macd, min_macd_signal as macd_signal, min_macd_hist as macd_hist
-                FROM stock_data 
-                WHERE code = ? AND datetime BETWEEN ? AND ?
-                AND min_ma5 IS NOT NULL  -- 분봉 지표가 있는 데이터만
-                ORDER BY datetime
-            '''
-            
-            df = pd.read_sql_query(query, conn, params=(code, start_date, end_date))
-            
-            if not df.empty:
-                logging.info(f"분봉 데이터 로드 완료: {code} ({len(df)}개 레코드)")
-            
-            return df
-            
-        except Exception as ex:
-            logging.error(f"분봉 데이터 로드 실패 ({code}): {ex}")
-            return pd.DataFrame()
-    
+        
     def _standardize_column_names(self, df):
         """컬럼명을 표준화하여 기존 백테스팅 코드와 호환"""
         try:
@@ -268,67 +215,8 @@ class KiwoomBacktester:
             return df
             
         except Exception as ex:
-            logging.error(f"컬럼명 표준화 실패: {ex}")
+            self.logger.error(f"컬럼명 표준화 실패: {ex}", exc_info=True)
             return df
-    
-    def _load_tic_data(self, conn, code, start_date, end_date):
-        """틱 데이터 로드"""
-        try:
-            query = """
-                SELECT timestamp as datetime, open, high, low, close, volume 
-                FROM tic_data 
-                WHERE code = ? AND timestamp BETWEEN ? AND ?
-                ORDER BY timestamp
-            """
-            return pd.read_sql_query(query, conn, params=(code, start_date, end_date))
-        except Exception as ex:
-            logging.error(f"틱 데이터 로드 실패 ({code}): {ex}")
-            return pd.DataFrame()
-    
-    def _load_minute_data(self, conn, code, start_date, end_date):
-        """분봉 데이터 로드"""
-        try:
-            query = """
-                SELECT timestamp as datetime, open, high, low, close, volume 
-                FROM minute_data 
-                WHERE code = ? AND timestamp BETWEEN ? AND ?
-                ORDER BY timestamp
-            """
-            return pd.read_sql_query(query, conn, params=(code, start_date, end_date))
-        except Exception as ex:
-            logging.error(f"분봉 데이터 로드 실패 ({code}): {ex}")
-            return pd.DataFrame()
-    
-    def simulate_kiwoom_data(self, row, code):
-        """키움 REST API 데이터 형식으로 시뮬레이션"""
-        try:
-            # 기본 가격 정보
-            kiwoom_data = {
-                'code': code,
-                'current_price': row['close'],
-                'open': row['open'],
-                'high': row['high'],
-                'low': row['low'],
-                'volume': row['volume'],
-                'previous_close': row['close'],  # 백테스팅에서는 현재가와 동일하게 설정
-                'change': 0,
-                'change_rate': 0,
-                'turnover': row['volume'] * row['close'],
-                'market_cap': 0,  # 시가총액은 별도 계산 필요
-                'per': 0,
-                'pbr': 0,
-                'strength': np.random.randint(100, 200),  # 체결강도 시뮬레이션
-                'bid_price': row['close'] * 0.999,
-                'ask_price': row['close'] * 1.001,
-                'bid_volume': row['volume'] * 0.3,
-                'ask_volume': row['volume'] * 0.7
-            }
-            
-            return kiwoom_data
-            
-        except Exception as ex:
-            logging.error(f"키움 데이터 시뮬레이션 실패: {ex}")
-            return {}
     
     def can_buy(self):
         """매수 가능 여부 확인"""
@@ -345,7 +233,7 @@ class KiwoomBacktester:
             shares = int(available_cash / price)
             return max(0, shares)
         except Exception as ex:
-            logging.error(f"포지션 크기 계산 실패: {ex}")
+            self.logger.error(f"포지션 크기 계산 실패: {ex}", exc_info=True)
             return 0
     
     def execute_buy(self, code, price, strategy_name, timestamp):
@@ -383,11 +271,11 @@ class KiwoomBacktester:
             }
             self.trades.append(trade)
             
-            logging.info(f"매수 실행: {code} {shares}주 @ {price} ({strategy_name})")
+            self.logger.info(f"매수 실행: {code} {shares}주 @ {price} ({strategy_name})")
             return True
             
         except Exception as ex:
-            logging.error(f"매수 실행 실패 ({code}): {ex}")
+            self.logger.error(f"매수 실행 실패 ({code}): {ex}", exc_info=True)
             return False
     
     def execute_sell(self, code, price, strategy_name, timestamp):
@@ -430,11 +318,11 @@ class KiwoomBacktester:
             del self.buy_times[code]
             del self.highest_prices[code]
             
-            logging.info(f"매도 실행: {code} {shares}주 @ {price} (수익률: {profit_rate:.2f}%) ({strategy_name})")
+            self.logger.info(f"매도 실행: {code} {shares}주 @ {price} (수익률: {profit_rate:.2f}%) ({strategy_name})")
             return True
             
         except Exception as ex:
-            logging.error(f"매도 실행 실패 ({code}): {ex}")
+            self.logger.error(f"매도 실행 실패 ({code}): {ex}", exc_info=True)
             return False
     
     def update_portfolio_value(self, timestamp, current_prices):
@@ -461,7 +349,7 @@ class KiwoomBacktester:
             self.equity_curve.append(equity_point)
             
         except Exception as ex:
-            logging.error(f"포트폴리오 가치 업데이트 실패: {ex}")
+            self.logger.error(f"포트폴리오 가치 업데이트 실패: {ex}", exc_info=True)
     
     def _analyze_daily_performance(self):
         """일별 성과 분석"""
@@ -511,10 +399,10 @@ class KiwoomBacktester:
             strategy_name: 전략명
         """
         try:
-            logging.info(f"백테스팅 시작: {strategy_name} ({start_date} ~ {end_date})")
+            self.logger.info(f"백테스팅 시작: {strategy_name} ({start_date} ~ {end_date})")
             
             if strategy_name not in self.strategies:
-                logging.error(f"전략을 찾을 수 없음: {strategy_name}")
+                self.logger.error(f"전략을 찾을 수 없음: {strategy_name}")
                 return False
             
             # 데이터 로드 (틱 데이터 우선)
@@ -525,7 +413,7 @@ class KiwoomBacktester:
                     all_data[code] = data
             
             if not all_data:
-                logging.error("백테스팅할 데이터가 없습니다.")
+                self.logger.error("백테스팅할 데이터가 없습니다.")
                 return False
             
             # 공통 타임스탬프 생성
@@ -534,7 +422,7 @@ class KiwoomBacktester:
                 all_timestamps.update(data.index)
             
             timestamps = sorted(all_timestamps)
-            logging.info(f"백테스팅 기간: {len(timestamps)}개 시점")
+            self.logger.info(f"백테스팅 기간: {len(timestamps)}개 시점")
             
             # 전략 설정
             buy_strategies = self.strategies[strategy_name]['buy_strategies']
@@ -557,11 +445,6 @@ class KiwoomBacktester:
                             chart_data = all_data[code].loc[:timestamp]
                             
                             if len(chart_data) > 20:  # 최소 데이터 요구사항
-                                # 키움 데이터 시뮬레이션
-                                kiwoom_data = self.simulate_kiwoom_data(
-                                    all_data[code].loc[timestamp], code
-                                )
-                                
                                 # 매도 전략 평가
                                 portfolio_info = {
                                     'holdings': self.holdings.copy(),
@@ -594,9 +477,6 @@ class KiwoomBacktester:
                             # 현재 시점까지의 데이터 슬라이스
                             chart_data = data.loc[:timestamp]
                             
-                            # 키움 데이터 시뮬레이션
-                            kiwoom_data = self.simulate_kiwoom_data(data.loc[timestamp], code)
-                            
                             # 매수 전략 평가
                             portfolio_info = {
                                 'holdings': self.holdings.copy(),
@@ -621,10 +501,10 @@ class KiwoomBacktester:
                     # 진행률 출력
                     if i % 100 == 0:
                         progress = (i + 1) / len(timestamps) * 100
-                        logging.info(f"백테스팅 진행률: {progress:.1f}%")
+                        self.logger.info(f"백테스팅 진행률: {progress:.1f}%")
                 
                 except Exception as ex:
-                    logging.error(f"백테스팅 시점 처리 실패 ({timestamp}): {ex}")
+                    self.logger.error(f"백테스팅 시점 처리 실패 ({timestamp}): {ex}", exc_info=True)
                     continue
             
             # 최종 포트폴리오 청산
@@ -636,18 +516,18 @@ class KiwoomBacktester:
             # 결과 분석
             self.analyze_results(strategy_name)
             
-            logging.info("백테스팅 완료")
+            self.logger.info("백테스팅 완료")
             return True
             
         except Exception as ex:
-            logging.error(f"백테스팅 실행 실패: {ex}")
+            self.logger.error(f"백테스팅 실행 실패: {ex}", exc_info=True)
             return False
     
     def analyze_results(self, strategy_name):
         """백테스팅 결과 분석"""
         try:
             if not self.trades or not self.equity_curve:
-                logging.warning("분석할 거래 기록이나 자산 곡선이 없습니다.")
+                self.logger.warning("분석할 거래 기록이나 자산 곡선이 없습니다.")
                 return
 
             # 일별 성과 분석
@@ -705,33 +585,33 @@ class KiwoomBacktester:
             }
             
             # 결과 출력
-            logging.info(f"\n=== 백테스팅 결과: {strategy_name} ===")
-            logging.info(f"총 거래 수: {total_trades}")
-            logging.info(f"매수 거래: {len(buy_trades)}")
-            logging.info(f"매도 거래: {len(sell_trades)}")
-            logging.info(f"승률: {win_rate:.2f}%")
-            logging.info(f"평균 수익률: {avg_profit:.2f}%")
-            logging.info(f"평균 수익 (승리): {avg_profit_win:.2f}%")
-            logging.info(f"평균 수익 (손실): {avg_profit_loss:.2f}%")
-            logging.info(f"총 수익률: {total_return:.2f}%")
-            logging.info(f"최대 낙폭: {max_drawdown:.2f}%")
-            logging.info(f"최종 자산: {final_value:,.0f}원")
+            self.logger.info(f"\n=== 백테스팅 결과: {strategy_name} ===")
+            self.logger.info(f"총 거래 수: {total_trades}")
+            self.logger.info(f"매수 거래: {len(buy_trades)}")
+            self.logger.info(f"매도 거래: {len(sell_trades)}")
+            self.logger.info(f"승률: {win_rate:.2f}%")
+            self.logger.info(f"평균 수익률: {avg_profit:.2f}%")
+            self.logger.info(f"평균 수익 (승리): {avg_profit_win:.2f}%")
+            self.logger.info(f"평균 수익 (손실): {avg_profit_loss:.2f}%")
+            self.logger.info(f"총 수익률: {total_return:.2f}%")
+            self.logger.info(f"최대 낙폭: {max_drawdown:.2f}%")
+            self.logger.info(f"최종 자산: {final_value:,.0f}원")
             
         except Exception as ex:
-            logging.error(f"결과 분석 실패: {ex}")
+            self.logger.error(f"결과 분석 실패: {ex}", exc_info=True)
     
     def plot_results(self, strategy_name):
         """결과 차트 생성 (pyqtgraph 사용)"""
         try:
             if strategy_name not in self.results:
-                logging.error(f"결과를 찾을 수 없음: {strategy_name}")
+                self.logger.error(f"결과를 찾을 수 없음: {strategy_name}")
                 return
 
             result = self.results[strategy_name]
             equity_curve = result['equity_curve']
 
             if not equity_curve:
-                logging.warning("자산 곡선 데이터가 없습니다.")
+                self.logger.warning("자산 곡선 데이터가 없습니다.")
                 return
 
             # QApplication 인스턴스가 없으면 생성 (스크립트 단독 실행 시 필요)
@@ -804,16 +684,16 @@ class KiwoomBacktester:
             chart_filename = f"backtest_result_{strategy_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
             exporter = ImageExporter(pw.plotItem)
             exporter.export(chart_filename)
-            logging.info(f"차트 저장: {chart_filename}")
+            self.logger.info(f"차트 저장: {chart_filename}")
 
         except Exception as ex:
-            logging.error(f"차트 생성 실패: {ex}")
+            self.logger.error(f"차트 생성 실패: {ex}", exc_info=True)
     
     def export_results(self, strategy_name, filename=None):
         """결과를 Excel 파일로 내보내기"""
         try:
             if strategy_name not in self.results:
-                logging.error(f"결과를 찾을 수 없음: {strategy_name}")
+                self.logger.error(f"결과를 찾을 수 없음: {strategy_name}")
                 return
             
             if filename is None:
@@ -852,10 +732,10 @@ class KiwoomBacktester:
                 summary_df = pd.DataFrame(summary_data)
                 summary_df.to_excel(writer, sheet_name='요약통계', index=False)
             
-            logging.info(f"결과 내보내기 완료: {filename}")
+            self.logger.info(f"결과 내보내기 완료: {filename}")
             
         except Exception as ex:
-            logging.error(f"결과 내보내기 실패: {ex}")
+            self.logger.error(f"결과 내보내기 실패: {ex}", exc_info=True)
     
     def reset_portfolio(self):
         """포트폴리오 초기화"""
@@ -867,7 +747,7 @@ class KiwoomBacktester:
         self.trades.clear()
         self.equity_curve.clear()
         
-        logging.info("포트폴리오 초기화 완료")
+        self.logger.info("포트폴리오 초기화 완료")
     
     def check_available_data(self, code=None):
         """데이터베이스에서 사용 가능한 데이터 확인"""
@@ -1007,28 +887,28 @@ class KiwoomBacktester:
             conn.close()
             
             # 결과 출력
-            logging.info("=== 사용 가능한 데이터 ===")
+            self.logger.info("=== 사용 가능한 데이터 ===")
             
             if available_data['integrated_data']:
-                logging.info(f"통합 데이터: {len(available_data['integrated_data'])}개 종목")
+                self.logger.info(f"통합 데이터: {len(available_data['integrated_data'])}개 종목")
                 for code, info in available_data['integrated_data'].items():
-                    logging.info(f"  {code}: {info['count']}개 레코드 ({info['start_date']} ~ {info['end_date']})")
+                    self.logger.info(f"  {code}: {info['count']}개 레코드 ({info['start_date']} ~ {info['end_date']})")
             
             # 틱 데이터와 분봉 데이터는 통합 데이터에 포함되므로 별도 로그 제거
             # if available_data['tic_data']: ...
             # if available_data['minute_data']: ...
             
             if available_data['trade_records']:
-                logging.info(f"거래 기록: {len(available_data['trade_records'])}개 종목")
+                self.logger.info(f"거래 기록: {len(available_data['trade_records'])}개 종목")
                 for code, info in available_data['trade_records'].items():
-                    logging.info(f"  {code}: {info['count']}개 거래 ({info['start_date']} ~ {info['end_date']})")
+                    self.logger.info(f"  {code}: {info['count']}개 거래 ({info['start_date']} ~ {info['end_date']})")
             else:
-                logging.info("거래 기록: 없음")
+                self.logger.info("거래 기록: 없음")
             
             return available_data
             
         except Exception as ex:
-            logging.error(f"데이터 확인 실패: {ex}")
+            self.logger.error(f"데이터 확인 실패: {ex}", exc_info=True)
             return {}
 
 def main():
@@ -1053,10 +933,10 @@ def main():
             codes.extend(list(available_data['minute_data'].keys())[:3])  # 최대 3개 종목
         
         if not codes:
-            logging.warning("백테스팅할 데이터가 없습니다.")
+            backtester.logger.warning("백테스팅할 데이터가 없습니다.")
             return
         
-        logging.info(f"백테스팅 대상 종목: {codes}")
+        backtester.logger.info(f"백테스팅 대상 종목: {codes}")
         
         # 백테스팅 기간 (실제 데이터 범위에 맞춰 조정)
         start_date = '2024-01-01'
@@ -1067,9 +947,9 @@ def main():
         
         for strategy in strategies:
             if strategy in backtester.strategies:
-                logging.info(f"\n{'='*50}")
-                logging.info(f"백테스팅 시작: {strategy}")
-                logging.info(f"{'='*50}")
+                backtester.logger.info(f"\n{'='*50}")
+                backtester.logger.info(f"백테스팅 시작: {strategy}")
+                backtester.logger.info(f"{'='*50}")
                 
                 # 백테스팅 실행 (틱 데이터 우선)
                 success = backtester.run_backtest(codes, start_date, end_date, strategy)
@@ -1084,10 +964,10 @@ def main():
                 # 포트폴리오 초기화
                 backtester.reset_portfolio()
         
-        logging.info("모든 백테스팅 완료")
+        backtester.logger.info("모든 백테스팅 완료")
         
     except Exception as ex:
-        logging.error(f"백테스터 실행 실패: {ex}")
+        logging.error(f"백테스터 실행 실패: {ex}", exc_info=True)
 
 if __name__ == "__main__":
     main()

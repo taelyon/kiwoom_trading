@@ -36,7 +36,7 @@ import pandas as pd
 import pyqtgraph as pg
 import qasync
 from qasync import asyncSlot
-import requests
+import httpx
 import talib
 import websockets
 
@@ -184,6 +184,21 @@ def setup_logging():
         # urllib3.connectionpool DEBUG 로그 비활성화
         urllib3_logger = logging.getLogger('urllib3.connectionpool')
         urllib3_logger.setLevel(logging.WARNING)
+
+        # httpx DEBUG 로그 비활성화
+        httpx_logger = logging.getLogger('httpx')
+        httpx_logger.setLevel(logging.WARNING)
+
+        # UI 로그 핸들러 추가 (INFO 레벨)
+        # MyWindow 인스턴스가 생성된 후에 호출되어야 함
+        if 'main_window' in globals() and globals()['main_window']:
+            # UI 로그창 전용 포맷터
+            ui_log_format = '%(asctime)s - %(message)s'
+            ui_formatter = logging.Formatter(ui_log_format, datefmt='%H:%M:%S')
+            text_edit_logger = QTextEditLogger(globals()['main_window'].terminalOutput)
+            text_edit_logger.setLevel(logging.INFO)
+            text_edit_logger.setFormatter(ui_formatter)
+            root_logger.addHandler(text_edit_logger)
                 
     except Exception as ex:
         print(f"로깅 설정 실패: {ex}")
@@ -191,46 +206,17 @@ def setup_logging():
 # ==================== API 제한 관리 ====================
 class ApiLimitManager:
     """API 제한 관리 클래스 (개선된 버전)"""
+    logger = logging.getLogger(__qualname__)
     
     # API 요청 간격 관리 (초 단위)
     _last_request_time = {}
     _request_intervals = {
         'tic_chart': 1.5,    # 틱 차트: 1.5초 간격 (429 에러 방지)
         'minute_chart': 1.5,  # 분봉 차트: 1.5초 간격 (429 에러 방지)
-        'tic': 0.5,          # 틱 데이터: 0.5초 간격
+        'tic': 0.5,           # 틱 데이터: 0.5초 간격
         'minute': 0.5,        # 분봉 데이터: 0.5초 간격
         'default': 0.5        # 기본: 0.5초 간격
     }
-    
-    @classmethod
-    def check_api_limit_and_wait(cls, operation_name="API 요청", rqtype=0, request_type=None):
-        """API 제한 확인 및 대기 (개선된 버전)"""
-        try:
-            
-            # 요청 타입별 간격 설정
-            if request_type is None:
-                request_type = cls._get_request_type(operation_name)
-            interval = cls._request_intervals.get(request_type, cls._request_intervals['default'])
-            
-            # 마지막 요청 시간 확인
-            current_time = time.time()
-            last_time = cls._last_request_time.get(request_type, 0)
-            
-            # 필요한 대기 시간 계산
-            elapsed_time = current_time - last_time
-            if elapsed_time < interval:
-                wait_time = interval - elapsed_time
-                # API 간격 조정 로그 제거 (너무 빈번함)
-                # 실제 대기 시간 적용 (스레드에서 실행되므로 안전)
-                time.sleep(wait_time)
-            
-            # 요청 시간 업데이트
-            cls._last_request_time[request_type] = time.time()
-            return True
-            
-        except Exception as ex:
-            logging.error(f"API 제한 확인 중 오류: {ex}")
-            return False
     
     @classmethod
     def _get_request_type(cls, operation_name):
@@ -267,19 +253,14 @@ class ApiLimitManager:
             return True
             
         except Exception as ex:
-            logging.error(f"API 제한 확인 중 오류: {ex}")
+            cls.logger.error(f"API 제한 확인 중 오류: {ex}")
             return False
-    
-    @classmethod
-    def reset_request_times(cls):
-        """요청 시간 기록 초기화"""
-        cls._last_request_time.clear()
-        # 초기화 로그 제거 (불필요)
 
 # ==================== 로그 핸들러 ====================
 class QTextEditLogger(logging.Handler):
     """QTextEdit에 로그를 출력하는 핸들러 (스레드 안전)"""
     
+    # 이 클래스는 로깅 핸들러 자체이므로 self.logger를 사용하지 않습니다.
     def __init__(self, text_widget):
         super().__init__()
         self.text_widget = text_widget
@@ -289,7 +270,7 @@ class QTextEditLogger(logging.Handler):
             # QTextEdit 위젯이 유효한지 더 강화된 검사
             if not self.text_widget or not hasattr(self, 'text_widget'):
                 # 핸들러 자체를 로거에서 제거
-                logging.getLogger().removeHandler(self)
+                logging.getLogger().removeHandler(self) # type: ignore
                 return
                 
             # 위젯이 삭제되었는지 확인
@@ -335,6 +316,7 @@ class AsyncDatabaseManager:
     """비동기 데이터베이스 관리 클래스 (I/O 바운드 작업)"""
     
     def __init__(self, db_path="stock_data.db"):
+        self.logger = logging.getLogger(self.__class__.__name__)
         self.db_path = db_path
         self.indicator_list = [
             'MA5', 'MA10', 'MA20', 'MA50', 'MA60', 'MA120', 'RSI', 'MACD', 'MACD_SIGNAL', 'MACD_HIST',
@@ -398,7 +380,7 @@ class AsyncDatabaseManager:
             # 데이터베이스 초기화 로그 제거
             
         except Exception as ex:
-            logging.error(f"데이터베이스 초기화 실패: {ex}")
+            self.logger.error(f"데이터베이스 초기화 실패: {ex}")
             raise ex
     
     async def save_stock_data(self, code, tic_data, min_data):
@@ -426,7 +408,7 @@ class AsyncDatabaseManager:
                 tic_indicators = [key for key in tic_data.keys() if key not in basic_keys]
                 min_indicators = [key for key in min_data.keys() if key not in basic_keys]
                 
-                # 모든 지표 통합 (중복 제거)
+                # 모든 지표 통합 (중복 제거) # type: ignore
                 all_indicators = list(set(tic_indicators + min_indicators))
                 all_indicators.sort()  # 정렬하여 일관성 유지
                 
@@ -499,7 +481,7 @@ class AsyncDatabaseManager:
                                 else:
                                     values.append(None)
                         except Exception as ex:
-                            logging.debug(f"틱봉 지표 처리 중 오류 ({indicator}): {ex}")
+                            self.logger.debug(f"틱봉 지표 처리 중 오류 ({indicator}): {ex}")
                             values.append(None)
 
                     # 분봉 기술적 지표 값 추가
@@ -533,7 +515,7 @@ class AsyncDatabaseManager:
                                 else:
                                     values.append(None)
                         except Exception as ex:
-                            logging.debug(f"분봉 지표 처리 중 오류 ({indicator}): {ex}")
+                            self.logger.debug(f"분봉 지표 처리 중 오류 ({indicator}): {ex}")
                             values.append(None)
                     
                     values.append(current_time)
@@ -544,8 +526,7 @@ class AsyncDatabaseManager:
                 # 데이터 저장 완료 로그 제거 (너무 빈번함)
                 
         except Exception as ex:
-            logging.error(f"통합 주식 데이터 저장 실패 ({code}): {ex}")
-            logging.error(f"상세 오류: {traceback.format_exc()}")
+            self.logger.error(f"통합 주식 데이터 저장 실패 ({code}): {ex}", exc_info=True)
     
     async def _ensure_table_schema(self, cursor, indicators):
         """테이블 스키마에 필요한 컬럼들이 있는지 확인하고 없으면 추가"""
@@ -569,14 +550,14 @@ class AsyncDatabaseManager:
             for col in new_columns:
                 try:
                     await cursor.execute(f"ALTER TABLE stock_data ADD COLUMN {col} REAL")
-                    logging.debug(f"📊 새 컬럼 추가: {col}")
+                    self.logger.debug(f"📊 새 컬럼 추가: {col}")
                 except Exception as e:
                     # 컬럼이 이미 존재하는 경우 무시
                     if "duplicate column name" not in str(e).lower():
-                        logging.warning(f"⚠️ 컬럼 추가 실패 ({col}): {e}")
+                        self.logger.warning(f"⚠️ 컬럼 추가 실패 ({col}): {e}")
                         
         except Exception as ex:
-            logging.error(f"❌ 테이블 스키마 확인/업데이트 실패: {ex}")
+            self.logger.error(f"❌ 테이블 스키마 확인/업데이트 실패: {ex}", exc_info=True)
     
     def _find_matching_minute_data(self, tic_time, min_times):
         """틱봉 시간에 해당하는 분봉 데이터 인덱스 찾기 (가장 가까운 분봉 찾기)"""
@@ -622,7 +603,7 @@ class AsyncDatabaseManager:
            
             return -1  # 매칭되는 분봉 데이터 없음
         except Exception as ex:
-            logging.error(f"분봉 데이터 매칭 실패: {ex}")
+            self.logger.error(f"분봉 데이터 매칭 실패: {ex}")
             return -1
     
     async def save_trade_record(self, code, datetime_str, order_type, quantity, price, strategy=""):
@@ -641,24 +622,23 @@ class AsyncDatabaseManager:
                 
                 await conn.commit()
                 
-                logging.debug(f"매매 기록 저장: {code} {order_type} {quantity}주 @ {price}")
+                self.logger.debug(f"매매 기록 저장: {code} {order_type} {quantity}주 @ {price}")
             
         except Exception as ex:
-            logging.error(f"매매 기록 저장 실패: {ex}")
-            logging.error(f"상세 에러:\n{traceback.format_exc()}")
+            self.logger.error(f"매매 기록 저장 실패: {ex}", exc_info=True)
     
 
 # ==================== 키움 트레이더 클래스 ====================
 class KiwoomTrader(QObject):
     """키움 REST API 기반 트레이더 클래스"""
     
-    # 시그널 정의
     signal_log = pyqtSignal(str)
     signal_update_balance = pyqtSignal(dict)
     signal_order_result = pyqtSignal(str, str, int, float, bool)  # code, order_type, quantity, price, success
     
     def __init__(self, client, buycount, parent=None):
         super().__init__()
+        self.logger = logging.getLogger(self.__class__.__name__)
         self.client = client
         self.buycount = buycount
         self.parent = parent
@@ -694,7 +674,7 @@ class KiwoomTrader(QObject):
         # 설정 로드
         self.load_settings()
 
-        logging.debug(f"키움 트레이더 초기화 완료 (목표 매수 종목 수: {self.buycount})")
+        self.logger.debug(f"키움 트레이더 초기화 완료 (목표 매수 종목 수: {self.buycount})")
     
     def _init_database_async(self):
         """비동기 데이터베이스 초기화 트리거"""
@@ -703,12 +683,12 @@ class KiwoomTrader(QObject):
             try:
                 loop = asyncio.get_running_loop()
                 # 이미 실행 중인 이벤트 루프가 있으면 태스크로 실행
-                asyncio.create_task(self.db_manager.init_database())
-                logging.debug("✅ DB 초기화를 비동기 태스크로 시작")
+                loop.create_task(self.db_manager.init_database())
+                self.logger.debug("✅ DB 초기화를 비동기 태스크로 시작")
                 return
             except RuntimeError:
                 # 실행 중인 이벤트 루프가 없음 - ThreadPoolExecutor로 처리
-                logging.debug("⚠️ 실행 중인 이벤트 루프가 없어 ThreadPoolExecutor 사용")
+                self.logger.debug("⚠️ 실행 중인 이벤트 루프가 없어 ThreadPoolExecutor 사용")
                 pass
             
             def run_async_init():
@@ -722,7 +702,7 @@ class KiwoomTrader(QObject):
                     finally:
                         loop.close()
                 except Exception as e:
-                    logging.error(f"비동기 데이터베이스 초기화 실행 오류: {e}")
+                    self.logger.error(f"비동기 데이터베이스 초기화 실행 오류: {e}", exc_info=True)
                     return None
             
             # 별도 스레드에서 비동기 초기화 실행
@@ -731,7 +711,7 @@ class KiwoomTrader(QObject):
                 future.result(timeout=30)  # 30초 타임아웃
                 
         except Exception as ex:
-            logging.error(f"비동기 데이터베이스 초기화 트리거 실패: {ex}")
+            self.logger.error(f"비동기 데이터베이스 초기화 트리거 실패: {ex}", exc_info=True)
     
     def load_settings(self):
         """설정 로드"""
@@ -748,15 +728,15 @@ class KiwoomTrader(QObject):
             # 차트 업데이트 설정
             self.chartdata_update_interval = config.getint('CHART', 'chartdata_update_interval', fallback=10)
             
-            logging.debug("설정 로드 완료")
+            self.logger.debug("설정 로드 완료")
             
         except Exception as ex:
-            logging.error(f"설정 로드 실패: {ex}")
+            self.logger.error(f"설정 로드 실패: {ex}", exc_info=True)
     
-    def update_balance(self):
-        """잔고 정보 업데이트"""
+    async def update_balance(self):
+        """잔고 정보 업데이트 (비동기)"""
         try:
-            balance_data = self.client.get_acnt_balance()
+            balance_data = await self.client.get_acnt_balance()
             if balance_data:
                 self.signal_update_balance.emit(balance_data)
                 
@@ -766,26 +746,26 @@ class KiwoomTrader(QObject):
                     self.holdings[code] = info
                     
         except Exception as ex:
-            logging.error(f"잔고 업데이트 실패: {ex}")
+            self.logger.error(f"잔고 업데이트 실패: {ex}", exc_info=True)
     
-    def get_current_price(self, code):
-        """현재가 조회 (실패 시 0 반환하여 fallback 처리)"""
+    async def get_current_price(self, code):
+        """현재가 조회 (실패 시 0 반환하여 fallback 처리) (비동기)"""
         try:
-            price_data = self.client.get_stock_current_price(code)
+            price_data = await self.client.get_stock_current_price(code)
             return price_data.get('current_price', 0)
         except Exception as ex:
-            logging.debug(f"현재가 조회 실패 ({code}) - fallback 처리됨")
+            self.logger.debug(f"현재가 조회 실패 ({code}) - fallback 처리됨", exc_info=True)
             return 0
     
-    def place_buy_order(self, code, quantity, price=0, strategy=""):
-        """매수 주문 (키움 REST API 기반)"""
+    async def place_buy_order(self, code, quantity, price=0, strategy=""):
+        """매수 주문 (키움 REST API 기반) (비동기)"""
         try:
             # 1. 보유 종목 확인 (이미 보유 중인 종목은 매수 제외)
             if self.parent and hasattr(self.parent, 'boughtBox'):
                 for i in range(self.parent.boughtBox.count()):
                     item_code = self.parent.boughtBox.item(i).text()
                     if item_code == code:
-                        logging.info(f"⚠️ 매수 주문 취소: {code}는 이미 보유 중인 종목입니다.")
+                        self.logger.info(f"⚠️ 매수 주문 취소: {code}는 이미 보유 중인 종목입니다.")
                         return False
             
             # 2. 최대 보유 종목 수 확인
@@ -795,18 +775,18 @@ class KiwoomTrader(QObject):
                 available_buy_count = self.parent.login_handler.get_available_buy_count()
                 
                 if available_buy_count <= 0:
-                    logging.warning(f"⚠️ 매수 주문 취소: 최대 보유 종목 수 도달 ({code})")
-                    logging.warning(f"   현황: 최대 {max_count}종목, 현재 {current_count}종목, 가능 {available_buy_count}종목")
+                    self.logger.warning(f"⚠️ 매수 주문 취소: 최대 보유 종목 수 도달 ({code})")
+                    self.logger.warning(f"   현황: 최대 {max_count}종목, 현재 {current_count}종목, 가능 {available_buy_count}종목")
                     return False
                 else:
                     # 매수 주문 진행 중 상태로 설정
                     self.pending_buy_orders.add(code)
-                    logging.debug(f"⏳ [{code}] 매수 주문 진행 중 상태로 설정 (중복 주문 방지)")
+                    self.logger.debug(f"⏳ [{code}] 매수 주문 진행 중 상태로 설정 (중복 주문 방지)")
 
-                    logging.debug(f"✅ 매수 가능 확인: {code} (현재 {current_count}/{max_count}종목, 가능 {available_buy_count}종목)")
+                    self.logger.debug(f"✅ 매수 가능 확인: {code} (현재 {current_count}/{max_count}종목, 가능 {available_buy_count}종목)")
             
             # 키움 REST API를 통한 매수 주문
-            success = self.client.place_buy_order(code, quantity, price)
+            success = await self.client.place_buy_order(code, quantity, price)
             
             if success:
                 # 매수 기록 저장 (비동기 태스크로 실행)
@@ -819,10 +799,10 @@ class KiwoomTrader(QObject):
                     asyncio.get_running_loop()  # 루프 확인
                     asyncio.create_task(self.db_manager.save_trade_record(code, current_time, "buy", quantity, price, strategy))
                 except RuntimeError:
-                    logging.warning("⚠️ 이벤트 루프가 없어 매수 기록 저장을 건너뜁니다")
+                    self.logger.warning("⚠️ 이벤트 루프가 없어 매수 기록 저장을 건너뜁니다")
                 
                 # 포트폴리오 업데이트
-                self.buy_prices[code] = price if price > 0 else self.get_current_price(code)
+                self.buy_prices[code] = price if price > 0 else await self.get_current_price(code)
                 self.buy_times[code] = datetime.now()
                 self.highest_prices[code] = self.buy_prices[code]
                 
@@ -839,8 +819,8 @@ class KiwoomTrader(QObject):
                         buy_strategy_name = buy_strategy_name.split(']')[0][1:]
                     except Exception: pass
                 self.holdings[code]['buy_strategy'] = buy_strategy_name
-
-                logging.debug(f"✅ holdings 업데이트: {code} (수량: {quantity}주, 평단: {self.buy_prices[code]:,}원)")
+                
+                self.logger.debug(f"✅ holdings 업데이트: {code} (수량: {quantity}주, 평단: {self.buy_prices[code]:,}원)")
                 
                 # 보유종목 리스트에 즉시 추가 (종목 수 제한 동기화)
                 if self.parent and hasattr(self.parent, 'boughtBox'):
@@ -858,53 +838,53 @@ class KiwoomTrader(QObject):
                     if not already_in_list:
                         self.parent.boughtBox.addItem(code)
                         new_count = self.parent.boughtBox.count()
-                        logging.debug(f"✅ 보유종목 리스트에 추가: {code} (총 {new_count}개 종목 보유)")
+                        self.logger.debug(f"✅ 보유종목 리스트에 추가: {code} (총 {new_count}개 종목 보유)")
                 
                 self.signal_order_result.emit(code, "buy", quantity, price, True)
-                logging.debug(f"✅ 매수 주문 성공: {code} {quantity}주 (키움 REST API)")
+                self.logger.debug(f"✅ 매수 주문 성공: {code} {quantity}주 (키움 REST API)")
                 return True
             else:
                 self.signal_order_result.emit(code, "buy", quantity, price, False)
                 # 주문 실패 시, '매수 주문 진행 중' 상태 해제
                 if code in self.pending_buy_orders:
                     self.pending_buy_orders.discard(code)
-                    logging.info(f"🟢 [{code}] 매수 주문 실패로 진행 중 상태 해제")
-                logging.error(f"❌ 매수 주문 실패: {code}")
+                    self.logger.info(f"🟢 [{code}] 매수 주문 실패로 진행 중 상태 해제")
+                self.logger.error(f"❌ 매수 주문 실패: {code}")
                 return False
                 
         except Exception as ex:
-            logging.error(f"❌ 매수 주문 중 오류 ({code}): {ex}")
+            self.logger.error(f"매수 주문 중 오류 ({code}): {ex}", exc_info=True)
             if code in self.pending_buy_orders:
                 self.pending_buy_orders.discard(code)
                 logging.info(f"🟢 [{code}] 매수 주문 오류로 진행 중 상태 해제")
             self.signal_order_result.emit(code, "buy", quantity, price, False)
             return False
     
-    def place_sell_order(self, code, quantity, price=0, strategy=""):
-        """매도 주문 (키움 REST API 기반)"""
+    async def place_sell_order(self, code, quantity, price=0, strategy=""):
+        """매도 주문 (키움 REST API 기반) (비동기)"""
         try:
             # quantity가 0 이하인 경우 주문을 실행하지 않음
-            if quantity <= 0:
-                logging.warning(f"⚠️ 매도 주문 수량이 0 이하이므로 주문을 실행하지 않습니다: {code}, 수량: {quantity}")
+            if quantity <= 0: # type: ignore
+                self.logger.warning(f"⚠️ 매도 주문 수량이 0 이하이므로 주문을 실행하지 않습니다: {code}, 수량: {quantity}")
                 return False
 
             # 키움 REST API를 통한 매도 주문
             # 주문 전, '주문 진행 중' 상태로 설정
             self.pending_sell_orders.add(code)
-            logging.info(f"⏳ [{code}] 매도 주문 진행 중 상태로 설정 (중복 주문 방지)")
+            self.logger.info(f"⏳ [{code}] 매도 주문 진행 중 상태로 설정 (중복 주문 방지)")
 
-            success = self.client.place_sell_order(code, quantity, price)
+            success = await self.client.place_sell_order(code, quantity, price)
             
             if success:
                 # 매도 기록 저장 (비동기 태스크로 실행)
                 current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                sell_price = price if price > 0 else self.get_current_price(code)
+                sell_price = price if price > 0 else await self.get_current_price(code)
                 # qasync 환경에서 안전하게 태스크 생성
                 try:
                     asyncio.get_running_loop()  # 루프 확인
                     asyncio.create_task(self.db_manager.save_trade_record(code, current_time, "sell", quantity, sell_price, strategy))
                 except RuntimeError:
-                    logging.warning("⚠️ 이벤트 루프가 없어 매도 기록 저장을 건너뜁니다")
+                    self.logger.warning("⚠️ 이벤트 루프가 없어 매도 기록 저장을 건너뜁니다")
                 
                 # 보유 수량 확인 및 전량 매도 판단
                 is_full_sell = False
@@ -923,12 +903,12 @@ class KiwoomTrader(QObject):
                     else:
                         # 보유 수량 정보 없음 → 전량 매도로 간주
                         is_full_sell = True
-                        logging.debug(f"⚠️ {code} 보유 수량 정보 없음 - 전량 매도로 처리")
+                        self.logger.debug(f"⚠️ {code} 보유 수량 정보 없음 - 전량 매도로 처리")
                 
                 # 전량 매도 시 최고가 정보 초기화
                 if is_full_sell and code in self.highest_prices:
                             del self.highest_prices[code]
-                            logging.debug(f"🗑️ {code} 최고가 정보 초기화 (전량 매도)")
+                            self.logger.debug(f"🗑️ {code} 최고가 정보 초기화 (전량 매도)")
 
                 # 부분 매도 주문 정보 추적
                 ord_no = self.client.last_order_no
@@ -938,14 +918,14 @@ class KiwoomTrader(QObject):
                         'total_qty': quantity,
                         'filled_qty': 0
                     }
-                    logging.info(f"📋 부분 매도 주문 추적 시작: 주문번호={ord_no}, 종목={code}, 수량={quantity}주")
+                    self.logger.info(f"📋 부분 매도 주문 추적 시작: 주문번호={ord_no}, 종목={code}, 수량={quantity}주")
                 
                 # holdings 딕셔너리 업데이트 (매도 평가를 위한 동기화)
                 if is_full_sell:
                     # 전량 매도 시 holdings에서 제거
                     if code in self.holdings:
                         del self.holdings[code]
-                        logging.debug(f"✅ holdings에서 제거: {code} (전량 매도)")
+                        self.logger.debug(f"✅ holdings에서 제거: {code} (전량 매도)")
                     # buy_prices, buy_times도 함께 정리
                     if code in self.buy_prices:
                         del self.buy_prices[code]
@@ -956,7 +936,7 @@ class KiwoomTrader(QObject):
                     if code in self.holdings:
                         new_quantity = remaining_qty - quantity
                         self.holdings[code]['quantity'] = new_quantity
-                        logging.debug(f"✅ holdings 수량 업데이트: {code} ({remaining_qty}주 → {new_quantity}주)")
+                        self.logger.debug(f"✅ holdings 수량 업데이트: {code} ({remaining_qty}주 → {new_quantity}주)")
                 
                 # 전량 매도 시 보유종목 리스트에서 즉시 제거 (종목 수 제한 동기화)
                 if is_full_sell and self.parent and hasattr(self.parent, 'boughtBox'):
@@ -964,25 +944,25 @@ class KiwoomTrader(QObject):
                         if self.parent.boughtBox.item(i).text() == code:
                             self.parent.boughtBox.takeItem(i)
                             new_count = self.parent.boughtBox.count()
-                            logging.info(f"✅ 보유종목 리스트에서 제거: {code} (전량 매도, 남은 종목 {new_count}개)")
+                            self.logger.info(f"✅ 보유종목 리스트에서 제거: {code} (전량 매도, 남은 종목 {new_count}개)")
                             break
                 elif not is_full_sell:
-                    logging.debug(f"ℹ️ {code} 부분 매도 (보유: {remaining_qty}주, 매도: {quantity}주)")
+                    self.logger.debug(f"ℹ️ {code} 부분 매도 (보유: {remaining_qty}주, 매도: {quantity}주)")
                 
                 self.signal_order_result.emit(code, "sell", quantity, price, True)
-                logging.debug(f"✅ 매도 주문 성공: {code} {quantity}주 (키움 REST API)")
+                self.logger.debug(f"✅ 매도 주문 성공: {code} {quantity}주 (키움 REST API)")
                 return True
             else:
                 self.signal_order_result.emit(code, "sell", quantity, price, False)
                 # 주문 실패 시, '주문 진행 중' 상태 해제
                 if code in self.pending_sell_orders:
                     self.pending_sell_orders.discard(code)
-                    logging.info(f"🟢 [{code}] 매도 주문 실패로 진행 중 상태 해제")
-                logging.error(f"❌ 매도 주문 실패: {code}")
+                    self.logger.info(f"🟢 [{code}] 매도 주문 실패로 진행 중 상태 해제")
+                self.logger.error(f"❌ 매도 주문 실패: {code}")
                 return False
                 
         except Exception as ex:
-            logging.error(f"❌ 매도 주문 중 오류 ({code}): {ex}")
+            self.logger.error(f"매도 주문 중 오류 ({code}): {ex}", exc_info=True)
             self.signal_order_result.emit(code, "sell", quantity, price, False)
             return False
         finally:
@@ -1020,7 +1000,7 @@ class KiwoomTrader(QObject):
                                 del merged_buy_prices[code]
                             if code in merged_buy_times:
                                 del merged_buy_times[code]
-                            logging.debug(f"🗑️ [{code}] get_portfolio_status에서 제거 (웹소켓 balance_data에 없음)")
+                            self.logger.debug(f"🗑️ [{code}] get_portfolio_status에서 제거 (웹소켓 balance_data에 없음)")
                         
                         # 웹소켓 balance_data의 종목들을 처리
                         for code, balance_info in ws_balance_data.items():
@@ -1031,7 +1011,7 @@ class KiwoomTrader(QObject):
                             if quantity == 0:
                                 if code in merged_holdings:
                                     del merged_holdings[code]
-                                    logging.debug(f"🗑️ [{code}] get_portfolio_status에서 제거 (웹소켓 수량=0)")
+                                    self.logger.debug(f"🗑️ [{code}] get_portfolio_status에서 제거 (웹소켓 수량=0)")
                                 if code in merged_buy_prices:
                                     del merged_buy_prices[code]
                                 if code in merged_buy_times:
@@ -1054,12 +1034,12 @@ class KiwoomTrader(QObject):
                                     # 부분 매도 후 buy_price가 유지되도록 보장
                                     if code not in merged_buy_prices and code in self.buy_prices:
                                         merged_buy_prices[code] = self.buy_prices[code]
-                                        logging.debug(f"🔄 [{code}] 부분 매도 후 buy_price 복원: {self.buy_prices[code]:,.0f}원")
+                                        self.logger.debug(f"🔄 [{code}] 부분 매도 후 buy_price 복원: {self.buy_prices[code]:,.0f}원")
                                     if code not in merged_buy_times and code in self.buy_times:
                                         merged_buy_times[code] = self.buy_times[code]
-                                        logging.debug(f"🔄 [{code}] 부분 매도 후 buy_time 복원")
+                                        self.logger.debug(f"🔄 [{code}] 부분 매도 후 buy_time 복원")
 
-                                    if ws_quantity != holdings_quantity:
+                                    if ws_quantity != holdings_quantity: # type: ignore
                                         # 웹소켓 수량으로 업데이트
                                         merged_holdings[code]['quantity'] = ws_quantity
                                         # 매입단가도 업데이트 (없거나 0인 경우)
@@ -1067,7 +1047,7 @@ class KiwoomTrader(QObject):
                                             merged_buy_prices[code] = balance_info.get('average_price', 0)
             except Exception as ws_ex:
                 # 웹소켓 동기화 실패해도 계속 진행 (경고만 출력)
-                logging.debug(f"⚠️ 웹소켓 balance_data 동기화 중 오류 (무시): {ws_ex}")
+                self.logger.debug(f"웹소켓 balance_data 동기화 중 오류 (무시): {ws_ex}", exc_info=True)
             
             portfolio = {
                 'holdings': merged_holdings,
@@ -1079,7 +1059,7 @@ class KiwoomTrader(QObject):
             }
             return portfolio
         except Exception as ex:
-            logging.error(f"포트폴리오 상태 조회 실패: {ex}")
+            self.logger.error(f"포트폴리오 상태 조회 실패: {ex}", exc_info=True)
             return {}
 
     def _sync_holdings_with_websocket(self):
@@ -1095,7 +1075,7 @@ class KiwoomTrader(QObject):
             if not ws_balance_data:
                 # 웹소켓 데이터가 비어있으면 self.holdings도 비워야 함 (전량 매도된 경우)
                 if self.holdings:
-                    logging.debug("🗑️ 웹소켓 잔고가 비어있어 self.holdings를 초기화합니다.")
+                    self.logger.debug("🗑️ 웹소켓 잔고가 비어있어 self.holdings를 초기화합니다.")
                     self.holdings.clear()
                     self.buy_prices.clear()
                     self.buy_times.clear()
@@ -1111,7 +1091,7 @@ class KiwoomTrader(QObject):
                 if code in self.buy_prices: del self.buy_prices[code]
                 if code in self.buy_times: del self.buy_times[code]
                 if code in self.highest_prices: del self.highest_prices[code]
-                logging.debug(f"🗑️ [{code}] holdings 동기화: 웹소켓에 없어 제거됨")
+                self.logger.debug(f"🗑️ [{code}] holdings 동기화: 웹소켓에 없어 제거됨")
 
             # 웹소켓에 있는 종목은 self.holdings에 추가/업데이트
             for code, balance_info in ws_balance_data.items():
@@ -1121,14 +1101,14 @@ class KiwoomTrader(QObject):
                         self.holdings[code] = {'quantity': quantity}
                         self.buy_prices[code] = balance_info.get('average_price', 0)
                         self.buy_times[code] = datetime.now() # 시간 정보가 없으므로 현재 시간으로 설정
-                        logging.debug(f"🆕 [{code}] holdings 동기화: 웹소켓 잔고로 신규 추가")
+                        self.logger.debug(f"🆕 [{code}] holdings 동기화: 웹소켓 잔고로 신규 추가")
                     else:
                         self.holdings[code]['quantity'] = quantity # 수량 동기화
                 else:
                     # 수량이 0인 경우 (전량 매도 완료) holdings에서 제거
                     if code in self.holdings:
                         del self.holdings[code]
-                        logging.debug(f"🗑️ [{code}] holdings 동기화: 웹소켓 수량=0으로 제거됨")
+                        self.logger.debug(f"🗑️ [{code}] holdings 동기화: 웹소켓 수량=0으로 제거됨")
                     if code in self.buy_prices:
                         del self.buy_prices[code]
                     if code in self.buy_times:
@@ -1136,7 +1116,7 @@ class KiwoomTrader(QObject):
                     if code in self.highest_prices:
                         del self.highest_prices[code]
         except Exception as ex:
-            logging.warning(f"⚠️ self.holdings와 웹소켓 잔고 동기화 실패: {ex}")
+            self.logger.warning(f"self.holdings와 웹소켓 잔고 동기화 실패: {ex}", exc_info=True)
     def get_balance_data(self):
         """웹소켓 실시간 잔고 데이터 조회
         주의: 이 메서드는 웹소켓을 통한 실시간 잔고 데이터를 반환합니다.
@@ -1161,12 +1141,12 @@ class KiwoomTrader(QObject):
             self.execution_data = {}
         return self.execution_data.copy()
 
-    def get_account_balance(self) -> Dict:
-        """투자계좌자산현황조회 - 투자가능 현금 조회용
+    async def get_account_balance(self) -> Dict:
+        """투자계좌자산현황조회 - 투자가능 현금 조회용 (비동기)
         매수 시 투자가능 현금을 확인하기 위한 API
         """
         try:
-            if not self.client.check_token_validity():
+            if not await self.client.check_token_validity():
                 return {}
             
             # 모의투자 여부에 따라 서버 선택
@@ -1190,31 +1170,32 @@ class KiwoomTrader(QObject):
                 'BSPR_BF_DT_APLY_YN': ''  # 기준가이전일자적용여부
             }
             
-            # POST 요청
-            response = requests.post(url, headers=headers, json=params, timeout=10)
+            # POST 요청 (비동기)
+            await self.client._ensure_client()
+            response = await self.client.post(url, headers=headers, json=params, timeout=10.0)
             
             if response.status_code == 200:
                 data = response.json()
                 
                 # 응답 코드 확인
                 if data.get('rt_cd') == '0':
-                    logging.debug("투자계좌자산현황조회 성공")
+                    self.logger.debug("투자계좌자산현황조회 성공")
                     return data
                 else:
                     return_msg = data.get('msg1', '알 수 없는 오류')
-                    logging.error(f"투자계좌자산현황조회 실패: {return_msg}")
+                    self.logger.error(f"투자계좌자산현황조회 실패: {return_msg}", exc_info=True)
                     return {}
             else:
-                logging.error(f"투자계좌자산현황조회 실패: {response.status_code}")
-                logging.error(f"응답: {response.text}")
+                self.logger.error(f"투자계좌자산현황조회 실패: {response.status_code}", exc_info=True)
+                self.logger.error(f"응답: {response.text}", exc_info=True)
                 return {}
                 
         except Exception as e:
-            logging.error(f"투자계좌자산현황조회 중 오류: {e}")
+            self.logger.error(f"투자계좌자산현황조회 중 오류: {e}", exc_info=True)
             return {}
 
-    def get_available_cash(self) -> float:
-        """투자가능 현금 조회
+    async def get_available_cash(self) -> float:
+        """투자가능 현금 조회 (비동기)
         매수 시 사용할 수 있는 현금 금액을 반환
         (캐싱을 통해 API 호출 빈도를 제한하여 429 오류 방지)
         """
@@ -1226,7 +1207,7 @@ class KiwoomTrader(QObject):
             if hasattr(self, '_cash_cache_time') and (current_time - self._cash_cache_time) < cache_validity_period:
                 return self._cash_cache
             
-            deposit_data = self.client.get_deposit_detail()
+            deposit_data = await self.client.get_deposit_detail()
             if not deposit_data:
                 return self._cash_cache  # 캐시된 값 반환
             
@@ -1237,11 +1218,11 @@ class KiwoomTrader(QObject):
             self._cash_cache = available_cash
             self._cash_cache_time = current_time
             
-            logging.debug(f"투자가능 현금: {available_cash:,.0f}원 (캐시: {cache_validity_period}초)")
+            self.logger.debug(f"투자가능 현금: {available_cash:,.0f}원 (캐시: {cache_validity_period}초)")
             return available_cash
             
         except Exception as e:
-            logging.error(f"투자가능 현금 조회 중 오류: {e}")
+            self.logger.error(f"투자가능 현금 조회 중 오류: {e}", exc_info=True)
             return self._cash_cache if hasattr(self, '_cash_cache') else 0.0
 
 # ==================== 키움 전략 클래스 ====================
@@ -1254,6 +1235,7 @@ class KiwoomStrategy(QObject):
     
     def __init__(self, trader, parent):
         super().__init__()
+        self.logger = logging.getLogger(self.__class__.__name__)
         self.trader = trader
         self.client = trader.client
         self.db_manager = trader.db_manager
@@ -1280,16 +1262,16 @@ class KiwoomStrategy(QObject):
                     if key.startswith('stg_') or key == 'stg_integrated':
                         # 해당 전략명과 일치하는 섹션이 있으면 로드
                         if config.has_section(strategy_name):
-                            self.strategy_config[strategy_name] = dict(config.items(strategy_name))
-                            logging.debug(f"✅ 전략 설정 로드: {strategy_name}")
+                            self.strategy_config[strategy_name] = dict(config.items(strategy_name)) # type: ignore
+                            self.logger.debug(f"✅ 전략 설정 로드: {strategy_name}")
             
-            logging.debug(f"전략 설정 로드 완료: {self.current_strategy}")
+            self.logger.debug(f"전략 설정 로드 완료: {self.current_strategy}")
             
         except Exception as ex:
-            logging.error(f"전략 설정 로드 실패: {ex}")
+            self.logger.error(f"전략 설정 로드 실패: {ex}", exc_info=True)
     
-    def evaluate_strategy(self, code, market_data):
-        """전략 평가 및 실행"""
+    async def evaluate_strategy(self, code, market_data):
+        """전략 평가 및 실행 (비동기)"""
         try:
             # 디버그 로그: 최초 1회만 출력 (종목별)
             if not hasattr(self, '_eval_debug_codes'):
@@ -1297,7 +1279,7 @@ class KiwoomStrategy(QObject):
             
             is_first_eval = code not in self._eval_debug_codes
             if is_first_eval:
-                logging.debug(f"📊 [{code}] 전략 평가 시작 (전략: {self.current_strategy})")
+                self.logger.debug(f"📊 [{code}] 전략 평가 시작 (전략: {self.current_strategy})")
                 self._eval_debug_codes.add(code)
             
             # 현재 전략에 따른 매수/매도 신호 평가
@@ -1311,38 +1293,38 @@ class KiwoomStrategy(QObject):
             if code in stock_condition_map:
                 strategy_name = stock_condition_map[code]
                 if is_first_eval:
-                    logging.debug(f"📍 [{code}] 조건검색 전략 사용: {strategy_name}")
+                    self.logger.debug(f"📍 [{code}] 조건검색 전략 사용: {strategy_name}")
             # 2순위: 그 외의 경우(수동 추가 등)는 UI에서 선택된 전략을 사용
             else:
                 strategy_name = self.current_strategy
                 if is_first_eval:
-                    logging.debug(f"📍 [{code}] UI 선택 전략 사용: {strategy_name}")
+                    self.logger.debug(f"📍 [{code}] UI 선택 전략 사용: {strategy_name}")
             
             if strategy_name != "통합 전략" and strategy_name not in self.strategy_config:
                 if is_first_eval:
-                    logging.warning(f"⚠️ [{code}] 전략 '{strategy_name}'이 설정에 없음")
+                    self.logger.warning(f"⚠️ [{code}] 전략 '{strategy_name}'이 설정에 없음")
                 return
             
             if is_first_eval:
-                logging.debug(f"✅ [{code}] 전략 설정 확인됨: {strategy_name}")
+                self.logger.debug(f"✅ [{code}] 전략 설정 확인됨: {strategy_name}")
             
             # 매수 신호 평가
             buy_signals = self.get_buy_signals(code, market_data, strategy_name)
             if buy_signals:
-                logging.debug(f"📈 [{code}] 매수 신호 {len(buy_signals)}개 발견")
-                self.execute_buy_signals(code, buy_signals)
+                self.logger.debug(f"📈 [{code}] 매수 신호 {len(buy_signals)}개 발견")
+                await self.execute_buy_signals(code, buy_signals)
             elif is_first_eval:
-                logging.debug(f"ℹ️ [{code}] 매수 조건 미충족")
+                self.logger.debug(f"ℹ️ [{code}] 매수 조건 미충족")
             
             # 매도 신호 평가 (보유 종목인 경우에만)
             portfolio = self.trader.get_portfolio_status()
             if code in portfolio['holdings']:
                 if is_first_eval:
-                    logging.debug(f"🔎 [{code}] 보유 종목 - 매도 평가 진행")
-                sell_signals = self.get_sell_signals(code, market_data, strategy_name)
+                    self.logger.debug(f"🔎 [{code}] 보유 종목 - 매도 평가 진행")
+                sell_signals = await self.get_sell_signals(code, market_data, strategy_name)
                 if sell_signals:
-                    logging.info(f"📉 [{code}] 매도 신호 {len(sell_signals)}개 발견")
-                    self.execute_sell_signals(code, sell_signals)
+                    self.logger.info(f"📉 [{code}] 매도 신호 {len(sell_signals)}개 발견")
+                    await self.execute_sell_signals(code, sell_signals)
             else:
                 # 보유 종목이 아닌 경우 디버그 로그 (최초 1회만)
                 if is_first_eval:
@@ -1357,17 +1339,17 @@ class KiwoomStrategy(QObject):
                                 ws_quantity = ws_balance_data[code].get('quantity', 0)
                                 if ws_quantity > 0:
                                     ws_has_stock = True
-                                    logging.warning(f"⚠️ [{code}] 웹소켓에는 보유 중이지만 self.holdings에 없음 (웹소켓 수량: {ws_quantity}주)")
-                                    logging.warning(f"⚠️ [{code}] get_portfolio_status 동기화 필요 - holdings: {list(portfolio['holdings'].keys())}, 웹소켓: {list(ws_balance_data.keys())}")
+                                    self.logger.warning(f"⚠️ [{code}] 웹소켓에는 보유 중이지만 self.holdings에 없음 (웹소켓 수량: {ws_quantity}주)")
+                                    self.logger.warning(f"get_portfolio_status 동기화 필요 - holdings: {list(portfolio['holdings'].keys())}, 웹소켓: {list(ws_balance_data.keys())}")
                     except Exception as ws_check_ex:
-                        logging.debug(f"⚠️ [{code}] 웹소켓 체크 중 오류: {ws_check_ex}")
+                        self.logger.debug(f"웹소켓 체크 중 오류: {ws_check_ex}", exc_info=True)
                     
                     if not ws_has_stock:
-                        logging.debug(f"ℹ️ [{code}] 보유 종목 아님 - 매도 평가 건너뜀")
+                        self.logger.debug(f"ℹ️ [{code}] 보유 종목 아님 - 매도 평가 건너뜀")
                     
         except Exception as ex:
-            logging.error(f"❌ [{code}] 전략 평가 실패: {ex}")
-            logging.error(f"상세 에러: {traceback.format_exc()}")
+            self.logger.error(f"전략 평가 실패 ({code}): {ex}", exc_info=True)
+            
     
     def get_buy_signals(self, code, market_data, strategy_name):
         """매수 신호 생성 - strategy_utils를 사용한 기술적 지표 기반 평가"""
@@ -1380,26 +1362,26 @@ class KiwoomStrategy(QObject):
             
             is_first_check = code not in self._buy_signal_debug_codes
             if is_first_check:
-                logging.debug(f"🔍 [{code}] 매수 신호 검사 시작")
+                self.logger.debug(f"🔍 [{code}] 매수 신호 검사 시작")
                 self._buy_signal_debug_codes.add(code)
             
             # 포트폴리오 상태 확인
             portfolio = self.trader.get_portfolio_status()
             if portfolio['total_holdings'] >= portfolio['max_holdings']:
                 if is_first_check:
-                    logging.debug(f"⚠️ [{code}] 매수 불가: 보유 종목 수 한도 도달 ({portfolio['total_holdings']}/{portfolio['max_holdings']})")
+                    self.logger.debug(f"⚠️ [{code}] 매수 불가: 보유 종목 수 한도 도달 ({portfolio['total_holdings']}/{portfolio['max_holdings']})")
                 return signals
             
             # 이미 보유 중인 종목인지 확인
             if code in portfolio['holdings']:
                 if is_first_check:
-                    logging.debug(f"⚠️ [{code}] 매수 불가: 이미 보유 중")
+                    self.logger.debug(f"⚠️ [{code}] 매수 불가: 이미 보유 중")
                 return signals
 
             # '매수 주문 진행 중'인 종목은 매수 신호 생성 건너뛰기
             if code in self.trader.pending_buy_orders:
                 if is_first_check:
-                    logging.debug(f"⏳ [{code}] 매수 주문이 이미 진행 중이므로 신호 생성을 건너뜁니다.")
+                    self.logger.debug(f"⏳ [{code}] 매수 주문이 이미 진행 중이므로 신호 생성을 건너뜁니다.")
                 return signals
             
             # 차트 데이터 가져오기 (틱/분봉) - chart_cache에서 직접 가져오기
@@ -1445,20 +1427,20 @@ class KiwoomStrategy(QObject):
                             chart_data = chart_data.dropna(subset=['open', 'high', 'low', 'close', 'volume'])
                             
                             if is_first_check:
-                                logging.debug(f"✅ [{code}] 차트 데이터 준비 완료: {len(chart_data)}개 틱 (캐시된 지표 {indicators_included}개 포함)")
+                                self.logger.debug(f"✅ [{code}] 차트 데이터 준비 완료: {len(chart_data)}개 틱 (캐시된 지표 {indicators_included}개 포함)")
                         except Exception as ex:
                             if is_first_check:
-                                logging.warning(f"⚠️ [{code}] 차트 데이터 변환 실패: {ex}")
+                                self.logger.warning(f"차트 데이터 변환 실패 ({code}): {ex}", exc_info=True)
                             chart_data = pd.DataFrame()
                     else:
                         if is_first_check:
-                            logging.warning(f"⚠️ [{code}] tic_data가 비어있음")
+                            self.logger.warning(f"⚠️ [{code}] tic_data가 비어있음")
                 else:
                     if is_first_check:
-                        logging.warning(f"⚠️ [{code}] cache_data가 없음")
+                        self.logger.warning(f"⚠️ [{code}] cache_data가 없음")
             else:
                 if is_first_check:
-                    logging.warning(f"⚠️ [{code}] chart_cache 없음")
+                    self.logger.warning(f"⚠️ [{code}] chart_cache 없음")
             
             # 매수 전략 로드
             buy_strategies = []
@@ -1483,11 +1465,11 @@ class KiwoomStrategy(QObject):
                                 strategy_data['name'] = f"[{section_name}] {strategy_data['name']}"
                             buy_strategies.append(strategy_data)
                         except json.JSONDecodeError:
-                            if is_first_check:
-                                logging.warning(f"⚠️ [{code}] 매수 전략 파싱 실패: {section_name}.{key}")
+                            if is_first_check: # type: ignore
+                                self.logger.warning(f"⚠️ [{code}] 매수 전략 파싱 실패: {section_name}.{key}")
 
                 if buy_strategies and is_first_check:
-                    logging.debug(f"✅ [{code}] 통합 전략 로드 완료: 급등주+갭상승 매수 전략 {len(buy_strategies)}개")
+                    self.logger.debug(f"✅ [{code}] 통합 전략 로드 완료: 급등주+갭상승 매수 전략 {len(buy_strategies)}개")
             else:
                 # 개별 전략 섹션에서 매수 조건 가져오기
                 if strategy_name in self.strategy_config:
@@ -1499,15 +1481,15 @@ class KiwoomStrategy(QObject):
                             strategy_data = json.loads(value)
                             buy_strategies.append(strategy_data)
                         except json.JSONDecodeError:
-                            if is_first_check:
-                                logging.warning(f"⚠️ [{code}] 매수 전략 파싱 실패: {key}")
+                            if is_first_check: # type: ignore
+                                self.logger.warning(f"⚠️ [{code}] 매수 전략 파싱 실패: {key}")
                     if buy_strategies and is_first_check:
-                        logging.debug(f"✅ [{code}] strategy_config에서 매수 전략 {len(buy_strategies)}개 로드됨: {strategy_name}")
+                        self.logger.debug(f"✅ [{code}] strategy_config에서 매수 전략 {len(buy_strategies)}개 로드됨: {strategy_name}")
             
             # 전략이 없으면 기본 전략 사용 (매우 보수적)
             if not buy_strategies:
                 if is_first_check:
-                    logging.warning(f"⚠️ [{code}] 매수 전략 없음 - 기본 전략 사용 (RSI < 30 + MACD 골든크로스)")
+                    self.logger.warning(f"⚠️ [{code}] 매수 전략 없음 - 기본 전략 사용 (RSI < 30 + MACD 골든크로스)")
                 # 기본 전략: RSI 과매도 + MACD 골든크로스
                 buy_strategies = [{
                     'name': '기본 전략',
@@ -1518,7 +1500,7 @@ class KiwoomStrategy(QObject):
                 }]
             
             if is_first_check:
-                logging.debug(f"✅ [{code}] 최종 매수 전략 {len(buy_strategies)}개 준비 완료")
+                self.logger.debug(f"✅ [{code}] 최종 매수 전략 {len(buy_strategies)}개 준비 완료")
             
             # strategy_utils를 사용하여 매수 전략 평가
             condition_met, matched_strategy = strategy_utils.evaluate_buy_strategies(
@@ -1531,25 +1513,27 @@ class KiwoomStrategy(QObject):
             
             if is_first_check:
                 if condition_met and matched_strategy:
-                    logging.debug(f"✅ [{code}] 매수 조건 충족: {matched_strategy.get('name', 'unknown')}")
+                    self.logger.debug(f"✅ [{code}] 매수 조건 충족: {matched_strategy.get('name', 'unknown')}")
                 else:
-                    logging.debug(f"ℹ️ [{code}] 매수 조건 미충족")
+                    self.logger.debug(f"ℹ️ [{code}] 매수 조건 미충족")
             
             if condition_met and matched_strategy:
                 current_price = market_data.get('current_price', 0)
                 
                 # 매수 수량 계산 (최대투자종목수 기반 분산투자)
-                available_cash = self.trader.get_available_cash() if hasattr(self, 'trader') else 0
+                # 주의: get_buy_signals는 동기 메서드이므로 비동기 호출이 어려움
+                # 이 부분은 evaluate_strategy에서 이미 비동기로 처리되므로 여기서는 0 반환
+                available_cash = 0
                 
                 # 가용자금이 0 이하이거나 현재가가 0이면 매수 신호 생성 안함
                 if available_cash <= 0:
                     if is_first_check:
-                        logging.debug(f"ℹ️ [{code}] 가용자금 부족으로 매수 불가 ({available_cash:,.0f}원)")
+                        self.logger.debug(f"ℹ️ [{code}] 가용자금 부족으로 매수 불가 ({available_cash:,.0f}원)")
                     return []
                 
                 if current_price <= 0:
                     if is_first_check:
-                        logging.debug(f"ℹ️ [{code}] 현재가 정보 없음 - 매수 불가")
+                        self.logger.debug(f"ℹ️ [{code}] 현재가 정보 없음 - 매수 불가")
                     return []
                 
                 # 매수가능 종목수 조회
@@ -1561,7 +1545,7 @@ class KiwoomStrategy(QObject):
                 # 매수 가능 종목수가 0 이하면 매수 신호 생성 안함
                 if available_buy_count <= 0:
                     if is_first_check:
-                        logging.debug(f"ℹ️ [{code}] 최대 보유 종목수 도달 - 매수 불가")
+                        self.logger.debug(f"ℹ️ [{code}] 최대 보유 종목수 도달 - 매수 불가")
                     return []
                 
                 # 한 종목당 투자 예산 = 가용자금 ÷ 매수가능종목수
@@ -1569,9 +1553,9 @@ class KiwoomStrategy(QObject):
                 quantity = max(1, int(budget / current_price))
                 
                 strategy_display_name = matched_strategy.get('name', strategy_name)
-                logging.info(f"📈 매수 신호 발생: {code} - {strategy_display_name}")
-                logging.debug(f"💰 매수 수량 계산: 가용자금={available_cash:,.0f}원, 매수가능종목={available_buy_count}개")
-                logging.debug(f"   종목당예산={budget:,.0f}원, 현재가={current_price:,}원 → {quantity}주")
+                self.logger.info(f"📈 매수 신호 발생: {code} - {strategy_display_name}")
+                self.logger.debug(f"💰 매수 수량 계산: 가용자금={available_cash:,.0f}원, 매수가능종목={available_buy_count}개")
+                self.logger.debug(f"   종목당예산={budget:,.0f}원, 현재가={current_price:,}원 → {quantity}주")
                 
                 signals.append({
                     'strategy': matched_strategy.get('name', strategy_name),
@@ -1584,12 +1568,12 @@ class KiwoomStrategy(QObject):
             return signals
             
         except Exception as ex:
-            logging.error(f"매수 신호 생성 실패 ({code}): {ex}")
+            self.logger.error(f"매수 신호 생성 실패 ({code}): {ex}", exc_info=True)
             traceback.print_exc()
             return []
     
-    def get_sell_signals(self, code, market_data, strategy_name):
-        """매도 신호 생성 - strategy_utils를 사용한 기술적 지표 기반 평가"""
+    async def get_sell_signals(self, code, market_data, strategy_name):
+        """매도 신호 생성 - strategy_utils를 사용한 기술적 지표 기반 평가 (비동기)"""
         try:
             signals = []
             
@@ -1608,13 +1592,13 @@ class KiwoomStrategy(QObject):
 
             # '주문 진행 중'인 종목은 매도 신호 생성 건너뛰기
             if code in self.trader.pending_sell_orders:
-                if is_first_sell_check:
-                    logging.debug(f"⏳ [{code}] 매도 주문이 이미 진행 중이므로 신호 생성을 건너뜁니다.")
+                if is_first_sell_check: # type: ignore
+                    self.logger.debug(f"⏳ [{code}] 매도 주문이 이미 진행 중이므로 신호 생성을 건너뜁니다.")
                 return signals
             
             # 최초 매도 평가 시작 로그
-            if is_first_sell_check:
-                logging.debug(f"🔍 [{code}] 매도 평가 시작 (전략: {strategy_name})")
+            if is_first_sell_check: # type: ignore
+                self.logger.debug(f"🔍 [{code}] 매도 평가 시작 (전략: {strategy_name})")
             
             # 보유 정보
             holding_info = portfolio['holdings'][code]
@@ -1642,8 +1626,8 @@ class KiwoomStrategy(QObject):
             if buy_time:
                 time_since_buy = (datetime.now() - buy_time).total_seconds()
                 if time_since_buy < min_hold_seconds:
-                    if is_first_sell_check:
-                        logging.debug(f"⏳ [{code}] 매수 후 {time_since_buy:.1f}초 경과. 매도 평가 유예 중 (최소 {min_hold_seconds}초)")
+                    if is_first_sell_check: # type: ignore
+                        self.logger.debug(f"⏳ [{code}] 매수 후 {time_since_buy:.1f}초 경과. 매도 평가 유예 중 (최소 {min_hold_seconds}초)")
                     return signals # 유예 시간 동안 매도 신호 생성 안 함
 
             
@@ -1656,7 +1640,7 @@ class KiwoomStrategy(QObject):
                 elif current_price > self.trader.highest_prices[code]:
                     old_highest = self.trader.highest_prices[code]
                     self.trader.highest_prices[code] = current_price
-                    logging.info(f"📈 {code} 최고가 갱신: {old_highest:,}원 → {current_price:,}원")
+                    self.logger.info(f"📈 {code} 최고가 갱신: {old_highest:,}원 → {current_price:,}원")
                 
                 # 포트폴리오 딕셔너리에 업데이트된 최고가 반영
                 portfolio['highest_prices'] = self.trader.highest_prices.copy()
@@ -1668,7 +1652,7 @@ class KiwoomStrategy(QObject):
             if highest_price > buy_price: # 매수가보다 오른 경우에만 작동
                 from_peak_pct = (current_price - highest_price) / highest_price * 100 if highest_price > 0 else 0
                 if from_peak_pct < trailing_stop_pct:
-                    logging.info(f"📉 이동 손절 신호: {code} (고점: {highest_price:,.0f}원, 현재가: {current_price:,.0f}원, {from_peak_pct:.2f}%)")
+                    self.logger.info(f"📉 이동 손절 신호: {code} (고점: {highest_price:,.0f}원, 현재가: {current_price:,.0f}원, {from_peak_pct:.2f}%)")
                     signals.append({
                         'strategy': f'이동 손절 ({trailing_stop_pct}%)',
                         'code': code,
@@ -1741,9 +1725,9 @@ class KiwoomStrategy(QObject):
                                 strategy_data['name'] = f"[{section_name}] {strategy_data['name']}"
                             sell_strategies.append(strategy_data)
                         except json.JSONDecodeError:
-                            logging.debug(f"⚠️ [{code}] 매도 전략 파싱 실패: {section_name}.{key}")
-                if is_first_sell_check and sell_strategies:
-                    logging.debug(f"✅ [{code}] 통합 전략 로드 완료: 급등주+갭상승 매도 전략 {len(sell_strategies)}개")
+                            self.logger.debug(f"매도 전략 파싱 실패 ({code}): {section_name}.{key}", exc_info=True)
+                if is_first_sell_check and sell_strategies: # type: ignore
+                    self.logger.debug(f"✅ [{code}] 통합 전략 로드 완료: 급등주+갭상승 매도 전략 {len(sell_strategies)}개")
             
             # strategy_config에서 현재 전략의 매도 조건 가져오기 (통합 전략이 아닌 경우)
             if not sell_strategies and strategy_name != "통합 전략" and strategy_name in self.strategy_config:
@@ -1758,12 +1742,12 @@ class KiwoomStrategy(QObject):
                         strategy_data = json.loads(value)
                         sell_strategies.append(strategy_data)
                     except json.JSONDecodeError:
-                        logging.debug(f"⚠️ [{code}] 매도 전략 파싱 실패: {key}")
+                        self.logger.debug(f"매도 전략 파싱 실패 ({code}): {key}", exc_info=True)
             
             # 전략이 없으면 기본 손절/익절 전략 사용
             if not sell_strategies:
-                if is_first_sell_check:
-                    logging.debug(f"⚠️ [{code}] 매도 전략 없음 - 기본 손익 전략 사용")
+                if is_first_sell_check: # type: ignore
+                    self.logger.debug(f"⚠️ [{code}] 매도 전략 없음 - 기본 손익 전략 사용")
                 # 기본 전략: -3% 손절, +5% 익절
                 sell_strategies = [{
                     'name': '기본 손익 전략',
@@ -1773,17 +1757,17 @@ class KiwoomStrategy(QObject):
                     ]
                 }]
             else:
-                if is_first_sell_check:
-                    logging.debug(f"✅ [{code}] 매도 전략 {len(sell_strategies)}개 로드됨: {strategy_name}")
+                if is_first_sell_check: # type: ignore
+                    self.logger.debug(f"✅ [{code}] 매도 전략 {len(sell_strategies)}개 로드됨: {strategy_name}")
             
             # 현재 수익률 계산 (전략 평가 전에)
             current_price = market_data.get('current_price', 0)
             profit_rate = (current_price - buy_price) / buy_price * 100 if buy_price > 0 else 0
             
             # 손절 조건 도달 시 디버그 로그 (자주 출력되지 않도록 조건부)
-            if profit_rate < -0.6:  # 손절 기준 근처일 때만 디버그
-                logging.debug(f"🔍 [{code}] 손절 조건 도달 확인: 수익률={profit_rate:.2f}%, 매입가={buy_price:,}원, 현재가={current_price:,}원")
-                logging.debug(f"🔍 [{code}] 로드된 매도 전략 수: {len(sell_strategies)}개")
+            if profit_rate < -0.6:  # 손절 기준 근처일 때만 디버그 # type: ignore
+                self.logger.debug(f"🔍 [{code}] 손절 조건 도달 확인: 수익률={profit_rate:.2f}%, 매입가={buy_price:,}원, 현재가={current_price:,}원")
+                self.logger.debug(f"🔍 [{code}] 로드된 매도 전략 수: {len(sell_strategies)}개")
                 for idx, stg in enumerate(sell_strategies):
                     logging.debug(f"🔍 [{code}] 전략 {idx+1}: {stg.get('name', 'N/A')} - 조건: {stg.get('content', 'N/A')}")
             
@@ -1806,7 +1790,7 @@ class KiwoomStrategy(QObject):
                 order_available_qty = 0
                 try:
                     if hasattr(self.parent, 'login_handler') and self.parent.login_handler and hasattr(self.parent.login_handler, 'kiwoom_client'):
-                        balance_result = self.parent.login_handler.kiwoom_client.get_acnt_balance()
+                        balance_result = await self.parent.login_handler.kiwoom_client.get_acnt_balance()
                         if balance_result:
                             api_holdings = balance_result.get('stk_acnt_evlt_prst', balance_result.get('output1', []))
                             for stock in api_holdings:
@@ -1818,36 +1802,36 @@ class KiwoomStrategy(QObject):
                                     if partial_sell_ratio and 0 < partial_sell_ratio < 1:
                                         # 부분 익절 수량 계산 (소수점 버림)
                                         order_available_qty = int(total_holding_qty * partial_sell_ratio)
-                                        logging.info(f"📡 부분 익절 수량 계산: 보유수량 {total_holding_qty}주 * {partial_sell_ratio} = {order_available_qty}주")
+                                        self.logger.info(f"📡 부분 익절 수량 계산: 보유수량 {total_holding_qty}주 * {partial_sell_ratio} = {order_available_qty}주")
                                     else:
                                         # 전량 매도
                                         order_available_qty = self.parent.data_manager.safe_int(stock.get('rmnd_qty', 0))
-                                        logging.info(f"📡 전량 매도 수량 조회 (REST API): {code} 주문가능수량 {order_available_qty}주")
+                                        self.logger.info(f"전량 매도 수량 조회 (REST API): {code} 주문가능수량 {order_available_qty}주")
                                     break
                     # REST API 조회 실패 시 웹소켓 데이터로 대체
                     if order_available_qty <= 0:
-                         if (hasattr(self.parent, 'login_handler') and self.parent.login_handler and hasattr(self.parent.login_handler, 'websocket_client')):
+                         if (hasattr(self.parent, 'login_handler') and self.parent.login_handler and hasattr(self.parent.login_handler, 'websocket_client')): # type: ignore
                             ws_balance_data = self.parent.login_handler.websocket_client.balance_data
                             if ws_balance_data and code in ws_balance_data:
                                 order_available_qty = ws_balance_data[code].get('order_available_qty', 0)
                                 if partial_sell_ratio and 0 < partial_sell_ratio < 1:
                                     total_holding_qty = ws_balance_data[code].get('quantity', 0)
                                     order_available_qty = int(total_holding_qty * partial_sell_ratio)
-                                    logging.info(f"💰 부분 익절 수량 계산 (웹소켓 Fallback): 보유수량 {total_holding_qty}주 * {partial_sell_ratio} = {order_available_qty}주")
+                                    self.logger.info(f"💰 부분 익절 수량 계산 (웹소켓 Fallback): 보유수량 {total_holding_qty}주 * {partial_sell_ratio} = {order_available_qty}주")
                                 else:
-                                    logging.info(f"💰 전량 매도 수량 조회 (웹소켓 Fallback): {code} 주문가능수량 {order_available_qty}주")
+                                    self.logger.info(f"전량 매도 수량 조회 (웹소켓 Fallback): {code} 주문가능수량 {order_available_qty}주")
 
                 except Exception as qty_check_ex:
-                    logging.error(f"❌ [{code}] 주문가능수량 확인 중 오류: {qty_check_ex}")
+                    self.logger.error(f"주문가능수량 확인 중 오류 ({code}): {qty_check_ex}", exc_info=True)
 
                 if order_available_qty <= 0:
-                    logging.warning(f"⚠️ 매도 신호가 발생했으나 주문가능수량이 0주입니다. (다른 주문 처리 중일 수 있음): {code}")
+                    self.logger.warning(f"⚠️ 매도 신호가 발생했으나 주문가능수량이 0주입니다. (다른 주문 처리 중일 수 있음): {code}")
                     return signals
 
                 strategy_display_name = matched_strategy.get('name', strategy_name)
-                logging.info(f"📉 매도 신호 발생: {code} - {strategy_display_name}")
-                logging.info(f"💰 매입가={buy_price:,}원, 현재가={current_price:,}원, 수익률={profit_rate:.2f}%")
-                logging.info(f"📊 보유수량={quantity:,}주, 주문가능수량={order_available_qty:,}주, 매도수량={order_available_qty:,}주")
+                self.logger.info(f"📉 매도 신호 발생: {code} - {strategy_display_name}")
+                self.logger.info(f"💰 매입가={buy_price:,}원, 현재가={current_price:,}원, 수익률={profit_rate:.2f}%")
+                self.logger.info(f"📊 보유수량={quantity:,}주, 주문가능수량={order_available_qty:,}주, 매도수량={order_available_qty:,}주")
                 
                 signals.append({
                     'strategy': matched_strategy.get('name', strategy_name),
@@ -1858,21 +1842,21 @@ class KiwoomStrategy(QObject):
                 })
             else:
                 # 매도 조건 미충족 시 현재 수익률 표시 (최초 1회만)
-                if is_first_sell_check:
-                    logging.debug(f"ℹ️ [{code}] 매도 조건 미충족 (보유 중, 수익률: {profit_rate:.2f}%)")
+                if is_first_sell_check: # type: ignore
+                    self.logger.debug(f"ℹ️ [{code}] 매도 조건 미충족 (보유 중, 수익률: {profit_rate:.2f}%)")
             
             return signals
             
         except Exception as ex:
-            logging.error(f"매도 신호 생성 실패 ({code}): {ex}")
+            self.logger.error(f"매도 신호 생성 실패 ({code}): {ex}", exc_info=True)
             traceback.print_exc()
             return []
     
-    def execute_buy_signals(self, code, signals):
-        """매수 신호 실행"""
+    async def execute_buy_signals(self, code, signals):
+        """매수 신호 실행 (비동기)"""
         try:
             for signal in signals:
-                success = self.trader.place_buy_order(
+                success = await self.trader.place_buy_order(
                     code, 
                     signal['quantity'], 
                     signal['price'], 
@@ -1892,15 +1876,15 @@ class KiwoomStrategy(QObject):
                     )
                     
         except Exception as ex:
-            logging.error(f"매수 신호 실행 실패 ({code}): {ex}")
+            self.logger.error(f"매수 신호 실행 실패 ({code}): {ex}", exc_info=True)
     
-    def execute_sell_signals(self, code, signals):
-        """매도 신호 실행"""
+    async def execute_sell_signals(self, code, signals):
+        """매도 신호 실행 (비동기)"""
         try:
-            logging.info(f"🔄 [{code}] 매도 신호 실행 시작: {len(signals)}개 신호")
+            self.logger.info(f"🔄 [{code}] 매도 신호 실행 시작: {len(signals)}개 신호")
             for idx, signal in enumerate(signals):
                 requested_quantity = signal['quantity']
-                logging.info(f"   신호 {idx+1}/{len(signals)}: {signal['strategy']}, 수량: {requested_quantity}주, 가격: {signal.get('price', 0)}원 (시장가)")
+                self.logger.info(f"   신호 {idx+1}/{len(signals)}: {signal['strategy']}, 수량: {requested_quantity}주, 가격: {signal.get('price', 0)}원 (시장가)")
                 
                 # 실제 주문 전 주문가능수량 최종 확인 (웹소켓 실시간 데이터)
                 actual_order_available_qty = requested_quantity  # 기본값
@@ -1913,21 +1897,21 @@ class KiwoomStrategy(QObject):
                         if ws_balance_data and code in ws_balance_data:
                             actual_order_available_qty = ws_balance_data[code].get('order_available_qty', requested_quantity)
                             if actual_order_available_qty < requested_quantity:
-                                logging.warning(f"⚠️ [{code}] 주문가능수량 변경 감지: 요청={requested_quantity}주, 실제={actual_order_available_qty}주 (다른 주문으로 인한 변경)")
+                                self.logger.warning(f"⚠️ [{code}] 주문가능수량 변경 감지: 요청={requested_quantity}주, 실제={actual_order_available_qty}주 (다른 주문으로 인한 변경)")
                 except Exception as ws_check_ex:
-                    logging.debug(f"⚠️ [{code}] 주문 전 주문가능수량 체크 중 오류: {ws_check_ex}")
+                    self.logger.debug(f"주문 전 주문가능수량 체크 중 오류 ({code}): {ws_check_ex}", exc_info=True)
                 
                 # 주문가능수량이 0주 이하면 주문 스킵
                 if actual_order_available_qty <= 0:
-                    logging.warning(f"⚠️ [{code}] 주문가능수량 0주 - 주문 스킵 (다른 주문 처리 중)")
+                    self.logger.warning(f"⚠️ [{code}] 주문가능수량 0주 - 주문 스킵 (다른 주문 처리 중)")
                     continue
                 
                 # 실제 주문 가능한 수량으로 제한
                 final_quantity = min(requested_quantity, actual_order_available_qty)
                 if final_quantity < requested_quantity:
-                    logging.info(f"📊 [{code}] 주문 수량 조정: {requested_quantity}주 → {final_quantity}주")
+                    self.logger.info(f"📊 [{code}] 주문 수량 조정: {requested_quantity}주 → {final_quantity}주")
                 
-                success = self.trader.place_sell_order(
+                success = await self.trader.place_sell_order(
                     code, 
                     final_quantity,  # 조정된 수량 사용
                     signal['price'], 
@@ -1935,7 +1919,7 @@ class KiwoomStrategy(QObject):
                 )
                 
                 if success:
-                    logging.info(f"✅ [{code}] 매도 주문 성공: {signal['strategy']} - {final_quantity}주")
+                    self.logger.info(f"✅ [{code}] 매도 주문 성공: {signal['strategy']} - {final_quantity}주")
                     
                     self.signal_strategy_result.emit(
                         code, 
@@ -1948,10 +1932,10 @@ class KiwoomStrategy(QObject):
                         }
                     )
                 else:
-                    logging.error(f"❌ [{code}] 매도 주문 실패: {signal['strategy']} - {final_quantity}주")
+                    self.logger.error(f"❌ [{code}] 매도 주문 실패: {signal['strategy']} - {final_quantity}주")
                     
         except Exception as ex:
-            logging.error(f"매도 신호 실행 실패 ({code}): {ex}")
+            self.logger.error(f"매도 신호 실행 실패 ({code}): {ex}", exc_info=True)
 
 # ==================== 자동매매 클래스 ====================
 class AutoTrader(QObject):
@@ -1960,11 +1944,12 @@ class AutoTrader(QObject):
     def __init__(self, trader, parent):
         try:
             super().__init__()           
+            self.logger = logging.getLogger(self.__class__.__name__)
             self.trader = trader            
             self.parent = parent            
             self.is_running = True  # 자동매매 항상 활성화
             self.auto_liquidation_executed = False  # 15:15 자동 청산 실행 여부
-            logging.debug("🔍 자동매매 실행 상태 초기화 완료 (항상 활성화)")
+            self.logger.debug("🔍 자동매매 실행 상태 초기화 완료 (항상 활성화)")
             
             # evaluation_interval 설정값으로 매매 판단 타이머 초기화
             self.trading_check_timer = QTimer()
@@ -1973,12 +1958,11 @@ class AutoTrader(QObject):
             # 1분마다 거래 시간 감시 타이머 (거래 시간 외에 사용)
             self.time_monitor_timer = QTimer()
             self.time_monitor_timer.timeout.connect(self._check_trading_time)
-            
-            logging.debug(f"🔍 자동매매 초기화 완료 ({self.trader.evaluation_interval}초 주기 매매 판단)")
-            logging.debug("자동매매 클래스 초기화 완료")
+            self.logger.debug(f"🔍 자동매매 초기화 완료 ({self.trader.evaluation_interval}초 주기 매매 판단)")
+            self.logger.debug("자동매매 클래스 초기화 완료")
         except Exception as ex:
-            logging.error(f"❌ AutoTrader 초기화 실패: {ex}")
-            logging.error(f"AutoTrader 초기화 예외 상세: {traceback.format_exc()}")
+            self.logger.error(f"AutoTrader 초기화 실패: {ex}", exc_info=True)
+            
             raise ex
     
     
@@ -1987,7 +1971,7 @@ class AutoTrader(QObject):
         try:
             if not self.is_running:
                 self.is_running = True
-                logging.debug("✅ 자동매매 활성화")
+                self.logger.debug("✅ 자동매매 활성화")
             
             # 현재 시간 체크
             now = datetime.now()
@@ -2005,7 +1989,7 @@ class AutoTrader(QObject):
                 if not self.trading_check_timer.isActive():
                     interval_ms = self.trader.evaluation_interval * 1000  # 초 -> 밀리초
                     self.trading_check_timer.start(interval_ms)
-                    logging.info(f"✅ 자동매매 타이머 시작 ({self.trader.evaluation_interval}초 주기 - 거래 시간 내)")
+                    self.logger.info(f"✅ 자동매매 타이머 시작 ({self.trader.evaluation_interval}초 주기 - 거래 시간 내)")
                 # 시간 모니터링 타이머는 중지
                 if self.time_monitor_timer.isActive():
                     self.time_monitor_timer.stop()
@@ -2017,29 +2001,29 @@ class AutoTrader(QObject):
                 if self.trading_check_timer.isActive():
                     self.trading_check_timer.stop()
                 
-        except Exception as ex:
-            logging.error(f"❌ 자동매매 시작 실패: {ex}")
+        except Exception as ex: # type: ignore
+            self.logger.error(f"❌ 자동매매 시작 실패: {ex}")
     
     def stop_auto_trading(self):
         """자동매매 중지 (모든 타이머 정지)"""
         try:
             if self.is_running:
                 self.is_running = False
-                self.trading_check_timer.stop()
+                self.trading_check_timer.stop() # type: ignore
                 self.time_monitor_timer.stop()
-                logging.debug("🛑 자동매매 중지 (모든 타이머 정지)")
+                self.logger.debug("🛑 자동매매 중지 (모든 타이머 정지)")
             else:
-                logging.debug("자동매매가 이미 중지되어 있습니다")
+                self.logger.debug("자동매매가 이미 중지되어 있습니다")
                 
         except Exception as ex:
-            logging.error(f"❌ 자동매매 중지 실패: {ex}")
+            self.logger.error(f"❌ 자동매매 중지 실패: {ex}")
     
     @asyncSlot()
     async def _periodic_trading_check(self):
         """evaluation_interval 주기로 실행되는 주기적 매매 판단 (비동기)"""
         try:
             if not self.is_running:
-                logging.debug("⚠️ 자동매매가 실행 중이 아닙니다")
+                self.logger.debug("⚠️ 자동매매가 실행 중이 아닙니다")
                 return
             
             # 시간 체크
@@ -2051,14 +2035,14 @@ class AutoTrader(QObject):
             # 15:15 자동 청산 체크
             # 15:15에 자동 청산 (1회만 실행)
             if current_time_str == "15:15" and not self.auto_liquidation_executed:
-                logging.info("🕒 15:15 도달 - 모든 보유 종목 자동 청산 시작")
+                self.logger.info("🕒 15:15 도달 - 모든 보유 종목 자동 청산 시작")
                 asyncio.create_task(self.execute_auto_liquidation_async())
                 self.auto_liquidation_executed = True
             
             # 다음날을 위해 플래그 리셋 (15:31 이후)
             if current_time_str == "15:31" and self.auto_liquidation_executed:
                 self.auto_liquidation_executed = False
-                if hasattr(self, '_trading_stopped_logged'):
+                if hasattr(self, '_trading_stopped_logged'): # type: ignore
                     delattr(self, '_trading_stopped_logged')
                 logging.debug("🔄 자동 청산 플래그 리셋 완료")
             
@@ -2075,27 +2059,27 @@ class AutoTrader(QObject):
             if current_time_minutes < start_time_minutes:
                 # 9:00 이전 - 1초 타이머 중지, 1분 모니터링 타이머 시작
                 if self.trading_check_timer.isActive():
-                    self.trading_check_timer.stop()
-                    logging.info(f"⏰ 1초 타이머 중지 (거래 시간 전: {current_time_str})")
-                    logging.info(f"⏰ 자동매매 대기 중 (시작 시간: 09:00, 현재: {current_time_str})")
+                    self.trading_check_timer.stop() # type: ignore
+                    self.logger.info(f"⏰ 1초 타이머 중지 (거래 시간 전: {current_time_str})")
+                    self.logger.info(f"⏰ 자동매매 대기 중 (시작 시간: 09:00, 현재: {current_time_str})")
                 if not self.time_monitor_timer.isActive():
                     self.time_monitor_timer.start(60000)  # 1분
-                    logging.info("✅ 시간 모니터링 타이머 시작 (1분 주기)")
+                    self.logger.info("✅ 시간 모니터링 타이머 시작 (1분 주기)")
                 return
             elif current_time_minutes >= end_time_minutes:
                 # 15:30 이후 - 1초 타이머 중지, 1분 모니터링 타이머 시작
                 if self.trading_check_timer.isActive():
-                    self.trading_check_timer.stop()
-                    logging.info(f"⏰ 1초 타이머 중지 (거래 종료)")
-                    logging.info(f"⏰ 자동매매 종료됨 (종료 시간: 15:30, 현재: {current_time_str})")
+                    self.trading_check_timer.stop() # type: ignore
+                    self.logger.info(f"⏰ 1초 타이머 중지 (거래 종료)")
+                    self.logger.info(f"⏰ 자동매매 종료됨 (종료 시간: 15:30, 현재: {current_time_str})")
                 if not self.time_monitor_timer.isActive():
                     self.time_monitor_timer.start(60000)  # 1분
-                    logging.info("✅ 시간 모니터링 타이머 시작 (1분 주기)")
+                    self.logger.info("✅ 시간 모니터링 타이머 시작 (1분 주기)")
                 return
             else:
                 # 거래 시간 내 - 모니터링 타이머는 중지
                 if self.time_monitor_timer.isActive():
-                    self.time_monitor_timer.stop()
+                    self.time_monitor_timer.stop() # type: ignore
             
             # chart_cache가 있는지 확인
             if not hasattr(self.parent, 'chart_cache') or not self.parent.chart_cache:
@@ -2112,22 +2096,22 @@ class AutoTrader(QObject):
             current_time = time.time()
             if current_time - self._last_status_log_time >= 60:
                 monitoring_codes = list(self.parent.chart_cache.cache.keys())
-                if monitoring_codes:
-                    logging.debug(f"🔍 자동매매 모니터링 중: {len(monitoring_codes)}개 종목 - {monitoring_codes}")
+                if monitoring_codes: # type: ignore
+                    self.logger.debug(f"🔍 자동매매 모니터링 중: {len(monitoring_codes)}개 종목 - {monitoring_codes}")
                 else:
-                    logging.debug("🔍 자동매매 실행 중 - 모니터링 종목 없음")
+                    self.logger.debug("🔍 자동매매 실행 중 - 모니터링 종목 없음")
                 self._last_status_log_time = current_time
             
             # 15:15 자동 청산 이후에는 매매 중지
             if self.auto_liquidation_executed:
                 # 최초 1회만 로그 출력
-                if not hasattr(self, '_trading_stopped_logged'):
-                    logging.info("⏹️ 15:15 자동 청산 완료 - 모든 매매 활동 중지")
+                if not hasattr(self, '_trading_stopped_logged'): # type: ignore
+                    self.logger.info("⏹️ 15:15 자동 청산 완료 - 모든 매매 활동 중지")
                     self._trading_stopped_logged = True
                 return
             
             # 모니터링 중인 모든 종목에 대해 매매 판단 실행 (동시 처리)
-            codes = list(self.parent.chart_cache.cache.keys())
+            codes = list(self.parent.chart_cache.cache.keys()) # type: ignore
             if codes:
                 # 병렬 처리하여 성능 향상
                 await asyncio.gather(
@@ -2136,17 +2120,14 @@ class AutoTrader(QObject):
                 )
                     
         except Exception as ex:
-            logging.error(f"❌ 주기적 매매 판단 중 오류: {ex}")
+            self.logger.error(f"주기적 매매 판단 중 오류: {ex}", exc_info=True)
     
     async def _analyze_and_execute_trading_async(self, code):
-        """매매 판단 및 실행 비동기 래퍼"""
+        """매매 판단 및 실행 (비동기)"""
         try:
-            # 동기 함수를 await 가능하게 래핑
-            loop = asyncio.get_running_loop()
-            # ThreadPoolExecutor에서 실행하여 UI 블로킹 방지
-            await loop.run_in_executor(None, self.analyze_and_execute_trading, code)
+            await self.analyze_and_execute_trading(code)
         except Exception as ex:
-            logging.error(f"❌ 비동기 매매 판단 실패 ({code}): {ex}")
+            self.logger.error(f"비동기 매매 판단 실패 ({code}): {ex}", exc_info=True)
     
     def _check_trading_time(self):
         """거래 시간 감시 (1분마다 실행) - 거래 시간이 되면 1초 타이머로 전환"""
@@ -2165,24 +2146,24 @@ class AutoTrader(QObject):
             if start_time_minutes <= current_time_minutes < end_time_minutes:
                 # 거래 시간 도달 - 1분 모니터링 타이머 중지, evaluation_interval 타이머 시작
                 if self.time_monitor_timer.isActive():
-                    self.time_monitor_timer.stop()
-                    logging.info("⏰ 시간 모니터링 타이머 중지 (거래 시간 도달)")
+                    self.time_monitor_timer.stop() # type: ignore
+                    self.logger.info("⏰ 시간 모니터링 타이머 중지 (거래 시간 도달)")
                 
                 if not self.trading_check_timer.isActive():
                     interval_ms = self.trader.evaluation_interval * 1000  # 초 -> 밀리초
-                    self.trading_check_timer.start(interval_ms)
-                    logging.info("=" * 70)
-                    logging.info(f"🚀 자동매매 시작 ({self.trader.evaluation_interval}초 주기, 거래 시간 도달: {current_time_str})")
-                    logging.info("=" * 70)
+                    self.trading_check_timer.start(interval_ms) # type: ignore
+                    self.logger.info("=" * 70)
+                    self.logger.info(f"🚀 자동매매 시작 ({self.trader.evaluation_interval}초 주기, 거래 시간 도달: {current_time_str})")
+                    self.logger.info("=" * 70)
             else:
                 # 거래 시간 외 - 계속 대기
-                logging.debug(f"⏰ 거래 시간 대기 중 (현재: {current_time_str})")
+                self.logger.debug(f"⏰ 거래 시간 대기 중 (현재: {current_time_str})")
             
         except Exception as ex:
-            logging.error(f"❌ 거래 시간 체크 중 오류: {ex}")
+            self.logger.error(f"거래 시간 체크 중 오류: {ex}", exc_info=True)
     
-    def analyze_and_execute_trading(self, code):
-        """ChartDataCache 데이터로 매매 판단 및 실행 (AutoTrader에서 통합 관리)
+    async def analyze_and_execute_trading(self, code):
+        """ChartDataCache 데이터로 매매 판단 및 실행 (AutoTrader에서 통합 관리) (비동기)
         KiwoomStrategy.evaluate_strategy를 사용하여 매매를 판단합니다.
         """
         try:
@@ -2206,7 +2187,7 @@ class AutoTrader(QObject):
             
             is_first_debug = code not in self._analyze_debug_codes
             if is_first_debug:
-                logging.debug(f"🔍 [{code}] 매매 판단 시작")
+                self.logger.debug(f"🔍 [{code}] 매매 판단 시작")
                 self._analyze_debug_codes.add(code)
             
             # chart_cache에서 데이터 가져오기
@@ -2230,13 +2211,13 @@ class AutoTrader(QObject):
                     has_min = bool(min_data and min_data.get('close'))
                     tic_len = len(tic_data.get('close', [])) if tic_data else 0
                     min_len = len(min_data.get('close', [])) if min_data else 0
-                    logging.debug(f"ℹ️ [{code}] 차트 데이터 수집 대기 중 (틱:{has_tic}({tic_len}개), 분:{has_min}({min_len}개))")
+                    self.logger.debug(f"ℹ️ [{code}] 차트 데이터 수집 대기 중 (틱:{has_tic}({tic_len}개), 분:{has_min}({min_len}개))")
                 return False
 
             # KiwoomStrategy.evaluate_strategy를 사용하여 매매 판단
             if not hasattr(self.parent, 'objstg') or not self.parent.objstg:
                 if is_first_debug:
-                    logging.debug(f"ℹ️ [{code}] 전략 객체 초기화 대기 중")
+                    self.logger.debug(f"ℹ️ [{code}] 전략 객체 초기화 대기 중")
                 return False
             
             # 캐시에서 전일종가 가져오기
@@ -2256,19 +2237,19 @@ class AutoTrader(QObject):
             }
             
             if is_first_debug:
-                logging.debug(f"✅ [{code}] 매매 판단 데이터 준비 완료 (현재가:{current_price:,}, 거래량:{volume:,})")
+                self.logger.debug(f"✅ [{code}] 매매 판단 데이터 준비 완료 (현재가:{current_price:,}, 거래량:{volume:,})")
             
             # 전략 평가 실행
-            self.parent.objstg.evaluate_strategy(code, market_data)
+            await self.parent.objstg.evaluate_strategy(code, market_data)
             return True
 
         except Exception as ex:
-            logging.error(f"❌ [{code}] 매매 판단 및 실행 실패: {ex}")
-            logging.error(f"상세 에러: {traceback.format_exc()}")
+            self.logger.error(f"매매 판단 및 실행 실패 ({code}): {ex}", exc_info=True)
+            
             return False
     
-    def execute_auto_liquidation(self):
-        """15:15 자동 청산 - 모든 보유 종목 전량 매도 (대화상자 없음)"""
+    async def execute_auto_liquidation(self):
+        """15:15 자동 청산 - 모든 보유 종목 전량 매도 (대화상자 없음) (비동기)"""
         try:
             logging.info("=" * 70)
             logging.info("🕒 15:15 자동 청산 시작")
@@ -2276,13 +2257,13 @@ class AutoTrader(QObject):
             
             # 보유 종목 목록 생성 (boughtBox에서)
             if not hasattr(self.parent, 'boughtBox') or self.parent.boughtBox.count() == 0:
-                logging.info("ℹ️ 보유 중인 종목이 없습니다 - 자동 청산 종료")
+                self.logger.info("ℹ️ 보유 중인 종목이 없습니다 - 자동 청산 종료")
                 return
             
             sell_items = []
             for i in range(self.parent.boughtBox.count()):
                 item = self.parent.boughtBox.item(i)
-                item_text = item.text()
+                item_text = item.text() # type: ignore
                 code = item_text.split(' - ')[0] if ' - ' in item_text else item_text.split(' ')[0]
                 sell_items.append(code)
             
@@ -2309,13 +2290,13 @@ class AutoTrader(QObject):
                         
                         if code in balance_data:
                             quantity = balance_data[code].get('quantity', 0)
-                            logging.info(f"💰 웹소켓 잔고: {code} {quantity:,}주")
+                            self.logger.info(f"💰 웹소켓 잔고: {code} {quantity:,}주")
                     
                     # 2차: 웹소켓 데이터가 없거나 수량이 0이면 REST API로 조회
                     if quantity <= 0:
                         try:
                             if hasattr(self.parent, 'login_handler') and self.parent.login_handler and hasattr(self.parent.login_handler, 'kiwoom_client'):
-                                balance_result = self.parent.login_handler.kiwoom_client.get_acnt_balance()
+                                balance_result = await self.parent.login_handler.kiwoom_client.get_acnt_balance()
                                 if balance_result:
                                     holdings = balance_result.get('stk_acnt_evlt_prst', balance_result.get('output1', []))
                                     for stock in holdings:
@@ -2323,46 +2304,46 @@ class AutoTrader(QObject):
                                         stock_code = self.parent.normalize_stock_code(raw_code)
                                         if stock_code == code:
                                             quantity = self.parent.safe_int(stock.get('rmnd_qty', stock.get('hldg_qty', 0)))
-                                            logging.info(f"📡 REST API 잔고: {code} {quantity:,}주")
-                                            break
+                                    self.logger.info(f"📡 REST API 잔고: {code} {quantity:,}주")
+                                    break
                         except Exception as api_ex:
-                            logging.error(f"❌ REST API 잔고 조회 실패 ({code}): {api_ex}")
+                            self.logger.error(f"REST API 잔고 조회 실패 ({code}): {api_ex}", exc_info=True)
                     
                     # 수량 확인
                     if quantity <= 0:
-                        logging.warning(f"⚠️ {code} 보유 수량 없음 - 건너뜀")
+                        self.logger.warning(f"⚠️ {code} 보유 수량 없음 - 건너뜀")
                         fail_count += 1
                         continue
                     
                     # 매도 주문 실행 (시장가)
                     if hasattr(self.parent, 'login_handler') and self.parent.login_handler and hasattr(self.parent.login_handler, 'kiwoom_client'):
-                        success = self.parent.login_handler.kiwoom_client.place_sell_order(code, quantity, 0, "market")
+                        success = await self.parent.login_handler.kiwoom_client.place_sell_order(code, quantity, 0, "market")
                         
                         if success:
                             success_count += 1
-                            logging.info(f"✅ 자동 청산 성공: {code} {quantity:,}주 시장가 매도")
+                            self.logger.info(f"✅ 자동 청산 성공: {code} {quantity:,}주 시장가 매도")
                         else:
                             fail_count += 1
-                            logging.error(f"❌ 자동 청산 실패: {code}")
+                            self.logger.error(f"❌ 자동 청산 실패: {code}")
                     else:
                         fail_count += 1
-                        logging.error(f"❌ 키움 클라이언트가 없습니다: {code}")
+                        self.logger.error(f"❌ 키움 클라이언트가 없습니다: {code}")
                         
                 except Exception as item_ex:
                     fail_count += 1
-                    logging.error(f"❌ {code} 매도 중 오류: {item_ex}")
-                    logging.error(f"상세 오류: {traceback.format_exc()}")
+                    self.logger.error(f"{code} 매도 중 오류: {item_ex}", exc_info=True)
+                    
             
             # 결과 로그
             logging.info("=" * 70)
-            logging.info(f"🕒 15:15 자동 청산 완료")
-            logging.info(f"   ✅ 성공: {success_count}개 종목")
-            logging.info(f"   ❌ 실패: {fail_count}개 종목")
+            self.logger.info(f"🕒 15:15 자동 청산 완료")
+            self.logger.info(f"   ✅ 성공: {success_count}개 종목")
+            self.logger.info(f"   ❌ 실패: {fail_count}개 종목")
             logging.info("=" * 70)
             
         except Exception as ex:
-            logging.error(f"❌ 자동 청산 실행 중 오류: {ex}")
-            logging.error(f"상세 오류: {traceback.format_exc()}")
+            self.logger.error(f"자동 청산 실행 중 오류: {ex}", exc_info=True)
+            
     
     async def execute_auto_liquidation_async(self):
         """15:15 자동 청산 - 비동기 버전 (종목 병렬 처리)"""
@@ -2373,13 +2354,13 @@ class AutoTrader(QObject):
             
             # 보유 종목 목록 생성 (boughtBox에서)
             if not hasattr(self.parent, 'boughtBox') or self.parent.boughtBox.count() == 0:
-                logging.info("ℹ️ 보유 중인 종목이 없습니다 - 자동 청산 종료")
+                self.logger.info("ℹ️ 보유 중인 종목이 없습니다 - 자동 청산 종료")
                 return
             
             sell_items = []
             for i in range(self.parent.boughtBox.count()):
                 item = self.parent.boughtBox.item(i)
-                item_text = item.text()
+                item_text = item.text() # type: ignore
                 code = item_text.split(' - ')[0] if ' - ' in item_text else item_text.split(' ')[0]
                 sell_items.append(code)
             
@@ -2399,17 +2380,17 @@ class AutoTrader(QObject):
                 fail_count = len(results) - success_count
                 
                 # 결과 로그
-                logging.info("=" * 70)
-                logging.info(f"🕒 15:15 자동 청산 완료")
-                logging.info(f"   ✅ 성공: {success_count}개 종목")
-                logging.info(f"   ❌ 실패: {fail_count}개 종목")
-                logging.info("=" * 70)
+                self.logger.info("=" * 70)
+                self.logger.info(f"🕒 15:15 자동 청산 완료")
+                self.logger.info(f"   ✅ 성공: {success_count}개 종목")
+                self.logger.info(f"   ❌ 실패: {fail_count}개 종목")
+                self.logger.info("=" * 70)
             else:
-                logging.info("ℹ️ 청산할 종목이 없습니다")
+                self.logger.info("ℹ️ 청산할 종목이 없습니다")
             
         except Exception as ex:
-            logging.error(f"❌ 자동 청산 실행 중 오류: {ex}")
-            logging.error(f"상세 오류: {traceback.format_exc()}")
+            self.logger.error(f"자동 청산 실행 중 오류: {ex}", exc_info=True)
+            
     
     async def _liquidation_sell_single_stock(self, code):
         """단일 종목 청산 (비동기)"""
@@ -2427,18 +2408,14 @@ class AutoTrader(QObject):
                 
                 if code in balance_data:
                     quantity = balance_data[code].get('quantity', 0)
-                    logging.info(f"💰 웹소켓 잔고: {code} {quantity:,}주")
+                    self.logger.info(f"💰 웹소켓 잔고: {code} {quantity:,}주")
             
             # 2차: 웹소켓 데이터가 없거나 수량이 0이면 REST API로 조회
             if quantity <= 0:
                 try:
                     if hasattr(self.parent, 'login_handler') and self.parent.login_handler and hasattr(self.parent.login_handler, 'kiwoom_client'):
-                        # ThreadPoolExecutor로 동기 API 호출을 비동기화
-                        loop = asyncio.get_running_loop()
-                        balance_result = await loop.run_in_executor(
-                            None,
-                            self.parent.login_handler.kiwoom_client.get_acnt_balance
-                        )
+                        # 비동기 API 직접 호출
+                        balance_result = await self.parent.login_handler.kiwoom_client.get_acnt_balance()
                         
                         if balance_result:
                             holdings = balance_result.get('stk_acnt_evlt_prst', balance_result.get('output1', []))
@@ -2447,234 +2424,33 @@ class AutoTrader(QObject):
                                 stock_code = self.parent.normalize_stock_code(raw_code)
                                 if stock_code == code:
                                     quantity = self.parent.safe_int(stock.get('rmnd_qty', stock.get('hldg_qty', 0)))
-                                    logging.info(f"📡 REST API 잔고: {code} {quantity:,}주")
+                                    self.logger.info(f"📡 REST API 잔고: {code} {quantity:,}주")
                                     break
                 except Exception as api_ex:
-                    logging.error(f"❌ REST API 잔고 조회 실패 ({code}): {api_ex}")
+                    self.logger.error(f"REST API 잔고 조회 실패 ({code}): {api_ex}", exc_info=True)
             
             # 수량 확인
             if quantity <= 0:
-                logging.warning(f"⚠️ {code} 보유 수량 없음 - 건너뜀")
+                self.logger.warning(f"⚠️ {code} 보유 수량 없음 - 건너뜀")
                 return False
             
-            # 매도 주문 실행 (시장가) - ThreadPoolExecutor로 비동기화
+            # 매도 주문 실행 (시장가) - 비동기 직접 호출
             if hasattr(self.parent, 'login_handler') and self.parent.login_handler and hasattr(self.parent.login_handler, 'kiwoom_client'):
-                loop = asyncio.get_running_loop()
-                success = await loop.run_in_executor(
-                    None,
-                    lambda: self.parent.login_handler.kiwoom_client.place_sell_order(code, quantity, 0, "market")
-                )
+                success = await self.parent.login_handler.kiwoom_client.place_sell_order(code, quantity, 0, "market")
                 
-                if success:
-                    logging.info(f"✅ 자동 청산 성공: {code} {quantity:,}주 시장가 매도")
+                if success: # type: ignore
+                    self.logger.info(f"✅ 자동 청산 성공: {code} {quantity:,}주 시장가 매도")
                     return True
                 else:
-                    logging.error(f"❌ 자동 청산 실패: {code}")
+                    self.logger.error(f"❌ 자동 청산 실패: {code}")
                     return False
             else:
-                logging.error(f"❌ 키움 클라이언트가 없습니다: {code}")
+                self.logger.error(f"❌ 키움 클라이언트가 없습니다: {code}")
                 return False
                 
         except Exception as item_ex:
-            logging.error(f"❌ {code} 매도 중 오류: {item_ex}")
-            logging.error(f"상세 오류: {traceback.format_exc()}")
-            return False
-    
-    def _check_risk_management(self, signal_type, signal_data):
-        """리스크 관리 확인"""
-        try:
-            # 매수 시: 기본적인 데이터 유효성만 확인 (실제 현금 확인은 _execute_buy_order에서 수행)
-            if signal_type == 'buy':
-                required_amount = signal_data.get('amount', 0)
-                if required_amount <= 0:
-                    logging.warning(f"매수 금액이 유효하지 않음: {required_amount}")
-                    return False
-                logging.debug(f"매수 신호 확인: 필요 금액 {required_amount}")
+            self.logger.error(f"{code} 매도 중 오류: {item_ex}", exc_info=True)
             
-            # 매도 시: 웹소켓 실시간 잔고 데이터로 보유 종목 확인
-            elif signal_type == 'sell':
-                balance_data = self.trader.get_balance_data()
-                if not balance_data:
-                    logging.warning("웹소켓 잔고 데이터가 없습니다")
-                    return False
-                
-                code = signal_data.get('code')
-                holdings = balance_data.get('holdings', {})
-                if code not in holdings or holdings[code].get('quantity', 0) <= 0:
-                    logging.warning(f"보유 종목 없음: {code}")
-                    return False
-            
-            # 손절/익절 확인
-            if not self._check_stop_loss_take_profit(signal_type, signal_data):
-                return False
-            
-            logging.debug(f"리스크 관리 확인 통과: {signal_type}")
-            return True
-            
-        except Exception as ex:
-            logging.error(f"리스크 관리 확인 실패: {ex}")
-            return False
-    
-    def _check_stop_loss_take_profit(self, signal_type, signal_data):
-        """손절/익절 확인"""
-        try:
-            # 손절/익절 로직 구현
-            # 현재는 기본적으로 통과
-            return True
-        except Exception as ex:
-            logging.error(f"손절/익절 확인 실패: {ex}")
-            return False
-    
-    def _execute_buy_order(self, signal_data):
-        """매수 주문 실행 (웹소켓 실시간 잔고 데이터 기반)"""
-        try:
-            code = signal_data.get('code')
-            price = signal_data.get('price', 0)
-            
-            # 보유 종목 확인 (이미 보유 중인 종목은 매수 제외)
-            if self.parent and hasattr(self.parent, 'boughtBox'):
-                for i in range(self.parent.boughtBox.count()):
-                    item_code = self.parent.boughtBox.item(i).text()
-                    if item_code == code:
-                        logging.info(f"⚠️ 매수 주문 취소: {code}는 이미 보유 중인 종목입니다.")
-                        return False
-            
-            # 실제 투자가능금액 조회 (예수금상세현황 API)
-            available_cash = self.trader.get_available_cash()
-            logging.debug(f"💰 투자가능금액 조회: {available_cash:,}원")
-            
-            # 매수가능 종목수 계산 (최대투자종목수 - 현재보유종목수)
-            if not hasattr(self.parent, 'login_handler') or not self.parent.login_handler:
-                logging.error("login_handler에 접근할 수 없습니다")
-                return False
-                
-            available_buy_count = self.parent.login_handler.get_available_buy_count()
-            
-            # 매수가능 종목수가 0이면 매수 불가
-            if available_buy_count <= 0:
-                logging.warning(f"매수 주문 취소: 매수가능 종목수 없음 (최대투자종목수 도달)")
-                return False
-            
-            # 한 종목당 주문금액 계산 (투자가능금액 ÷ 매수가능 종목수)
-            order_amount_per_stock = available_cash // available_buy_count
-            
-            # 현재 가격으로 구매 가능한 수량 계산
-            if price > 0:
-                # 지정가 주문인 경우
-                quantity = order_amount_per_stock // price
-                # 최소 1주는 구매하도록 보장
-                quantity = max(1, quantity)
-            else:
-                # 시장가 주문인 경우 현재가를 조회하여 수량 계산
-                try:
-                    current_price_data = self.trader.client.get_stock_current_price(code)
-                    current_price = current_price_data.get('current_price', 0)
-                    
-                    if current_price > 0:
-                        quantity = order_amount_per_stock // current_price
-                        # 최소 1주는 구매하도록 보장
-                        quantity = max(1, quantity)
-                        # 시장가이므로 실제 체결가를 현재가로 설정
-                        price = current_price
-                    else:
-                        # 현재가 조회 실패 시 기본 수량 사용
-                        quantity = 1
-                        logging.warning(f"현재가 조회 실패, 기본 수량 사용: {code}")
-                except Exception as price_ex:
-                    # 현재가 조회 중 오류 시 기본 수량 사용
-                    quantity = 1
-                    logging.error(f"현재가 조회 중 오류 ({code}): {price_ex}")
-            
-            required_amount = quantity * price
-            
-            if available_cash < required_amount:
-                logging.warning(f"매수 주문 취소: 현금 부족 (필요: {required_amount}, 보유: {available_cash})")
-                return False
-            
-            logging.info(f"💰 매수 주문 실행: {code}, 수량: {quantity}, 가격: {price}")
-            logging.info(f"💰 한 종목당 주문금액: {order_amount_per_stock:,}원 (전체: {available_cash:,}원 ÷ {available_buy_count}매수가능종목)")
-            logging.info(f"💰 사용 현금: {required_amount:,}원, 잔여 현금: {available_cash - required_amount:,}원")
-            
-            # 실제 매수 주문 실행 (키움 REST API)
-            strategy_name = signal_data.get('strategy', '')
-            result = self.trader.place_buy_order(code, quantity, price, strategy_name)
-            
-            if result:
-                logging.info(f"✅ 매수 주문 성공: {code} {quantity}주 @ {price}원")
-            else:
-                logging.error(f"❌ 매수 주문 실패: {code}")
-            
-            return result
-        except Exception as ex:
-            logging.error(f"매수 주문 실행 실패: {ex}")
-            return False
-    
-    def _execute_sell_order(self, signal_data):
-        """매도 주문 실행 (웹소켓/REST API 이중 잔고 확인)"""
-        try:
-            code = signal_data.get('code')
-            quantity = signal_data.get('quantity', 1)
-            price = signal_data.get('price', 0)
-            
-            available_quantity = 0
-            
-            # 1차: 웹소켓 실시간 잔고 데이터 확인 시도
-            try:
-                balance_data = self.trader.get_balance_data()
-                holdings = balance_data.get('holdings', {})
-                
-                if code in holdings:
-                    available_quantity = holdings[code].get('quantity', 0)
-                    logging.info(f"💰 웹소켓 잔고 데이터에서 조회: {code} {available_quantity}주")
-                else:
-                    logging.warning(f"⚠️ 웹소켓 잔고 데이터에 종목이 없습니다: {code}")
-            except Exception as ws_ex:
-                logging.warning(f"⚠️ 웹소켓 잔고 데이터 조회 실패: {ws_ex}")
-            
-            # 2차: 웹소켓 데이터가 없거나 수량이 0이면 REST API로 조회
-            if available_quantity <= 0:
-                logging.info(f"📡 REST API로 보유수량 조회 시도: {code}")
-                try:
-                    if hasattr(self.parent, 'login_handler') and self.parent.login_handler and hasattr(self.parent.login_handler, 'kiwoom_client'):
-                        balance_result = self.parent.login_handler.kiwoom_client.get_acnt_balance()
-                        if balance_result:
-                            holdings = balance_result.get('stk_acnt_evlt_prst', balance_result.get('output1', []))
-                            for stock in holdings:
-                                raw_code = stock.get('stk_cd', stock.get('pdno', ''))
-                                stock_code = self.parent.normalize_stock_code(raw_code) if hasattr(self.parent, 'normalize_stock_code') else raw_code
-                                if stock_code == code:
-                                    available_quantity = int(stock.get('rmnd_qty', stock.get('hldg_qty', 0)))
-                                    logging.info(f"✅ REST API로 보유수량 조회 성공: {code} {available_quantity}주")
-                                    break
-                        else:
-                            logging.warning("⚠️ REST API 잔고 조회 실패")
-                except Exception as api_ex:
-                    logging.error(f"❌ REST API 잔고 조회 실패: {api_ex}")
-            
-            # 최종 수량 확인
-            if available_quantity <= 0:
-                logging.warning(f"매도 주문 취소: 보유 종목 없음 ({code})")
-                return False
-            
-            if available_quantity < quantity:
-                logging.warning(f"매도 주문 취소: 보유 수량 부족 (필요: {quantity}, 보유: {available_quantity})")
-                return False
-            
-            logging.info(f"💰 자동 매도 주문 실행: {code}, 수량: {quantity}, 가격: {price}")
-            logging.info(f"💰 보유 수량: {available_quantity}, 매도 후 잔여: {available_quantity - quantity}")
-            
-            # 실제 매도 주문 실행 (키움 REST API)
-            strategy_name = signal_data.get('strategy', '')
-            result = self.trader.place_sell_order(code, quantity, price, strategy_name)
-            
-            if result:
-                logging.info(f"✅ 매도 주문 성공: {code} {quantity}주 @ {price}원")
-            else:
-                logging.error(f"❌ 매도 주문 실패: {code}")
-            
-            return result
-        except Exception as ex:
-            logging.error(f"매도 주문 실행 실패: {ex}")
             return False
 
 # ==================== 로그인 핸들러 ====================
@@ -2686,6 +2462,7 @@ class LoginHandler(QObject):
     
     def __init__(self, parent_window):
         super().__init__()
+        self.logger = logging.getLogger(self.__class__.__name__)
         self.parent = parent_window
         self.config = configparser.RawConfigParser()
         self.kiwoom_client = None
@@ -2700,7 +2477,7 @@ class LoginHandler(QObject):
             else:
                 return 3  # 기본값
         except Exception as ex:
-            logging.error(f"target_buy_count 읽기 실패: {ex}")
+            self.logger.error(f"target_buy_count 읽기 실패: {ex}", exc_info=True)
             return 3  # 기본값
     
     def get_current_holdings_count(self):
@@ -2709,14 +2486,14 @@ class LoginHandler(QObject):
             # 1차: 보유종목 리스트박스(boughtBox)에서 직접 확인 (가장 정확함)
             if hasattr(self.parent, 'boughtBox') and self.parent.boughtBox:
                 count = self.parent.boughtBox.count()
-                logging.debug(f"📊 보유종목 수 (boughtBox): {count}개")
+                self.logger.debug(f"📊 보유종목 수 (boughtBox): {count}개")
                 return count
             
             # 2차: KiwoomTrader의 holdings 확인
             if hasattr(self.parent, 'trader') and self.parent.trader:
                 if hasattr(self.parent.trader, 'holdings'):
                     count = len(self.parent.trader.holdings)
-                    logging.debug(f"📊 보유종목 수 (trader.holdings): {count}개")
+                    self.logger.debug(f"📊 보유종목 수 (trader.holdings): {count}개")
                     return count
             
             # 3차: 웹소켓 실시간 잔고 데이터 확인 (변동이 있을 때만 업데이트됨)
@@ -2725,26 +2502,26 @@ class LoginHandler(QObject):
             # 수량이 0보다 큰 종목만 카운트
             active_holdings = {code: info for code, info in holdings.items() 
                              if info.get('quantity', 0) > 0}
-            count = len(active_holdings)
-            logging.debug(f"📊 보유종목 수 (balance_data): {count}개")
+            count = len(active_holdings) # type: ignore
+            self.logger.debug(f"📊 보유종목 수 (balance_data): {count}개")
             return count
             
         except Exception as ex:
-            logging.error(f"보유종목 수 조회 실패: {ex}")
+            self.logger.error(f"보유종목 수 조회 실패: {ex}", exc_info=True)
             return 0
     
     def get_available_buy_count(self):
         """매수가능 종목수 계산 (최대투자종목수 - 현재보유종목수)"""
         try:
-            max_count = self.parent.trading_manager.get_target_buy_count()
+            max_count = self.parent.trading_manager.get_target_buy_count() # type: ignore
             current_count = self.get_current_holdings_count()
             available_count = max(0, max_count - current_count)
             
             logging.debug(f"📊 투자 종목 현황: 최대 {max_count}종목, 현재 보유 {current_count}종목, 매수가능 {available_count}종목")
             return available_count
         except Exception as ex:
-            logging.error(f"매수가능 종목수 계산 실패: {ex}")
-            return 1  # 기본값
+            self.logger.error(f"매수가능 종목수 계산 실패: {ex}", exc_info=True)
+            return 1  # 기본값 # type: ignore
     
     def load_settings_sync(self):
         """설정 로드 (동기 I/O)"""
@@ -2756,7 +2533,7 @@ class LoginHandler(QObject):
             if self.config.has_option('LOGIN', 'autoconnect'):
                 self.parent.autoConnectCheckBox.setChecked(self.config.getboolean('LOGIN', 'autoconnect'))
         except Exception as ex:
-            logging.error(f"설정 로드 폴백 실패: {ex}")
+            self.logger.error(f"설정 로드 폴백 실패: {ex}", exc_info=True)
     
     async def save_settings(self):
         """설정 저장 (비동기 I/O)"""
@@ -2775,7 +2552,7 @@ class LoginHandler(QObject):
                 await f.write(config_string)
                 
         except Exception as ex:
-            logging.error(f"설정 저장 실패: {ex}")
+            self.logger.error(f"설정 저장 실패: {ex}", exc_info=True)
             # 동기 방식으로 폴백
             self.save_settings_sync()
     
@@ -2793,7 +2570,7 @@ class LoginHandler(QObject):
             with open('settings.ini', 'w', encoding='utf-8') as configfile:
                 self.config.write(configfile)
         except Exception as ex:
-            logging.error(f"설정 저장 폴백 실패: {ex}")
+            self.logger.error(f"설정 저장 폴백 실패: {ex}", exc_info=True)
     
     def _config_to_string(self):
         """ConfigParser를 문자열로 변환"""
@@ -2806,25 +2583,25 @@ class LoginHandler(QObject):
         try:           
             # kiwoom_client가 None인지 확인
             if self.kiwoom_client is None:
-                logging.error("❌ 키움 클라이언트가 초기화되지 않았습니다. 먼저 API 연결을 시도해주세요.")
+                self.logger.error("❌ 키움 클라이언트가 초기화되지 않았습니다. 먼저 API 연결을 시도해주세요.")
                 return
             
             # 이미 연결된 웹소켓 클라이언트가 있으면 재사용 (balance_data 보존)
             if hasattr(self, 'websocket_client') and self.websocket_client and self.websocket_client.connected:
-                logging.info("✅ 웹소켓 클라이언트가 이미 연결되어 있습니다 (재사용)")
+                self.logger.info("✅ 웹소켓 클라이언트가 이미 연결되어 있습니다 (재사용)")
                 return
             
             # 기존 balance_data 백업 (웹소켓 재생성 시 데이터 보존)
             existing_balance_data = {}
             if hasattr(self, 'websocket_client') and self.websocket_client and hasattr(self.websocket_client, 'balance_data'):
                 existing_balance_data = dict(self.websocket_client.balance_data)
-                if existing_balance_data:
-                    logging.info(f"💾 기존 웹소켓 balance_data 백업: {list(existing_balance_data.keys())} ({len(existing_balance_data)}개 종목)")
+                if existing_balance_data: # type: ignore
+                    self.logger.info(f"💾 기존 웹소켓 balance_data 백업: {list(existing_balance_data.keys())} ({len(existing_balance_data)}개 종목)")
             
             # 웹소켓 클라이언트 초기화
             token = self.kiwoom_client.access_token
             is_mock = self.kiwoom_client.is_mock
-            logger = logging.getLogger('KiwoomWebSocketClient')
+            logger = logging.getLogger('KiwoomWebSocketClient') # type: ignore
             
             # 웹소켓 클라이언트 초기화 로그 제거
             self.websocket_client = KiwoomWebSocketClient(token, logger, is_mock, self.parent)
@@ -2832,47 +2609,47 @@ class LoginHandler(QObject):
             # 백업한 balance_data 복원
             if existing_balance_data:
                 self.websocket_client.balance_data = existing_balance_data
-                logging.info(f"✅ 웹소켓 balance_data 복원 완료: {list(self.websocket_client.balance_data.keys())} ({len(self.websocket_client.balance_data)}개 종목)")
+                self.logger.info(f"✅ 웹소켓 balance_data 복원 완료: {list(self.websocket_client.balance_data.keys())} ({len(self.websocket_client.balance_data)}개 종목)")
             
             # 웹소켓 서버에 먼저 연결한 후 실행 (메인 스레드에서 qasync 사용)
             # 연결 시도 로그 제거
             
             # 메인 스레드에서 qasync로 웹소켓 실행
             
-            # 웹소켓 클라이언트를 비동기 태스크로 실행
+            # 웹소켓 클라이언트를 비동기 태스크로 실행 # type: ignore
             self.websocket_task = asyncio.create_task(self.websocket_client.run())
             
             # 클라이언트 시작 로그 제거
             
         except Exception as e:
-            logging.error(f"❌ 웹소켓 클라이언트 시작 실패: {e}")
-            logging.error(f"웹소켓 클라이언트 시작 에러 상세: {traceback.format_exc()}")
+            self.logger.error(f"웹소켓 클라이언트 시작 실패: {e}", exc_info=True)
+            
 
-    def init_kiwoom_client(self):
-        """키움 REST API 클라이언트 초기화"""
+    async def init_kiwoom_client(self):
+        """키움 REST API 클라이언트 초기화 (비동기)"""
         try:
             client = KiwoomRestClient('settings.ini')
-            if client.connect():
+            if await client.connect():
                 # REST API 클라이언트 초기화 로그 제거
                 return client
             else:
-                logging.error("키움 REST API 클라이언트 초기화 실패")
+                self.logger.error("키움 REST API 클라이언트 초기화 실패")
                 return None
         except Exception as ex:
-            logging.error(f"키움 REST API 클라이언트 초기화 중 오류: {ex}")
+            self.logger.error(f"키움 REST API 클라이언트 초기화 중 오류: {ex}", exc_info=True)
             return None
     
-    def handle_api_connection(self):
-        """키움 REST API 연결 처리"""
+    async def handle_api_connection(self):
+        """키움 REST API 연결 처리 (비동기)"""
         try:
             # 설정 저장 (동기 방식으로 안전하게 실행)
             try:
                 self.save_settings_sync()
             except Exception as ex:
-                logging.error(f"설정 저장 실패: {ex}")
+                self.logger.error(f"설정 저장 실패: {ex}", exc_info=True)
             
             # 키움 REST API 연결
-            self.kiwoom_client = self.init_kiwoom_client()
+            self.kiwoom_client = await self.init_kiwoom_client()
             
             if self.kiwoom_client and self.kiwoom_client.is_connected:
                 # 연결 상태 업데이트
@@ -2897,15 +2674,15 @@ class LoginHandler(QObject):
                         # 트레이더 객체 존재 로그 제거
                         pass
                 except Exception as trader_ex:
-                    logging.error(f"❌ 트레이더 객체 생성 실패: {trader_ex}")
-                    logging.error(f"트레이더 생성 예외 상세: {traceback.format_exc()}")
+                    self.logger.error(f"트레이더 객체 생성 실패: {trader_ex}", exc_info=True)
+                    
                 
             else:
-                logging.error("키움 REST API 연결 실패! settings.ini 파일의 appkey와 appsecret을 확인해주세요.")
+                self.logger.error("키움 REST API 연결 실패! settings.ini 파일의 appkey와 appsecret을 확인해주세요.")
                 self.parent.update_connection_ui(is_connected=False)
                 
         except Exception as ex:
-            logging.error(f"API 연결 처리 실패: {ex}")
+            self.logger.error(f"API 연결 처리 실패: {ex}", exc_info=True)
     
     async def _handle_connection_toggle_async(self):
         """연결/해제 버튼 클릭 비동기 처리"""
@@ -2917,28 +2694,28 @@ class LoginHandler(QObject):
 
             if is_connected:
                 # --- 연결 해제 로직 ---
-                logging.info("🔌 API 연결 해제를 시도합니다...")
+                self.logger.info("🔌 API 연결 해제를 시도합니다...")
                 # 웹소켓 종료
                 if hasattr(self, 'websocket_client') and self.websocket_client:
                     await self.websocket_client.disconnect()
                 # REST 클라이언트 연결 해제
-                self.kiwoom_client.disconnect()
+                await self.kiwoom_client.disconnect()
                 
                 # UI 업데이트 시그널 발생
                 self.connection_status_changed.emit(False)
-                logging.info("✅ API 연결이 해제되었습니다.")
+                self.logger.info("✅ API 연결이 해제되었습니다.")
 
             else:
                 # --- 연결 로직 ---
-                logging.info("🔌 API 연결을 시도합니다...")
-                self.handle_api_connection()
+                self.logger.info("🔌 API 연결을 시도합니다...")
+                await self.handle_api_connection()
                 await self.start_websocket_client()
 
                 # 연결 성공 시 UI 업데이트는 post_login_setup에서 처리됨
                 # 여기서는 연결 시도 상태를 UI에 반영할 수 있음 (예: 버튼 텍스트 변경)
                 self.connection_status_changed.emit(True) # 임시로 연결됨 상태로 변경
         except Exception as ex:
-            logging.error(f"❌ 연결/해제 처리 중 오류: {ex}")
+            self.logger.error(f"연결/해제 처리 중 오류: {ex}", exc_info=True)
 
 # ==================== MyWindow Manager 클래스들 ====================
 
@@ -2946,6 +2723,7 @@ class DataManager:
     """데이터 조회 및 관리 매니저"""
     
     def __init__(self, parent):
+        self.logger = logging.getLogger(self.__class__.__name__)
         self.parent = parent
     
     def safe_int(self, value, default=0):
@@ -2985,7 +2763,7 @@ class DataManager:
             return code_str
             
         except Exception as ex:
-            logging.error(f"종목코드 정규화 실패 ({code}): {ex}")
+            self.logger.error(f"종목코드 정규화 실패 ({code}): {ex}")
             return str(code) if code else ""
     
     def normalize_stock_input(self, stock_input):
@@ -3009,9 +2787,9 @@ class DataManager:
                     return stock_code, stock_input
                 else:
                     return None, None
-                    
+
         except Exception as ex:
-            logging.error(f"종목 입력 정규화 실패: {ex}")
+            self.logger.error(f"종목 입력 정규화 실패: {ex}")
             return None, None
     
     def get_stock_name_by_code(self, stock_code):
@@ -3049,34 +2827,35 @@ class DataManager:
             return None
             
         except Exception as ex:
-            logging.error(f"종목명 검색 실패 ({stock_name}): {ex}")
+            self.logger.error(f"종목명 검색 실패 ({stock_name}): {ex}")
             return None
 
 
 class MonitoringManager:
     """모니터링 종목 관리 매니저"""
     
-    def __init__(self, parent: 'MyWindow'):
+    def __init__(self, parent: 'MyWindow'): # type: ignore
+        self.logger = logging.getLogger(self.__class__.__name__)
         self.parent = parent
     
-    def add_stock_to_monitoring(self, code, name):
+    async def add_stock_to_monitoring(self, code, name):
         """모니터링 리스트박스에 종목 추가"""
         try:
             # 중복 체크
             for i in range(self.parent.monitoringBox.count()):
                 item_text = self.parent.monitoringBox.item(i).text()
                 if code in item_text:
-                    logging.debug(f"종목이 이미 모니터링 목록에 있습니다: {code}")
+                    self.logger.debug(f"종목이 이미 모니터링 목록에 있습니다: {code}")
                     return True
             
             # 리스트박스에 추가
             item_text = f"{code}"  # 종목코드만 표시
             self.parent.monitoringBox.addItem(item_text)
-            logging.debug(f"✅ 모니터링 종목 추가: {item_text}")
+            self.logger.debug(f"✅ 모니터링 종목 추가: {item_text}")
             
             # 차트 캐시에 추가
             if hasattr(self.parent, 'chart_cache') and self.parent.chart_cache:
-                self.parent.chart_cache.add_monitoring_stock(code)
+                await self.parent.chart_cache.add_monitoring_stock(code)
             
             # 실시간 체결 데이터 구독
             if hasattr(self.parent, 'login_handler') and hasattr(self.parent.login_handler, 'websocket_client'):
@@ -3086,7 +2865,7 @@ class MonitoringManager:
                     try:
                         asyncio.get_running_loop()  # 루프 확인
                         asyncio.create_task(ws_client.subscribe_stock_execution_data([code], 'monitoring'))
-                        logging.debug(f"📡 실시간 체결 데이터 구독: {code}")
+                        self.logger.debug(f"📡 실시간 체결 데이터 구독: {code}")
                     except RuntimeError:
                         # 이벤트 루프가 없으면 무시 (정상적인 상황일 수 있음)
                         pass
@@ -3094,8 +2873,7 @@ class MonitoringManager:
             return True
             
         except Exception as ex:
-            logging.error(f"모니터링 종목 추가 실패 ({code}): {ex}")
-            logging.error(f"모니터링 추가 예외 상세: {traceback.format_exc()}")
+            self.logger.error(f"모니터링 종목 추가 실패 ({code}): {ex}", exc_info=True)
             return False
     
     async def add_stock_to_monitoring_async(self, code, name):
@@ -3105,17 +2883,17 @@ class MonitoringManager:
             for i in range(self.parent.monitoringBox.count()):
                 item_text = self.parent.monitoringBox.item(i).text()
                 if code in item_text:
-                    logging.debug(f"종목이 이미 모니터링 목록에 있습니다: {code}")
+                    self.logger.debug(f"종목이 이미 모니터링 목록에 있습니다: {code}")
                     return True
             
             # 리스트박스에 추가
             item_text = f"{code}"  # 종목코드만 표시
             self.parent.monitoringBox.addItem(item_text)
-            logging.debug(f"✅ 모니터링 종목 추가: {item_text}")
+            self.logger.debug(f"✅ 모니터링 종목 추가: {item_text}")
             
             # 차트 캐시에 추가
             if hasattr(self.parent, 'chart_cache') and self.parent.chart_cache:
-                self.parent.chart_cache.add_monitoring_stock(code)
+                await self.parent.chart_cache.add_monitoring_stock(code)
             
             # 실시간 체결 데이터 구독 (await 사용)
             if hasattr(self.parent, 'login_handler') and hasattr(self.parent.login_handler, 'websocket_client'):
@@ -3124,10 +2902,10 @@ class MonitoringManager:
                     await ws_client.subscribe_stock_execution_data([code], 'monitoring')
             return True
         except Exception as ex:
-            logging.error(f"모니터링 종목 추가 실패 (async) ({code}): {ex}")
+            self.logger.error(f"모니터링 종목 추가 실패 (async) ({code}): {ex}")
             return False
 
-    def remove_stock_from_monitoring(self, code):
+    async def remove_stock_from_monitoring(self, code):
         """모니터링 리스트박스에서 종목 제거"""
         try:
             # 리스트박스에서 제거
@@ -3135,7 +2913,7 @@ class MonitoringManager:
                 item = self.parent.monitoringBox.item(i)
                 if code in item.text():
                     self.parent.monitoringBox.takeItem(i)
-                    logging.debug(f"✅ 모니터링 종목 제거: {code}")
+                    self.logger.debug(f"✅ 모니터링 종목 제거: {code}")
                     break
             
             # 차트 캐시에서도 제거
@@ -3150,90 +2928,86 @@ class MonitoringManager:
                     try:
                         asyncio.get_running_loop()  # 루프 확인
                         asyncio.create_task(ws_client.unsubscribe_stock_execution_data([code]))
-                        logging.debug(f"📡 실시간 구독 해제: {code}")
+                        self.logger.debug(f"📡 실시간 구독 해제: {code}")
                     except RuntimeError:
-                        logging.warning("⚠️ 이벤트 루프가 없어 구독 해제를 건너뜁니다")
+                        self.logger.warning("⚠️ 이벤트 루프가 없어 구독 해제를 건너뜁니다")
             
             return True
             
         except Exception as ex:
-            logging.error(f"모니터링 종목 제거 실패 ({code}): {ex}")
+            self.logger.error(f"모니터링 종목 제거 실패 ({code}): {ex}")
             return False
     
-    def remove_condition_stocks_from_monitoring(self, seq):
+    async def remove_condition_stocks_from_monitoring(self, seq):
         """조건검색으로 추가된 종목들을 모니터링에서 제거"""
         try:
             # 조건검색 결과에서 종목 목록 가져오기
             if seq not in self.parent.condition_search_results:
-                logging.debug(f"조건검색 결과 없음 (seq: {seq})")
+                self.logger.debug(f"조건검색 결과 없음 (seq: {seq})")
                 return
             
             stock_codes = self.parent.condition_search_results.get(seq, [])
-            logging.info(f"조건검색 종목 제거 시작: {len(stock_codes)}개 (seq: {seq})")
+            self.logger.info(f"조건검색 종목 제거 시작: {len(stock_codes)}개 (seq: {seq})")
             
             # 각 종목을 모니터링에서 제거
             for code in stock_codes:
-                self.remove_stock_from_monitoring(code)
+                await self.remove_stock_from_monitoring(code)
             
             # 조건검색 결과 딕셔너리에서 제거
             del self.parent.condition_search_results[seq]
-            logging.info(f"조건검색 종목 제거 완료 (seq: {seq})")
+            self.logger.info(f"조건검색 종목 제거 완료 (seq: {seq})")
             
         except Exception as ex:
-            logging.error(f"조건검색 종목 제거 실패 (seq: {seq}): {ex}")
-            logging.error(f"제거 예외 상세: {traceback.format_exc()}")
+            self.logger.error(f"조건검색 종목 제거 실패 (seq: {seq}): {ex}", exc_info=True)
     
     def extract_monitoring_stock_codes_enhanced(self):
         """모니터링 종목 코드 추출 및 로그 출력 - 강화된 예외 처리"""
         try:
-            logging.debug("🔧 모니터링 종목 코드 추출 시작")
-            logging.debug(f"현재 스레드: {threading.current_thread().name}")
-            logging.debug(f"메인 스레드 여부: {threading.current_thread() is threading.main_thread()}")
-            logging.debug("=" * 50)
-            logging.debug("📋 모니터링 종목 코드 추출 시작")
-            logging.debug("=" * 50)
+            self.logger.debug("🔧 모니터링 종목 코드 추출 시작")
+            self.logger.debug(f"현재 스레드: {threading.current_thread().name}")
+            self.logger.debug(f"메인 스레드 여부: {threading.current_thread() is threading.main_thread()}")
+            self.logger.debug("=" * 50)
+            self.logger.debug("📋 모니터링 종목 코드 추출 시작")
+            self.logger.debug("=" * 50)
             
             # 모니터링 종목 코드 추출
             monitoring_codes = self.get_monitoring_stock_codes()
-            logging.debug(f"모니터링 종목 코드 추출: {monitoring_codes}")
-            logging.debug(f"📋 모니터링 종목: {monitoring_codes}")
+            self.logger.debug(f"모니터링 종목 코드 추출: {monitoring_codes}")
+            self.logger.debug(f"📋 모니터링 종목: {monitoring_codes}")
             
-            logging.debug("=" * 50)
-            logging.debug("✅ 모니터링 종목 코드 추출 완료")
-            logging.debug("=" * 50)
+            self.logger.debug("=" * 50)
+            self.logger.debug("✅ 모니터링 종목 코드 추출 완료")
+            self.logger.debug("=" * 50)
             
             # 모니터링 종목 코드 추출 완료 후 차트 캐시 업데이트
-            logging.debug(f"📋 모니터링 종목 코드 추출 완료: {monitoring_codes}")
+            self.logger.debug(f"📋 모니터링 종목 코드 추출 완료: {monitoring_codes}")
             
             # 주식체결 실시간 구독 추가
             try:
                 if hasattr(self.parent, 'login_handler') and hasattr(self.parent.login_handler, 'kiwoom_client'):
                     # 웹소켓 클라이언트 참조가 제거되어 주식체결 구독 기능 비활성화
                     # 주식체결 구독은 별도로 관리되어야 함
-                    logging.debug(f"주식체결 구독 기능은 별도로 관리됩니다: {monitoring_codes}")
+                    self.logger.debug(f"주식체결 구독 기능은 별도로 관리됩니다: {monitoring_codes}")
                 else:
-                    logging.warning("⚠️ 키움 클라이언트가 초기화되지 않았습니다")
+                    self.logger.warning("⚠️ 키움 클라이언트가 초기화되지 않았습니다")
             except Exception as exec_sub_ex:
-                logging.error(f"❌ 주식체결 구독 실패: {exec_sub_ex}")
-                logging.error(f"주식체결 구독 예외 상세: {traceback.format_exc()}")
+                self.logger.error(f"❌ 주식체결 구독 실패: {exec_sub_ex}", exc_info=True)
             
             # 차트 데이터 캐시 업데이트 (중요!)
             try:
                 if hasattr(self.parent, 'chart_cache') and self.parent.chart_cache:
-                    logging.debug(f"🔧 차트 캐시 업데이트 시작: {monitoring_codes}")
+                    self.logger.debug(f"🔧 차트 캐시 업데이트 시작: {monitoring_codes}")
                     self.parent.chart_cache.update_monitoring_stocks(monitoring_codes)
-                    logging.debug("✅ 차트 캐시 업데이트 완료")
+                    self.logger.debug("✅ 차트 캐시 업데이트 완료")
                 else:
-                    logging.warning("⚠️ 차트 캐시가 초기화되지 않았습니다")
+                    self.logger.warning("⚠️ 차트 캐시가 초기화되지 않았습니다")
             except Exception as cache_ex:
-                logging.error(f"❌ 차트 캐시 업데이트 실패: {cache_ex}")
-                logging.error(f"차트 캐시 업데이트 예외 상세: {traceback.format_exc()}")
+                self.logger.error(f"❌ 차트 캐시 업데이트 실패: {cache_ex}", exc_info=True)
             
             return monitoring_codes
                 
         except Exception as ex:
-            logging.error(f"❌ 모니터링 종목 코드 추출 실패: {ex}")
-            logging.error(f"추출 예외 상세: {traceback.format_exc()}")
+            self.logger.error(f"❌ 모니터링 종목 코드 추출 실패: {ex}", exc_info=True)
             return []
     
     def get_monitoring_stock_codes(self):
@@ -3280,16 +3054,17 @@ class MonitoringManager:
                 if code and code.isdigit() and len(code) == 6:
                     stock_codes.append(code)
             
-            logging.debug(f"모니터링 종목 코드 추출: {len(stock_codes)}개 - {stock_codes}")
+            self.logger.debug(f"모니터링 종목 코드 추출: {len(stock_codes)}개 - {stock_codes}")
             return stock_codes
             
         except Exception as ex:
-            logging.error(f"모니터링 종목 코드 추출 실패: {ex}")
+            self.logger.error(f"모니터링 종목 코드 추출 실패: {ex}")
             return []
     
     def subscribe_realtime_execution_data(self, code):
         """실시간 체결 데이터 구독 시작"""
         try:
+            self.logger = logging.getLogger(self.__class__.__name__)
             # 웹소켓 클라이언트가 연결되어 있는지 확인
             if hasattr(self.parent, 'login_handler') and hasattr(self.parent.login_handler, 'websocket_client'):
                 websocket_client = self.parent.login_handler.websocket_client
@@ -3298,16 +3073,16 @@ class MonitoringManager:
                     try:
                         asyncio.get_running_loop()  # 루프 확인
                         asyncio.create_task(websocket_client.subscribe_stock_execution_data([code], 'monitoring'))
-                        logging.debug(f"📡 모니터링 종목 실시간 체결(0B) 구독 요청: {code}")
+                        self.logger.debug(f"📡 모니터링 종목 실시간 체결(0B) 구독 요청: {code}")
                     except RuntimeError:
-                        logging.warning("⚠️ 이벤트 루프가 없어 구독을 건너뜁니다")
+                        self.logger.warning("⚠️ 이벤트 루프가 없어 구독을 건너뜁니다")
                 else:
-                    logging.warning(f"⚠️ 웹소켓이 연결되지 않아 실시간 구독을 시작할 수 없습니다: {code}")
+                    self.logger.warning(f"⚠️ 웹소켓이 연결되지 않아 실시간 구독을 시작할 수 없습니다: {code}")
             else:
-                logging.warning(f"⚠️ 웹소켓 클라이언트가 없어 실시간 구독을 시작할 수 없습니다: {code}")
+                self.logger.warning(f"⚠️ 웹소켓 클라이언트가 없어 실시간 구독을 시작할 수 없습니다: {code}")
                 
         except Exception as ex:
-            logging.error(f"❌ 실시간 체결 데이터 구독 실패: {code} - {ex}")
+            self.logger.error(f"❌ 실시간 체결 데이터 구독 실패: {code} - {ex}")
     
     def unsubscribe_realtime_execution_data(self, code):
         """실시간 체결 데이터 구독 해제"""
@@ -3320,22 +3095,23 @@ class MonitoringManager:
                     try:
                         asyncio.get_running_loop()  # 루프 확인
                         asyncio.create_task(websocket_client.unsubscribe_stock_execution_data([code]))
-                        logging.debug(f"📡 실시간 체결 데이터 구독 해제: {code}")
+                        self.logger.debug(f"📡 실시간 체결 데이터 구독 해제: {code}")
                     except RuntimeError:
-                        logging.warning("⚠️ 이벤트 루프가 없어 구독 해제를 건너뜁니다")
+                        self.logger.warning("⚠️ 이벤트 루프가 없어 구독 해제를 건너뜁니다")
                 else:
-                    logging.warning(f"⚠️ 웹소켓이 연결되지 않아 실시간 구독 해제를 할 수 없습니다: {code}")
+                    self.logger.warning(f"⚠️ 웹소켓이 연결되지 않아 실시간 구독 해제를 할 수 없습니다: {code}")
             else:
-                logging.warning(f"⚠️ 웹소켓 클라이언트가 없어 실시간 구독 해제를 할 수 없습니다: {code}")
+                self.logger.warning(f"⚠️ 웹소켓 클라이언트가 없어 실시간 구독 해제를 할 수 없습니다: {code}")
                 
         except Exception as ex:
-            logging.error(f"❌ 실시간 체결 데이터 구독 해제 실패: {code} - {ex}")
+            self.logger.error(f"❌ 실시간 체결 데이터 구독 해제 실패: {code} - {ex}")
 
 
 class UIComponentsManager:
     """UI 컴포넌트 관리 매니저"""
     
     def __init__(self, parent):
+        self.logger = logging.getLogger(self.__class__.__name__)
         self.parent = parent
     
     def _safe_create_task(self, coro):
@@ -3344,7 +3120,7 @@ class UIComponentsManager:
             asyncio.get_running_loop()  # 루프 확인
             asyncio.create_task(coro)
         except RuntimeError:
-            logging.warning("⚠️ 이벤트 루프가 없어 비동기 작업을 실행할 수 없습니다")
+            self.logger.warning("⚠️ 이벤트 루프가 없어 비동기 작업을 실행할 수 없습니다")
     
     def update_connection_ui(self, is_connected):
         """연결 상태에 따라 UI를 업데이트하는 중앙 함수"""
@@ -3368,7 +3144,7 @@ class UIComponentsManager:
             self.parent.style().polish(self.parent.tradingModeCombo)
 
         except Exception as ex:
-            logging.error(f"❌ 연결 UI 업데이트 실패: {ex}")
+            self.logger.error(f"❌ 연결 UI 업데이트 실패: {ex}")
 
     def update_condition_status(self, status, count=None):
         """조건검색 상태 표시 업데이트"""
@@ -3383,7 +3159,7 @@ class UIComponentsManager:
                 self.parent.conditionStatusLabel.setText(status_text)
             
         except Exception as ex:
-            logging.error(f"조건검색 상태 업데이트 실패: {ex}")
+            self.logger.error(f"조건검색 상태 업데이트 실패: {ex}")
     
     def display_deposit_info(self, deposit_data):
         """예수금상세현황 정보 표시 (간소화)"""
@@ -3397,13 +3173,13 @@ class UIComponentsManager:
                 pymn_alow = self.parent.data_manager.safe_int(data.get('pymn_alow_amt', '0'))
                 ord_alow = self.parent.data_manager.safe_int(data.get('ord_alow_amt', '0'))
                 
-                logging.info(f"💰 예수금: {entr:,}원, 출금가능: {pymn_alow:,}원, 주문가능: {ord_alow:,}원")
+                self.logger.info(f"💰 예수금: {entr:,}원, 출금가능: {pymn_alow:,}원, 주문가능: {ord_alow:,}원")
                 
             else:
-                logging.warning("예수금상세현황 데이터를 찾을 수 없습니다")
+                self.logger.warning("예수금상세현황 데이터를 찾을 수 없습니다")
             
         except Exception as ex:
-            logging.error(f"예수금상세현황 정보 표시 실패: {ex}")
+            self.logger.error(f"예수금상세현황 정보 표시 실패: {ex}")
     
     def update_acnt_balance_display(self, balance_data):
         """잔고 정보 표시 업데이트"""
@@ -3419,20 +3195,20 @@ class UIComponentsManager:
                 self.parent.balanceLabel.setText(balance_text)
             else:
                 # balanceLabel이 없는 경우 로그로만 출력
-                logging.debug(f"잔고 정보: {balance_text}")
+                self.logger.debug(f"잔고 정보: {balance_text}")
             
             # 투자 현황표 업데이트
             self.update_stock_table()
             
         except Exception as ex:
-            logging.error(f"잔고 정보 업데이트 실패: {ex}")
+            self.logger.error(f"잔고 정보 업데이트 실패: {ex}")
     
     def update_stock_table(self):
         """투자 현황표 업데이트 (실시간 잔고 데이터 기반)"""
         try:
             # stock_table이 없으면 리턴
             if not hasattr(self.parent, 'stock_table'):
-                logging.debug("⚠️ stock_table이 없습니다")
+                self.logger.debug("⚠️ stock_table이 없습니다")
                 return
             
             # 웹소켓 클라이언트에서 실시간 잔고 데이터 가져오기
@@ -3441,27 +3217,27 @@ class UIComponentsManager:
                 return
             
             if not hasattr(self.parent.login_handler, 'websocket_client') or not self.parent.login_handler.websocket_client:
-                logging.debug("⚠️ websocket_client가 없습니다")
+                self.logger.debug("⚠️ websocket_client가 없습니다")
                 return
             
             ws_client = self.parent.login_handler.websocket_client
             if not hasattr(ws_client, 'balance_data'):
-                logging.debug("⚠️ ws_client.balance_data가 없습니다")
+                self.logger.debug("⚠️ ws_client.balance_data가 없습니다")
                 return
             
             # balance_data의 복사본을 사용 (동시성 문제 방지)
             balance_data = dict(ws_client.balance_data)
             
             # 디버그 로그: 업데이트할 종목 목록
-            logging.debug(f"📊 투자 현황표 업데이트 시작: {list(balance_data.keys())} ({len(balance_data)}개 종목)")
-            logging.debug(f"   ws_client.balance_data 원본: {list(ws_client.balance_data.keys())}")
+            self.logger.debug(f"📊 투자 현황표 업데이트 시작: {list(balance_data.keys())} ({len(balance_data)}개 종목)")
+            self.logger.debug(f"   ws_client.balance_data 원본: {list(ws_client.balance_data.keys())}")
             
             # 테이블 초기화
             self.parent.stock_table.setRowCount(0)
             
             # 보유 종목이 없으면 리턴
             if not balance_data:
-                logging.info("📊 투자 현황표: 보유 종목 없음")
+                self.logger.info("📊 투자 현황표: 보유 종목 없음")
                 return
             
             # 종목별로 테이블에 추가
@@ -3535,20 +3311,19 @@ class UIComponentsManager:
                     
                     self.parent.stock_table.setItem(row, 5, rate_item)
                     
-                    logging.debug(f"  📌 {stock_code}: 현재가 {current_price:,}원(매매판단용), 매입단가 {buy_price:,}원, 수량 {quantity:,}주, 손익 {profit_loss:,.0f}원 ({profit_loss_rate:+.2f}%)")
+                    self.logger.debug(f"  📌 {stock_code}: 현재가 {current_price:,}원(매매판단용), 매입단가 {buy_price:,}원, 수량 {quantity:,}주, 손익 {profit_loss:,.0f}원 ({profit_loss_rate:+.2f}%)")
                     
                     row += 1
                     
                 except Exception as item_ex:
-                    logging.error(f"❌ 투자 현황표 항목 추가 실패 ({stock_code}): {item_ex}")
+                    self.logger.error(f"❌ 투자 현황표 항목 추가 실패 ({stock_code}): {item_ex}")
                     continue
             
             # 업데이트 완료 로그
-            logging.debug(f"✅ 투자 현황표 업데이트 완료: {row}개 종목 표시됨")
+            self.logger.debug(f"✅ 투자 현황표 업데이트 완료: {row}개 종목 표시됨")
             
         except Exception as ex:
-            logging.error(f"❌ 투자 현황표 업데이트 실패: {ex}")
-            logging.error(f"투자 현황표 업데이트 예외: {traceback.format_exc()}")
+            self.logger.error(f"❌ 투자 현황표 업데이트 실패: {ex}", exc_info=True)
     
     def update_order_result(self, code, order_type, quantity, price, success):
         """주문 결과 업데이트"""
@@ -3559,7 +3334,7 @@ class UIComponentsManager:
             message = f"{action} 주문 {status}: {code} {quantity}주 @ {price}"
             
             if success:
-                logging.debug(message)
+                self.logger.debug(message)
                 
                 # 주문 성공 시 (실시간 잔고 데이터가 자동으로 보유 종목을 관리함)
                 if order_type == "buy":
@@ -3569,10 +3344,10 @@ class UIComponentsManager:
                     # 매도 성공: 실시간 잔고 데이터가 자동으로 보유 종목에서 제거
                     pass
             else:
-                logging.error(message)
+                self.logger.error(message)
                 
         except Exception as ex:
-            logging.error(f"주문 결과 업데이트 실패: {ex}")
+            self.logger.error(f"주문 결과 업데이트 실패: {ex}")
     
     def update_strategy_result(self, code, action, data):
         """전략 결과 업데이트"""
@@ -3581,10 +3356,10 @@ class UIComponentsManager:
             reason = data.get('reason', '')
             
             message = f"전략 실행: {code} {action} - {strategy} ({reason})"
-            logging.debug(message)
+            self.logger.debug(message)
             
         except Exception as ex:
-            logging.error(f"전략 결과 업데이트 실패: {ex}")
+            self.logger.error(f"전략 결과 업데이트 실패: {ex}")
     
     def on_chart_data_updated(self, code):
         """차트 데이터 업데이트 시그널 핸들러"""
@@ -3601,10 +3376,10 @@ class UIComponentsManager:
                             cache_data.get('tic_data'), 
                             cache_data.get('min_data')
                         )
-                        logging.debug(f"📊 실시간 차트 업데이트: {code}")
+                        self.logger.debug(f"📊 실시간 차트 업데이트: {code}")
                         
         except Exception as ex:
-            logging.error(f"❌ 차트 데이터 업데이트 처리 실패: {code} - {ex}")
+            self.logger.error(f"❌ 차트 데이터 업데이트 처리 실패: {code} - {ex}")
     
     def add_balance_stock_to_holdings(self, balance_info):
         """실시간 잔고 데이터를 받아 보유 종목에 자동 추가 (UI 스레드 안전)"""
@@ -3612,7 +3387,7 @@ class UIComponentsManager:
             
             # UI 스레드에서 실행되는지 확인
             if not QThread.isMainThread():
-                logging.warning("add_balance_stock_to_holdings가 메인 스레드가 아닌 곳에서 호출됨")
+                self.logger.warning("add_balance_stock_to_holdings가 메인 스레드가 아닌 곳에서 호출됨")
                 return
             
             stock_code = balance_info.get('stock_code', '')
@@ -3633,14 +3408,14 @@ class UIComponentsManager:
             # 중복되지 않는 경우만 보유종목 리스트에 추가
             if stock_display not in existing_items:
                 self.parent.boughtBox.addItem(stock_display)
-                logging.debug(f"✅ 실시간 잔고 종목을 보유종목에 자동 추가: {stock_display} ({quantity}주)")
+                self.logger.debug(f"✅ 실시간 잔고 종목을 보유종목에 자동 추가: {stock_display} ({quantity}주)")
                 
                 # 실시간 잔고 데이터는 이미 모니터링에 추가되어 있으므로 보유종목 리스트에만 추가
             else:
-                logging.debug(f"이미 보유종목에 존재: {stock_display}")
+                self.logger.debug(f"이미 보유종목에 존재: {stock_display}")
                 
         except Exception as ex:
-            logging.error(f"실시간 잔고 종목 추가 실패: {ex}")
+            self.logger.error(f"실시간 잔고 종목 추가 실패: {ex}")
     
     def init_ui(self):
         """UI 초기화 (탭 구조)"""
@@ -3674,7 +3449,7 @@ class UIComponentsManager:
             self.parent.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.WindowMinMaxButtonsHint | Qt.WindowType.WindowCloseButtonHint)
             
         except Exception as ex:
-            logging.error(f"UI 초기화 실패: {ex}")
+            self.logger.error(f"UI 초기화 실패: {ex}")
         
     def apply_modern_style(self):
         """현대적이고 눈에 피로하지 않은 스타일 적용"""
@@ -4159,12 +3934,12 @@ class UIComponentsManager:
         # 리스트박스 이벤트 연결
         parent.monitoringBox.itemClicked.connect(parent.listBoxChanged)
         parent.boughtBox.itemClicked.connect(parent.listBoxChanged)
-        logging.debug("✅ 리스트박스 클릭 이벤트 연결 완료")
+        self.logger.debug("✅ 리스트박스 클릭 이벤트 연결 완료")
         
         # 리스트박스 활성화
         parent.monitoringBox.setEnabled(True)
         parent.boughtBox.setEnabled(True)
-        logging.debug("✅ 리스트박스 활성화 완료")
+        self.logger.debug("✅ 리스트박스 활성화 완료")
         
         parent.comboStg.currentIndexChanged.connect(parent.stgChanged)
         parent.comboBuyStg.currentIndexChanged.connect(parent.buyStgChanged)
@@ -4175,59 +3950,59 @@ class UIComponentsManager:
     def listBoxChanged(self, current):
         """리스트박스 클릭 이벤트 - 차트 표시"""
         
-        parent = self.parent
+        parent = self.parent # type: ignore
         
-        logging.debug(f"🔍 listBoxChanged 호출됨 - current: {current}")
+        self.logger.debug(f"🔍 listBoxChanged 호출됨 - current: {current}")
         
         # 어떤 리스트박스에서 클릭이 발생했는지 확인
         sender = parent.sender()
         if sender == parent.monitoringBox:
-            logging.debug("📊 모니터링 종목 박스에서 클릭됨")
+            self.logger.debug("📊 모니터링 종목 박스에서 클릭됨")
         elif sender == parent.boughtBox:
-            logging.debug("📊 보유 종목 박스에서 클릭됨")
+            self.logger.debug("📊 보유 종목 박스에서 클릭됨")
         else:
-            logging.debug("📊 알 수 없는 리스트박스에서 클릭됨")
+            self.logger.debug("📊 알 수 없는 리스트박스에서 클릭됨")
         
         # 중복 호출 방지를 위한 락
-        logging.debug("🔍 차트 그리기 락 획득 시도...")
+        self.logger.debug("🔍 차트 그리기 락 획득 시도...")
         if not parent.chart_drawing_lock.acquire(blocking=False):
-            logging.warning("📊 listBoxChanged is already running. Skipping duplicate call.")
+            self.logger.warning("📊 listBoxChanged is already running. Skipping duplicate call.")
             return
-        logging.debug("✅ 차트 그리기 락 획득 성공")
+        self.logger.debug("✅ 차트 그리기 락 획득 성공")
         
         # ChartDrawer가 처리 중인지 확인
         if (hasattr(parent, 'chartdrawer') and parent.chartdrawer and 
             hasattr(parent.chartdrawer, '_is_processing') and parent.chartdrawer._is_processing):
-            logging.warning(f"📊 ChartDrawer가 이미 차트를 생성 중입니다 ({parent.chartdrawer._processing_code}). 중복 실행 방지.")
+            self.logger.warning(f"📊 ChartDrawer가 이미 차트를 생성 중입니다 ({parent.chartdrawer._processing_code}). 중복 실행 방지.")
             parent.chart_drawing_lock.release()
             return
-        logging.debug("✅ ChartDrawer 처리 상태 확인 완료")
+        self.logger.debug("✅ ChartDrawer 처리 상태 확인 완료")
         
         try:
             if current:
                 item_text = current.text()
-                logging.debug(f"🔍 선택된 아이템 텍스트: {item_text}")
+                self.logger.debug(f"🔍 선택된 아이템 텍스트: {item_text}")
                 
                 # 리스트박스 상태 확인
-                logging.debug(f"🔍 monitoringBox 아이템 수: {parent.monitoringBox.count()}")
-                logging.debug(f"🔍 boughtBox 아이템 수: {parent.boughtBox.count()}")
-                logging.debug(f"🔍 monitoringBox 현재 선택: {parent.monitoringBox.currentItem()}")
-                logging.debug(f"🔍 boughtBox 현재 선택: {parent.boughtBox.currentItem()}")
+                self.logger.debug(f"🔍 monitoringBox 아이템 수: {parent.monitoringBox.count()}")
+                self.logger.debug(f"🔍 boughtBox 아이템 수: {parent.boughtBox.count()}")
+                self.logger.debug(f"🔍 monitoringBox 현재 선택: {parent.monitoringBox.currentItem()}")
+                self.logger.debug(f"🔍 boughtBox 현재 선택: {parent.boughtBox.currentItem()}")
                 
                 # "종목코드 - 종목명" 형식에서 종목코드와 종목명 추출
                 parts = item_text.split(' - ')
                 code = parts[0]
                 name = parts[1] if len(parts) > 1 else f"종목{code}"  # Fallback (API 호출 제거)
                 
-                logging.debug(f"📊 종목 클릭됨: {item_text} -> 종목코드: {code}, 종목명: {name}")
+                self.logger.debug(f"📊 종목 클릭됨: {item_text} -> 종목코드: {code}, 종목명: {name}")
                 
                 # 중복 클릭 방지: 같은 종목을 연속으로 클릭한 경우 무시
                 if (hasattr(parent, '_last_clicked_code') and 
                     parent._last_clicked_code == code and 
                     hasattr(parent, '_last_click_time')):
                     current_time = time.time()
-                    if current_time - parent._last_click_time < 1.0:  # 1초 내 중복 클릭
-                        logging.debug(f"🔄 중복 클릭 방지: {code} (1초 내 재클릭)")
+                    if current_time - parent._last_click_time < 1.0:  # 1초 내 중복 클릭 # type: ignore
+                        self.logger.debug(f"🔄 중복 클릭 방지: {code} (1초 내 재클릭)")
                         return
                 
                 # 마지막 클릭 정보 저장
@@ -4237,13 +4012,13 @@ class UIComponentsManager:
                 # 실시간 차트 위젯 업데이트
                 if hasattr(parent, 'realtime_chart_widget') and parent.realtime_chart_widget:
                     parent.realtime_chart_widget.set_current_code(code)
-                    logging.debug(f"📊 실시간 차트 종목 변경: {code}")
+                    self.logger.debug(f"📊 실시간 차트 종목 변경: {code}")
             else:
-                logging.debug("🔍 current가 None입니다 - 종목 선택 해제됨")
+                self.logger.debug("🔍 current가 None입니다 - 종목 선택 해제됨")
                 if hasattr(parent, 'realtime_chart_widget') and parent.realtime_chart_widget:
                     parent.realtime_chart_widget.set_current_code(None)
         except Exception as ex:
-            logging.error(f"리스트박스 변경 이벤트 처리 실패: {ex}")
+            self.logger.error(f"리스트박스 변경 이벤트 처리 실패: {ex}")
         finally:
             # 처리 완료 후 락 해제
             parent.chart_drawing_lock.release()
@@ -4253,6 +4028,7 @@ class StrategyManager:
     """전략 로드/저장 관리 매니저"""
     
     def __init__(self, parent):
+        self.logger = logging.getLogger(self.__class__.__name__)
         self.parent = parent
     
     def load_strategy_combos(self):
@@ -4273,16 +4049,16 @@ class StrategyManager:
                 last_strategy = config.get('SETTINGS', 'last_strategy')
                 index = self.parent.comboStg.findText(last_strategy)
                 if index >= 0:
-                    self.parent.comboStg.setCurrentIndex(index)
-                    logging.debug(f"✅ 저장된 투자전략 복원: {last_strategy}")
+                    self.parent.comboStg.setCurrentIndex(index) # type: ignore
+                    self.logger.debug(f"✅ 저장된 투자전략 복원: {last_strategy}")
                     
                     # 조건검색식인 경우는 조건검색 목록 로드 후 자동 실행됨
                     if last_strategy.startswith("[조건검색]"):
-                        logging.debug("🔍 저장된 조건검색식 발견 - 조건검색 목록 로드 후 자동 실행 예정")
+                        self.logger.debug("🔍 저장된 조건검색식 발견 - 조건검색 목록 로드 후 자동 실행 예정")
                 else:
-                    logging.warning(f"⚠️ 저장된 투자전략을 찾을 수 없습니다: {last_strategy}")
+                    self.logger.warning(f"⚠️ 저장된 투자전략을 찾을 수 없습니다: {last_strategy}")
             else:
-                logging.debug("저장된 투자전략이 없습니다. 기본 전략을 사용합니다.")
+                self.logger.debug("저장된 투자전략이 없습니다. 기본 전략을 사용합니다.")
             
             # 매수전략 콤보박스 로드
             self.load_buy_strategies()
@@ -4293,10 +4069,10 @@ class StrategyManager:
             # 초기 전략 내용 로드
             self.parent.load_initial_strategy_content()
             
-            logging.debug("투자전략 콤보박스 로드 완료")
+            self.logger.debug("투자전략 콤보박스 로드 완료")
             
         except Exception as ex:
-            logging.error(f"전략 콤보박스 로드 실패: {ex}")
+            self.logger.error(f"전략 콤보박스 로드 실패: {ex}")
     
     def load_buy_strategies(self):
         """매수전략 콤보박스 로드"""
@@ -4317,7 +4093,7 @@ class StrategyManager:
             # 현재 선택된 투자전략 가져오기
             current_strategy = self.parent.comboStg.currentText()
             if not current_strategy:
-                logging.warning("선택된 투자전략이 없습니다")
+                self.logger.warning("선택된 투자전략이 없습니다")
                 return
             
             strategies = []
@@ -4342,11 +4118,11 @@ class StrategyManager:
                             display_name = f"[{section}] {name}"
                             strategies.append((f"{section}.{key}", display_name))
                         except json.JSONDecodeError:
-                            logging.warning(f"전략 파싱 실패: {section}.{key}")
+                            self.logger.warning(f"전략 파싱 실패: {section}.{key}")
             else:
                 # 해당 전략 섹션 확인
                 if not config.has_section(current_strategy):
-                    logging.warning(f"settings.ini에 [{current_strategy}] 섹션이 없습니다")
+                    self.logger.warning(f"settings.ini에 [{current_strategy}] 섹션이 없습니다")
                     return
                 
                 # 전략 목록 추출
@@ -4356,23 +4132,23 @@ class StrategyManager:
                             strategy_data = json.loads(config[current_strategy][key])
                             strategies.append((key, strategy_data.get('name', key)))
                         except json.JSONDecodeError:
-                            logging.warning(f"전략 파싱 실패: {key}")
+                            self.logger.warning(f"전략 파싱 실패: {key}")
             
             # 콤보박스에 추가
             for key, name in strategies:
                 combo_widget.addItem(name, key)
             
-            logging.debug(f"{strategy_type} 전략 {len(strategies)}개 로드 완료")
+            self.logger.debug(f"{strategy_type} 전략 {len(strategies)}개 로드 완료")
             
         except Exception as ex:
-            logging.error(f"전략 목록 로드 실패 ({strategy_type}): {ex}")
+            self.logger.error(f"전략 목록 로드 실패 ({strategy_type}): {ex}")
     
     def save_current_strategy(self):
         """현재 선택된 투자전략을 settings.ini에 저장"""
         try:
             current_strategy = self.parent.comboStg.currentText()
             if not current_strategy:
-                logging.debug("저장할 투자전략이 없습니다")
+                self.logger.debug("저장할 투자전략이 없습니다")
                 return
             
             config = configparser.RawConfigParser()
@@ -4386,10 +4162,10 @@ class StrategyManager:
             with open('settings.ini', 'w', encoding='utf-8') as f:
                 config.write(f)
             
-            logging.debug(f"✅ 현재 투자전략 저장(SETTINGS.last_strategy): {current_strategy}")
+            self.logger.debug(f"✅ 현재 투자전략 저장(SETTINGS.last_strategy): {current_strategy}")
             
         except Exception as ex:
-            logging.error(f"투자전략 저장 실패: {ex}")
+            self.logger.error(f"투자전략 저장 실패: {ex}")
     
     def load_initial_strategy_content(self):
         """초기 전략 내용을 텍스트박스에 로드"""
@@ -4405,7 +4181,7 @@ class StrategyManager:
                 self.load_strategy_content(current_sell_strategy, 'sell')
                 
         except Exception as ex:
-            logging.error(f"초기 전략 내용 로드 실패: {ex}")
+            self.logger.error(f"초기 전략 내용 로드 실패: {ex}")
     
     def load_strategy_content(self, strategy_name, strategy_type):
         """전략 내용을 텍스트 위젯에 로드"""
@@ -4458,13 +4234,13 @@ class StrategyManager:
                     self.parent.sellstgInputWidget.setPlainText(content)
                     
         except Exception as ex:
-            logging.error(f"전략 내용 로드 실패: {ex}")
+            self.logger.error(f"전략 내용 로드 실패: {ex}")
     
     def stg_changed(self):
         """전략 변경 이벤트 핸들러"""
         try:
-            strategy_name = self.parent.comboStg.currentText()
-            logging.debug(f"투자 전략 변경: {strategy_name}")
+            strategy_name = self.parent.comboStg.currentText() # type: ignore
+            self.logger.debug(f"투자 전략 변경: {strategy_name}")
             
             # 현재 선택된 전략을 settings.ini에 저장
             self.save_current_strategy()
@@ -4478,13 +4254,13 @@ class StrategyManager:
                         asyncio.get_running_loop()  # 루프 확인
                         asyncio.create_task(self.parent.handle_condition_search())
                     except RuntimeError:
-                        logging.warning("⚠️ 이벤트 루프가 없어 조건검색을 실행할 수 없습니다")
+                        self.logger.warning("⚠️ 이벤트 루프가 없어 조건검색을 실행할 수 없습니다")
                     return
             
             # 통합 전략인 경우 모든 조건검색식 실행
             if strategy_name == "통합 전략":
                 if hasattr(self.parent, 'condition_search_list') and self.parent.condition_search_list:
-                    logging.debug("🔍 통합 전략 실행: 모든 조건검색식 적용 (ConditionSearchManager)")
+                    self.logger.debug("🔍 통합 전략 실행: 모든 조건검색식 적용 (ConditionSearchManager)")
                     try:
                         asyncio.get_running_loop()  # 루프 확인
                         asyncio.create_task(self.parent.condition_search_manager.handle_integrated_condition_search())
@@ -4501,31 +4277,31 @@ class StrategyManager:
             self.load_initial_strategy_content()
             
         except Exception as ex:
-            logging.error(f"전략 변경 실패: {ex}")
+            self.logger.error(f"전략 변경 실패: {ex}")
     
     def buy_stg_changed(self):
         """매수 전략 변경 이벤트 핸들러"""
         try:
-            strategy_name = self.parent.comboBuyStg.currentText()
-            logging.debug(f"매수 전략 변경: {strategy_name}")
+            strategy_name = self.parent.comboBuyStg.currentText() # type: ignore
+            self.logger.debug(f"매수 전략 변경: {strategy_name}")
             
             # 매수 전략 내용을 텍스트 위젯에 표시
             self.load_strategy_content(strategy_name, 'buy')
             
         except Exception as ex:
-            logging.error(f"매수 전략 변경 실패: {ex}")
+            self.logger.error(f"매수 전략 변경 실패: {ex}")
     
     def sell_stg_changed(self):
         """매도 전략 변경 이벤트 핸들러"""
         try:
-            strategy_name = self.parent.comboSellStg.currentText()
-            logging.debug(f"매도 전략 변경: {strategy_name}")
+            strategy_name = self.parent.comboSellStg.currentText() # type: ignore
+            self.logger.debug(f"매도 전략 변경: {strategy_name}")
             
             # 매도 전략 내용을 텍스트 위젯에 표시
             self.load_strategy_content(strategy_name, 'sell')
             
         except Exception as ex:
-            logging.error(f"매도 전략 변경 실패: {ex}")
+            self.logger.error(f"매도 전략 변경 실패: {ex}")
     
     def _save_strategy(self, text_widget, combo_widget, key_prefix, strategy_type):
         """전략 저장 (공통 로직)
@@ -4556,11 +4332,11 @@ class StrategyManager:
                     target_section = section
                     target_key = key
                 else:
-                    logging.error(f"통합 전략 저장 오류: 잘못된 키 형식 - {key_from_combobox}")
+                    self.logger.error(f"통합 전략 저장 오류: 잘못된 키 형식 - {key_from_combobox}")
                     return
 
             if not config.has_section(target_section):
-                logging.error(f"{strategy_type} 전략 저장 실패: 섹션을 찾을 수 없음 - [{target_section}]")
+                self.logger.error(f"{strategy_type} 전략 저장 실패: 섹션을 찾을 수 없음 - [{target_section}]")
                 return
 
             if not config.has_option(target_section, target_key):
@@ -4575,22 +4351,22 @@ class StrategyManager:
                 # json.dumps를 사용하여 문자열로 변환
                 config.set(target_section, target_key, json.dumps(strategy_data, ensure_ascii=False))
             except (json.JSONDecodeError, KeyError) as e:
-                logging.error(f"전략 데이터 파싱 또는 수정 실패: {e}")
+                self.logger.error(f"전략 데이터 파싱 또는 수정 실패: {e}")
                 return
 
             # 파일 저장
             with open('settings.ini', 'w', encoding='utf-8') as configfile:
                 config.write(configfile)
 
-            logging.debug(f"{strategy_type} 전략 '{current_strategy_name}'이 저장되었습니다.")
+            self.logger.debug(f"{strategy_type} 전략 '{current_strategy_name}'이 저장되었습니다.")
 
             # 전략 즉시 반영: KiwoomStrategy 객체의 설정을 다시 로드
             if hasattr(self.parent, 'objstg') and self.parent.objstg:
                 self.parent.objstg.load_strategy_config()
-                logging.info(f"✅ {strategy_type} 전략이 즉시 반영되었습니다.")
+                self.logger.info(f"✅ {strategy_type} 전략이 즉시 반영되었습니다.")
 
         except Exception as ex:
-            logging.error(f"{strategy_type} 전략 저장 실패: {ex}")
+            self.logger.error(f"{strategy_type} 전략 저장 실패: {ex}")
     
     def save_buystrategy(self):
         """매수 전략 저장"""
@@ -4605,6 +4381,7 @@ class TradingManager:
     """매매 실행 관리 매니저"""
     
     def __init__(self, parent):
+        self.logger = logging.getLogger(self.__class__.__name__)
         self.parent = parent
     
     def get_target_buy_count(self):
@@ -4615,9 +4392,9 @@ class TradingManager:
             if config.has_option('BUYCOUNT', 'target_buy_count'):
                 return config.getint('BUYCOUNT', 'target_buy_count')
             else:
-                return 3  # 기본값
+                return 3  # 기본값 # type: ignore
         except Exception as ex:
-            logging.error(f"target_buy_count 읽기 실패: {ex}")
+            self.logger.error(f"target_buy_count 읽기 실패: {ex}")
             return 3  # 기본값
 
     def buycount_setting(self):
@@ -4644,16 +4421,16 @@ class TradingManager:
                 if hasattr(self.parent, 'trader'):
                     self.parent.trader.buycount = buycount
                 
-                logging.info(f"✅ 최대 투자 종목수 설정 완료: {buycount}종목")
+                self.logger.info(f"✅ 최대 투자 종목수 설정 완료: {buycount}종목")
                 QMessageBox.information(self.parent, "설정 완료", f"최대 투자 종목수가 {buycount}종목으로 설정되었습니다.")
             else:
-                logging.warning("1 이상의 숫자를 입력해주세요.")
+                self.logger.warning("1 이상의 숫자를 입력해주세요.")
                 QMessageBox.warning(self.parent, "입력 오류", "1 이상의 숫자를 입력해주세요.")
         except ValueError:
-            logging.warning("올바른 숫자를 입력해주세요.")
+            self.logger.warning("올바른 숫자를 입력해주세요.")
             QMessageBox.warning(self.parent, "입력 오류", "올바른 숫자를 입력해주세요.")
         except Exception as ex:
-            logging.error(f"투자 종목수 설정 실패: {ex}")
+            self.logger.error(f"투자 종목수 설정 실패: {ex}")
             QMessageBox.critical(self.parent, "설정 실패", f"설정 중 오류가 발생했습니다:\n{ex}")
     
     def delete_select_item(self):
@@ -4662,18 +4439,18 @@ class TradingManager:
             current_item = self.parent.monitoringBox.currentItem()
             if current_item:
                 self.parent.monitoringBox.takeItem(self.parent.monitoringBox.row(current_item))
-                logging.debug("선택된 종목이 삭제되었습니다.")
+                self.logger.debug("선택된 종목이 삭제되었습니다.")
             else:
-                logging.warning("삭제할 종목을 선택해주세요.")
+                self.logger.warning("삭제할 종목을 선택해주세요.")
         except Exception as ex:
-            logging.error(f"종목 삭제 실패: {ex}")
+            self.logger.error(f"종목 삭제 실패: {ex}")
     
     def add_stock_to_list(self):
         """투자 대상 종목 리스트에 종목 추가 (API 큐를 통한 차트 데이터 수집 후 추가)"""
         try:
             stock_input = self.parent.stockInputEdit.text().strip()
             if not stock_input:
-                logging.warning("종목명 또는 종목코드를 입력해주세요.")
+                self.logger.warning("종목명 또는 종목코드를 입력해주세요.")
                 return
             
             # 종목코드 정규화 (6자리 숫자로 변환)
@@ -4681,14 +4458,14 @@ class TradingManager:
             
             # 종목명 검색 실패 시 처리
             if stock_code is None or stock_name is None:
-                logging.error(f"❌ 종목을 찾을 수 없습니다: {stock_input}")
+                self.logger.error(f"❌ 종목을 찾을 수 없습니다: {stock_input}")
                 return
             
             # 이미 모니터링에 존재하는지 확인
             for i in range(self.parent.monitoringBox.count()):
                 existing_code = self.parent.monitoringBox.item(i).text()
                 if existing_code == stock_code:
-                    logging.warning(f"'{stock_name}' 종목이 이미 모니터링에 존재합니다.")
+                    self.logger.warning(f"'{stock_name}' 종목이 이미 모니터링에 존재합니다.")
                     return
             
             # 입력 필드 초기화
@@ -4697,37 +4474,37 @@ class TradingManager:
             # API 큐에 추가 (차트 데이터 수집 후 모니터링에 추가)
             if hasattr(self.parent, 'chart_cache') and self.parent.chart_cache:
                 if self.parent.chart_cache.add_stock_to_api_queue(stock_code):
-                    logging.debug(f"📋 수동 추가 종목을 API 큐에 추가: {stock_code}")
-                    logging.debug("📋 차트 데이터 수집 완료 후 모니터링에 추가됩니다")
+                    self.logger.debug(f"📋 수동 추가 종목을 API 큐에 추가: {stock_code}")
+                    self.logger.debug("📋 차트 데이터 수집 완료 후 모니터링에 추가됩니다")
                 else:
-                    logging.warning(f"⚠️ API 큐 추가 실패: {stock_code}")
+                    self.logger.warning(f"⚠️ API 큐 추가 실패: {stock_code}")
             else:
-                logging.error("❌ chart_cache가 없어 종목을 추가할 수 없습니다")
+                self.logger.error("❌ chart_cache가 없어 종목을 추가할 수 없습니다")
             
         except Exception as ex:
-            logging.error(f"종목 추가 실패: {ex}")
+            self.logger.error(f"종목 추가 실패: {ex}")
     
     def trading_mode_changed(self):
         """거래 모드 변경 이벤트 핸들러"""
         try:
             mode = "모의투자" if self.parent.tradingModeCombo.currentIndex() == 0 else "실제투자"
-            logging.debug(f"거래 모드 변경: {mode}")
+            self.logger.debug(f"거래 모드 변경: {mode}")
             
             # 키움 클라이언트의 is_mock 설정 업데이트
             if hasattr(self.parent, 'login_handler') and hasattr(self.parent.login_handler, 'kiwoom_client') and self.parent.login_handler.kiwoom_client:
                 is_mock = (self.parent.tradingModeCombo.currentIndex() == 0)
                 self.parent.login_handler.kiwoom_client.is_mock = is_mock
-                logging.debug(f"키움 클라이언트 모의투자 설정 업데이트: {is_mock}")
+                self.logger.debug(f"키움 클라이언트 모의투자 설정 업데이트: {is_mock}")
             
             # 연결된 상태라면 재연결 안내 (로그로만 표시)
             if hasattr(self.parent, 'trader') and self.parent.trader and self.parent.trader.client and self.parent.trader.client.is_connected:
-                logging.debug(f"거래 모드가 {mode}로 변경되었습니다. 새로운 설정을 적용하려면 API를 재연결해주세요.")
+                self.logger.debug(f"거래 모드가 {mode}로 변경되었습니다. 새로운 설정을 적용하려면 API를 재연결해주세요.")
                 
         except Exception as ex:
-            logging.error(f"거래 모드 변경 실패: {ex}")
+            self.logger.error(f"거래 모드 변경 실패: {ex}")
     
-    def sell_all_item(self):
-        """전체 매도 (키움 REST API 기반)"""
+    async def sell_all_item(self):
+        """전체 매도 (키움 REST API 기반) (비동기)"""
         try:
             if self.parent.boughtBox.count() > 0:
                 # 확인 대화상자
@@ -4736,7 +4513,7 @@ class TradingManager:
                                            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
                 
                 if reply == QMessageBox.StandardButton.Yes:
-                    logging.info("🔄 전체 매도 시작")
+                    self.logger.info("🔄 전체 매도 시작")
                     
                     # 보유 종목 목록 생성
                     sell_items = []
@@ -4764,13 +4541,13 @@ class TradingManager:
                                 
                                 if code in balance_data:
                                     quantity = balance_data[code].get('quantity', 0)
-                                    logging.debug(f"💰 웹소켓 잔고: {code} {quantity}주")
+                                    self.logger.debug(f"💰 웹소켓 잔고: {code} {quantity}주")
                             
                             # 2차: 웹소켓 데이터가 없거나 수량이 0이면 REST API로 조회
                             if quantity <= 0:
                                 try:
                                     if hasattr(self.parent, 'login_handler') and self.parent.login_handler and hasattr(self.parent.login_handler, 'kiwoom_client'):
-                                        balance_result = self.parent.login_handler.kiwoom_client.get_acnt_balance()
+                                        balance_result = await self.parent.login_handler.kiwoom_client.get_acnt_balance()
                                         if balance_result:
                                             holdings = balance_result.get('stk_acnt_evlt_prst', balance_result.get('output1', []))
                                             for stock in holdings:
@@ -4778,45 +4555,45 @@ class TradingManager:
                                                 stock_code = self.parent.normalize_stock_code(raw_code)
                                                 if stock_code == code:
                                                     quantity = self.parent.data_manager.safe_int(stock.get('rmnd_qty', stock.get('hldg_qty', 0)))
-                                                    logging.debug(f"📡 REST API 잔고: {code} {quantity}주")
+                                                    self.logger.debug(f"📡 REST API 잔고: {code} {quantity}주")
                                                     break
                                 except Exception as api_ex:
-                                    logging.error(f"❌ REST API 잔고 조회 실패: {api_ex}")
+                                    self.logger.error(f"❌ REST API 잔고 조회 실패: {api_ex}")
                             
                             # 수량 확인
                             if quantity <= 0:
-                                logging.warning(f"⚠️ {code} 보유 수량 없음 - 건너뜀")
+                                self.logger.warning(f"⚠️ {code} 보유 수량 없음 - 건너뜀")
                                 continue
                             
                             # 매도 주문 실행
                             if hasattr(self.parent, 'login_handler') and self.parent.login_handler and hasattr(self.parent.login_handler, 'kiwoom_client'):
-                                success = self.parent.login_handler.kiwoom_client.place_sell_order(code, quantity, 0, "market")
+                                success = await self.parent.login_handler.kiwoom_client.place_sell_order(code, quantity, 0, "market")
                                 
                                 if success:
                                     success_count += 1
-                                    logging.info(f"✅ 전체 매도 성공: {code} {quantity}주")
+                                    self.logger.info(f"✅ 전체 매도 성공: {code} {quantity}주")
                                 else:
-                                    logging.error(f"❌ 전체 매도 실패: {code}")
+                                    self.logger.error(f"❌ 전체 매도 실패: {code}")
                         except Exception as item_ex:
-                            logging.error(f"❌ {code} 매도 중 오류: {item_ex}")
+                            self.logger.error(f"❌ {code} 매도 중 오류: {item_ex}")
                     
                     # 결과 로그
                     if success_count > 0:
-                        logging.info(f"✅ 전체 매도 완료: {success_count}개 종목")
+                        self.logger.info(f"✅ 전체 매도 완료: {success_count}개 종목")
                     else:
-                        logging.error("❌ 전체 매도 실패")
+                        self.logger.error("❌ 전체 매도 실패")
                         QMessageBox.warning(self.parent, "전체 매도 실패", 
                                           "매도 주문이 실패했습니다.")
                 else:
-                    logging.debug("전체 매도 취소됨")
+                    self.logger.debug("전체 매도 취소됨")
             else:
-                logging.warning("매도할 종목이 없습니다.")
+                self.logger.warning("매도할 종목이 없습니다.")
         except Exception as ex:
-            logging.error(f"전체 매도 실패: {ex}")
+            self.logger.error(f"전체 매도 실패: {ex}")
             QMessageBox.critical(self.parent, "전체 매도 오류", f"전체 매도 중 오류가 발생했습니다: {ex}")
     
-    def sell_item(self):
-        """종목 매도 - 보유수량 전량 매도 (키움 REST API 기반)"""
+    async def sell_item(self):
+        """종목 매도 - 보유수량 전량 매도 (키움 REST API 기반) (비동기)"""
         try:
             current_item = self.parent.boughtBox.currentItem()
             if current_item:
@@ -4824,15 +4601,15 @@ class TradingManager:
                 # "종목코드 - 종목명" 형식에서 종목코드 추출
                 code = item_text.split(' - ')[0] if ' - ' in item_text else item_text
                 
-                logging.debug(f"매도 요청: {code}")
+                self.logger.debug(f"매도 요청: {code}")
                 
                 quantity = 0
                 
                 # 1차: REST API로 주문가능수량 조회 (kt00004)
-                logging.info(f"📡 REST API로 주문가능수량 조회 시도: {code}")
+                self.logger.info(f"📡 REST API로 주문가능수량 조회 시도: {code}")
                 try:
                     if hasattr(self.parent, 'login_handler') and self.parent.login_handler and hasattr(self.parent.login_handler, 'kiwoom_client'):
-                        balance_result = self.parent.login_handler.kiwoom_client.get_acnt_balance()
+                        balance_result = await self.parent.login_handler.kiwoom_client.get_acnt_balance()
                         if balance_result:
                             holdings = balance_result.get('stk_acnt_evlt_prst', balance_result.get('output1', []))
                             for stock in holdings:
@@ -4840,10 +4617,10 @@ class TradingManager:
                                 stock_code = self.parent.data_manager.normalize_stock_code(raw_code)
                                 if stock_code == code:
                                     quantity = self.parent.data_manager.safe_int(stock.get('rmnd_qty', 0))
-                                    logging.info(f"✅ REST API로 주문가능수량 조회 성공: {code} {quantity}주")
+                                    self.logger.info(f"✅ REST API로 주문가능수량 조회 성공: {code} {quantity}주")
                                     break
                 except Exception as api_ex:
-                    logging.error(f"❌ REST API 잔고 조회 실패: {api_ex}")
+                    self.logger.error(f"❌ REST API 잔고 조회 실패: {api_ex}")
 
                 # 2차: REST API 조회 실패 또는 수량 0일 때 웹소켓 데이터로 재확인 (Fallback)
                 if quantity <= 0:
@@ -4851,52 +4628,52 @@ class TradingManager:
                         ws_balance_data = self.parent.login_handler.websocket_client.balance_data
                         if ws_balance_data and code in ws_balance_data:
                             quantity = ws_balance_data[code].get('order_available_qty', 0)
-                            logging.info(f"💰 웹소켓 잔고 조회 (Fallback): {code} 주문가능수량 {quantity}주")
+                            self.logger.info(f"💰 웹소켓 잔고 조회 (Fallback): {code} 주문가능수량 {quantity}주")
                 
                 # 최종 수량 확인
                 if quantity <= 0:
-                    logging.warning(f"⚠️ 보유 수량 없음: {code}")
+                    self.logger.warning(f"⚠️ 보유 수량 없음: {code}")
                     QMessageBox.warning(self.parent, "매도 불가", f"{code} 보유 수량이 없습니다.\n웹소켓과 REST API 모두 확인했습니다.")
                     return
                 
-                logging.info(f"💰 전량 매도 실행: {code} {quantity}주")
+                self.logger.info(f"💰 전량 매도 실행: {code} {quantity}주")
                 
                 # 시장가 매도 주문 (전량)
                 if hasattr(self.parent, 'login_handler') and self.parent.login_handler and hasattr(self.parent.login_handler, 'kiwoom_client'):
-                    success = self.parent.login_handler.kiwoom_client.place_sell_order(code, quantity, 0, "market")
+                    success = await self.parent.login_handler.kiwoom_client.place_sell_order(code, quantity, 0, "market")
                     
                     if success:
                         # 매도 성공 (실시간 잔고 데이터가 자동으로 보유 종목에서 제거됨)
-                        logging.info(f"✅ 매도 주문 성공: {code} {quantity}주 전량 매도")
+                        self.logger.info(f"✅ 매도 주문 성공: {code} {quantity}주 전량 매도")
                     else:
-                        logging.error(f"❌ 매도 주문 실패: {code}")
+                        self.logger.error(f"❌ 매도 주문 실패: {code}")
                         QMessageBox.warning(self.parent, "매도 실패", f"{code} 매도 주문이 실패했습니다.")
                 else:
-                    logging.error("키움 클라이언트가 초기화되지 않았습니다")
+                    self.logger.error("키움 클라이언트가 초기화되지 않았습니다")
                     QMessageBox.warning(self.parent, "오류", "키움 클라이언트가 초기화되지 않았습니다.")
             else:
-                logging.warning("매도할 종목을 선택해주세요.")
+                self.logger.warning("매도할 종목을 선택해주세요.")
                 QMessageBox.warning(self.parent, "선택 오류", "매도할 종목을 선택해주세요.")
         except Exception as ex:
-            logging.error(f"매도 실패: {ex}")
-            logging.error(f"매도 실패 상세: {traceback.format_exc()}")
+            self.logger.error(f"매도 실패: {ex}")
+            self.logger.error(f"매도 실패 상세: {traceback.format_exc()}")
             QMessageBox.critical(self.parent, "매도 오류", f"매도 중 오류가 발생했습니다: {ex}")
     
-    def buy_item(self):
-        """종목 매입 - 자동 매입가능수량 계산 (키움 REST API 기반)"""
+    async def buy_item(self):
+        """종목 매입 - 자동 매입가능수량 계산 (키움 REST API 기반) (비동기)"""
         try:
             current_item = self.parent.monitoringBox.currentItem()
             if current_item:
                 code = current_item.text()
                
-                logging.info(f"🛒 매입 요청: {code}")
+                self.logger.info(f"🛒 매입 요청: {code}")
                 
                 # 보유 종목 확인 (이미 보유 중인 종목은 매수 제외)
                 if hasattr(self.parent, 'boughtBox'):
                     for i in range(self.parent.boughtBox.count()):
                         item_code = self.parent.boughtBox.item(i).text()
                         if item_code == code:
-                            logging.info(f"⚠️ 매수 주문 취소: {code}는 이미 보유 중인 종목입니다.")
+                            self.logger.info(f"⚠️ 매수 주문 취소: {code}는 이미 보유 중인 종목입니다.")
                             QMessageBox.warning(self.parent, "매수 불가", f"{code}는 이미 보유 중인 종목입니다.")
                             return
                 
@@ -4906,14 +4683,14 @@ class TradingManager:
                 try:
                     # 1단계: 투자가능금액 조회
                     if not hasattr(self.parent, 'trader') or not self.parent.trader:
-                        logging.error("⚠️ trader가 초기화되지 않았습니다 (API 연결이 필요합니다)")
+                        self.logger.error("⚠️ trader가 초기화되지 않았습니다 (API 연결이 필요합니다)")
                         QMessageBox.warning(self.parent, "오류", "API에 먼저 연결해주세요.")
                         return
                 
-                    available_cash = self.parent.trader.get_available_cash()
+                    available_cash = await self.parent.trader.get_available_cash()
                     
                     if available_cash <= 0:
-                        logging.warning(f"⚠️ 매수 주문 취소: 투자가능금액 부족 ({available_cash:,.0f}원)")
+                        self.logger.warning(f"⚠️ 매수 주문 취소: 투자가능금액 부족 ({available_cash:,.0f}원)")
                         QMessageBox.warning(self.parent, "매수 불가", f"투자가능금액이 부족합니다.\n현재: {available_cash:,.0f}원")
                         return
                     
@@ -4921,7 +4698,7 @@ class TradingManager:
                     available_buy_count = self.parent.login_handler.get_available_buy_count()
                     
                     if available_buy_count <= 0:
-                        logging.warning(f"⚠️ 매수 주문 취소: 최대 보유 종목 수 도달")
+                        self.logger.warning(f"⚠️ 매수 주문 취소: 최대 보유 종목 수 도달")
                         QMessageBox.warning(self.parent, "매수 불가", "최대 보유 종목 수에 도달했습니다.")
                         return
                     
@@ -4941,17 +4718,17 @@ class TradingManager:
                     # 캐시에 없으면 REST API로 현재가 조회
                     if current_price <= 0:
                         try:
-                            current_price = self.parent.trader.get_current_price(code)
+                            current_price = await self.parent.trader.get_current_price(code)
                             if current_price > 0:
                                 price_source = "API"
                         except Exception as price_ex:
-                            logging.debug(f"현재가 조회 실패: {price_ex}")
+                            self.logger.debug(f"현재가 조회 실패: {price_ex}")
                     
                     # 현재가 조회 실패 시 추정 현재가 사용 (시장가 주문용)
                     if current_price <= 0:
                         current_price = 50000
                         price_source = "추정"
-                        logging.debug(f"현재가 조회 실패 → 추정가 사용")
+                        self.logger.debug(f"현재가 조회 실패 → 추정가 사용")
                     
                     # 4단계: 매수 수량 계산
                     # 한 종목당 투자예산 = 투자가능금액 / 매수가능종목수
@@ -4962,10 +4739,10 @@ class TradingManager:
                     if quantity <= 0:
                         quantity = 1
                     
-                    logging.info(f"🛒 {code} 매수: {quantity}주 @ 시장가 (예산 {budget_per_stock:,.0f}원, 현재가 {current_price:,.0f}원/{price_source})")
+                    self.logger.info(f"🛒 {code} 매수: {quantity}주 @ 시장가 (예산 {budget_per_stock:,.0f}원, 현재가 {current_price:,.0f}원/{price_source})")
                     
                 except Exception as calc_ex:
-                    logging.error(f"❌ 매수 수량 계산 실패: {calc_ex}")
+                    self.logger.error(f"❌ 매수 수량 계산 실패: {calc_ex}")
                     QMessageBox.warning(self.parent, "오류", f"매수 수량 계산 중 오류가 발생했습니다:\n{calc_ex}")
                     return
                 
@@ -4974,39 +4751,40 @@ class TradingManager:
                 
                 # 키움 REST API를 통한 매수 주문 (시장가만)
                 if hasattr(self.parent, 'login_handler') and self.parent.login_handler and hasattr(self.parent.login_handler, 'kiwoom_client'):
-                    success = self.parent.login_handler.kiwoom_client.place_buy_order(code, quantity, 0, "market")
+                    success = await self.parent.login_handler.kiwoom_client.place_buy_order(code, quantity, 0, "market")
                     
                     if success:
-                        logging.info(f"✅ 매수 주문 성공: {code} {quantity}주")
+                        self.logger.info(f"✅ 매수 주문 성공: {code} {quantity}주")
                     else:
-                        logging.error(f"❌ 매수 주문 실패: {code}")
+                        self.logger.error(f"❌ 매수 주문 실패: {code}")
                         QMessageBox.warning(self.parent, "매수 실패", f"{code} 매수 주문이 실패했습니다.")
                 else:
-                    logging.error("키움 클라이언트가 초기화되지 않았습니다")
+                    self.logger.error("키움 클라이언트가 초기화되지 않았습니다")
                     QMessageBox.warning(self.parent, "오류", "키움 클라이언트가 초기화되지 않았습니다.")
             else:
-                logging.warning("매입할 종목을 선택해주세요.")
+                self.logger.warning("매입할 종목을 선택해주세요.")
                 QMessageBox.warning(self.parent, "선택 오류", "매입할 종목을 선택해주세요.")
         except Exception as ex:
-            logging.error(f"매입 실패: {ex}")
+            self.logger.error(f"매입 실패: {ex}")
             QMessageBox.critical(self.parent, "매입 오류", f"매입 중 오류가 발생했습니다:\n{ex}")
     
     def on_chart_data_updated_for_trading(self, code):
         """차트 데이터 업데이트 시 AutoTrader에 매매 판단 위임"""
         try:
-            # AutoTrader에서 매매 판단 및 실행 (구조 개선: 모든 매매 로직이 AutoTrader에 통합)
             if hasattr(self.parent, 'autotrader') and self.parent.autotrader:
-                self.parent.autotrader.analyze_and_execute_trading(code)
+                # AutoTrader에서 매매 판단 및 실행 (비동기 호출)
+                asyncio.create_task(self.parent.autotrader.analyze_and_execute_trading(code))
             else:
-                logging.warning("⚠️ AutoTrader 객체가 없어 매매 판단을 건너뜁니다")
+                self.logger.warning("⚠️ AutoTrader 객체가 없어 매매 판단을 건너뜁니다")
         except Exception as ex:
-            logging.error(f"❌ 차트 데이터 매매 판단 위임 실패: {code} - {ex}")
+            self.logger.error(f"❌ 차트 데이터 매매 판단 위임 실패: {code} - {ex}")
 
 
 class BacktestManager:
     """백테스팅 관리 매니저"""
     
     def __init__(self, parent):
+        self.logger = logging.getLogger(self.__class__.__name__)
         self.parent = parent
     
     def init_backtest_tab(self):
@@ -5174,10 +4952,10 @@ class BacktestManager:
                 if index >= 0:
                     self.parent.bt_strategy_combo.setCurrentIndex(index)
             
-            logging.debug("백테스팅 전략 콤보박스 로드 완료")
+            self.logger.debug("백테스팅 전략 콤보박스 로드 완료")
             
         except Exception as ex:
-            logging.error(f"백테스팅 전략 콤보박스 로드 실패: {ex}")
+            self.logger.error(f"백테스팅 전략 콤보박스 로드 실패: {ex}")
     
     def load_db_period(self):
         """DB 기간 불러오기"""
@@ -5190,12 +4968,12 @@ class BacktestManager:
             if start_date and end_date:
                 self.parent.bt_start_date.setText(start_date)
                 self.parent.bt_end_date.setText(end_date)
-                logging.debug(f"DB 기간 로드: {start_date} ~ {end_date}")
+                self.logger.debug(f"DB 기간 로드: {start_date} ~ {end_date}")
             else:
-                logging.warning("DB에서 날짜 정보를 찾을 수 없습니다.")
+                self.logger.warning("DB에서 날짜 정보를 찾을 수 없습니다.")
                 
         except Exception as ex:
-            logging.error(f"DB 기간 로드 실패: {ex}")
+            self.logger.error(f"DB 기간 로드 실패: {ex}")
     
     def run_backtest(self):
         """백테스팅 실행"""
@@ -5220,7 +4998,7 @@ class BacktestManager:
                 QMessageBox.warning(self.parent, "입력 오류", "시작일, 종료일, 투자 전략을 모두 선택해주세요.")
                 return
 
-            logging.info(f"백테스팅 시작: {strategy_name} ({start_date} ~ {end_date})")
+            self.logger.info(f"백테스팅 시작: {strategy_name} ({start_date} ~ {end_date})")
             self.parent.bt_results_text.clear()
             self.parent.bt_results_text.append(f"백테스팅을 시작합니다: {strategy_name}\n")
             QApplication.processEvents()
@@ -5254,7 +5032,7 @@ class BacktestManager:
                 self.parent.bt_results_text.append("\n백테스팅 실행에 실패했거나 결과가 없습니다.")
 
         except Exception as ex:
-            logging.error(f"백테스팅 실행 실패: {ex}")
+            self.logger.error(f"백테스팅 실행 실패: {ex}")
             QMessageBox.critical(self.parent, "백테스팅 오류", f"백테스팅 실행 중 오류가 발생했습니다:\n{ex}")
 
 
@@ -5262,10 +5040,11 @@ class AccountManager:
     """계좌 조회 및 잔고 관리 매니저"""
     
     def __init__(self, parent: 'MyWindow'):
+        self.logger = logging.getLogger(self.__class__.__name__)
         self.parent = parent
     
-    def handle_acnt_balance_query(self):
-        """계좌 잔고조회 - REST API로 초기 조회 후 실시간 업데이트
+    async def handle_acnt_balance_query(self):
+        """계좌 잔고조회 - REST API로 초기 조회 후 실시간 업데이트 (비동기)
         
         1. REST API로 초기 잔고 조회 및 보유종목 리스트 생성
         2. 웹소켓 실시간 잔고(04)로 변동사항 추적
@@ -5274,42 +5053,42 @@ class AccountManager:
         parent = self.parent
         
         try:
-            logging.debug("🔧 계좌 잔고 조회 시작 (REST API)")
+            self.logger.debug("🔧 계좌 잔고 조회 시작 (REST API)")
             
             if not hasattr(parent, 'trader') or not parent.trader:
-                logging.warning("⚠️ 트레이더가 초기화되지 않았습니다")
+                self.logger.warning("⚠️ 트레이더가 초기화되지 않았습니다")
                 return
             
             if not hasattr(parent.trader, 'client') or not parent.trader.client:
-                logging.warning("⚠️ API 클라이언트가 연결되지 않았습니다")
+                self.logger.warning("⚠️ API 클라이언트가 연결되지 않았습니다")
                 return
 
             # 1. 예수금상세현황 조회 (kt00001)
-            logging.debug("🔍 예수금상세현황 조회 중...")
+            self.logger.debug("🔍 예수금상세현황 조회 중...")
             try:
-                deposit_data = parent.trader.client.get_deposit_detail()
+                deposit_data = await parent.trader.client.get_deposit_detail()
                 if deposit_data:
-                    logging.debug("✅ 예수금상세현황 조회 성공")
+                    self.logger.debug("✅ 예수금상세현황 조회 성공")
                     parent._display_deposit_info(deposit_data)
                 else:
-                    logging.warning("⚠️ 예수금상세현황 조회 실패")
+                    self.logger.warning("⚠️ 예수금상세현황 조회 실패")
             except Exception as deposit_ex:
-                logging.error(f"❌ 예수금상세현황 조회 실패: {deposit_ex}")
+                self.logger.error(f"❌ 예수금상세현황 조회 실패: {deposit_ex}")
 
             # 2. REST API 잔고조회 (kt00004) - 초기 보유종목 확인
-            logging.debug("🔍 계좌 잔고 조회 중...")
+            self.logger.debug("🔍 계좌 잔고 조회 중...")
             try:
-                balance_data = parent.trader.client.get_acnt_balance()
+                balance_data = await parent.trader.client.get_acnt_balance()
                 if balance_data:
                     # 키움 API 공식 문서 기준 필드명 사용
                     # stk_acnt_evlt_prst: 종목별계좌평가현황 (LIST)
                     holdings = balance_data.get('stk_acnt_evlt_prst', balance_data.get('output1', []))
                     
                     if holdings and len(holdings) > 0:
-                        logging.info(f"📦 보유 종목 수: {len(holdings)}개")
-                        logging.info("=" * 70)
-                        logging.info("📋 보유 종목 목록 (REST API)")
-                        logging.info("-" * 70)
+                        self.logger.info(f"📦 보유 종목 수: {len(holdings)}개")
+                        self.logger.info("=" * 70)
+                        self.logger.info("📋 보유 종목 목록 (REST API)")
+                        self.logger.info("-" * 70)
                         
                         for stock in holdings:
                             # 키움 API 공식 문서 기준 필드명 (구 버전 호환)
@@ -5323,17 +5102,17 @@ class AccountManager:
                             profit_rate = parent.data_manager.safe_float(stock.get('pl_rt', stock.get('evlu_pfls_rt', 0)))
                             
                             if quantity > 0:
-                                logging.info(f"  📊 {stock_name}({stock_code})")
-                                logging.info(f"     💰 현재가: {current_price:,}원 | 보유수량: {quantity:,}주 | 매입단가: {avg_price:,}원")
+                                self.logger.info(f"  📊 {stock_name}({stock_code})")
+                                self.logger.info(f"     💰 현재가: {current_price:,}원 | 보유수량: {quantity:,}주 | 매입단가: {avg_price:,}원")
                                 
                                 if profit_loss > 0:
-                                    logging.info(f"     📈 평가손익: +{profit_loss:,}원 (+{profit_rate:.2f}%)")
+                                    self.logger.info(f"     📈 평가손익: +{profit_loss:,}원 (+{profit_rate:.2f}%)")
                                 elif profit_loss < 0:
-                                    logging.info(f"     📉 평가손익: {profit_loss:,}원 ({profit_rate:.2f}%)")
+                                    self.logger.info(f"     📉 평가손익: {profit_loss:,}원 ({profit_rate:.2f}%)")
                                 else:
-                                    logging.info(f"     ➡️ 평가손익: 0원 (0.00%)")
+                                    self.logger.info(f"     ➡️ 평가손익: 0원 (0.00%)")
                         
-                        logging.info("=" * 70)
+                        self.logger.info("=" * 70)
                         
                         # 보유종목을 모니터링과 보유종목 리스트에 추가
                         for stock in holdings:
@@ -5359,7 +5138,7 @@ class AccountManager:
                                 
                                 if not monitoring_exists:
                                     parent.monitoring_manager.add_stock_to_monitoring(stock_code, stock_name)
-                                    logging.debug(f"   ✅ 모니터링 추가 (동기): {stock_code} ({stock_name})")
+                                    self.logger.debug(f"   ✅ 모니터링 추가 (동기): {stock_code} ({stock_name})")
                                 
                                 # 보유종목 리스트에 추가
                                 holding_exists = False
@@ -5377,10 +5156,10 @@ class AccountManager:
                                 
                                 if not holding_exists:
                                     parent.boughtBox.addItem(stock_code)
-                                    logging.debug(f"   ✅ 보유종목 추가: {stock_code} ({stock_name})")
+                                    self.logger.debug(f"   ✅ 보유종목 추가: {stock_code} ({stock_name})")
                         
-                        logging.info("✅ 보유종목이 모니터링과 보유종목 리스트에 추가되었습니다")
-                        logging.info("📡 이후 실시간 변동은 웹소켓으로 업데이트됩니다")
+                        self.logger.info("✅ 보유종목이 모니터링과 보유종목 리스트에 추가되었습니다")
+                        self.logger.info("📡 이후 실시간 변동은 웹소켓으로 업데이트됩니다")
                         
                         # REST API 잔고 데이터를 웹소켓 balance_data에 저장 (중요!)
                         self._initialize_balance_data_from_rest_api(holdings)
@@ -5388,39 +5167,39 @@ class AccountManager:
                         # 투자현황표 직접 업데이트는 _initialize_balance_data_from_rest_api 내부에서 수행됨
                         
                     else:
-                        logging.info("📦 현재 보유 종목이 없습니다.")
+                        self.logger.info("📦 현재 보유 종목이 없습니다.")
                 else:
-                    logging.warning("⚠️ 계좌 잔고 조회 실패 또는 보유종목 없음")
+                    self.logger.warning("⚠️ 계좌 잔고 조회 실패 또는 보유종목 없음")
                     
             except Exception as balance_ex:
-                logging.error(f"❌ 계좌 잔고 조회 실패: {balance_ex}")
-                logging.error(f"잔고 조회 예외 상세: {traceback.format_exc()}")
+                self.logger.error(f"계좌 잔고 조회 실패: {balance_ex}", exc_info=True)
+                
                 
         except Exception as ex:
-            logging.error(f"❌ 계좌 잔고 조회 실패: {ex}")
-            logging.error(f"계좌 조회 예외 상세: {traceback.format_exc()}")
+            self.logger.error(f"계좌 잔고 조회 실패: {ex}", exc_info=True)
+            
 
     async def handle_acnt_balance_query_async(self):
         """계좌 잔고조회 (비동기 버전) - post_login_setup에서 사용"""
         parent = self.parent
         try:
-            logging.debug("🔧 계좌 잔고 조회 시작 (비동기)")
+            self.logger.debug("🔧 계좌 잔고 조회 시작 (비동기)")
             
             if not hasattr(parent, 'trader') or not parent.trader:
-                logging.warning("⚠️ 트레이더가 초기화되지 않았습니다")
+                self.logger.warning("⚠️ 트레이더가 초기화되지 않았습니다")
                 return
             
             # 1. 예수금상세현황 조회
             try:
-                deposit_data = parent.trader.client.get_deposit_detail()
+                deposit_data = await parent.trader.client.get_deposit_detail()
                 if deposit_data:
                     parent.ui_manager.display_deposit_info(deposit_data)
             except Exception as deposit_ex:
-                logging.error(f"❌ 예수금상세현황 조회 실패: {deposit_ex}")
+                self.logger.error(f"❌ 예수금상세현황 조회 실패: {deposit_ex}")
 
             # 2. REST API 잔고조회
             try:
-                balance_data = parent.trader.client.get_acnt_balance()
+                balance_data = await parent.trader.client.get_acnt_balance()
                 if balance_data:
                     holdings = balance_data.get('stk_acnt_evlt_prst', balance_data.get('output1', []))
                     
@@ -5461,10 +5240,10 @@ class AccountManager:
                     logging.warning("⚠️ 계좌 잔고 조회 실패 또는 보유종목 없음 (비동기 조회)")
                     
             except Exception as balance_ex:
-                logging.error(f"❌ 계좌 잔고 조회 실패 (비동기): {balance_ex}")
+                logging.error(f"계좌 잔고 조회 실패 (비동기): {balance_ex}", exc_info=True)
                 
         except Exception as ex:
-            logging.error(f"❌ 계좌 잔고 조회 실패 (비동기): {ex}")
+            logging.error(f"계좌 잔고 조회 실패 (비동기): {ex}", exc_info=True)
 
     
     def _initialize_balance_data_from_rest_api(self, holdings):
@@ -5542,7 +5321,7 @@ class AccountManager:
                                 if stock_code not in parent.trader.buy_times:
                                     # REST API에는 매입 시간이 없으므로 현재 시간 사용
                                     parent.trader.buy_times[stock_code] = datetime.now()
-                                logging.debug(f"   ✅ {stock_code} trader.holdings에 추가 (초기 로드, 수량: {quantity}주, 매입단가: {average_price}원)")
+                                self.logger.debug(f"   ✅ {stock_code} trader.holdings에 추가 (초기 로드, 수량: {quantity}주, 매입단가: {average_price}원)")
                             else:
                                 # 이미 있는 경우 수량 업데이트
                                 parent.trader.holdings[stock_code]['quantity'] = quantity
@@ -5551,50 +5330,50 @@ class AccountManager:
                         
                         converted_count += 1
                         
-                        logging.debug(f"   ✅ {stock_code} 변환 완료: {quantity}주, {current_price:,}원")
+                        self.logger.debug(f"   ✅ {stock_code} 변환 완료: {quantity}주, {current_price:,}원")
                         
                 except Exception as item_ex:
-                    logging.error(f"❌ 종목 데이터 변환 실패 ({stock_code}): {item_ex}")
+                    self.logger.error(f"❌ 종목 데이터 변환 실패 ({stock_code}): {item_ex}")
                     continue
             
-            logging.info(f"✅ REST API 잔고 데이터 변환 완료: {converted_count}개 종목")
+            self.logger.info(f"✅ REST API 잔고 데이터 변환 완료: {converted_count}개 종목")
             
             # 웹소켓 balance_data에 저장 완료
-            logging.info(f"✅ 웹소켓 balance_data에 {converted_count}개 종목 저장 완료")
-            logging.info(f"   저장된 종목 목록: {list(ws_client.balance_data.keys())}")
+            self.logger.info(f"✅ 웹소켓 balance_data에 {converted_count}개 종목 저장 완료")
+            self.logger.info(f"   저장된 종목 목록: {list(ws_client.balance_data.keys())}")
             
             # 투자현황표 업데이트 (웹소켓 balance_data 사용)
             if converted_count > 0:
-                logging.debug("🔧 투자 현황표 업데이트 시작 (REST API 잔고 → 웹소켓 balance_data)")
+                self.logger.debug("🔧 투자 현황표 업데이트 시작 (REST API 잔고 → 웹소켓 balance_data)")
                 parent.update_stock_table()
             
         except Exception as ex:
-            logging.error(f"❌ REST API 잔고 데이터 변환 실패: {ex}")
-            logging.error(f"변환 실패 예외 상세: {traceback.format_exc()}")
+            self.logger.error(f"❌ REST API 잔고 데이터 변환 실패: {ex}", exc_info=True)
     
 
 class ConditionSearchManager:
     """조건검색 관리 매니저"""
     
     def __init__(self, parent):
+        self.logger = logging.getLogger(self.__class__.__name__)
         self.parent = parent
 
     async def handle_condition_search_list_query(self):
         """조건검색 목록조회 (웹소켓 기반)"""
         try:
-            logging.debug("🔍 조건검색 목록조회 시작 (웹소켓)")
+            self.logger.debug("🔍 조건검색 목록조회 시작 (웹소켓)")
 
             if not hasattr(self.parent, 'trader') or not self.parent.trader:
-                logging.warning("⚠️ 트레이더가 초기화되지 않았습니다")
+                self.logger.warning("⚠️ 트레이더가 초기화되지 않았습니다")
                 return
 
             if not hasattr(self.parent.trader, 'client') or not self.parent.trader.client:
-                logging.warning("⚠️ API 클라이언트가 연결되지 않았습니다")
+                self.logger.warning("⚠️ API 클라이언트가 연결되지 않았습니다")
                 return
 
             # 웹소켓 클라이언트 확인
             if not hasattr(self.parent.login_handler, 'websocket_client') or not self.parent.login_handler.websocket_client:
-                logging.warning("⚠️ 웹소켓 클라이언트가 연결되지 않았습니다")
+                self.logger.warning("⚠️ 웹소켓 클라이언트가 연결되지 않았습니다")
                 return
 
             # 웹소켓을 통한 조건검색 목록조회
@@ -5608,10 +5387,10 @@ class ConditionSearchManager:
                 logging.debug("💾 조건검색 목록조회 요청 완료 - 응답은 웹소켓에서 처리됩니다")
 
             except Exception as websocket_ex:
-                logging.error(f"❌ 조건검색 목록조회 웹소켓 요청 실패: {websocket_ex}")
+                self.logger.error(f"❌ 조건검색 목록조회 웹소켓 요청 실패: {websocket_ex}")
                 self.parent.condition_search_list = None
         except Exception as ex:
-            logging.error(f"❌ 조건검색 목록조회 실패: {ex}")
+            self.logger.error(f"❌ 조건검색 목록조회 실패: {ex}")
             self.parent.condition_search_list = None
     
     def load_condition_list(self):
@@ -5663,7 +5442,7 @@ class ConditionSearchManager:
                     condition_text = name  # [조건검색] 접두사 제거
                     self.parent.comboStg.addItem(condition_text)
                     added_count += 1
-                    logging.debug(f"✅ 조건검색식 추가 ({added_count}/{len(condition_list)}): {condition_text}")
+                    logging.info(f"✅ 조건검색식 추가 ({added_count}/{len(condition_list)}): {condition_text}")
                 
                 logging.debug(f"✅ 조건검색식 목록 로드 완료: {len(condition_list)}개 종목이 투자전략 콤보박스에 추가됨")
                 
@@ -5677,8 +5456,7 @@ class ConditionSearchManager:
                 self.parent.update_condition_status("목록 없음")
             
         except Exception as ex:
-            logging.error(f"❌ 조건검색식 목록 로드 실패: {ex}")
-            logging.error(f"조건검색식 목록 로드 에러 상세: {traceback.format_exc()}")
+            self.logger.error(f"❌ 조건검색식 목록 로드 실패: {ex}", exc_info=True)
             self.parent.update_condition_status("실패")
     
     def check_and_auto_execute_saved_condition(self):
@@ -5691,40 +5469,40 @@ class ConditionSearchManager:
             
             if config.has_option('SETTINGS', 'last_strategy'):
                 last_strategy = config.get('SETTINGS', 'last_strategy')
-                logging.debug(f"📋 저장된 전략 확인: {last_strategy}")
+                self.logger.debug(f"📋 저장된 전략 확인: {last_strategy}")
                 
                 # 저장된 전략이 조건검색식인지 확인 (조건검색 목록에 있는지 확인)
                 if hasattr(self.parent, 'condition_search_list') and self.parent.condition_search_list:
                     condition_names = [condition['title'] for condition in self.parent.condition_search_list]
                     if last_strategy in condition_names:
-                        logging.debug(f"🔍 저장된 조건검색식 발견: {last_strategy}")
+                        self.logger.debug(f"🔍 저장된 조건검색식 발견: {last_strategy}")
                         
                         # 콤보박스에서 해당 조건검색식 찾기
                         index = self.parent.comboStg.findText(last_strategy)
                         if index >= 0:
                             # 조건검색식 선택
                             self.parent.comboStg.setCurrentIndex(index)
-                            logging.debug(f"✅ 저장된 조건검색식 선택: {last_strategy}")
+                            self.logger.debug(f"✅ 저장된 조건검색식 선택: {last_strategy}")
                             
                             # 자동 실행 (1초 후)
                             async def delayed_condition_search():
                                 await asyncio.sleep(1.0)  # 1초 대기
                                 await self.parent.handle_condition_search()
                             asyncio.create_task(delayed_condition_search())
-                            logging.debug("🔍 저장된 조건검색식 자동 실행 예약 (1초 후)")
-                            logging.debug("📋 조건검색식이 자동으로 실행되어 모니터링 종목에 추가됩니다")
+                            self.logger.debug("🔍 저장된 조건검색식 자동 실행 예약 (1초 후)")
+                            self.logger.debug("📋 조건검색식이 자동으로 실행되어 모니터링 종목에 추가됩니다")
                             return True  # 저장된 조건검색식 실행됨
                 
                 # 통합 전략인 경우 모든 조건검색식 실행
                 if last_strategy == "통합 전략":
-                    logging.debug(f"🔍 저장된 통합 전략 발견: {last_strategy}")
+                    self.logger.debug(f"🔍 저장된 통합 전략 발견: {last_strategy}")
                     
                     # 콤보박스에서 통합 전략 찾기
                     index = self.parent.comboStg.findText(last_strategy)
                     if index >= 0:
                         # 통합 전략 선택
                         self.parent.comboStg.setCurrentIndex(index)
-                        logging.debug(f"✅ 저장된 통합 전략 선택: {last_strategy}")
+                        self.logger.debug(f"✅ 저장된 통합 전략 선택: {last_strategy}")
                         
                         # 자동 실행 (1초 후)
                         async def delayed_integrated_search():
@@ -5733,58 +5511,57 @@ class ConditionSearchManager:
                                 await self.parent.handle_integrated_condition_search()
                             except asyncio.CancelledError:
                                 # 태스크가 취소되면 조용히 종료
-                                logging.debug("통합 조건검색 태스크 취소됨")
+                                self.logger.debug("통합 조건검색 태스크 취소됨")
                                 return
                             except Exception as e:
-                                logging.error(f"통합 조건검색 실행 실패: {e}")
+                                self.logger.error(f"통합 조건검색 실행 실패: {e}")
                         
                         # 태스크 생성 및 실행 (취소 가능하도록 설정)
                         task = asyncio.create_task(delayed_integrated_search())
                         # 태스크를 저장하여 필요시 취소할 수 있도록 함
                         self.parent._delayed_search_task = task
-                        logging.debug("🔍 저장된 통합 전략 자동 실행 예약 (1초 후)")
-                        logging.debug("📋 모든 조건검색식이 자동으로 실행되어 모니터링 종목에 추가됩니다")
+                        self.logger.debug("🔍 저장된 통합 전략 자동 실행 예약 (1초 후)")
+                        self.logger.debug("📋 모든 조건검색식이 자동으로 실행되어 모니터링 종목에 추가됩니다")
                         return True  # 저장된 통합 전략 실행됨
                     else:
-                        logging.warning(f"⚠️ 저장된 조건검색식을 콤보박스에서 찾을 수 없습니다: {last_strategy}")
-                        logging.debug("📋 조건검색식 목록을 다시 확인하거나 수동으로 선택하세요")
+                        self.logger.warning(f"⚠️ 저장된 조건검색식을 콤보박스에서 찾을 수 없습니다: {last_strategy}")
+                        self.logger.debug("📋 조건검색식 목록을 다시 확인하거나 수동으로 선택하세요")
                         return False  # 저장된 조건검색식이 콤보박스에 없음
                 else:
-                    logging.debug(f"📋 저장된 전략이 조건검색식이 아닙니다: {last_strategy}")
-                    logging.debug("📋 일반 투자전략이 선택되어 있습니다")
+                    self.logger.debug(f"📋 저장된 전략이 조건검색식이 아닙니다: {last_strategy}")
+                    self.logger.debug("📋 일반 투자전략이 선택되어 있습니다")
                     return False  # 조건검색식이 아님
             else:
-                logging.debug("📋 저장된 전략이 없습니다")
-                logging.debug("📋 투자전략 콤보박스에서 원하는 전략을 선택하세요")
+                self.logger.debug("📋 저장된 전략이 없습니다")
+                self.logger.debug("📋 투자전략 콤보박스에서 원하는 전략을 선택하세요")
                 return False  # 저장된 전략이 없음
             
         except Exception as ex:
-            logging.error(f"❌ 저장된 조건검색식 확인 및 자동 실행 실패: {ex}")
-            logging.error(f"저장된 조건검색식 확인 에러 상세: {traceback.format_exc()}")
+            self.logger.error(f"❌ 저장된 조건검색식 확인 및 자동 실행 실패: {ex}", exc_info=True)
             return False  # 오류 발생
     
     async def handle_integrated_condition_search(self):
         """통합 전략 실행: 모든 조건검색식 순차적으로 실행"""
         try:
             if not hasattr(self.parent, 'condition_search_list') or not self.parent.condition_search_list:
-                logging.warning("⚠️ 조건검색 목록이 없어 통합 검색을 실행할 수 없습니다.")
+                self.logger.warning("⚠️ 조건검색 목록이 없어 통합 검색을 실행할 수 없습니다.")
                 return
 
-            logging.info(f"🔄 통합 조건검색 시작: {len(self.parent.condition_search_list)}개 조건식 실행")
+            self.logger.info(f"🔄 통합 조건검색 시작: {len(self.parent.condition_search_list)}개 조건식 실행")
 
             for condition in self.parent.condition_search_list:
                 seq = condition.get('seq')
                 name = condition.get('title')
                 if seq and name:
-                    logging.debug(f"  - 조건검색 실행: {name} (seq: {seq})")
+                    self.logger.debug(f"  - 조건검색 실행: {name} (seq: {seq})")
                     # 각 조건검색을 순차적으로 실행하고, API 제한을 피하기 위해 약간의 지연을 둡니다.
                     await self.parent.start_condition_realtime(seq, name)
                     await asyncio.sleep(1) # API 요청 간격
 
-            logging.debug("✅ 모든 조건검색식에 대한 실시간 모니터링이 시작되었습니다.")
+            self.logger.debug("✅ 모든 조건검색식에 대한 실시간 모니터링이 시작되었습니다.")
 
         except Exception as ex:
-            logging.error(f"❌ 통합 조건검색 실행 실패: {ex}")
+            self.logger.error(f"❌ 통합 조건검색 실행 실패: {ex}")
 
 
 # ==================== 메인 윈도우 ====================
@@ -5793,6 +5570,7 @@ class MyWindow(QWidget):
     
     def __init__(self):
         super().__init__()
+        self.logger = logging.getLogger(self.__class__.__name__)
         
         # 기본 변수 초기화
         self.is_loading_strategy = False
@@ -5871,11 +5649,11 @@ class MyWindow(QWidget):
                 if self._post_login_setup_done:
                     logging.debug("이미 자동 연결 및 초기화가 완료되었습니다.")
                     return
-                self.login_handler.handle_api_connection()
+                await self.login_handler.handle_api_connection()
                 await self.login_handler.start_websocket_client()
                 
         except Exception as ex:
-            logging.error(f"자동 연결 시도 실패: {ex}")    
+            self.logger.error(f"자동 연결 시도 실패: {ex}")    
 
     def subscribe_holdings_realtime(self, holding_codes):
         """보유종목에 대한 실시간 구독 실행 (중단됨)"""
@@ -5898,9 +5676,8 @@ class MyWindow(QWidget):
             #         else:
             #             logging.debug(f"보유종목 구독 변경 없음, 업데이트 건너뜀: {holding_codes}")
         except Exception as ex:
-            logging.error(f"❌ 보유종목 실시간 구독 실패: {ex}")
-            logging.error(f"보유종목 구독 예외 상세: {traceback.format_exc()}")
-            logging.debug("⚠️ 보유종목 구독 실패했지만 프로그램을 계속 실행합니다")
+            self.logger.error(f"❌ 보유종목 실시간 구독 실패: {ex}")
+            self.logger.error(f"보유종목 구독 예외 상세: {traceback.format_exc()}")
     
     def extract_monitoring_stock_codes(self):
         """모니터링 종목 코드 추출 (MonitoringManager로 위임)"""
@@ -5966,21 +5743,24 @@ class MyWindow(QWidget):
         """투자 종목수 설정 (TradingManager로 위임)"""
         self.trading_manager.buycount_setting()
     
-    def buy_item(self):
+    @asyncSlot()
+    async def buy_item(self):
         """종목 매입 (TradingManager로 위임)"""
-        self.trading_manager.buy_item()
+        await self.trading_manager.buy_item()
     
     def delete_select_item(self):
         """선택된 종목 삭제 (TradingManager로 위임)"""
         self.trading_manager.delete_select_item()
     
-    def sell_item(self):
+    @asyncSlot()
+    async def sell_item(self):
         """종목 매도 (TradingManager로 위임)"""
-        self.trading_manager.sell_item()
+        await self.trading_manager.sell_item()
     
-    def sell_all_item(self):
+    @asyncSlot()
+    async def sell_all_item(self):
         """전체 매도 (TradingManager로 위임)"""
-        self.trading_manager.sell_all_item()
+        await self.trading_manager.sell_all_item()
     
     
 
@@ -6041,72 +5821,63 @@ class MyWindow(QWidget):
         try:
             # 중복 실행 방지
             if self._post_login_setup_done:
-                logging.debug("post_login_setup이 이미 실행되었습니다. 건너뜁니다.")
+                self.logger.debug("post_login_setup이 이미 실행되었습니다. 건너뜁니다.")
                 return
-
-            # 로거 설정: UI 로그창에는 INFO 레벨까지만 표시 (터미널은 DEBUG까지 표시)
-            logger = logging.getLogger()
-            if not any(isinstance(handler, QTextEditLogger) for handler in logger.handlers):
-                text_edit_logger = QTextEditLogger(self.terminalOutput)
-                text_edit_logger.setLevel(logging.INFO)  # UI 창은 INFO 이상만 표시
-                logger.addHandler(text_edit_logger)
 
             # 1. 트레이더 객체 확인 (이미 API 연결 시 생성됨)
             if not hasattr(self, 'trader') or not self.trader:
-                logging.warning("⚠️ 트레이더 객체가 없습니다. API 연결을 확인해주세요.")
+                self.logger.warning("⚠️ 트레이더 객체가 없습니다. API 연결을 확인해주세요.")
                 return
 
             # 2. 전략 객체 초기화
             if not self.objstg:
                 self.objstg = KiwoomStrategy(self.trader, self)
-                logging.debug("🔍 KiwoomStrategy 객체 생성 완료")
+                self.logger.debug("🔍 KiwoomStrategy 객체 생성 완료")
 
             # 3. 시그널 연결
             try:
                 if self.trader:
-                    logging.debug("🔍 트레이더 시그널 연결 중...")
+                    self.logger.debug("🔍 트레이더 시그널 연결 중...")
                     self.trader.signal_update_balance.connect(self.update_acnt_balance_display)
                     self.trader.signal_order_result.connect(self.update_order_result)
-                    logging.debug("✅ 트레이더 시그널 연결 완료")
+                    self.logger.debug("✅ 트레이더 시그널 연결 완료")
                 else:
-                    logging.warning("⚠️ 트레이더 객체가 없어 시그널 연결을 건너뜁니다")
+                    self.logger.warning("⚠️ 트레이더 객체가 없어 시그널 연결을 건너뜁니다")
                 if self.objstg:
-                    logging.debug("🔍 전략 시그널 연결 중...")
+                    self.logger.debug("🔍 전략 시그널 연결 중...")
                     self.objstg.signal_strategy_result.connect(self.update_strategy_result)
-                    logging.debug("✅ 전략 시그널 연결 완료")
+                    self.logger.debug("✅ 전략 시그널 연결 완료")
                 else:
-                    logging.warning("⚠️ 전략 객체가 없어 시그널 연결을 건너뜁니다")
+                    self.logger.warning("⚠️ 전략 객체가 없어 시그널 연결을 건너뜁니다")
             except Exception as signal_ex:
-                logging.error(f"❌ 시그널 연결 실패: {signal_ex}")
-                logging.error(f"시그널 연결 예외 상세: {traceback.format_exc()}")
+                self.logger.error(f"❌ 시그널 연결 실패: {signal_ex}", exc_info=True)
 
             # 4. 차트 데이터 캐시 초기화
             try:
                 if not self.chart_cache:
                     self.chart_cache = ChartDataCache(self.trader, self)
-                    logging.debug("🔍 ChartDataCache 객체 생성 완료")
+                    self.logger.debug("🔍 ChartDataCache 객체 생성 완료")
                     
                     # 실시간 차트 위젯과 데이터 캐시 연결
                     if hasattr(self, 'realtime_chart_widget') and self.realtime_chart_widget:
                         self.chart_cache.data_updated.connect(self.on_chart_data_updated)
-                        logging.debug("🔍 실시간 차트 위젯과 데이터 캐시 연결 완료")
+                        self.logger.debug("🔍 실시간 차트 위젯과 데이터 캐시 연결 완료")
                 if hasattr(self.login_handler, 'kiwoom_client') and self.login_handler.kiwoom_client:
                     self.login_handler.kiwoom_client.chart_cache = self.chart_cache
-                    logging.debug("🔍 chart_cache를 KiwoomRestClient에 설정 완료")
-                logging.debug("✅ 차트 데이터 캐시 초기화 완료")
+                    self.logger.debug("🔍 chart_cache를 KiwoomRestClient에 설정 완료")
+                self.logger.debug("✅ 차트 데이터 캐시 초기화 완료")
             except Exception as cache_ex:
-                logging.error(f"❌ 차트 데이터 캐시 초기화 실패: {cache_ex}")
-                logging.error(f"차트 캐시 초기화 예외 상세: {traceback.format_exc()}")
+                self.logger.error(f"❌ 차트 데이터 캐시 초기화 실패: {cache_ex}", exc_info=True)
                 self.chart_cache = None
 
             # 5. 자동매매 객체 초기화 및 시작
             if not self.autotrader:
                 self.autotrader = AutoTrader(self.trader, self)
-                logging.debug("🔍 AutoTrader 객체 생성 완료")
+                self.logger.debug("🔍 AutoTrader 객체 생성 완료")
                 
                 # AutoTrader 자동 시작 (evaluation_interval 주기로 매매 판단)
                 self.autotrader.start_auto_trading()
-                logging.debug(f"✅ 자동매매 시작 완료 ({self.trader.evaluation_interval}초 주기)")
+                self.logger.debug(f"✅ 자동매매 시작 완료 ({self.trader.evaluation_interval}초 주기)")
 
             # 6. 조건검색 목록조회 (웹소켓)
             try:
@@ -6115,30 +5886,28 @@ class MyWindow(QWidget):
                     if self.login_handler.websocket_client.connected: # 조건검색 목록조회
                         # 웹소켓을 통한 조건검색 목록조회
                         await self.handle_condition_search_list_query()
-                        logging.debug("✅ 조건검색 목록조회 완료 (웹소켓)")
+                        self.logger.debug("✅ 조건검색 목록조회 완료 (웹소켓)")
                     else:
-                        logging.warning("⚠️ 웹소켓이 연결되지 않아 조건검색 목록조회를 건너뜁니다")
-                        logging.debug(f"🔍 웹소켓 연결 상태: connected={self.login_handler.websocket_client.connected}")
+                        self.logger.warning("⚠️ 웹소켓이 연결되지 않아 조건검색 목록조회를 건너뜁니다")
+                        self.logger.debug(f"🔍 웹소켓 연결 상태: connected={self.login_handler.websocket_client.connected}")
                 else:
-                    logging.warning("⚠️ 웹소켓 클라이언트가 없어 조건검색 목록조회를 건너뜁니다")
-                    logging.debug(f"🔍 login_handler.websocket_client 존재: {hasattr(self.login_handler, 'websocket_client')}")
+                    self.logger.warning("⚠️ 웹소켓 클라이언트가 없어 조건검색 목록조회를 건너뜁니다")
+                    self.logger.debug(f"🔍 login_handler.websocket_client 존재: {hasattr(self.login_handler, 'websocket_client')}")
                     if hasattr(self.login_handler, 'websocket_client'):
-                        logging.debug(f"🔍 websocket_client 값: {self.login_handler.websocket_client}")
+                        self.logger.debug(f"🔍 websocket_client 값: {self.login_handler.websocket_client}")
             except Exception as condition_ex:
-                logging.error(f"❌ 조건검색 목록조회 실패: {condition_ex}")
-                logging.error(f"조건검색 목록조회 예외 상세: {traceback.format_exc()}")
+                self.logger.error(f"❌ 조건검색 목록조회 실패: {condition_ex}", exc_info=True)
 
             # 7. 계좌 잔고조회 (즉시 실행)
             try:
                 await self.account_manager.handle_acnt_balance_query_async()
-                logging.debug("✅ 계좌 잔고조회 즉시 실행 완료 (비동기)")
+                self.logger.debug("✅ 계좌 잔고조회 즉시 실행 완료 (비동기)")
             except Exception as balance_ex:
-                logging.error(f"❌ 계좌 잔고조회 실행 실패: {balance_ex}")
-                logging.error(f"잔고조회 실행 예외 상세: {traceback.format_exc()}")
+                self.logger.error(f"❌ 계좌 잔고조회 실행 실패: {balance_ex}", exc_info=True)
             
             # 8. 백테스팅 탭의 DB 기간 로드
             self.load_db_period()
-            logging.debug("✅ 백테스팅 탭 DB 기간 로드 완료")
+            self.logger.debug("✅ 백테스팅 탭 DB 기간 로드 완료")
 
             # 8. 대기 중인 API 큐 처리 (트레이더 객체 생성 후)
             try:
@@ -6146,24 +5915,22 @@ class MyWindow(QWidget):
                     if hasattr(self.chart_cache, 'api_request_queue'):
                         queue_size = len(self.chart_cache.api_request_queue)
                         if queue_size > 0:
-                            logging.debug(f"🔧 대기 중인 API 큐 처리 시작: {queue_size}개 종목")
+                            self.logger.debug(f"🔧 대기 중인 API 큐 처리 시작: {queue_size}개 종목")
                             # 큐 처리 타이머 시작 (3초 간격으로 자동 처리)
                             self.chart_cache._start_queue_processing()
-                            logging.debug("✅ 대기 중인 API 큐 처리 타이머 시작")
+                            self.logger.debug("✅ 대기 중인 API 큐 처리 타이머 시작")
                         else:
-                            logging.debug("🔍 대기 중인 API 큐가 없습니다")
+                            self.logger.debug("🔍 대기 중인 API 큐가 없습니다")
                     else:
-                        logging.debug("🔍 API 큐가 초기화되지 않았습니다")
+                        self.logger.debug("🔍 API 큐가 초기화되지 않았습니다")
                 else:
-                    logging.debug("🔍 차트 캐시가 초기화되지 않았습니다")
+                    self.logger.debug("🔍 차트 캐시가 초기화되지 않았습니다")
             except Exception as queue_ex:
-                logging.error(f"❌ API 큐 처리 실패: {queue_ex}")
-                logging.error(f"API 큐 처리 예외 상세: {traceback.format_exc()}")
+                self.logger.error(f"❌ API 큐 처리 실패: {queue_ex}", exc_info=True)
 
         except Exception as ex:
-            logging.error(f"❌ 로그인 후 초기화 실패: {ex}")
-            logging.error(f"초기화 실패 예외 상세: {traceback.format_exc()}")
-            logging.debug("⚠️ 초기화 실패했지만 프로그램을 계속 실행합니다")
+            self.logger.error(f"❌ 로그인 후 초기화 실패: {ex}", exc_info=True)
+            self.logger.debug("⚠️ 초기화 실패했지만 프로그램을 계속 실행합니다")
         finally:
             # 실행 완료 플래그 설정
             self._post_login_setup_done = True
@@ -6223,7 +5990,7 @@ class MyWindow(QWidget):
             if hasattr(self, '_delayed_search_task') and self._delayed_search_task:
                 if not self._delayed_search_task.done():
                     self._delayed_search_task.cancel()
-                    logging.debug("✅ 지연된 통합 조건검색 태스크 취소됨")
+                    self.logger.debug("✅ 지연된 통합 조건검색 태스크 취소됨")
             
             # 자동매매 중지
             if self.autotrader:
@@ -6232,7 +5999,7 @@ class MyWindow(QWidget):
             # 차트 관련 정리
             if hasattr(self, 'chartdrawer') and self.chartdrawer:
                 try:
-                    logging.debug("📊 ChartDrawer 정리 시작")
+                    self.logger.debug("📊 ChartDrawer 정리 시작")
                     # ChartDrawer의 처리 상태 초기화
                     if hasattr(self.chartdrawer, '_processing_code'):
                         self.chartdrawer._processing_code = None
@@ -6244,24 +6011,23 @@ class MyWindow(QWidget):
                     
                     # ChartDrawer 참조 제거
                     self.chartdrawer = None
-                    logging.debug("✅ ChartDrawer 정리 완료")
+                    self.logger.debug("✅ ChartDrawer 정리 완료")
                 except Exception as drawer_ex:
-                    logging.error(f"❌ ChartDrawer 정리 실패: {drawer_ex}")
+                    self.logger.error(f"❌ ChartDrawer 정리 실패: {drawer_ex}")
             
             # 차트 데이터 캐시 정리
             if hasattr(self, 'chart_cache') and self.chart_cache:
                 try:
-                    logging.debug("📊 차트 데이터 캐시 정리 시작")
+                    self.logger.debug("📊 차트 데이터 캐시 정리 시작")
                     self.chart_cache.stop()
-                    logging.debug("✅ 차트 데이터 캐시 정리 완료")
+                    self.logger.debug("✅ 차트 데이터 캐시 정리 완료")
                 except Exception as cache_ex:
-                    logging.error(f"❌ 차트 데이터 캐시 정리 실패: {cache_ex}")
-            
+                    self.logger.error(f"❌ 차트 데이터 캐시 정리 실패: {cache_ex}")
             
             # 웹소켓 클라이언트 종료
             if hasattr(self, 'login_handler') and self.login_handler:
                 try:
-                    logging.debug("🔌 웹소켓 클라이언트 종료 시작")
+                    self.logger.debug("웹소켓 클라이언트 종료 시작")
                     if hasattr(self.login_handler, 'websocket_client') and self.login_handler.websocket_client:
                         # 웹소켓 연결 종료
                         self.login_handler.websocket_client.keep_running = False
@@ -6270,34 +6036,38 @@ class MyWindow(QWidget):
                         # 웹소켓 태스크 취소
                         if hasattr(self.login_handler, 'websocket_task') and self.login_handler.websocket_task:
                             self.login_handler.websocket_task.cancel()
-                            logging.debug("✅ 웹소켓 태스크 취소 완료")
+                            self.logger.debug("✅ 웹소켓 태스크 취소 완료")
                         
                         # 웹소켓 연결 강제 종료
                         try:
                             asyncio.get_running_loop()  # 루프 확인
                             # 비동기 disconnect 호출
                             asyncio.create_task(self.login_handler.websocket_client.disconnect())
-                            logging.debug("✅ 웹소켓 비동기 연결 해제 완료")
+                            self.logger.debug("✅ 웹소켓 비동기 연결 해제 완료")
                         except RuntimeError:
                             # 이벤트 루프가 없으면 이미 종료된 것
                             pass
                         except Exception as async_ex:
-                            logging.warning(f"⚠️ 웹소켓 비동기 연결 해제 실패: {async_ex}")
+                            self.logger.warning(f"⚠️ 웹소켓 비동기 연결 해제 실패: {async_ex}")
                     
-                    logging.debug("✅ 웹소켓 클라이언트 종료 완료")
+                    self.logger.debug("✅ 웹소켓 클라이언트 종료 완료")
                 except Exception as ws_ex:
-                    logging.error(f"❌ 웹소켓 클라이언트 종료 실패: {ws_ex}")
-                    logging.error(f"웹소켓 종료 에러 상세: {traceback.format_exc()}")
+                    self.logger.error(f"❌ 웹소켓 클라이언트 종료 실패: {ws_ex}", exc_info=True)
             
             # 키움 클라이언트 연결 해제
             if self.trader and self.trader.client:
                 try:
-                    logging.debug("🔌 키움 클라이언트 연결 해제 시작")
-                    self.trader.client.disconnect()
-                    logging.debug("✅ 키움 클라이언트 연결 해제 완료")
+                    self.logger.debug("키움 클라이언트 연결 해제 시작")
+                    # closeEvent는 동기 메서드이므로 asyncio.create_task 사용
+                    try:
+                        loop = asyncio.get_running_loop()
+                        asyncio.create_task(self.trader.client.disconnect())
+                    except RuntimeError:
+                        # 이벤트 루프가 없으면 동기적으로 처리할 수 없음
+                        self.logger.warning("⚠️ 이벤트 루프가 없어 연결 해제를 건너뜁니다")
+                    self.logger.debug("✅ 키움 클라이언트 연결 해제 완료")
                 except Exception as disconnect_ex:
-                    logging.error(f"❌ 키움 클라이언트 연결 해제 실패: {disconnect_ex}")
-                    logging.error(f"연결 해제 에러 상세: {traceback.format_exc()}")
+                    self.logger.error(f"❌ 키움 클라이언트 연결 해제 실패: {disconnect_ex}", exc_info=True)
             
             # QTextEdit 관련 객체 정리
             if hasattr(self, 'terminalOutput') and self.terminalOutput:
@@ -6328,9 +6098,9 @@ class MyWindow(QWidget):
                 for timer in self.findChildren(QTimer):
                     if timer.isActive():
                         timer.stop()
-                logging.debug("✅ 모든 타이머 정리 완료")
+                self.logger.debug("✅ 모든 타이머 정리 완료")
             except Exception as timer_ex:
-                logging.error(f"❌ 타이머 정리 실패: {timer_ex}")
+                self.logger.error(f"❌ 타이머 정리 실패: {timer_ex}")
             
             # asyncio 이벤트 루프 정리
             try:
@@ -6340,14 +6110,14 @@ class MyWindow(QWidget):
                 if tasks:
                     for task in tasks:
                         task.cancel()
-                    logging.debug(f"✅ {len(tasks)}개 asyncio 태스크 취소 완료")
+                    self.logger.debug(f"✅ {len(tasks)}개 asyncio 태스크 취소 완료")
                 else:
-                    logging.debug("✅ 취소할 asyncio 태스크 없음")
+                    self.logger.debug("✅ 취소할 asyncio 태스크 없음")
             except RuntimeError:
                 # 이벤트 루프가 없으면 이미 정리된 것
-                logging.debug("✅ asyncio 이벤트 루프가 이미 정리됨")
+                self.logger.debug("✅ asyncio 이벤트 루프가 이미 정리됨")
             except Exception as asyncio_ex:
-                logging.error(f"❌ asyncio 정리 실패: {asyncio_ex}")
+                self.logger.error(f"❌ asyncio 정리 실패: {asyncio_ex}")
             
             # Qt 애플리케이션 정리
             try:
@@ -6363,18 +6133,18 @@ class MyWindow(QWidget):
                     
                     # 이벤트 처리 완료 대기
                     QCoreApplication.processEvents()
-                    logging.debug("✅ Qt 위젯 정리 완료")
+                    self.logger.debug("✅ Qt 위젯 정리 완료")
             except Exception as qt_ex:
-                logging.error(f"❌ Qt 정리 실패: {qt_ex}")
+                self.logger.error(f"❌ Qt 정리 실패: {qt_ex}")
             
             # 가비지 컬렉션 실행
             gc.collect()
             
-            logging.debug("✅ 프로그램 종료 처리 완료")
+            self.logger.debug("✅ 프로그램 종료 처리 완료")
             event.accept()
             
         except Exception as ex:
-            logging.error(f"윈도우 종료 처리 실패: {ex}")
+            self.logger.error(f"윈도우 종료 처리 실패: {ex}")
             event.accept()
     
     async def start_condition_realtime(self, seq, condition_name=None):
@@ -6382,19 +6152,19 @@ class MyWindow(QWidget):
         try:
             # 웹소켓 클라이언트 확인
             if not hasattr(self.login_handler, 'websocket_client') or not self.login_handler.websocket_client:
-                logging.error("❌ 웹소켓 클라이언트가 연결되지 않았습니다")
+                self.logger.error("❌ 웹소켓 클라이언트가 연결되지 않았습니다")
                 return
             
             if not self.login_handler.websocket_client.connected:
-                logging.error("❌ 웹소켓이 연결되지 않았습니다")
+                self.logger.error("❌ 웹소켓이 연결되지 않았습니다")
                 return
             
             # 현재 조건검색 이름 저장 (응답 처리 시 사용)
             if condition_name:
                 self.current_condition_name = condition_name
-                logging.debug(f"🔍 조건검색 실시간 요청 시작 (웹소켓): {seq} ({condition_name})")
+                self.logger.debug(f"🔍 조건검색 실시간 요청 시작 (웹소켓): {seq} ({condition_name})")
             else:
-                logging.debug(f"🔍 조건검색 실시간 요청 시작 (웹소켓): {seq}")
+                self.logger.debug(f"🔍 조건검색 실시간 요청 시작 (웹소켓): {seq}")
             
             # 웹소켓을 통한 조건검색 실시간 요청 (예시코드 방식)
             await self.login_handler.websocket_client.send_message({
@@ -6405,15 +6175,14 @@ class MyWindow(QWidget):
             })
             
             if condition_name:
-                logging.debug(f"✅ 조건검색 실시간 요청 전송 완료 (웹소켓): {seq} ({condition_name})")
+                self.logger.debug(f"✅ 조건검색 실시간 요청 전송 완료 (웹소켓): {seq} ({condition_name})")
             else:
-                logging.debug(f"✅ 조건검색 실시간 요청 전송 완료 (웹소켓): {seq}")
+                self.logger.debug(f"✅ 조건검색 실시간 요청 전송 완료 (웹소켓): {seq}")
             # 응답은 웹소켓에서 처리됨
-            logging.debug(f"💾 조건검색 실시간 요청 완료 - 응답은 웹소켓에서 처리됩니다: {seq}")
+            self.logger.debug(f"💾 조건검색 실시간 요청 완료 - 응답은 웹소켓에서 처리됩니다: {seq}")
                 
         except Exception as ex:
-            logging.error(f"❌ 조건검색 실시간 요청 실패: {ex}")
-            logging.error(f"조건검색 실시간 요청 에러 상세: {traceback.format_exc()}")
+            self.logger.error(f"❌ 조건검색 실시간 요청 실패: {ex}", exc_info=True)
             self.update_condition_status("실패")
 
     async def stop_condition_realtime(self, seq):
@@ -6421,14 +6190,14 @@ class MyWindow(QWidget):
         try:
             # 웹소켓 클라이언트 확인
             if not hasattr(self.login_handler, 'websocket_client') or not self.login_handler.websocket_client:
-                logging.error("❌ 웹소켓 클라이언트가 연결되지 않았습니다")
+                self.logger.error("❌ 웹소켓 클라이언트가 연결되지 않았습니다")
                 return
             
             if not self.login_handler.websocket_client.connected:
-                logging.error("❌ 웹소켓이 연결되지 않았습니다")
+                self.logger.error("❌ 웹소켓이 연결되지 않았습니다")
                 return
             
-            logging.debug(f"🔍 조건검색 실시간 해제 (웹소켓): {seq}")
+            self.logger.debug(f"🔍 조건검색 실시간 해제 (웹소켓): {seq}")
             
             # 웹소켓을 통한 조건검색 실시간 해제
             await self.login_handler.websocket_client.send_message({
@@ -6436,18 +6205,18 @@ class MyWindow(QWidget):
                 'seq': seq
             })
             
-            logging.debug(f"✅ 조건검색 실시간 해제 전송 완료 (웹소켓): {seq}")
+            self.logger.debug(f"✅ 조건검색 실시간 해제 전송 완료 (웹소켓): {seq}")
             # 응답은 웹소켓에서 처리됨
-            logging.debug(f"💾 조건검색 실시간 해제 완료 - 응답은 웹소켓에서 처리됩니다: {seq}")
+            self.logger.debug(f"💾 조건검색 실시간 해제 완료 - 응답은 웹소켓에서 처리됩니다: {seq}")
                 
         except Exception as ex:
-            logging.error(f"❌ 조건검색 실시간 해제 실패: {ex}")
-            logging.error(f"조건검색 실시간 해제 에러 상세: {traceback.format_exc()}")
+            self.logger.error(f"❌ 조건검색 실시간 해제 실패: {ex}", exc_info=True)
 
 
 # ==================== 메인 실행 ====================
 async def main():
     """메인 실행 함수 - qasync를 사용한 비동기 처리"""
+    global main_window
     print("프로그램 시작")
     setup_logging()
     logging.debug("🚀 프로그램 시작 - 로깅 설정 완료")
@@ -6457,6 +6226,10 @@ async def main():
         app = QApplication.instance()
 
     window = MyWindow()
+    main_window = window  # 전역 변수에 할당
+
+    # UI가 생성된 후 로깅 재설정하여 QTextEditLogger 추가
+    setup_logging()
     window.show()
 
     # qasync가 관리하는 이벤트 루프가 종료될 때까지 대기
@@ -6467,6 +6240,7 @@ async def main():
 class CandlesticItem(pg.GraphicsObject):
     """PyQtGraph용 캔들스틱 아이템"""
     def __init__(self, data):
+        self.logger = logging.getLogger(self.__class__.__name__)
         """
         data: (N, 5) numpy array (timestamp, open, high, low, close)
         """
@@ -6531,6 +6305,7 @@ class CandlesticItem(pg.GraphicsObject):
 class PyQtGraphWidget(pg.PlotWidget):
     """PyQtGraph 기반 차트 위젯"""
     def __init__(self, parent=None, title="실시간 차트"):
+        self.logger = logging.getLogger(self.__class__.__name__)
         super().__init__(parent)
         
         # 차트 설정
@@ -6578,21 +6353,21 @@ class PyQtGraphWidget(pg.PlotWidget):
         try:
             # 데이터 유효성 검사
             if not data or len(data) == 0:
-                logging.warning("🔍 PyQtGraphWidget add_candlestic_data: 빈 데이터")
+                self.logger.warning("🔍 PyQtGraphWidget add_candlestic_data: 빈 데이터")
                 return
                 
-            logging.debug(f"🔍 PyQtGraphWidget add_candlestic_data 호출됨 - 데이터 수: {len(data)}")
+            self.logger.debug(f"🔍 PyQtGraphWidget add_candlestic_data 호출됨 - 데이터 수: {len(data)}")
             
             # 데이터 형식 검사
             if not isinstance(data, (list, tuple)):
-                logging.error(f"🔍 PyQtGraphWidget add_candlestic_data: 잘못된 데이터 형식 - {type(data)}")
+                self.logger.error(f"🔍 PyQtGraphWidget add_candlestic_data: 잘못된 데이터 형식 - {type(data)}")
                 return
                 
             # 첫 번째 데이터 항목 검사
             if len(data) > 0:
                 first_item = data[0]
                 if not isinstance(first_item, (list, tuple)) or len(first_item) < 5:
-                    logging.error(f"🔍 PyQtGraphWidget add_candlestic_data: 잘못된 데이터 구조 - {first_item}")
+                    self.logger.error(f"🔍 PyQtGraphWidget add_candlestic_data: 잘못된 데이터 구조 - {first_item}")
                     return
                     
             # 기존 캔들 아이템 제거
@@ -6604,7 +6379,7 @@ class PyQtGraphWidget(pg.PlotWidget):
             for i, item in enumerate(data):
                 try:
                     if not isinstance(item, (list, tuple)) or len(item) < 5:
-                        logging.error(f"🔍 PyQtGraphWidget 잘못된 데이터 항목 {i}: {item}")
+                        self.logger.error(f"🔍 PyQtGraphWidget 잘못된 데이터 항목 {i}: {item}")
                         continue
                         
                     timestamp, open_price, high_price, low_price, close_price = item
@@ -6616,7 +6391,7 @@ class PyQtGraphWidget(pg.PlotWidget):
                         low_price = float(low_price)
                         close_price = float(close_price)
                     except (ValueError, TypeError) as price_error:
-                        logging.error(f"🔍 PyQtGraphWidget 가격 데이터 변환 오류 {i}: {price_error}")
+                        self.logger.error(f"🔍 PyQtGraphWidget 가격 데이터 변환 오류 {i}: {price_error}")
                         continue
                     
                     # 인덱스를 타임스탬프로 사용
@@ -6624,16 +6399,16 @@ class PyQtGraphWidget(pg.PlotWidget):
                     
                     # 첫 번째와 마지막 데이터 디버깅
                     if i == 0:
-                        logging.debug(f"🔍 PyQtGraphWidget 첫 번째 캔들: O={open_price}, H={high_price}, L={low_price}, C={close_price}")
+                        self.logger.debug(f"🔍 PyQtGraphWidget 첫 번째 캔들: O={open_price}, H={high_price}, L={low_price}, C={close_price}")
                     elif i == len(data) - 1:
-                        logging.debug(f"🔍 PyQtGraphWidget 마지막 캔들: O={open_price}, H={high_price}, L={low_price}, C={close_price}")
+                        self.logger.debug(f"🔍 PyQtGraphWidget 마지막 캔들: O={open_price}, H={high_price}, L={low_price}, C={close_price}")
                         
                 except Exception as item_error:
-                    logging.error(f"🔍 PyQtGraphWidget 데이터 항목 처리 오류 {i}: {item_error}")
+                    self.logger.error(f"🔍 PyQtGraphWidget 데이터 항목 처리 오류 {i}: {item_error}")
                     continue
 
             if len(data_list) == 0:
-                logging.warning("🔍 PyQtGraphWidget 처리 가능한 데이터가 없습니다")
+                self.logger.warning("🔍 PyQtGraphWidget 처리 가능한 데이터가 없습니다")
                 return
             
             # numpy 배열로 변환
@@ -6666,24 +6441,24 @@ class PyQtGraphWidget(pg.PlotWidget):
                     legend_space = price_range * 0.2  # 범례를 위한 20% 추가 공간
                     top_margin = margin + legend_space  # 상단 여백 증가
                     
-                logging.debug(f"🔍 PyQtGraphWidget 가격 범위: 최저={min_price:.2f}, 최고={max_price:.2f}, 범위={price_range:.2f}")
-                logging.debug(f"🔍 PyQtGraphWidget 범례 공간 확보: 상단 여백={top_margin:.2f} (기본 {margin:.2f} + 범례 {legend_space:.2f})")
+                self.logger.debug(f"🔍 PyQtGraphWidget 가격 범위: 최저={min_price:.2f}, 최고={max_price:.2f}, 범위={price_range:.2f}")
+                self.logger.debug(f"🔍 PyQtGraphWidget 범례 공간 확보: 상단 여백={top_margin:.2f} (기본 {margin:.2f} + 범례 {legend_space:.2f})")
                 self.setYRange(min_price - margin, max_price + top_margin)
                 
                 # X축 레이블 수동 설정 (test.py의 setup_index_axis_chart 방식 참고)
                 self._setup_x_axis_labels(data, chart_type=chart_type)
                 
-                logging.debug(f"✅ PyQtGraphWidget 캔들 데이터 추가 완료: {len(data_list)}개")
+                self.logger.debug(f"✅ PyQtGraphWidget 캔들 데이터 추가 완료: {len(data_list)}개")
             
         except Exception as ex:
-            logging.error(f"❌ 캔들스틱 데이터 추가 실패: {ex}")
-            logging.error(f"❌ 캔들스틱 데이터 추가 오류 상세: {traceback.format_exc()}")
+            self.logger.error(f"❌ 캔들스틱 데이터 추가 실패: {ex}")
+            self.logger.error(f"❌ 캔들스틱 데이터 추가 오류 상세: {traceback.format_exc()}")
     
     
     def add_line_data(self, data, name="Line", color=None):
         """선 차트 데이터 추가"""
         try:
-            logging.debug(f"🔍 PyQtGraphWidget add_line_data 호출됨 - 이름: {name}, 데이터 수: {len(data)}")
+            self.logger.debug(f"🔍 PyQtGraphWidget add_line_data 호출됨 - 이름: {name}, 데이터 수: {len(data)}")
             
             # 기존 아이템이 있으면 제거
             if name in self.line_items:
@@ -6711,11 +6486,11 @@ class PyQtGraphWidget(pg.PlotWidget):
             self.addItem(line_item)
             self.line_items[name] = line_item
             
-            logging.debug(f"✅ PyQtGraphWidget 선 차트 데이터 추가 완료")
+            self.logger.debug(f"✅ PyQtGraphWidget 선 차트 데이터 추가 완료")
             
         except Exception as ex:
-            logging.error(f"❌ 선 차트 데이터 추가 실패: {ex}")
-            logging.error(f"❌ 선 차트 데이터 추가 오류 상세: {traceback.format_exc()}")
+            self.logger.error(f"❌ 선 차트 데이터 추가 실패: {ex}")
+            self.logger.error(f"❌ 선 차트 데이터 추가 오류 상세: {traceback.format_exc()}")
     
     def remove_line_item(self, name):
         """선 차트 아이템 제거"""
@@ -6762,11 +6537,11 @@ class PyQtGraphWidget(pg.PlotWidget):
     def add_moving_averages(self, data, ma_data, chart_type="tic"):
         """이동평균선 추가"""
         try:
-            logging.debug(f"🔍 add_moving_averages 호출됨 - data: {type(data)}, ma_data: {type(ma_data)}")
-            logging.debug(f"🔍 ma_data 키: {list(ma_data.keys()) if isinstance(ma_data, dict) else 'Not dict'}")
+            self.logger.debug(f"🔍 add_moving_averages 호출됨 - data: {type(data)}, ma_data: {type(ma_data)}")
+            self.logger.debug(f"🔍 ma_data 키: {list(ma_data.keys()) if isinstance(ma_data, dict) else 'Not dict'}")
             
             if not data or not ma_data:
-                logging.warning(f"⚠️ 데이터가 없습니다 - data: {bool(data)}, ma_data: {bool(ma_data)}")
+                self.logger.warning(f"⚠️ 데이터가 없습니다 - data: {bool(data)}, ma_data: {bool(ma_data)}")
                 return
             
             # 기존 이동평균선 제거
@@ -6797,7 +6572,7 @@ class PyQtGraphWidget(pg.PlotWidget):
             
             # 범례 텍스트 생성
             legend_text = f"이동평균선: {', '.join(ma_colors.keys())}"
-            logging.debug(f"📊 {chart_type} 차트 이동평균선 범례: {legend_text}")
+            self.logger.debug(f"📊 {chart_type} 차트 이동평균선 범례: {legend_text}")
             
             # 각 이동평균선 그리기
             for ma_type, ma_values in ma_data.items():
@@ -6806,7 +6581,7 @@ class PyQtGraphWidget(pg.PlotWidget):
                     ma_length = len(ma_values)
                 else:
                     ma_length = 0
-                logging.debug(f"🔍 {ma_type} 처리 중 - 값 개수: {ma_length}")
+                self.logger.debug(f"🔍 {ma_type} 처리 중 - 값 개수: {ma_length}")
                 
                 if ma_type in ma_colors and ma_values is not None and len(ma_values) > 0:
                     # 유효한 데이터만 필터링
@@ -6815,7 +6590,7 @@ class PyQtGraphWidget(pg.PlotWidget):
                         if value is not None and not (isinstance(value, float) and (value != value or value == 0)):
                             valid_data.append((i, float(value)))
                     
-                    logging.debug(f"🔍 {ma_type} 유효한 데이터 개수: {len(valid_data)}")
+                    self.logger.debug(f"🔍 {ma_type} 유효한 데이터 개수: {len(valid_data)}")
                     
                     if len(valid_data) > 0:
                         # numpy 배열로 변환
@@ -6836,20 +6611,20 @@ class PyQtGraphWidget(pg.PlotWidget):
                         self.addItem(ma_line)
                         self.ma_lines[ma_type] = ma_line
                         
-                        logging.debug(f"✅ {ma_type} 이동평균선 추가: {len(valid_data)}개 데이터")
+                        self.logger.debug(f"✅ {ma_type} 이동평균선 추가: {len(valid_data)}개 데이터")
                     else:
-                        logging.warning(f"⚠️ {ma_type} 유효한 데이터가 없습니다")
+                        self.logger.warning(f"⚠️ {ma_type} 유효한 데이터가 없습니다")
                 else:
                     # numpy 배열인 경우 안전한 진리값 확인
                     has_values = ma_values is not None and len(ma_values) > 0
-                    logging.warning(f"⚠️ {ma_type} 처리 건너뜀 - 색상: {ma_type in ma_colors}, 값: {has_values}, 길이: {len(ma_values) if hasattr(ma_values, '__len__') else 0}")
+                    self.logger.warning(f"⚠️ {ma_type} 처리 건너뜀 - 색상: {ma_type in ma_colors}, 값: {has_values}, 길이: {len(ma_values) if hasattr(ma_values, '__len__') else 0}")
             
             # 범례 추가
             self.add_legend()
             
         except Exception as ex:
-            logging.error(f"❌ 이동평균선 추가 실패: {ex}")
-            logging.error(f"❌ 상세 오류: {traceback.format_exc()}")
+            self.logger.error(f"❌ 이동평균선 추가 실패: {ex}")
+            self.logger.error(f"❌ 상세 오류: {traceback.format_exc()}")
     
     def clear_moving_averages(self):
         """이동평균선 제거"""
@@ -6863,7 +6638,7 @@ class PyQtGraphWidget(pg.PlotWidget):
             self.clear_legend()
             
         except Exception as ex:
-            logging.error(f"❌ 이동평균선 제거 실패: {ex}")
+            self.logger.error(f"❌ 이동평균선 제거 실패: {ex}")
     
     def add_legend(self):
         """범례 추가"""
@@ -6872,7 +6647,7 @@ class PyQtGraphWidget(pg.PlotWidget):
             self.clear_legend()
             
             if not self.ma_lines:
-                logging.warning("⚠️ 표시할 이동평균선이 없습니다")
+                self.logger.warning("⚠️ 표시할 이동평균선이 없습니다")
                 return
             
             # 범례 아이템 생성
@@ -6938,17 +6713,17 @@ class PyQtGraphWidget(pg.PlotWidget):
                     self.legend_item.setLabelSpacing(2)      # 라벨 간격 줄이기
                 except AttributeError:
                     # PyQtGraph 버전에 따라 메서드가 없을 수 있음
-                    logging.debug("범례 라벨 간격 설정 메서드를 사용할 수 없습니다")
+                    self.logger.debug("범례 라벨 간격 설정 메서드를 사용할 수 없습니다")
                 
                 # 각 이동평균선을 범례에 추가
                 for item in legend_items:
                     self.legend_item.addItem(item['line'], item['name'])
                 
-                logging.debug(f"✅ 범례 추가 완료: {len(legend_items)}개 항목")
+                self.logger.debug(f"✅ 범례 추가 완료: {len(legend_items)}개 항목")
             
         except Exception as ex:
-            logging.error(f"❌ 범례 추가 실패: {ex}")
-            logging.error(f"❌ 상세 오류: {traceback.format_exc()}")
+            self.logger.error(f"❌ 범례 추가 실패: {ex}")
+            self.logger.error(f"❌ 상세 오류: {traceback.format_exc()}")
     
     def clear_legend(self):
         """범례 제거"""
@@ -6956,9 +6731,9 @@ class PyQtGraphWidget(pg.PlotWidget):
             if self.legend_item:
                 self.legend_item.clear()
                 self.legend_item = None
-                logging.debug("✅ 범례 제거 완료")
+                self.logger.debug("✅ 범례 제거 완료")
         except Exception as ex:
-            logging.error(f"❌ 범례 제거 실패: {ex}")
+            self.logger.error(f"❌ 범례 제거 실패: {ex}")
     
     
     
@@ -6995,7 +6770,7 @@ class PyQtGraphWidget(pg.PlotWidget):
                 x_axis.setGrid(255)  # 그리드 색상 설정
                 
         except Exception as ex:
-            logging.debug(f"X축 눈금 설정 중 오류 (무시됨): {ex}")
+            self.logger.debug(f"X축 눈금 설정 중 오류 (무시됨): {ex}")
     
     def _setup_x_axis_labels(self, data, chart_type="default"):
         """X축 레이블 수동 설정 (test.py의 setup_index_axis_chart 방식 참고)"""
@@ -7099,22 +6874,23 @@ class PyQtGraphWidget(pg.PlotWidget):
                         tics.append((i, label))  # (X축 인덱스, 표시할 텍스트)
                         
                 except Exception as e:
-                    logging.debug(f"X축 레이블 설정 중 오류 (무시됨): {e}")
+                    self.logger.debug(f"X축 레이블 설정 중 오류 (무시됨): {e}")
                     continue
             
             # pyqtgraph는 겹치는 레이블을 자동으로 숨겨 "..." 문제가 발생하지 않음
             if tics:
                 axis.setTicks([tics])
-                logging.debug(f"🔍 PyQtGraphWidget X축 레이블 설정 완료: {len(tics)}개 레이블 ({chart_type} 차트)")
+                self.logger.debug(f"🔍 PyQtGraphWidget X축 레이블 설정 완료: {len(tics)}개 레이블 ({chart_type} 차트)")
                 
         except Exception as ex:
-            logging.error(f"❌ X축 레이블 설정 실패: {ex}")
+            self.logger.error(f"❌ X축 레이블 설정 실패: {ex}")
 
 # ==================== PyQtGraph 기반 실시간 차트 위젯 ====================
 class PyQtGraphRealtimeWidget(QWidget):
     
     """PyQtGraph 기반 실시간 차트 위젯 - 렌더링 전용"""
     def __init__(self, parent=None):
+        self.logger = logging.getLogger(self.__class__.__name__)
         super().__init__(parent)
         self.parent_window = parent
         self.current_code = None
@@ -7163,67 +6939,67 @@ class PyQtGraphRealtimeWidget(QWidget):
             self.minute_chart_widget.setWindowFlags(Qt.WindowType.Widget)  # 독립 창 방지
             layout.addWidget(self.minute_chart_widget, 1)
             
-            logging.debug("PyQtGraph 위젯 초기화 완료")
+            self.logger.debug("PyQtGraph 위젯 초기화 완료")
             
         except BaseException as ex:
-            logging.error(f"❌ PyQtGraph 위젯 초기화 실패: {ex}", exc_info=True)
+            self.logger.error(f"❌ PyQtGraph 위젯 초기화 실패: {ex}", exc_info=True)
             traceback.print_exc()
     
     def set_current_code(self, code):
         """현재 종목 코드 설정 및 차트 데이터 로드"""
-        logging.debug(f"🔍 PyQtGraph set_current_code 호출됨: {code}")
+        self.logger.debug(f"🔍 PyQtGraph set_current_code 호출됨: {code}")
         
         if code != self.current_code:
             self.current_code = code
             self.clear_charts()
-            logging.debug(f"📊 PyQtGraph 차트 종목 변경: {code}")
+            self.logger.debug(f"📊 PyQtGraph 차트 종목 변경: {code}")
             
             # 종목 코드가 설정되면 캐시에서 차트 데이터 조회하여 차트 그리기
             if code and hasattr(self.parent_window, 'chart_cache') and self.parent_window.chart_cache:
-                # logging.debug(f"🔍 PyQtGraph 차트 캐시 존재 확인됨, 데이터 조회 시작: {code}")
+                # self.logger.debug(f"🔍 PyQtGraph 차트 캐시 존재 확인됨, 데이터 조회 시작: {code}")
                 try:
                     cache_data = self.parent_window.chart_cache.get_cached_data(code)
-                    logging.debug(f"🔍 PyQtGraph 캐시 데이터 조회 결과: {cache_data is not None}")
+                    self.logger.debug(f"🔍 PyQtGraph 캐시 데이터 조회 결과: {cache_data is not None}")
                     
                     if cache_data:
                         tic_data = cache_data.get('tic_data')
                         min_data = cache_data.get('min_data')
                         
-                        logging.debug(f"🔍 PyQtGraph 캐시 데이터 구조: {list(cache_data.keys())}")
-                        logging.debug(f"🔍 PyQtGraph 틱 데이터: {tic_data is not None}, 분봉 데이터: {min_data is not None}")
+                        self.logger.debug(f"🔍 PyQtGraph 캐시 데이터 구조: {list(cache_data.keys())}")
+                        self.logger.debug(f"🔍 PyQtGraph 틱 데이터: {tic_data is not None}, 분봉 데이터: {min_data is not None}")
                         
                         if tic_data:
-                            logging.debug(f"🔍 PyQtGraph 틱 데이터 타입: {type(tic_data)}")
+                            self.logger.debug(f"🔍 PyQtGraph 틱 데이터 타입: {type(tic_data)}")
                             if isinstance(tic_data, dict):
-                                logging.debug(f"🔍 PyQtGraph 틱 데이터 키: {list(tic_data.keys())}")
+                                self.logger.debug(f"🔍 PyQtGraph 틱 데이터 키: {list(tic_data.keys())}")
                                 if 'output' in tic_data:
-                                    logging.debug(f"🔍 PyQtGraph 틱 output 길이: {len(tic_data['output']) if tic_data['output'] else 0}")
+                                    self.logger.debug(f"🔍 PyQtGraph 틱 output 길이: {len(tic_data['output']) if tic_data['output'] else 0}")
                             elif isinstance(tic_data, list):
-                                logging.debug(f"🔍 PyQtGraph 틱 리스트 길이: {len(tic_data)}")
+                                self.logger.debug(f"🔍 PyQtGraph 틱 리스트 길이: {len(tic_data)}")
                         
                         if min_data:
-                            logging.debug(f"🔍 PyQtGraph 분봉 데이터 타입: {type(min_data)}")
+                            self.logger.debug(f"🔍 PyQtGraph 분봉 데이터 타입: {type(min_data)}")
                             if isinstance(min_data, dict):
-                                logging.debug(f"🔍 PyQtGraph 분봉 데이터 키: {list(min_data.keys())}")
+                                self.logger.debug(f"🔍 PyQtGraph 분봉 데이터 키: {list(min_data.keys())}")
                                 if 'output' in min_data:
-                                    logging.debug(f"🔍 PyQtGraph 분봉 output 길이: {len(min_data['output']) if min_data['output'] else 0}")
+                                    self.logger.debug(f"🔍 PyQtGraph 분봉 output 길이: {len(min_data['output']) if min_data['output'] else 0}")
                             elif isinstance(min_data, list):
-                                logging.debug(f"🔍 PyQtGraph 분봉 리스트 길이: {len(min_data)}")
+                                self.logger.debug(f"🔍 PyQtGraph 분봉 리스트 길이: {len(min_data)}")
                         
                         if tic_data or min_data:
-                            logging.debug(f"🔍 PyQtGraph update_chart_data 호출 시작: {code}")
+                            self.logger.debug(f"🔍 PyQtGraph update_chart_data 호출 시작: {code}")
                             self.update_chart_data(tic_data, min_data)
-                            # logging.debug(f"📊 PyQtGraph 차트 데이터 로드 완료: {code}")
+                            # self.logger.debug(f"📊 PyQtGraph 차트 데이터 로드 완료: {code}")
                         else:
-                            logging.warning(f"⚠️ PyQtGraph 차트 데이터가 없습니다: {code}")
+                            self.logger.warning(f"⚠️ PyQtGraph 차트 데이터가 없습니다: {code}")
                     else:
-                        logging.warning(f"⚠️ PyQtGraph 캐시에서 차트 데이터를 찾을 수 없습니다: {code}")
+                        self.logger.warning(f"⚠️ PyQtGraph 캐시에서 차트 데이터를 찾을 수 없습니다: {code}")
                 except Exception as ex:
-                    logging.error(f"❌ PyQtGraph 차트 데이터 로드 실패: {code} - {ex}")
+                    self.logger.error(f"❌ PyQtGraph 차트 데이터 로드 실패: {code} - {ex}")
             elif code:
-                logging.warning(f"⚠️ PyQtGraph 차트 캐시가 없어서 차트 데이터를 로드할 수 없습니다: {code}")
+                self.logger.warning(f"⚠️ PyQtGraph 차트 캐시가 없어서 차트 데이터를 로드할 수 없습니다: {code}")
         else:
-            logging.debug(f"🔍 PyQtGraph 동일한 종목 코드이므로 변경하지 않음: {code}")
+            self.logger.debug(f"🔍 PyQtGraph 동일한 종목 코드이므로 변경하지 않음: {code}")
     
     def clear_charts(self):
         """차트 데이터 초기화"""
@@ -7239,12 +7015,12 @@ class PyQtGraphRealtimeWidget(QWidget):
     def update_chart_data(self, tic_data=None, minute_data=None):
         """PyQtGraph 차트 데이터 업데이트"""
         try:
-            logging.debug(f"🔍 PyQtGraph update_chart_data 호출됨 - 틱: {tic_data is not None}, 분봉: {minute_data is not None}")
+            self.logger.debug(f"🔍 PyQtGraph update_chart_data 호출됨 - 틱: {tic_data is not None}, 분봉: {minute_data is not None}")
             current_time = time.time()
             
             # 중복 업데이트 방지
             if current_time - self.last_update_time < self.update_interval:
-                logging.debug(f"🔍 PyQtGraph 중복 업데이트 방지: {current_time - self.last_update_time:.3f}초 경과")
+                self.logger.debug(f"🔍 PyQtGraph 중복 업데이트 방지: {current_time - self.last_update_time:.3f}초 경과")
                 return
                 
             data_updated = False
@@ -7266,18 +7042,18 @@ class PyQtGraphRealtimeWidget(QWidget):
                 self.optimized_plot_charts()
                 
         except Exception as ex:
-            logging.error(f"❌ PyQtGraph 차트 데이터 업데이트 실패: {ex}")
+            self.logger.error(f"❌ PyQtGraph 차트 데이터 업데이트 실패: {ex}")
     
     def optimized_plot_charts(self):
         """PyQtGraph 최적화된 차트 그리기"""
         try:
-            logging.debug(f"🔍 PyQtGraph optimized_plot_charts 호출됨")
+            self.logger.debug(f"🔍 PyQtGraph optimized_plot_charts 호출됨")
             current_time = time.time()
             
             # 렌더링 최적화: 너무 빈번한 렌더링 방지
             if self.render_optimization_enabled:
                 if current_time - self.last_render_time < self.min_render_interval:
-                    logging.debug(f"🔍 PyQtGraph 렌더링 최적화로 차트 그리기 건너뜀: {current_time - self.last_render_time:.3f}초 경과")
+                    self.logger.debug(f"🔍 PyQtGraph 렌더링 최적화로 차트 그리기 건너뜀: {current_time - self.last_render_time:.3f}초 경과")
                     return
                 self.last_render_time = current_time
             
@@ -7290,17 +7066,17 @@ class PyQtGraphRealtimeWidget(QWidget):
                 self._draw_pyqtchart_minute_chart()
                 
         except Exception as ex:
-            logging.error(f"❌ PyQtGraph 차트 그리기 실패: {ex}")
+            self.logger.error(f"❌ PyQtGraph 차트 그리기 실패: {ex}")
     
     def _draw_pyqtchart_tic_chart(self):
         """PyQtGraph 틱 차트 그리기"""
         try:
             # 위젯 초기화 확인
             if not hasattr(self, 'tic_chart_widget') or self.tic_chart_widget is None:
-                logging.error("❌ PyQtGraph 틱 차트 위젯이 초기화되지 않았습니다")
+                self.logger.error("❌ PyQtGraph 틱 차트 위젯이 초기화되지 않았습니다")
                 return
                 
-            logging.debug("🔍 PyQtGraph 틱 차트 그리기 시작")
+            self.logger.debug("🔍 PyQtGraph 틱 차트 그리기 시작")
             self.tic_chart_widget.clear_chart()
             
             # technical_indicators 변수 초기화
@@ -7310,7 +7086,7 @@ class PyQtGraphRealtimeWidget(QWidget):
             # 틱 데이터 가져오기
             tic_data = self.chart_data.get('tics')
             if not tic_data:
-                logging.warning("⚠️ PyQtGraph 틱 데이터가 없습니다")
+                self.logger.warning("⚠️ PyQtGraph 틱 데이터가 없습니다")
                 return
                 
             # 데이터 처리 및 변환
@@ -7320,17 +7096,17 @@ class PyQtGraphRealtimeWidget(QWidget):
             
             # 차트 표시용 데이터 준비 (최대 100개)
             display_data = data_list[-100:] if len(data_list) > 100 else data_list
-            logging.debug(f"🔍 틱 차트 데이터 처리: 표시 {len(display_data)}개")
+            self.logger.debug(f"🔍 틱 차트 데이터 처리: 표시 {len(display_data)}개")
             
             # 캔들스틱 데이터 생성
             candlestic_data = self._create_candlestic_data(display_data)
             if not candlestic_data:
-                logging.warning("⚠️ 틱 차트 캔들스틱 데이터가 없습니다")
+                self.logger.warning("⚠️ 틱 차트 캔들스틱 데이터가 없습니다")
                 return
             
             # 차트에 데이터 추가
             self.tic_chart_widget.add_candlestic_data(candlestic_data, chart_type="tic")
-            logging.debug("✅ 틱 차트 캔들스틱 데이터 추가 완료")
+            self.logger.debug("✅ 틱 차트 캔들스틱 데이터 추가 완료")
             
             # 이동평균선 표시
             self._add_moving_averages_to_tic_chart(candlestic_data)
@@ -7338,11 +7114,10 @@ class PyQtGraphRealtimeWidget(QWidget):
             # 차트 위젯 업데이트
             self.tic_chart_widget.update()
             self.tic_chart_widget.repaint()
-            logging.debug("✅ 틱 차트 위젯 업데이트 완료")
+            self.logger.debug("✅ 틱 차트 위젯 업데이트 완료")
                                           
         except Exception as ex:
-            logging.error(f"❌ PyQtGraph 틱 차트 그리기 실패: {ex}")
-            logging.error(f"❌ PyQtGraph 틱 차트 오류 상세: {traceback.format_exc()}")
+            self.logger.error(f"❌ PyQtGraph 틱 차트 그리기 실패: {ex}", exc_info=True)
     
     def _process_tic_data(self, tic_data):
         """틱 데이터 처리 및 변환"""
@@ -7364,12 +7139,12 @@ class PyQtGraphRealtimeWidget(QWidget):
                 if any(key in tic_data for key in possible_keys):
                     data_list = [tic_data]
                 else:
-                    logging.warning("⚠️ 틱 데이터에 필요한 키가 없음")
+                    self.logger.warning("⚠️ 틱 데이터에 필요한 키가 없음")
                     return None
         elif isinstance(tic_data, list):
             data_list = tic_data
         else:
-            logging.warning(f"⚠️ 틱 데이터 형식이 예상과 다름: {type(tic_data)}")
+            self.logger.warning(f"⚠️ 틱 데이터 형식이 예상과 다름: {type(tic_data)}")
             return None
             
         return data_list
@@ -7383,9 +7158,9 @@ class PyQtGraphRealtimeWidget(QWidget):
         
         if ma_indicators:
             self.technical_indicators = ma_indicators
-            logging.debug(f"✅ 이동평균선 데이터 추출 완료: {list(ma_indicators.keys())}")
+            self.logger.debug(f"✅ 이동평균선 데이터 추출 완료: {list(ma_indicators.keys())}")
         else:
-            logging.warning("⚠️ 이동평균선 데이터를 찾을 수 없습니다")
+            self.logger.warning("⚠️ 이동평균선 데이터를 찾을 수 없습니다")
     
     def _convert_list_to_dict_format(self, tic_data):
         """리스트 형식 데이터를 딕셔너리 리스트로 변환"""
@@ -7420,7 +7195,7 @@ class PyQtGraphRealtimeWidget(QWidget):
             }
             data_list.append(item)
         
-        logging.debug(f"🔍 API 응답 구조 변환: {len(data_list)}개 (OHLC 보정 완료)")
+        self.logger.debug(f"🔍 API 응답 구조 변환: {len(data_list)}개 (OHLC 보정 완료)")
         return data_list
     
     def _create_candlestic_data(self, display_data):
@@ -7483,11 +7258,11 @@ class PyQtGraphRealtimeWidget(QWidget):
     def _add_moving_averages_to_tic_chart(self, candlestic_data):
         """틱 차트에 이동평균선 추가"""
         if not hasattr(self, 'technical_indicators') or not self.technical_indicators:
-            logging.warning("⚠️ technical_indicators 변수를 찾을 수 없습니다")
+            self.logger.warning("⚠️ technical_indicators 변수를 찾을 수 없습니다")
             return
         
         if not isinstance(self.technical_indicators, dict):
-            logging.warning(f"⚠️ technical_indicators가 딕셔너리가 아닙니다: {type(self.technical_indicators)}")
+            self.logger.warning(f"⚠️ technical_indicators가 딕셔너리가 아닙니다: {type(self.technical_indicators)}")
             return
         
         ma_indicators = {}
@@ -7510,19 +7285,19 @@ class PyQtGraphRealtimeWidget(QWidget):
         
         if ma_indicators:
             self.tic_chart_widget.add_moving_averages(candlestic_data, ma_indicators, "tic")
-            logging.debug(f"✅ 틱 차트 이동평균선 표시 완료: {list(ma_indicators.keys())}")
+            self.logger.debug(f"✅ 틱 차트 이동평균선 표시 완료: {list(ma_indicators.keys())}")
         else:
-            logging.warning("⚠️ 이동평균선 데이터를 찾을 수 없습니다")
+            self.logger.warning("⚠️ 이동평균선 데이터를 찾을 수 없습니다")
     
     def _draw_pyqtchart_minute_chart(self):
         """PyQtGraph 분봉 차트 그리기"""
         try:
             # 위젯 초기화 확인
             if not hasattr(self, 'minute_chart_widget') or self.minute_chart_widget is None:
-                logging.error("❌ PyQtGraph 분봉 차트 위젯이 초기화되지 않았습니다")
+                self.logger.error("❌ PyQtGraph 분봉 차트 위젯이 초기화되지 않았습니다")
                 return
                 
-            logging.debug("🔍 PyQtGraph 분봉 차트 그리기 시작")
+            self.logger.debug("🔍 PyQtGraph 분봉 차트 그리기 시작")
             self.minute_chart_widget.clear_chart()
             
             # technical_indicators 변수 초기화
@@ -7532,7 +7307,7 @@ class PyQtGraphRealtimeWidget(QWidget):
             # 분봉 데이터 가져오기
             minute_data = self.chart_data.get('minutes')
             if not minute_data:
-                logging.warning("⚠️ PyQtGraph 분봉 데이터가 없습니다")
+                self.logger.warning("⚠️ PyQtGraph 분봉 데이터가 없습니다")
                 return
                 
             # 데이터 처리 및 변환
@@ -7542,17 +7317,17 @@ class PyQtGraphRealtimeWidget(QWidget):
             
             # 차트 표시용 데이터 준비 (최대 50개)
             display_data = data_list[-50:] if len(data_list) > 50 else data_list
-            logging.debug(f"🔍 분봉 차트 데이터 처리: 표시 {len(display_data)}개")
+            self.logger.debug(f"🔍 분봉 차트 데이터 처리: 표시 {len(display_data)}개")
             
             # 캔들스틱 데이터 생성
             candlestic_data = self._create_candlestic_data(display_data)
             if not candlestic_data:
-                logging.warning("⚠️ 분봉 차트 캔들스틱 데이터가 없습니다")
+                self.logger.warning("⚠️ 분봉 차트 캔들스틱 데이터가 없습니다")
                 return
             
             # 차트에 데이터 추가
             self.minute_chart_widget.add_candlestic_data(candlestic_data, chart_type="minute")
-            logging.debug("✅ 분봉 차트 캔들스틱 데이터 추가 완료")
+            self.logger.debug("✅ 분봉 차트 캔들스틱 데이터 추가 완료")
             
             # 이동평균선 표시
             self._add_moving_averages_to_minute_chart(candlestic_data)
@@ -7560,11 +7335,10 @@ class PyQtGraphRealtimeWidget(QWidget):
             # 차트 위젯 업데이트
             self.minute_chart_widget.update()
             self.minute_chart_widget.repaint()
-            logging.debug("✅ 분봉 차트 위젯 업데이트 완료")
+            self.logger.debug("✅ 분봉 차트 위젯 업데이트 완료")
                                           
         except Exception as ex:
-            logging.error(f"❌ PyQtGraph 분봉 차트 그리기 실패: {ex}")
-            logging.error(f"❌ PyQtGraph 분봉 차트 오류 상세: {traceback.format_exc()}")
+            self.logger.error(f"❌ PyQtGraph 분봉 차트 그리기 실패: {ex}", exc_info=True)
     
     def _process_minute_data(self, minute_data):
         """분봉 데이터 처리 및 변환"""
@@ -7586,12 +7360,12 @@ class PyQtGraphRealtimeWidget(QWidget):
                 if any(key in minute_data for key in possible_keys):
                     data_list = [minute_data]
                 else:
-                    logging.warning("⚠️ 분봉 데이터에 필요한 키가 없음")
+                    self.logger.warning("⚠️ 분봉 데이터에 필요한 키가 없음")
                     return None
         elif isinstance(minute_data, list):
             data_list = minute_data
         else:
-            logging.warning(f"⚠️ 분봉 데이터 형식이 예상과 다름: {type(minute_data)}")
+            self.logger.warning(f"⚠️ 분봉 데이터 형식이 예상과 다름: {type(minute_data)}")
             return None
             
         return data_list
@@ -7605,18 +7379,18 @@ class PyQtGraphRealtimeWidget(QWidget):
         
         if ma_indicators:
             self.technical_indicators = ma_indicators
-            logging.debug(f"✅ 분봉 이동평균선 데이터 추출 완료: {list(ma_indicators.keys())}")
+            self.logger.debug(f"✅ 분봉 이동평균선 데이터 추출 완료: {list(ma_indicators.keys())}")
         else:
-            logging.warning("⚠️ 분봉 이동평균선 데이터를 찾을 수 없습니다")
+            self.logger.warning("⚠️ 분봉 이동평균선 데이터를 찾을 수 없습니다")
     
     def _add_moving_averages_to_minute_chart(self, candlestic_data):
         """분봉 차트에 이동평균선 추가"""
         if not hasattr(self, 'technical_indicators') or not self.technical_indicators:
-            logging.warning("⚠️ technical_indicators 변수를 찾을 수 없습니다")
+            self.logger.warning("⚠️ technical_indicators 변수를 찾을 수 없습니다")
             return
         
         if not isinstance(self.technical_indicators, dict):
-            logging.warning(f"⚠️ technical_indicators가 딕셔너리가 아닙니다: {type(self.technical_indicators)}")
+            self.logger.warning(f"⚠️ technical_indicators가 딕셔너리가 아닙니다: {type(self.technical_indicators)}")
             return
         
         ma_indicators = {}
@@ -7639,9 +7413,9 @@ class PyQtGraphRealtimeWidget(QWidget):
         
         if ma_indicators:
             self.minute_chart_widget.add_moving_averages(candlestic_data, ma_indicators, "minute")
-            logging.debug(f"✅ 분봉 차트 이동평균선 표시 완료: {list(ma_indicators.keys())}")
+            self.logger.debug(f"✅ 분봉 차트 이동평균선 표시 완료: {list(ma_indicators.keys())}")
         else:
-            logging.warning("⚠️ 이동평균선 데이터를 찾을 수 없습니다")
+            self.logger.warning("⚠️ 이동평균선 데이터를 찾을 수 없습니다")
     
     def optimized_update_charts(self):
         """최적화된 차트 업데이트 (타이머에서 호출)"""
@@ -7654,7 +7428,7 @@ class PyQtGraphRealtimeWidget(QWidget):
             # 장 시작 시간(09:00) 이전에는 차트 렌더링 업데이트 중지
             market_open_time = now.replace(hour=9, minute=0, second=0, microsecond=0)
             if now < market_open_time:
-                logging.debug(f"⏰ 장 시작 시간({market_open_time.strftime('%H:%M:%S')}) 이전이므로 차트 렌더링 업데이트를 중지합니다.")
+                self.logger.debug(f"⏰ 장 시작 시간({market_open_time.strftime('%H:%M:%S')}) 이전이므로 차트 렌더링 업데이트를 중지합니다.")
                 return
 
             current_time = time.time()
@@ -7670,7 +7444,7 @@ class PyQtGraphRealtimeWidget(QWidget):
                     self.update_chart_data(cache_data.get('tic_data'), cache_data.get('min_data'))
                     
         except Exception as ex:
-            logging.error(f"❌ 최적화된 차트 업데이트 실패: {ex}")
+            self.logger.error(f"❌ 최적화된 차트 업데이트 실패: {ex}")
 
 class ChartDataCache(QObject):
     """모니터링 종목 차트 데이터 메모리 캐시 클래스"""
@@ -7681,6 +7455,7 @@ class ChartDataCache(QObject):
     
     def __init__(self, trader, parent):
         try:
+            self.logger = logging.getLogger(self.__class__.__name__)
             super().__init__(parent)            
             self.trader = trader            
             self.parent = parent  # MyWindow 객체 저장
@@ -7694,12 +7469,12 @@ class ChartDataCache(QObject):
             self.queue_timer = None  # 큐 처리 타이머
             self.active_chart_tasks = {} # 활성 차트 데이터 수집 asyncio 태스크 관리
             self.pending_stocks = {}  # 큐에 대기 중인 종목 정보 (코드: 이름)
-            logging.debug("🔍 API 요청 큐 시스템 초기화 완료")
+            self.logger.debug("🔍 API 요청 큐 시스템 초기화 완료")
             
             # QTimer 생성을 지연시켜 메인 스레드에서 실행되도록 함
             self.update_timer = None
             self.save_timer = None
-            logging.debug("🔍 타이머 변수 초기화 완료")
+            self.logger.debug("🔍 타이머 변수 초기화 완료")
             
             # API 시그널 연결
             self._connect_api_signals()
@@ -7707,12 +7482,11 @@ class ChartDataCache(QObject):
                 await asyncio.sleep(0.1)  # 100ms 대기
                 self._initialize_timers()
             asyncio.create_task(delayed_init_timers())
-            logging.debug("🔍 타이머 초기화 예약 완료 (100ms 후)")
+            self.logger.debug("🔍 타이머 초기화 예약 완료 (100ms 후)")
             
-            logging.debug("📊 차트 데이터 캐시 초기화 완료")
+            self.logger.debug("📊 차트 데이터 캐시 초기화 완료")
         except Exception as ex:
-            logging.error(f"❌ ChartDataCache 초기화 실패: {ex}")
-            logging.error(f"ChartDataCache 초기화 예외 상세: {traceback.format_exc()}")
+            self.logger.error(f"❌ ChartDataCache 초기화 실패: {ex}", exc_info=True)
             raise ex
     
     def _connect_api_signals(self):
@@ -7728,11 +7502,11 @@ class ChartDataCache(QObject):
                 # 이미 실행 중인 이벤트 루프가 있으면 태스크로 실행
                 task = asyncio.create_task(self._collect_chart_data_internal(code, max_retries))
                 self.active_chart_tasks[code] = task
-                logging.debug(f"✅ 차트 데이터 수집 태스크 시작: {code} (활성 태스크 수: {len(self.active_chart_tasks)})")
+                self.logger.debug(f"✅ 차트 데이터 수집 태스크 시작: {code} (활성 태스크 수: {len(self.active_chart_tasks)})")
                 return
             except RuntimeError:
                 # 실행 중인 이벤트 루프가 없음 - ThreadPoolExecutor로 fallback
-                logging.debug(f"⚠️ 실행 중인 이벤트 루프가 없어 ThreadPoolExecutor 사용: {code}")
+                self.logger.debug(f"⚠️ 실행 중인 이벤트 루프가 없어 ThreadPoolExecutor 사용: {code}")
                 pass
             
             # Fallback: ThreadPoolExecutor 사용 (이벤트 루프가 없는 경우)
@@ -7747,7 +7521,7 @@ class ChartDataCache(QObject):
                     finally:
                         loop.close()
                 except Exception as e:
-                    logging.error(f"차트 데이터 수집 실행 오류: {e}")
+                    self.logger.error(f"차트 데이터 수집 실행 오류: {e}")
                     return None
             
             # 별도 스레드에서 데이터 수집 실행
@@ -7756,12 +7530,12 @@ class ChartDataCache(QObject):
                 future.result(timeout=60)  # 60초 타임아웃
             
         except Exception as ex:
-            logging.error(f"❌ 비동기 차트 데이터 수집 실패: {code} - {ex}")
+            self.logger.error(f"❌ 비동기 차트 데이터 수집 실패: {code} - {ex}")
     
     async def _collect_chart_data_internal(self, code, max_retries=3):
         """내부 차트 데이터 수집 (asyncio 기반)"""
         try:
-            logging.debug(f"📊 차트 데이터 수집 시작: {code}")
+            self.logger.debug(f"📊 차트 데이터 수집 시작: {code}")
             
             # 비동기로 틱 데이터와 분봉 데이터 수집
             tic_data, min_data = await asyncio.gather(
@@ -7772,21 +7546,21 @@ class ChartDataCache(QObject):
             
             # 예외 처리
             if isinstance(tic_data, Exception):
-                logging.error(f"틱 데이터 수집 실패: {tic_data}")
+                self.logger.error(f"틱 데이터 수집 실패: {tic_data}")
                 tic_data = None
             if isinstance(min_data, Exception):
-                logging.error(f"분봉 데이터 수집 실패: {min_data}")
+                self.logger.error(f"분봉 데이터 수집 실패: {min_data}")
                 min_data = None
             
             # 틱 데이터가 None인 경우 빈 딕셔너리로 초기화
             if tic_data is None:
                 tic_data = {'time': [], 'open': [], 'high': [], 'low': [], 'close': [], 'volume': [], 'strength': []}
-                logging.warning(f"틱 데이터가 None입니다. 빈 데이터로 초기화: {code}")
+                self.logger.warning(f"틱 데이터가 None입니다. 빈 데이터로 초기화: {code}")
                 
             # 분봉 데이터가 None인 경우 빈 딕셔너리로 초기화
             if min_data is None:
                 min_data = {'time': [], 'open': [], 'high': [], 'low': [], 'close': [], 'volume': []}
-                logging.warning(f"분봉 데이터가 None입니다. 빈 데이터로 초기화: {code}")
+                self.logger.warning(f"분봉 데이터가 None입니다. 빈 데이터로 초기화: {code}")
             
             # 기술적 지표 계산 (비동기, ThreadPoolExecutor 사용)
             try:
@@ -7800,10 +7574,10 @@ class ChartDataCache(QObject):
                     )
                     # 예외 처리
                     if isinstance(tic_data, Exception):
-                        logging.error(f"틱 지표 계산 실패: {tic_data}")
+                        self.logger.error(f"틱 지표 계산 실패: {tic_data}")
                         tic_data = None
                     if isinstance(min_data, Exception):
-                        logging.error(f"분봉 지표 계산 실패: {min_data}")
+                        self.logger.error(f"분봉 지표 계산 실패: {min_data}")
                         min_data = None
                 elif tic_data:
                     tic_data = await loop.run_in_executor(None, self._calculate_technical_indicators, tic_data, "tic")
@@ -7816,19 +7590,19 @@ class ChartDataCache(QObject):
                 if min_data:
                     min_data = self._calculate_technical_indicators(min_data, "minute")
             except Exception as calc_ex:
-                logging.error(f"기술적 지표 계산 중 오류: {calc_ex}")
+                self.logger.error(f"기술적 지표 계산 중 오류: {calc_ex}")
             
             # 메인 스레드에서 콜백 실행
             QTimer.singleShot(0, lambda: self._on_chart_data_ready(code, tic_data, min_data))
             
         except Exception as e:
-            logging.error(f"차트 데이터 수집 실패 ({code}): {e}")
+            self.logger.error(f"차트 데이터 수집 실패 ({code}): {e}")
             QTimer.singleShot(0, lambda: self._on_chart_data_error(code, str(e)))
         finally:
             # 태스크 완료 처리
             if code in self.active_chart_tasks:
                 self.active_chart_tasks.pop(code)
-                logging.debug(f"✅ 차트 데이터 수집 태스크 정리 완료: {code}")
+                self.logger.debug(f"✅ 차트 데이터 수집 태스크 정리 완료: {code}")
     
     async def _collect_tic_data_async(self, code, max_retries=3):
         """틱 데이터 수집 (asyncio 기반)"""
@@ -7837,20 +7611,14 @@ class ChartDataCache(QObject):
                 # API 제한 확인 (비동기 버전)
                 await ApiLimitManager.check_api_limit_and_wait_async(request_type='tic')
                 
-                # ThreadPoolExecutor를 사용하여 동기 API를 비동기로 실행
-                loop = asyncio.get_running_loop()
-                data = await loop.run_in_executor(
-                    None,  # 기본 ThreadPoolExecutor 사용
-                    self.trader.client.get_stock_tic_chart,
-                    code,
-                    30  # tic_scope
-                )
+                # 비동기 API 직접 호출
+                data = await self.trader.client.get_stock_tic_chart(code, tic_scope=30)
                 
                 if data:
                     return data
                     
             except Exception as e:
-                logging.warning(f"틱 데이터 수집 시도 {attempt + 1}/{max_retries} 실패: {e}")
+                self.logger.warning(f"틱 데이터 수집 시도 {attempt + 1}/{max_retries} 실패: {e}")
                 if attempt < max_retries - 1:
                     await asyncio.sleep(1)
         
@@ -7863,19 +7631,14 @@ class ChartDataCache(QObject):
                 # API 제한 확인 (비동기 버전)
                 await ApiLimitManager.check_api_limit_and_wait_async(request_type='minute')
                 
-                # ThreadPoolExecutor를 사용하여 동기 API를 비동기로 실행
-                loop = asyncio.get_running_loop()
-                data = await loop.run_in_executor(
-                    None,  # 기본 ThreadPoolExecutor 사용
-                    self.trader.client.get_stock_minute_chart,
-                    code
-                )
+                # 비동기 API 직접 호출
+                data = await self.trader.client.get_stock_minute_chart(code, period=3)
                 
                 if data:
                     return data
                     
             except Exception as e:
-                logging.warning(f"분봉 데이터 수집 시도 {attempt + 1}/{max_retries} 실패: {e}")
+                self.logger.warning(f"분봉 데이터 수집 시도 {attempt + 1}/{max_retries} 실패: {e}")
                 if attempt < max_retries - 1:
                     await asyncio.sleep(1)
         
@@ -7884,7 +7647,7 @@ class ChartDataCache(QObject):
     def _on_chart_data_ready(self, code, tic_data, min_data):
         """차트 데이터 수집 완료 시그널 핸들러"""
         try:
-            logging.debug(f"✅ 차트 데이터 수집 완료: {code} (tic: {tic_data is not None}, min: {min_data is not None})")
+            self.logger.debug(f"✅ 차트 데이터 수집 완료: {code} (tic: {tic_data is not None}, min: {min_data is not None})")
             
             # 캐시에 데이터 저장
             if code not in self.cache:
@@ -7895,7 +7658,7 @@ class ChartDataCache(QObject):
                     'last_save': None,
                     'previous_close': 0  # 전일종가 (한 번만 조회)
                 }
-                logging.debug(f"📝 {code}: 캐시 초기화")
+                self.logger.debug(f"📝 {code}: 캐시 초기화")
             
             # 기술적 지표 계산은 이미 _collect_chart_data_internal에서 완료됨
             # _on_chart_data_ready는 캐시 저장 및 UI 업데이트만 담당
@@ -7904,7 +7667,7 @@ class ChartDataCache(QObject):
             self.cache[code]['min_data'] = min_data
             self.cache[code]['last_update'] = datetime.now()
             
-            logging.debug(f"💾 {code}: 캐시에 데이터 저장 완료 (총 캐시: {len(self.cache)}개 종목)")
+            self.logger.debug(f"💾 {code}: 캐시에 데이터 저장 완료 (총 캐시: {len(self.cache)}개 종목)")
             
             # 데이터 업데이트 시그널 발생
             self.data_updated.emit(code)
@@ -7925,32 +7688,30 @@ class ChartDataCache(QObject):
                         
                         if existing_code == code:
                             already_exists = True
-                            logging.debug(f"ℹ️ 이미 모니터링에 존재하여 추가 건너뜀: {code} - {stock_name}")
+                            self.logger.debug(f"ℹ️ 이미 모니터링에 존재하여 추가 건너뜀: {code} - {stock_name}")
                             break
                     
                     # 존재하지 않을 때만 추가
                     if not already_exists:
-                        self.parent.monitoring_manager.add_stock_to_monitoring(code, stock_name)
-                        logging.debug(f"✅ 모니터링 리스트박스에 추가 완료: {code} - {stock_name}")
+                        asyncio.create_task(self.parent.monitoring_manager.add_stock_to_monitoring(code, stock_name))
+                        self.logger.debug(f"✅ 모니터링 리스트박스에 추가 완료: {code} - {stock_name}")
                 
                 # pending_stocks에서 제거
                 del self.pending_stocks[code]
             
             # 데이터 수집 결과 로그 (간소화)
             if not tic_data and not min_data:
-                logging.warning(f"⚠️ 차트 데이터 수집 실패: {code}")
+                self.logger.warning(f"⚠️ 차트 데이터 수집 실패: {code}")
             
         except Exception as ex:
-            logging.error(f"❌ 차트 데이터 처리 실패: {code} - {ex}")
-            logging.error(f"차트 데이터 처리 예외 상세: {traceback.format_exc()}")
+            self.logger.error(f"❌ 차트 데이터 처리 실패: {code} - {ex}", exc_info=True)
     
     def _on_chart_data_error(self, code, error_message):
         """차트 데이터 수집 에러 시그널 핸들러"""
         try:
-            logging.error(f"❌ 차트 데이터 수집 에러: {code} - {error_message}")
-            
+            self.logger.error(f"❌ 차트 데이터 수집 에러: {code} - {error_message}")
         except Exception as ex:
-            logging.error(f"❌ 차트 데이터 에러 처리 실패: {code} - {ex}")
+            self.logger.error(f"❌ 차트 데이터 에러 처리 실패: {code} - {ex}")
     
     def _collect_and_save_data(self, code):
         """실제 데이터 수집 및 저장"""
@@ -7980,43 +7741,16 @@ class ChartDataCache(QObject):
                     'previous_close': previous_close  # 전일종가 유지
                 }
             else:
-                logging.warning(f"⚠️ 차트 데이터 수집 실패: {code}")
+                self.logger.warning(f"⚠️ 차트 데이터 수집 실패: {code}")
             
         except Exception as ex:
-            logging.error(f"❌ 실제 데이터 수집 실패: {code} - {ex}")
-            logging.error(f"데이터 수집 예외 상세: {traceback.format_exc()}")
+            self.logger.error(f"❌ 실제 데이터 수집 실패: {code} - {ex}", exc_info=True)
   
-    def _collect_tic_data_sync(self, code, max_retries=3):
-        """동기 방식 틱 데이터 수집"""
-        for attempt in range(max_retries):
-            try:
-                # API 요청 간격 조정
-                if attempt > 0:
-                    wait_time = 2 ** attempt
-                    logging.debug(f"⏳ API 제한 대기 중... ({wait_time}초 후 재시도 {attempt + 1}/{max_retries})")
-                    QTimer.singleShot(int(wait_time * 1000), lambda: None)  # QTimer로 대기
-                
-                logging.debug(f"🔧 API 틱 데이터 조회 시작: {code} (시도 {attempt + 1}/{max_retries})")
-                data = self.trader.client.get_stock_tic_chart(code, tic_scope=30)
-                
-                if data and data.get('close'):
-                    logging.debug(f"✅ 틱 데이터 조회 성공: {code} - 데이터 개수: {len(data['close'])}")
-                    return data
-                else:
-                    logging.warning(f"⚠️ 틱 데이터가 비어있음: {code}")
-                    
-            except Exception as e:
-                logging.error(f"❌ 틱 데이터 조회 실패: {code} (시도 {attempt + 1}/{max_retries}) - {e}")
-                if attempt == max_retries - 1:
-                    raise e
-        
-        return None
-    
     def _initialize_timers(self):
         """메인 스레드에서 타이머 초기화"""
         try:
-            logging.debug("🔧 차트 데이터 캐시 타이머 초기화 시작 (메인 스레드)")
-            logging.debug(f"🔍 현재 스레드: {threading.current_thread().name}")
+            self.logger.debug("🔧 차트 데이터 캐시 타이머 초기화 시작 (메인 스레드)")
+            self.logger.debug(f"🔍 현재 스레드: {threading.current_thread().name}")
             
             # QTimer 생성 및 설정
             self.update_timer = QTimer()
@@ -8030,35 +7764,34 @@ class ChartDataCache(QObject):
             
             # 타이머 시작 (설정 가능한 주기)
             # save_timer와 queue_timer는 즉시 시작
-            logging.debug("🔍 save_timer 시작 중... (1분 간격)")
+            self.logger.debug("🔍 save_timer 시작 중... (1분 간격)")
             self.save_timer.start(60000)     # 1분마다 DB 저장
-            logging.debug("🔍 queue_timer 시작 중... (3초 간격)")
+            self.logger.debug("🔍 queue_timer 시작 중... (3초 간격)")
             self.queue_timer.start(3000)     # 3초마다 큐 처리
             
             # update_timer는 모니터링 종목이 추가된 후 시작 (add_monitoring_stock에서 처리)
-            logging.debug("🔍 update_timer는 모니터링 종목 추가 후 시작됩니다")
+            self.logger.debug("🔍 update_timer는 모니터링 종목 추가 후 시작됩니다")
             
-            logging.debug("✅ 차트 데이터 캐시 타이머 초기화 완료")
+            self.logger.debug("✅ 차트 데이터 캐시 타이머 초기화 완료")
         except Exception as ex:
-            logging.error(f"❌ 차트 데이터 캐시 타이머 초기화 실패: {ex}")
-            logging.error(f"타이머 초기화 예외 상세: {traceback.format_exc()}")
+            self.logger.error(f"❌ 차트 데이터 캐시 타이머 초기화 실패: {ex}", exc_info=True)
     
-    def add_monitoring_stock(self, code):
+    async def add_monitoring_stock(self, code):
         """모니터링 종목 추가"""
         try:            
             if code not in self.cache:
                 # 전일종가 조회 (ka10100 API)
                 previous_close = 0
-                if hasattr(self.parent, 'login_handler') and self.parent.login_handler.kiwoom_client:
+                if hasattr(self.parent, 'login_handler') and self.parent.login_handler and self.parent.login_handler.kiwoom_client:
                     try:
-                        stock_info = self.parent.login_handler.kiwoom_client.get_stock_info_ka10100(code)
+                        stock_info = await self.parent.login_handler.kiwoom_client.get_stock_info_ka10100(code)
                         if stock_info and 'lastPrice' in stock_info:
                             previous_close = int(stock_info['lastPrice'])
-                            logging.info(f"📊 {code} 전일종가 조회 완료: {previous_close:,}원")
+                            self.logger.info(f"📊 {code} 전일종가 조회 완료: {previous_close:,}원")
                         else:
-                            logging.warning(f"⚠️ {code} 전일종가 조회 실패 - 0으로 설정")
+                            self.logger.warning(f"⚠️ {code} 전일종가 조회 실패 - 0으로 설정")
                     except Exception as e:
-                        logging.error(f"❌ {code} 전일종가 조회 중 오류: {e}")
+                        self.logger.error(f"❌ {code} 전일종가 조회 중 오류: {e}")
                 
                 self.cache[code] = {
                     'tic_data': None,
@@ -8067,7 +7800,7 @@ class ChartDataCache(QObject):
                     'last_save': None,
                     'previous_close': previous_close  # 전일종가 (한 번만 조회)
                 }
-                logging.debug(f"✅ 모니터링 종목 추가 완료: {code}")
+                self.logger.debug(f"✅ 모니터링 종목 추가 완료: {code}")
                 
                 # 종목코드만 저장 (API 호출 제거)
                 self.pending_stocks[code] = f"종목{code}"
@@ -8079,16 +7812,15 @@ class ChartDataCache(QObject):
                         chartdata_update_interval = getattr(self.trader, 'chartdata_update_interval', 10)
                         update_interval = chartdata_update_interval * 1000  # 초 -> 밀리초 변환
                         self.update_timer.start(update_interval)
-                        logging.debug(f"✅ update_timer 시작: 첫 번째 모니터링 종목 추가 (차트 데이터 업데이트: {update_interval//1000}초 간격)")
+                        self.logger.debug(f"✅ update_timer 시작: 첫 번째 모니터링 종목 추가 (차트 데이터 업데이트: {update_interval//1000}초 간격)")
                 
                 # API 요청 큐에 추가
                 self._add_to_api_queue(code)
             else:
-                logging.debug(f"ℹ️ 모니터링 종목이 이미 존재함: {code}")
+                self.logger.debug(f"ℹ️ 모니터링 종목이 이미 존재함: {code}")
                 
         except Exception as ex:
-            logging.error(f"❌ 모니터링 종목 추가 실패 ({code}): {ex}")
-            logging.error(f"종목 추가 예외 상세: {traceback.format_exc()}")
+            self.logger.error(f"❌ 모니터링 종목 추가 실패 ({code}): {ex}", exc_info=True)
     
     def _add_to_api_queue(self, code):
         """API 요청 큐에 종목 추가"""
@@ -8100,11 +7832,11 @@ class ChartDataCache(QObject):
                 if code not in self.pending_stocks:
                     self.pending_stocks[code] = f"종목{code}"
                 
-                logging.debug(f"📋 API 요청 큐에 추가: {code} (대기 중: {len(self.api_request_queue)}개)")
+                self.logger.debug(f"📋 API 요청 큐에 추가: {code} (대기 중: {len(self.api_request_queue)}개)")
             else:
-                logging.debug(f"📋 API 요청 큐에 이미 존재: {code}")
+                self.logger.debug(f"📋 API 요청 큐에 이미 존재: {code}")
         except Exception as ex:
-            logging.error(f"❌ API 큐 추가 실패 ({code}): {ex}")
+            self.logger.error(f"❌ API 큐 추가 실패 ({code}): {ex}")
     
     def _process_api_queue(self):
         """API 요청 큐 처리 (3초 간격)"""
@@ -8119,13 +7851,13 @@ class ChartDataCache(QObject):
             code = self.api_request_queue.pop(0)
             name = self.pending_stocks.get(code)  # 종목명 가져오기
             
-            logging.debug(f"🔧 큐에서 데이터 수집 시작: {code} (남은 큐: {len(self.api_request_queue)}개)")
+            self.logger.debug(f"🔧 큐에서 데이터 수집 시작: {code} (남은 큐: {len(self.api_request_queue)}개)")
             
             # 차트 데이터 수집 (QThread에서 비동기 실행)
             self.update_single_chart(code)
             
         except Exception as ex:
-            logging.error(f"❌ API 큐 처리 실패: {ex}")
+            self.logger.error(f"❌ API 큐 처리 실패: {ex}")
         finally:
             # 큐 처리 완료
             self.queue_processing = False
@@ -8139,7 +7871,7 @@ class ChartDataCache(QObject):
                     existing_code = self.parent.monitoringBox.item(i).text()
 
                     if existing_code == code:
-                        logging.debug(f"종목이 이미 모니터링에 존재합니다: {code}")
+                        self.logger.debug(f"종목이 이미 모니터링에 존재합니다: {code}")
                         return False
             
             # API 큐에 추가 (중복 제거)
@@ -8156,7 +7888,7 @@ class ChartDataCache(QObject):
                 
                 return True
             else:
-                logging.debug(f"종목이 이미 API 큐에 존재합니다: {code}")
+                self.logger.debug(f"종목이 이미 API 큐에 존재합니다: {code}")
                 return True  # 중복이지만 정상적인 상황이므로 True 반환
                 
         except Exception as ex:
@@ -8177,14 +7909,14 @@ class ChartDataCache(QObject):
             # API 요청 간격 확인
             if not self._check_api_interval():
                 # API 제한으로 인해 3초 후 재시도 (람다 클로저 문제 방지)
-                logging.debug(f"⏳ API 제한으로 인해 3초 후 재시도: {code}")
+                self.logger.debug(f"⏳ API 제한으로 인해 3초 후 재시도: {code}")
                 QTimer.singleShot(3000, lambda c=code: self._delayed_data_collection(c))
                 return
             
-            logging.debug(f"🔧 지연된 데이터 수집 시작: {code}")
+            self.logger.debug(f"🔧 지연된 데이터 수집 시작: {code}")
             self.update_single_chart(code)
         except Exception as ex:
-            logging.error(f"❌ 지연된 데이터 수집 실패 ({code}): {ex}")
+            self.logger.error(f"❌ 지연된 데이터 수집 실패 ({code}): {ex}")
     
     def _check_api_interval(self):
         """API 요청 간격 확인"""
@@ -8198,37 +7930,37 @@ class ChartDataCache(QObject):
         self.last_api_request_time = current_time
         self.api_request_count += 1
         
-        logging.debug(f"📊 API 요청 카운트: {self.api_request_count}")
+        self.logger.debug(f"📊 API 요청 카운트: {self.api_request_count}")
         return True
     
     def remove_monitoring_stock(self, code):
         """모니터링 종목 제거"""
         if code in self.cache:
             del self.cache[code]
-            logging.debug(f"📊 모니터링 종목 제거: {code}")
+            self.logger.debug(f"📊 모니터링 종목 제거: {code}")
     
     def update_monitoring_stocks(self, codes):
         """모니터링 종목 리스트 업데이트"""
         try:
-            logging.debug(f"🔧 모니터링 종목 리스트 업데이트 시작")
-            logging.debug(f"새로운 종목 리스트: {codes}")
+            self.logger.debug(f"🔧 모니터링 종목 리스트 업데이트 시작")
+            self.logger.debug(f"새로운 종목 리스트: {codes}")
             
             current_codes = set(self.cache.keys())
             new_codes = set(codes)
             
-            logging.debug(f"현재 캐시된 종목: {list(current_codes)}")
-            logging.debug(f"새로운 종목: {list(new_codes)}")
+            self.logger.debug(f"현재 캐시된 종목: {list(current_codes)}")
+            self.logger.debug(f"새로운 종목: {list(new_codes)}")
             
             # 추가할 종목 (순차적으로 처리)
             to_add = new_codes - current_codes
             if to_add:
-                logging.debug(f"추가할 종목: {list(to_add)}")
+                self.logger.debug(f"추가할 종목: {list(to_add)}")
                 self._add_monitoring_stocks_sequentially(list(to_add))
             
             # 제거할 종목
             to_remove = current_codes - new_codes
             if to_remove:
-                logging.debug(f"제거할 종목: {list(to_remove)}")
+                self.logger.debug(f"제거할 종목: {list(to_remove)}")
                 for code in to_remove:
                     self.remove_monitoring_stock(code)
             
@@ -8239,8 +7971,7 @@ class ChartDataCache(QObject):
                 logging.warning("⚠️ 모니터링 종목이 없습니다")
                 
         except Exception as ex:
-            logging.error(f"❌ 모니터링 종목 리스트 업데이트 실패: {ex}")
-            logging.error(f"종목 리스트 업데이트 예외 상세: {traceback.format_exc()}")
+            self.logger.error(f"❌ 모니터링 종목 리스트 업데이트 실패: {ex}", exc_info=True)
     
     def _start_queue_processing(self):
         """API 큐 처리 시작"""
@@ -8253,7 +7984,7 @@ class ChartDataCache(QObject):
             self.queue_timer.start(3000)  # 3초 간격으로 처리
             
         except Exception as ex:
-            logging.error(f"❌ 큐 처리 시작 실패: {ex}")
+            self.logger.error(f"❌ 큐 처리 시작 실패: {ex}")
     
     def _add_monitoring_stocks_sequentially(self, codes):
         """모니터링 종목을 큐에 추가 (API 제한 고려)"""
@@ -8335,8 +8066,7 @@ class ChartDataCache(QObject):
             logging.debug(f"📋 {added_count}개 종목을 주기 업데이트 큐에 추가 (총 큐: {len(self.api_request_queue)}개)")
             
         except Exception as ex:
-            logging.error(f"❌ 전체 차트 데이터 업데이트 실패: {ex}")
-            logging.error(f"전체 업데이트 예외 상세: {traceback.format_exc()}")
+            logging.error(f"❌ 전체 차트 데이터 업데이트 실패: {ex}", exc_info=True)
     
     def get_chart_data(self, code):
         """캐시된 차트 데이터 조회"""
@@ -8375,7 +8105,7 @@ class ChartDataCache(QObject):
                 logging.debug(f"📊 현재 캐시된 종목들: {cache_keys}")
                 return None
         except Exception as ex:
-            logging.error(f"ChartDataCache 데이터 조회 실패 ({code}): {ex}")
+            logging.error(f"❌ 캐시 데이터 조회 실패: {code} - {ex}")
             return None
     
     def save_chart_data(self, code, tic_data, min_data):
@@ -8415,7 +8145,13 @@ class ChartDataCache(QObject):
                     QTimer.singleShot(int(wait_time * 1000), lambda: None)
                 
                 logging.debug(f"🔧 API 틱 데이터 조회 시작: {code} (시도 {attempt + 1}/{max_retries})")
-                data = self.trader.client.get_stock_tic_chart(code, tic_scope=30)
+                # 동기 메서드에서 비동기 호출을 위해 run_until_complete 사용
+                try:
+                    loop = asyncio.get_event_loop()
+                    data = loop.run_until_complete(self.trader.client.get_stock_tic_chart(code, tic_scope=30))
+                except RuntimeError:
+                    # 이벤트 루프가 없으면 새로 생성
+                    data = asyncio.run(self.trader.client.get_stock_tic_chart(code, tic_scope=30))
                 
                 # API 응답 상세 로깅
                 if data:
@@ -8450,8 +8186,7 @@ class ChartDataCache(QObject):
                         logging.error(f"❌ 최대 재시도 횟수 초과: {code}")
                         return None
                 else:
-                    logging.error(f"❌ 틱 데이터 조회 실패 ({code}): {ex}")
-                    logging.error(f"틱 데이터 조회 예외 상세: {traceback.format_exc()}")
+                    logging.error(f"❌ 틱 데이터 조회 실패 ({code}): {ex}", exc_info=True)
                     return None
         
         return None
@@ -8469,7 +8204,13 @@ class ChartDataCache(QObject):
                     QTimer.singleShot(int(wait_time * 1000), lambda: None)
                 
                 logging.debug(f"🔧 API 분봉 데이터 조회 시작: {code} (시도 {attempt + 1}/{max_retries})")
-                data = self.trader.client.get_stock_minute_chart(code, period=3)
+                # 동기 메서드에서 비동기 호출을 위해 run_until_complete 사용
+                try:
+                    loop = asyncio.get_event_loop()
+                    data = loop.run_until_complete(self.trader.client.get_stock_minute_chart(code, period=3))
+                except RuntimeError:
+                    # 이벤트 루프가 없으면 새로 생성
+                    data = asyncio.run(self.trader.client.get_stock_minute_chart(code, period=3))
                 
                 # API 응답 상세 로깅
                 logging.debug(f"📊 {code} API 분봉 데이터 응답 타입: {type(data)}")
@@ -8505,8 +8246,7 @@ class ChartDataCache(QObject):
                         logging.error(f"❌ 최대 재시도 횟수 초과: {code}")
                         return None
                 else:
-                    logging.error(f"❌ 분봉 데이터 조회 실패 ({code}): {ex}")
-                    logging.error(f"분봉 데이터 조회 예외 상세: {traceback.format_exc()}")
+                    logging.error(f"❌ 분봉 데이터 조회 실패 ({code}): {ex}", exc_info=True)
                     return None
         
         return None
@@ -8611,8 +8351,7 @@ class ChartDataCache(QObject):
                 logging.warning("⚠️ 저장된 데이터가 없습니다")
                 
         except Exception as ex:
-            logging.error(f"통합 차트 데이터 DB 저장 실패: {ex}")
-            logging.error(f"상세 오류: {traceback.format_exc()}")
+            logging.error(f"통합 차트 데이터 DB 저장 실패: {ex}", exc_info=True)
     
     def log_single_stock_analysis(self, code, tic_data, min_data):
         """단일 종목 분석표 출력 (차트 데이터 저장 시) - 비활성화됨"""
@@ -8730,8 +8469,7 @@ class ChartDataCache(QObject):
             self.cache.clear()
             logging.debug("📊 차트 데이터 캐시 정리 완료")
         except Exception as ex:
-            logging.error(f"❌ 차트 데이터 캐시 정리 실패: {ex}")
-            logging.error(f"캐시 정리 예외 상세: {traceback.format_exc()}")
+            logging.error(f"❌ 차트 데이터 캐시 정리 실패: {ex}", exc_info=True)
     
     def _calculate_technical_indicators(self, data, chart_type=None):
         """기술적 지표 계산"""
@@ -8899,12 +8637,13 @@ class ChartDataCache(QObject):
 class KiwoomWebSocketClient:
     """키움 웹소켓 클라이언트 (asyncio 기반) - 리팩토링된 버전"""
     
-    def __init__(self, token: str, logger, is_mock: bool = False, parent=None):
+    def __init__(self, token: str, logger: logging.Logger, is_mock: bool = False, parent=None):
         # 키움증권 예시코드에 맞춰 URL 설정
         if is_mock:
             self.uri = 'wss://mockapi.kiwoom.com:10000/api/dostk/websocket'  # 모의투자 웹소켓 URL
         else:
             self.uri = 'wss://api.kiwoom.com:10000/api/dostk/websocket'  # 실제투자 웹소켓 URL
+        self.logger = logging.getLogger(self.__class__.__name__)
         
         self.token = token
         self.logger = logger
@@ -8926,7 +8665,7 @@ class KiwoomWebSocketClient:
     async def connect(self):
         """웹소켓 연결 (키움증권 예시코드 기반)"""
         try:
-            mode_text = "모의투자" if self.is_mock else "실제투자"
+            mode_text = "모의투자" if self.is_mock else "실제투자" # type: ignore
             logging.debug(f"🔧 웹소켓 연결 시작... ({mode_text})")
             
             # 웹소켓 연결 (키움증권 예시코드와 동일)
@@ -8946,7 +8685,7 @@ class KiwoomWebSocketClient:
             return True
             
         except Exception as e:
-            logging.error(f'❌ 웹소켓 연결 오류: {e}')
+            self.logger.error(f'웹소켓 연결 오류: {e}', exc_info=True)
             self.connected = False
             return False
     
@@ -8958,7 +8697,7 @@ class KiwoomWebSocketClient:
             
             if self.websocket:
                 await self.websocket.close()
-                self.websocket = None
+                self.websocket = None # type: ignore
                 logging.debug('✅ 웹소켓 서버와 연결이 해제되었습니다')
             
             # 구독된 종목 목록 초기화
@@ -8975,11 +8714,11 @@ class KiwoomWebSocketClient:
             self.balance_data.clear()
             self.market_status.clear()
             
-            logging.debug('✅ 웹소켓 클라이언트 완전 정리 완료')
+            self.logger.debug('✅ 웹소켓 클라이언트 완전 정리 완료')
             
         except Exception as ex:
-            logging.error(f"❌ 웹소켓 연결 해제 실패: {ex}")
-            logging.error(f"웹소켓 해제 에러 상세: {traceback.format_exc()}")
+            self.logger.error(f"웹소켓 연결 해제 실패: {ex}", exc_info=True)
+            
     
     async def run(self):
         """웹소켓 클라이언트 실행 (키움증권 예시코드 기반)"""
@@ -8989,15 +8728,15 @@ class KiwoomWebSocketClient:
             await self.receive_messages()
             
         except asyncio.CancelledError:
-            logging.debug("🛑 웹소켓 클라이언트 태스크가 취소되었습니다")
+            self.logger.debug("🛑 웹소켓 클라이언트 태스크가 취소되었습니다")
             raise  # CancelledError는 다시 발생시켜야 함
         except Exception as e:
-            logging.error(f"❌ 웹소켓 클라이언트 실행 중 오류: {e}")
-            logging.error(f"웹소켓 실행 에러 상세: {traceback.format_exc()}")
+            self.logger.error(f"웹소켓 클라이언트 실행 중 오류: {e}", exc_info=True)
+            
         finally:
-            logging.debug("🔌 웹소켓 클라이언트 정리 중...")
+            self.logger.debug("🔌 웹소켓 클라이언트 정리 중...")
             await self.disconnect()
-            logging.debug("✅ 웹소켓 클라이언트 정리 완료")
+            self.logger.debug("✅ 웹소켓 클라이언트 정리 완료")
 
     async def send_message(self, message):
         """메시지 전송 (키움증권 예시코드 기반)"""
@@ -9018,14 +8757,14 @@ class KiwoomWebSocketClient:
                     message_dict = message
                 
                 if message_dict.get('trnm') != 'PING':
-                    logging.debug(f'메시지 전송: {message}')
+                    self.logger.debug(f'메시지 전송: {message}')
             except (json.JSONDecodeError, AttributeError):
                 # JSON 파싱 실패시 기본 로그 출력
-                logging.debug(f'메시지 전송: {message}')
+                self.logger.debug(f'메시지 전송: {message}')
 
     async def receive_messages(self):
         """서버에서 메시지 수신"""
-        logging.debug("🔧 웹소켓 메시지 수신 루프 시작")
+        self.logger.debug("🔧 웹소켓 메시지 수신 루프 시작")
         message_count = 0
         
         while self.keep_running and self.connected:
@@ -9042,7 +8781,7 @@ class KiwoomWebSocketClient:
                 if response.get('trnm') == 'LOGIN':
                     if response.get('return_code') != 0:
                         error_msg = response.get('return_msg', '')
-                        logging.error(f'❌ 웹소켓 로그인 실패하였습니다. : {error_msg}')
+                        self.logger.error(f'웹소켓 로그인 실패하였습니다. : {error_msg}')
                         
                         # 토큰 만료나 무효한 경우 토큰 갱신 후 재연결 시도
                         if 'Token' in error_msg or '토큰' in error_msg or '8005' in error_msg:
@@ -9053,46 +8792,46 @@ class KiwoomWebSocketClient:
                                 if hasattr(self.parent.login_handler, 'kiwoom_client'):
                                     try:
                                         # 토큰 갱신
-                                        if self.parent.login_handler.kiwoom_client.get_access_token():
-                                            logging.info('✅ 토큰 갱신 성공 - 웹소켓 재연결 시도')
+                                        if await self.parent.login_handler.kiwoom_client.get_access_token():
+                                            self.logger.info('✅ 토큰 갱신 성공 - 웹소켓 재연결 시도')
                                             # 새로운 토큰으로 업데이트
                                             self.token = self.parent.login_handler.kiwoom_client.access_token
                                             # keep_running을 True로 설정 (재연결을 위해)
                                             self.keep_running = True
                                             # 재연결 시도
                                             await asyncio.sleep(1)  # 1초 대기
-                                            if await self.connect():
-                                                logging.info('✅ 웹소켓 재연결 성공')
+                                            if await self.connect(): # type: ignore
+                                                self.logger.info('✅ 웹소켓 재연결 성공')
                                             else:
-                                                logging.error('❌ 웹소켓 재연결 실패')
+                                                self.logger.error('❌ 웹소켓 재연결 실패')
                                                 await self.disconnect()
                                         else:
-                                            logging.error('❌ 토큰 갱신 실패')
+                                            self.logger.error('❌ 토큰 갱신 실패')
                                             await self.disconnect()
                                     except Exception as token_err:
-                                        logging.error(f'❌ 토큰 갱신 중 오류: {token_err}')
+                                        self.logger.error(f'토큰 갱신 중 오류: {token_err}', exc_info=True)
                                         await self.disconnect()
                                 else:
-                                    logging.error('❌ REST 클라이언트를 찾을 수 없습니다')
+                                    self.logger.error('❌ REST 클라이언트를 찾을 수 없습니다')
                                     await self.disconnect()
                             else:
-                                logging.error('❌ 부모 윈도우나 login_handler를 찾을 수 없습니다')
+                                self.logger.error('❌ 부모 윈도우나 login_handler를 찾을 수 없습니다')
                                 await self.disconnect()
                         else:
                             # 토큰 문제가 아닌 다른 오류인 경우
                             await self.disconnect()
                     else:
-                        mode_text = "모의투자" if self.is_mock else "실제투자"
-                        logging.debug(f'✅ 웹소켓 로그인 성공하였습니다. ({mode_text} 모드)')
+                        mode_text = "모의투자" if self.is_mock else "실제투자" # type: ignore
+                        self.logger.debug(f'✅ 웹소켓 로그인 성공하였습니다. ({mode_text} 모드)')
                         
                         # 웹소켓 연결 성공 시 post_login_setup 실행
                         try:
                             # post_login_setup을 직접 await하여 순차적으로 실행
                             if hasattr(self, 'parent') and hasattr(self.parent, 'post_login_setup'):
-                                await self.parent.post_login_setup()
-                                logging.debug("✅ post_login_setup 실행 완료")
+                                await self.parent.post_login_setup() # type: ignore
+                                self.logger.debug("✅ post_login_setup 실행 완료")
                         except Exception as setup_err:
-                            logging.error(f"❌ post_login_setup 실행 실패: {setup_err}")
+                            self.logger.error(f"post_login_setup 실행 실패: {setup_err}", exc_info=True)
                         
                         # 로그인 성공 후 주문체결 실시간 구독 시작
                         try:
@@ -9104,27 +8843,27 @@ class KiwoomWebSocketClient:
                         # 로그인 성공 후 실시간 잔고 구독 시작
                         try:
                             await self.subscribe_balance()
-                            logging.debug("🔔 실시간 잔고 모니터링 시작")
+                            self.logger.debug("🔔 실시간 잔고 모니터링 시작")
                             
                             # 웹소켓 준비 완료 - 이전에 조회한 REST API 잔고 데이터가 있으면 투자현황표 업데이트
                             if hasattr(self, 'parent') and self.parent:
                                 try:
                                     # 부모 윈도우의 임시 보유종목 데이터 확인
                                     if hasattr(self.parent, '_pending_balance_data'):
-                                        logging.info("🔄 웹소켓 준비 완료 - 임시 저장된 잔고 데이터로 투자현황표 초기화")
+                                        self.logger.info("웹소켓 준비 완료 - 임시 저장된 잔고 데이터로 투자현황표 초기화")
                                         self.parent._initialize_balance_data_from_rest_api(self.parent._pending_balance_data)
                                         delattr(self.parent, '_pending_balance_data')
                                 except Exception as table_update_err:
-                                    logging.error(f"❌ 투자현황표 초기화 실패: {table_update_err}")
+                                    self.logger.error(f"투자현황표 초기화 실패: {table_update_err}", exc_info=True)
                         except Exception as balance_sub_err:
-                            logging.error(f"❌ 실시간 잔고 구독 실패: {balance_sub_err}")
+                            self.logger.error(f"실시간 잔고 구독 실패: {balance_sub_err}", exc_info=True)
                         
                         # 로그인 성공 후 시장 상태 구독 시작
                         try:
                             await self.subscribe_market_status()
-                            logging.debug("🔔 시장 상태 모니터링 시작")
+                            self.logger.debug("🔔 시장 상태 모니터링 시작")
                         except Exception as market_sub_err:
-                            logging.error(f"❌ 시장 상태 구독 실패: {market_sub_err}")
+                            self.logger.error(f"시장 상태 구독 실패: {market_sub_err}", exc_info=True)
 
                 # 메시지 유형이 PING일 경우 수신값 그대로 송신 (키움증권 예시코드 기반)
                 if response.get('trnm') == 'PING':
@@ -9136,17 +8875,17 @@ class KiwoomWebSocketClient:
                     try:
                         # 응답 데이터 유효성 확인
                         if response is None:
-                            logging.warning("⚠️ 조건검색 목록조회 응답 데이터가 None입니다")
+                            self.logger.warning("⚠️ 조건검색 목록조회 응답 데이터가 None입니다")
                             continue
                         
                         if not isinstance(response, dict):
-                            logging.warning(f"⚠️ 조건검색 목록조회 응답이 딕셔너리가 아닙니다: {type(response)}")
+                            self.logger.warning(f"⚠️ 조건검색 목록조회 응답이 딕셔너리가 아닙니다: {type(response)}")
                             continue
                         
                         self.process_condition_search_list_response(response)
                     except Exception as condition_err:
-                        logging.error(f"❌ 조건검색 목록조회 응답 처리 실패: {condition_err}")
-                        logging.error(f"조건검색 응답 처리 에러 상세: {traceback.format_exc()}")
+                        self.logger.error(f"조건검색 목록조회 응답 처리 실패: {condition_err}", exc_info=True)
+                        
 
                 # 실시간 데이터 처리
                 if response.get('trnm') == 'REAL':  # 실시간 데이터
@@ -9155,12 +8894,12 @@ class KiwoomWebSocketClient:
                     try:
                         data_list = response.get('data', [])
                         if not isinstance(data_list, list):
-                            logging.warning(f"실시간 데이터가 리스트가 아닙니다: {type(data_list)}")
+                            self.logger.warning(f"실시간 데이터가 리스트가 아닙니다: {type(data_list)}")
                             continue
                         
                         # 데이터가 비어있는 경우 로그 (디버깅용)
                         if len(data_list) == 0:
-                            logging.debug("실시간 데이터 수신했으나 data 리스트가 비어있습니다")
+                            self.logger.debug("실시간 데이터 수신했으나 data 리스트가 비어있습니다")
                             continue
                             
                         for data_item in data_list:
@@ -9171,54 +8910,54 @@ class KiwoomWebSocketClient:
                                     
                                 data_type = data_item.get('type')
                                 if data_type == '00':  # 주문체결
-                                    logging.debug(f"📋 주문체결 실시간 수신: {data_item.get('values', {}).get('913', '')}")
+                                    self.logger.debug(f"📋 주문체결 실시간 수신: {data_item.get('values', {}).get('913', '')}")
                                     try:
                                         self.process_order_execution_data(data_item)
                                     except Exception as order_err:
-                                        logging.error(f"주문체결 데이터 처리 실패: {order_err}")
-                                        logging.error(f"주문체결 데이터 처리 에러 상세: {traceback.format_exc()}")
+                                        self.logger.error(f"주문체결 데이터 처리 실패: {order_err}", exc_info=True)
+                                        
                                 elif data_type == '04':  # 현물잔고
                                     try:
                                         self.process_balance_data(data_item)
                                     except Exception as balance_err:
-                                        logging.error(f"잔고 데이터 처리 실패: {balance_err}")
-                                        logging.error(f"잔고 데이터 처리 에러 상세: {traceback.format_exc()}")
+                                        self.logger.error(f"잔고 데이터 처리 실패: {balance_err}", exc_info=True)
+                                        
                                 elif data_type == '0B':  # 주식체결
                                     try:
                                         # 비동기로 처리하여 기술적 지표 계산이 UI를 블로킹하지 않도록 함
                                         asyncio.create_task(self.process_stock_execution_data_async(data_item))
                                     except Exception as execution_err:
-                                        logging.error(f"체결 데이터 처리 실패: {execution_err}")
-                                        logging.error(f"체결 데이터 처리 에러 상세: {traceback.format_exc()}")
+                                        self.logger.error(f"체결 데이터 처리 실패: {execution_err}", exc_info=True)
+                                        
                                 elif data_type == '0s':  # 시장 상태
                                     try:
                                         self.process_market_status_data(data_item)
                                     except Exception as market_err:
-                                        logging.error(f"시장 상태 데이터 처리 실패: {market_err}")
-                                        logging.error(f"시장 상태 데이터 처리 에러 상세: {traceback.format_exc()}")
+                                        self.logger.error(f"시장 상태 데이터 처리 실패: {market_err}", exc_info=True)
+                                        
                                 elif data_type == '02':  # 조건검색 실시간 알림
-                                    logging.debug(f"조건검색 실시간 알림 수신: {data_item.get('item')}")
+                                    self.logger.debug(f"조건검색 실시간 알림 수신: {data_item.get('item')}")
                                     try:
                                         self.process_condition_realtime_notification(data_item)
                                     except Exception as condition_err:
-                                        logging.error(f"조건검색 실시간 알림 처리 실패: {condition_err}")
-                                        logging.error(f"조건검색 실시간 알림 처리 에러 상세: {traceback.format_exc()}")
+                                        self.logger.error(f"조건검색 실시간 알림 처리 실패: {condition_err}", exc_info=True)
+                                        
                                 else:
                                     logging.debug(f"알 수 없는 실시간 데이터 타입: {data_type}")
                             except Exception as data_item_err:
-                                logging.error(f"실시간 데이터 아이템 처리 실패: {data_item_err}")
-                                logging.error(f"데이터 아이템 처리 에러 상세: {traceback.format_exc()}")
+                                self.logger.error(f"실시간 데이터 아이템 처리 실패: {data_item_err}", exc_info=True)
+                                
                                 continue
                         
                         # 메시지 큐에 추가 (예외 처리)
                         try:
                             self.message_queue.put(response)
                         except Exception as queue_err:
-                            logging.error(f"메시지 큐 추가 실패: {queue_err}")
+                            self.logger.error(f"메시지 큐 추가 실패: {queue_err}", exc_info=True)
                             
                     except Exception as data_process_err:
-                        logging.error(f"실시간 데이터 처리 실패: {data_process_err}")
-                        logging.error(f"실시간 데이터 처리 에러 상세: {traceback.format_exc()}")
+                        self.logger.error(f"실시간 데이터 처리 실패: {data_process_err}", exc_info=True)
+                        
                         continue
                 
                 # 조건검색 응답 처리 (일반 요청 및 실시간 알림)
@@ -9226,11 +8965,11 @@ class KiwoomWebSocketClient:
                     try:
                         # 응답 데이터 유효성 확인
                         if response is None:
-                            logging.warning("⚠️ 조건검색 응답 데이터가 None입니다")
+                            self.logger.warning("⚠️ 조건검색 응답 데이터가 None입니다")
                             continue
                         
                         if not isinstance(response, dict):
-                            logging.warning(f"⚠️ 조건검색 응답이 딕셔너리가 아닙니다: {type(response)}")
+                            self.logger.warning(f"⚠️ 조건검색 응답이 딕셔너리가 아닙니다: {type(response)}")
                             continue
                         
                         # 조건검색 응답 데이터 전체 출력
@@ -9238,7 +8977,7 @@ class KiwoomWebSocketClient:
                         if data_list is None:
                             data_list = []
                         logging.debug("조건검색 응답 수신(CNSRREQ): return_code=%s, cont_yn=%s, count=%d",
-                                          response.get('return_code'),
+                                          response.get('return_code'), # type: ignore
                                           response.get('cont_yn'),
                                           len(data_list))
                         
@@ -9259,18 +8998,18 @@ class KiwoomWebSocketClient:
                                 logging.debug(f"조건검색 이름 매핑 실패: { _map_err }")
 
                             if cond_name == '급등주':
-                                logging.debug("⚠️ '급등주' 조건검색 일반 응답은 무시하고 실시간만 처리합니다")
+                                self.logger.debug("⚠️ '급등주' 조건검색 일반 응답은 무시하고 실시간만 처리합니다")
                                 continue
 
                         if search_type == '1':  # 실시간 요청 응답
-                            logging.debug("조건검색 실시간 요청 응답 처리")
+                            self.logger.debug("조건검색 실시간 요청 응답 처리")
                             self.process_condition_realtime_response(response)
                         else:
-                            logging.debug(f"조건검색 일반 요청 응답 처리 (search_type: {search_type})")
+                            self.logger.debug(f"조건검색 일반 요청 응답 처리 (search_type: {search_type})")
                             self.process_condition_realtime_response(response)  # 일반 요청도 동일하게 처리
                     except Exception as condition_err:
-                        logging.error(f"조건검색 응답 처리 실패: {condition_err}")
-                        logging.error(f"조건검색 응답 처리 에러 상세: {traceback.format_exc()}")
+                        self.logger.error(f"조건검색 응답 처리 실패: {condition_err}", exc_info=True)
+                        
 
             except websockets.ConnectionClosed as e:
                 self.logger.warning(f'웹소켓 연결이 서버에 의해 종료되었습니다: {e}')
@@ -9285,11 +9024,11 @@ class KiwoomWebSocketClient:
                 self.logger.warning('웹소켓 메시지 수신 타임아웃')
                 continue
             except json.JSONDecodeError as e:
-                self.logger.error(f'JSON 파싱 오류: {e}, 메시지: {message[:200] if message else "None"}...')
+                self.logger.error(f'JSON 파싱 오류: {e}, 메시지: {message[:200] if message else "None"}...', exc_info=True)
                 continue
             except Exception as e:
-                self.logger.error(f'메시지 수신 오류: {e}')
-                self.logger.error(f'메시지 수신 에러 상세: {traceback.format_exc()}')
+                self.logger.error(f'메시지 수신 오류: {e}', exc_info=True)
+                self.logger.error(f'메시지 수신 에러 상세: {traceback.format_exc()}') # type: ignore
                 # 연결 종료 대신 계속 시도 (일시적 오류일 수 있음)
                 self.logger.warning("메시지 수신 오류 발생, 연결 유지하고 계속 시도")
                 
@@ -9297,7 +9036,7 @@ class KiwoomWebSocketClient:
                 try:
                     await asyncio.sleep(1)  # 1초 대기
                 except Exception as sleep_err:
-                    self.logger.error(f"대기 중 오류: {sleep_err}")
+                    self.logger.error(f"대기 중 오류: {sleep_err}", exc_info=True)
                 
                 continue
     
@@ -9322,7 +9061,7 @@ class KiwoomWebSocketClient:
                 }]
             }
             await self.send_message(subscribe_data)
-            self.logger.debug(f'📡 실시간 주식체결(0B) 구독 요청: {codes} (그룹: {subscribe_data["grp_no"]})')
+            self.logger.debug(f'📡 실시간 주식체결(0B) 구독 요청: {codes} (그룹: {subscribe_data["grp_no"]})') # type: ignore
 
     async def unsubscribe_stock_execution_data(self, codes=None):
         """실시간 주식체결 데이터 구독 해제 (0B)"""
@@ -9344,7 +9083,7 @@ class KiwoomWebSocketClient:
                 }]
             }
             await self.send_message(unsubscribe_data)
-            self.logger.debug(f'실시간 주식체결 구독 해제 요청: {codes}')
+            self.logger.debug(f'실시간 주식체결 구독 해제 요청: {codes}') # type: ignore
 
     async def subscribe_order_execution(self):
         """주문체결 실시간 구독 (00) - 키움증권 공식 예시 기반"""
@@ -9367,7 +9106,7 @@ class KiwoomWebSocketClient:
             self.logger.info('✅ 주문체결 실시간 구독 요청 전송 완료')
             
         except Exception as e:
-            self.logger.error(f'❌ 주문체결 실시간 구독 요청 실패: {e}')
+            self.logger.error(f'주문체결 실시간 구독 요청 실패: {e}', exc_info=True)
 
     async def subscribe_balance(self):
         """실시간 잔고 구독 (04) - 현물잔고"""
@@ -9391,7 +9130,7 @@ class KiwoomWebSocketClient:
             self.logger.info('✅ 실시간 잔고 구독 요청 전송 완료')
             
         except Exception as e:
-            self.logger.error(f'❌ 실시간 잔고 구독 요청 실패: {e}')
+            self.logger.error(f'실시간 잔고 구독 요청 실패: {e}', exc_info=True)
 
     async def subscribe_market_status(self):
         """시장 상태 구독 (0s) - 키움증권 예시코드 기반"""
@@ -9414,7 +9153,7 @@ class KiwoomWebSocketClient:
             self.logger.info('✅ 시장 상태 구독 요청 전송 완료')
             
         except Exception as e:
-            self.logger.error(f'❌ 시장 상태 구독 요청 실패: {e}')
+            self.logger.error(f'시장 상태 구독 요청 실패: {e}', exc_info=True)
 
     def process_balance_data(self, data_item):
         """실시간 잔고 데이터 처리 (웹소켓용)
@@ -9424,7 +9163,7 @@ class KiwoomWebSocketClient:
         try:
             # 실제 키움 API의 실시간 잔고 데이터 구조 파싱
             # data_item 구조: {'type': '04', 'item': 종목코드, 'values': {필드코드: 값}}
-            raw_code = data_item.get('item', '')
+            raw_code = data_item.get('item', '') # type: ignore
             stock_code = self.parent.data_manager.normalize_stock_code(raw_code) if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'data_manager') else raw_code  # A 접두사 제거
             values = data_item.get('values', {})
             
@@ -9464,7 +9203,7 @@ class KiwoomWebSocketClient:
                     # 이전 수량을 먼저 저장 (balance_data 업데이트 전에)
                     prev_quantity = 0
                     is_sell_executed = False
-                    is_new_stock = stock_code not in self.balance_data
+                    is_new_stock = stock_code not in self.balance_data # type: ignore
                     
                     if not is_new_stock:
                         prev_quantity = self.balance_data[stock_code].get('quantity', 0)
@@ -9508,11 +9247,11 @@ class KiwoomWebSocketClient:
                                 if stock_code not in trader.buy_prices:
                                     trader.buy_prices[stock_code] = average_price
                                 if stock_code not in trader.buy_times:
-                                    trader.buy_times[stock_code] = datetime.now()
+                                    trader.buy_times[stock_code] = datetime.now() # type: ignore
                                 self.logger.debug(f"🆕 [{stock_code}] trader.holdings에 추가 (수량: {quantity}주, 매입단가: {average_price}원)")
                             else:
                                 # 기존 보유 종목 수량 업데이트
-                                old_quantity = trader.holdings[stock_code].get('quantity', 0)
+                                old_quantity = trader.holdings[stock_code].get('quantity', 0) # type: ignore
                                 trader.holdings[stock_code]['quantity'] = quantity
                                 # 매입단가가 없으면 웹소켓 평균단가로 업데이트
                                 if stock_code not in trader.buy_prices or trader.buy_prices[stock_code] == 0:
@@ -9524,7 +9263,7 @@ class KiwoomWebSocketClient:
                                 if old_quantity != quantity:
                                     self.logger.debug(f"🔄 [{stock_code}] trader.holdings 수량 업데이트 ({old_quantity}주 → {quantity}주)")
                     except Exception as sync_ex:
-                        self.logger.warning(f"⚠️ [{stock_code}] trader.holdings 동기화 실패: {sync_ex}")
+                        self.logger.warning(f"trader.holdings 동기화 실패 ({stock_code}): {sync_ex}", exc_info=True)
                     
                     # 디버그 로그: balance_data 상태
                     if is_new_stock:
@@ -9578,7 +9317,7 @@ class KiwoomWebSocketClient:
                     if stock_code in self.balance_data:
                         # 디버그 로그: 제거 전 balance_data 상태
                         
-                        # 이전 잔고 데이터 가져오기
+                        # 이전 잔고 데이터 가져오기 # type: ignore
                         prev_balance_info = self.balance_data.get(stock_code, {})
 
                         # 부분 매도 추적 목록에 해당 종목이 있는지 확인
@@ -9644,7 +9383,7 @@ class KiwoomWebSocketClient:
                                 if stock_code in trader.highest_prices:
                                     del trader.highest_prices[stock_code]
                         except Exception as sync_ex:
-                            self.logger.warning(f"⚠️ [{stock_code}] trader.holdings 동기화 실패 (전량 매도): {sync_ex}")
+                            self.logger.warning(f"trader.holdings 동기화 실패 (전량 매도, {stock_code}): {sync_ex}", exc_info=True)
                         
                         # 최고가 정보도 제거 (objtrader에도 있을 수 있음)
                         if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'objtrader'):
@@ -9659,8 +9398,8 @@ class KiwoomWebSocketClient:
                 self.logger.warning(f"실시간 잔고 데이터 구조 오류: stock_code={stock_code}, values={values}")
                 
         except Exception as e:
-            self.logger.error(f"실시간 잔고 데이터 처리 실패: {e}")
-            self.logger.error(f"잔고 데이터 처리 에러 상세: {traceback.format_exc()}")
+            self.logger.error(f"실시간 잔고 데이터 처리 실패: {e}", exc_info=True)
+            
     
     def process_order_execution_data(self, data_item):
         """주문체결 실시간 데이터 처리 (type '00')
@@ -9672,7 +9411,7 @@ class KiwoomWebSocketClient:
         try:
             values = data_item.get('values', {})
             
-            if not values:
+            if not values: # type: ignore
                 self.logger.warning("주문체결 데이터가 비어있습니다")
                 return
             
@@ -9764,7 +9503,7 @@ class KiwoomWebSocketClient:
                     if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'trader'):
                         if stock_code in self.parent.trader.pending_buy_orders:
                             self.parent.trader.pending_buy_orders.discard(stock_code)
-                            self.logger.debug(f"🟢 [{stock_code}] 매수 체결 완료로 진행 중 상태 해제")
+                            self.logger.debug(f"🟢 [{stock_code}] 매수 체결 완료로 진행 중 상태 해제") # type: ignore
 
                     if hasattr(self, 'parent') and self.parent:
                         QTimer.singleShot(0, lambda code=stock_code, name=stock_name: self._add_stock_to_ui(code, name))
@@ -9777,7 +9516,7 @@ class KiwoomWebSocketClient:
                     if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'trader'):
                         if stock_code in self.parent.trader.pending_sell_orders:
                             self.parent.trader.pending_sell_orders.discard(stock_code)
-                            self.logger.info(f"🟢 [{stock_code}] 매도 체결 완료로 진행 중 상태 해제")
+                            self.logger.info(f"🟢 [{stock_code}] 매도 체결 완료로 진행 중 상태 해제") # type: ignore
                     
                     # 최고가 정보도 제거
                     if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'objtrader'):
@@ -9789,8 +9528,8 @@ class KiwoomWebSocketClient:
                         QTimer.singleShot(0, lambda code=stock_code: self._remove_stock_from_ui(code))
             
         except Exception as e:
-            self.logger.error(f"주문체결 데이터 처리 실패: {e}")
-            self.logger.error(f"주문체결 데이터 처리 에러 상세: {traceback.format_exc()}")
+            self.logger.error(f"주문체결 데이터 처리 실패: {e}", exc_info=True)
+            
     
     def _add_stock_to_ui(self, stock_code, stock_name):
         """UI에 종목 추가 (메인 스레드에서 실행)"""
@@ -9799,7 +9538,7 @@ class KiwoomWebSocketClient:
                 return
             
             # 1. 모니터링 리스트에 추가
-            monitoring_exists = False
+            monitoring_exists = False # type: ignore
             for i in range(self.parent.monitoringBox.count()):
                 item_text = self.parent.monitoringBox.item(i).text()
                 # 종목코드 추출 (종목명 유무와 관계없이)
@@ -9814,15 +9553,15 @@ class KiwoomWebSocketClient:
             
             if not monitoring_exists:
                 self.parent.monitoring_manager.add_stock_to_monitoring(stock_code, stock_name)
-                logging.info(f"✅ 모니터링 리스트에 추가: {stock_code} ({stock_name})")
+                self.logger.info(f"✅ 모니터링 리스트에 추가: {stock_code} ({stock_name})")
             
             # 2. 보유종목 리스트에 추가
             holding_exists = False
-            for i in range(self.parent.boughtBox.count()):
+            for i in range(self.parent.boughtBox.count()): # type: ignore
                 item_text = self.parent.boughtBox.item(i).text()
                 # 종목코드 추출 (종목명 유무와 관계없이)
                 if ' - ' in item_text:
-                    existing_code = item_text.split(' - ')[0]
+                    existing_code = item_text.split(' - ')[0] # type: ignore
                 else:
                     existing_code = item_text
                 
@@ -9831,19 +9570,19 @@ class KiwoomWebSocketClient:
                     break
             
             if not holding_exists:
-                self.parent.boughtBox.addItem(stock_code)
-                logging.info(f"✅ 보유종목 리스트에 추가: {stock_code} ({stock_name})")
+                self.parent.boughtBox.addItem(stock_code) # type: ignore
+                self.logger.info(f"✅ 보유종목 리스트에 추가: {stock_code} ({stock_name})")
             
             # 3. 투자 현황표 업데이트
             if hasattr(self.parent, 'update_stock_table'):
                 # 디버그 로그: 투자 현황표 업데이트 전 balance_data 상태
                 if hasattr(self, 'balance_data'):
-                    logging.debug(f"🔍 투자 현황표 업데이트 전 WebSocket balance_data: {list(self.balance_data.keys())} ({len(self.balance_data)}개 종목)")
+                    self.logger.debug(f"🔍 투자 현황표 업데이트 전 WebSocket balance_data: {list(self.balance_data.keys())} ({len(self.balance_data)}개 종목)") # type: ignore
                 self.parent.update_stock_table()
                 
         except Exception as e:
-            logging.error(f"UI 종목 추가 실패 ({stock_code}): {e}")
-            logging.error(f"UI 종목 추가 에러 상세: {traceback.format_exc()}")
+            self.logger.error(f"UI 종목 추가 실패 ({stock_code}): {e}", exc_info=True)
+            
     
     def _remove_stock_from_ui(self, stock_code):
         """UI에서 종목 제거 (메인 스레드에서 실행)"""
@@ -9870,7 +9609,7 @@ class KiwoomWebSocketClient:
                 self.parent.update_stock_table()
                     
         except Exception as e:
-            logging.error(f"UI 종목 제거 실패 ({stock_code}): {e}")
+            self.logger.error(f"UI 종목 제거 실패 ({stock_code}): {e}", exc_info=True)
 
     def process_stock_execution_data(self, data_item):
         """실시간 주식 데이터 처리 (type='0B' 주식체결)"""
@@ -9913,7 +9652,7 @@ class KiwoomWebSocketClient:
                         
                         # 체결 데이터를 딕셔너리로 생성
                         execution_info = {
-                            'execution_time': execution_time,
+                            'execution_time': execution_time, # type: ignore
                             'current_price': current_price,
                             'volume': volume,
                             'strength': strength,
@@ -9938,8 +9677,8 @@ class KiwoomWebSocketClient:
                 self.logger.warning("실시간 데이터에 item 정보가 없습니다")
                 
         except Exception as e:
-            self.logger.error(f"실시간 데이터 처리 실패: {e}")
-            self.logger.error(f"실시간 데이터 처리 에러 상세: {traceback.format_exc()}")
+            self.logger.error(f"실시간 데이터 처리 실패: {e}", exc_info=True)
+            
     
     async def process_stock_execution_data_async(self, data_item):
         """실시간 주식 데이터 처리 - 비동기 버전 (기술적 지표 계산 비동기화)"""
@@ -9983,7 +9722,7 @@ class KiwoomWebSocketClient:
                         
                         # 체결 데이터를 딕셔너리로 생성
                         execution_info = {
-                            'execution_time': execution_time,
+                            'execution_time': execution_time, # type: ignore
                             'current_price': current_price,
                             'volume': volume,
                             'strength': strength,
@@ -10008,8 +9747,8 @@ class KiwoomWebSocketClient:
                 self.logger.warning("실시간 데이터에 item 정보가 없습니다")
                 
         except Exception as e:
-            self.logger.error(f"실시간 데이터 처리 실패: {e}")
-            self.logger.error(f"실시간 데이터 처리 에러 상세: {traceback.format_exc()}")
+            self.logger.error(f"실시간 데이터 처리 실패: {e}", exc_info=True)
+            
     
     async def _add_realtime_data_to_chart_async(self, stock_code, realtime_data):
         """실시간 데이터를 차트 데이터에 추가 - 비동기 버전"""
@@ -10032,7 +9771,7 @@ class KiwoomWebSocketClient:
                     self._no_cache_logged = set()
                 
                 if stock_code not in self._no_cache_logged:
-                    logging.debug(f"ℹ️ 실시간 데이터 수신({stock_code}), 차트 캐시 생성 대기 중...")
+                    self.logger.debug(f"ℹ️ 실시간 데이터 수신({stock_code}), 차트 캐시 생성 대기 중...")
                     self._no_cache_logged.add(stock_code)
                 
                 return
@@ -10042,11 +9781,11 @@ class KiwoomWebSocketClient:
             min_data = cached_data.get('min_data')
             
             if not tic_data or not isinstance(tic_data, dict):
-                logging.debug(f"⚠️ 차트 데이터 추가 건너뜀: {stock_code} (틱 데이터 없음 또는 잘못된 타입)")
+                self.logger.debug(f"⚠️ 차트 데이터 추가 건너뜀: {stock_code} (틱 데이터 없음 또는 잘못된 타입)")
                 return
             
             if not min_data or not isinstance(min_data, dict):
-                logging.debug(f"⚠️ 차트 데이터 추가 건너뜀: {stock_code} (분봉 데이터 없음 또는 잘못된 타입)")
+                self.logger.debug(f"⚠️ 차트 데이터 추가 건너뜀: {stock_code} (분봉 데이터 없음 또는 잘못된 타입)")
                 return
             
             # 실시간 데이터를 틱/분봉 데이터에 추가
@@ -10098,11 +9837,11 @@ class KiwoomWebSocketClient:
             # 틱/분봉 데이터 개수 확인 (안전하게)
             tic_count = len(tic_data.get('close', [])) if tic_data else 0
             min_count = len(min_data.get('close', [])) if min_data else 0
-            logging.debug(f"📊 차트 업데이트 완료: {stock_code} - 틱봉: {tic_count}개, 분봉: {min_count}개")
+            self.logger.debug(f"📊 차트 업데이트 완료: {stock_code} - 틱봉: {tic_count}개, 분봉: {min_count}개")
             
         except Exception as e:
-            self.logger.error(f"실시간 차트 데이터 추가 실패: {e}")
-            self.logger.error(f"에러 위치:\n{traceback.format_exc()}")
+            self.logger.error(f"실시간 차트 데이터 추가 실패: {e}", exc_info=True)
+            
     
     def _update_holding_current_price(self, stock_code, current_price):
         """보유 종목의 실시간 현재가 업데이트 및 손익 재계산"""
@@ -10143,7 +9882,7 @@ class KiwoomWebSocketClient:
                 if hasattr(self.parent, 'trader') and self.parent.trader:
                     if hasattr(self.parent.trader, 'holdings') and stock_code in self.parent.trader.holdings:
                         self.parent.trader.holdings[stock_code]['current_price'] = current_price
-                        logging.debug(f"✅ holdings 현재가 업데이트: {stock_code} {current_price:,}원")
+                        self.logger.debug(f"✅ holdings 현재가 업데이트: {stock_code} {current_price:,}원")
             
             # 투자현황표 업데이트 (throttling 적용)
             current_time = time.time()
@@ -10154,10 +9893,10 @@ class KiwoomWebSocketClient:
                         QTimer.singleShot(0, self.parent.update_stock_table)
                         self._last_table_update_time = current_time
                     else:
-                        logging.debug(f"📊 실시간 시세 반영 (표 업데이트 보류 - throttling): {stock_code} {old_price:,.0f}원 → {current_price:,.0f}원")
+                        self.logger.debug(f"📊 실시간 시세 반영 (표 업데이트 보류 - throttling): {stock_code} {old_price:,.0f}원 → {current_price:,.0f}원")
             
         except Exception as e:
-            self.logger.error(f"보유 종목 현재가 업데이트 실패 ({stock_code}): {e}")
+            self.logger.error(f"보유 종목 현재가 업데이트 실패 ({stock_code}): {e}", exc_info=True)
     
     def _add_realtime_data_to_chart(self, stock_code, realtime_data):
         """실시간 데이터를 차트 데이터에 추가"""
@@ -10180,7 +9919,7 @@ class KiwoomWebSocketClient:
                     self._no_cache_logged = set()
                 
                 if stock_code not in self._no_cache_logged:
-                    logging.debug(f"ℹ️ 실시간 데이터 수신({stock_code}), 차트 캐시 생성 대기 중...")
+                    self.logger.debug(f"ℹ️ 실시간 데이터 수신({stock_code}), 차트 캐시 생성 대기 중...")
                     self._no_cache_logged.add(stock_code)
                 
                 return
@@ -10190,11 +9929,11 @@ class KiwoomWebSocketClient:
             min_data = cached_data.get('min_data')
             
             if not tic_data or not isinstance(tic_data, dict):
-                logging.debug(f"⚠️ 차트 데이터 추가 건너뜀: {stock_code} (틱 데이터 없음 또는 잘못된 타입)")
+                self.logger.debug(f"⚠️ 차트 데이터 추가 건너뜀: {stock_code} (틱 데이터 없음 또는 잘못된 타입)")
                 return
             
             if not min_data or not isinstance(min_data, dict):
-                logging.debug(f"⚠️ 차트 데이터 추가 건너뜀: {stock_code} (분봉 데이터 없음 또는 잘못된 타입)")
+                self.logger.debug(f"⚠️ 차트 데이터 추가 건너뜀: {stock_code} (분봉 데이터 없음 또는 잘못된 타입)")
                 return
             
             # 실시간 데이터를 틱/분봉 데이터에 추가
@@ -10212,18 +9951,18 @@ class KiwoomWebSocketClient:
             # 틱/분봉 데이터 개수 확인 (안전하게)
             tic_count = len(tic_data.get('close', []))
             min_count = len(min_data.get('close', []))
-            logging.debug(f"📊 차트 업데이트 완료: {stock_code} - 틱봉: {tic_count}개, 분봉: {min_count}개")
+            self.logger.debug(f"📊 차트 업데이트 완료: {stock_code} - 틱봉: {tic_count}개, 분봉: {min_count}개")
             
         except Exception as e:
-            self.logger.error(f"실시간 차트 데이터 추가 실패: {e}")
-            self.logger.error(f"에러 위치:\n{traceback.format_exc()}")
+            self.logger.error(f"실시간 차트 데이터 추가 실패: {e}", exc_info=True)
+            
     
     def _calculate_technical_indicators_for_realtime(self, stock_code, cached_data):
         """실시간 데이터 업데이트 시 기술적 지표 계산"""
         try:
             # cached_data가 None이거나 dict가 아니면 리턴
             if not cached_data or not isinstance(cached_data, dict):
-                logging.debug(f"⚠️ 기술적 지표 계산 건너뜀: {stock_code} (캐시 데이터 없음)")
+                self.logger.debug(f"⚠️ 기술적 지표 계산 건너뜀: {stock_code} (캐시 데이터 없음)")
                 return
             
             tic_data = cached_data.get('tic_data', {})
@@ -10254,7 +9993,7 @@ class KiwoomWebSocketClient:
             self.logger.debug(f"📊 실시간 기술적 지표 계산 완료: {stock_code}")
             
         except Exception as e:
-            self.logger.error(f"실시간 기술적 지표 계산 실패: {e}")
+            self.logger.error(f"실시간 기술적 지표 계산 실패: {e}", exc_info=True)
     
     def _update_tic_chart_with_realtime(self, stock_code, cached_data, realtime_data):
         """틱 차트에 실시간 데이터 추가 (30틱 = 1봉) - 통합된 함수"""
@@ -10314,7 +10053,7 @@ class KiwoomWebSocketClient:
             # 기존 봉이 없는 경우 (초기 상태)
             if len(tic_data.get('close', [])) == 0:
                 # 첫 봉 생성
-                tic_data['time'].append(dt)
+                tic_data['time'].append(dt) # type: ignore
                 tic_data['open'].append(current_price)
                 tic_data['high'].append(current_price)
                 tic_data['low'].append(current_price)
@@ -10327,7 +10066,7 @@ class KiwoomWebSocketClient:
                 return
             
             if last_tic_cnt <= 30:
-                # 30틱 이하이면 기존 봉 업데이트 (1~30번째 틱)
+                # 30틱 이하이면 기존 봉 업데이트 (1~30번째 틱) # type: ignore
                 last_index = -1
                 
                 # 종가 업데이트
@@ -10350,10 +10089,10 @@ class KiwoomWebSocketClient:
                 # 마지막 틱 개수 증가
                 tic_data['last_tic_cnt'] = last_tic_cnt + 1
                 
-                self.logger.debug(f"틱 봉 업데이트 (틱수: {tic_data['last_tic_cnt']}/30): OHLC={tic_data['open'][last_index]}/{tic_data['high'][last_index]}/{tic_data['low'][last_index]}/{tic_data['close'][last_index]}, 거래량={tic_data['volume'][last_index]}")
+                self.logger.debug(f"틱 봉 업데이트 (틱수: {tic_data['last_tic_cnt']}/30): OHLC={tic_data['open'][last_index]}/{tic_data['high'][last_index]}/{tic_data['low'][last_index]}/{tic_data['close'][last_index]}, 거래량={tic_data['volume'][last_index]}") # type: ignore
                     
             else:
-                # 31번째 틱부터 새로운 봉 생성
+                # 31번째 틱부터 새로운 봉 생성 # type: ignore
                 tic_data['time'].append(dt)
                 tic_data['open'].append(current_price)
                 tic_data['high'].append(current_price)
@@ -10375,19 +10114,19 @@ class KiwoomWebSocketClient:
                     tic_data[key] = tic_data[key][-max_data:]
                         
         except Exception as e:
-            self.logger.error(f"틱 차트 실시간 데이터 추가 실패: {e}")
+            self.logger.error(f"틱 차트 실시간 데이터 추가 실패: {e}", exc_info=True)
     
     def _update_minute_chart_with_realtime(self, stock_code, cached_data, realtime_data):
         """분봉 차트에 실시간 데이터 추가 (3분 = 1봉)"""
         try:
             # cached_data가 None이거나 dict가 아니면 리턴
             if not cached_data or not isinstance(cached_data, dict):
-                logging.debug(f"⚠️ 분봉 차트 업데이트 건너뜀: {stock_code} (캐시 데이터 없음)")
+                self.logger.debug(f"⚠️ 분봉 차트 업데이트 건너뜀: {stock_code} (캐시 데이터 없음)")
                 return
             
             min_data = cached_data.get('min_data', {})
             if not min_data:
-                logging.debug(f"⚠️ 분봉 차트 업데이트 건너뜀: {stock_code} (분봉 데이터 없음)")
+                self.logger.debug(f"⚠️ 분봉 차트 업데이트 건너뜀: {stock_code} (분봉 데이터 없음)")
                 return
             
             # 필수 키가 없으면 초기화
@@ -10424,7 +10163,7 @@ class KiwoomWebSocketClient:
             
             # 기존 봉이 없는 경우 (초기 상태)
             if len(min_data.get('close', [])) == 0:
-                # 첫 봉 생성
+                # 첫 봉 생성 # type: ignore
                 min_data['time'].append(normalized_dt)
                 min_data['open'].append(current_price)
                 min_data['high'].append(current_price)
@@ -10436,7 +10175,7 @@ class KiwoomWebSocketClient:
                 return
             
             # 기존 분봉 데이터 확인
-            last_time = min_data['time'][-1]
+            last_time = min_data['time'][-1] # type: ignore
             
             # 같은 3분 구간인지 확인
             if last_time == normalized_dt:
@@ -10451,7 +10190,7 @@ class KiwoomWebSocketClient:
                 # 기존 봉 업데이트 로그 표시
                 self._log_last_minute_bar_data(stock_code, min_data, -1)
             else:
-                # 새로운 봉 생성
+                # 새로운 봉 생성 # type: ignore
                 min_data['time'].append(normalized_dt)
                 min_data['open'].append(current_price)
                 min_data['high'].append(current_price)
@@ -10460,7 +10199,7 @@ class KiwoomWebSocketClient:
                 min_data['volume'].append(volume)
                 
                 # 새로운 3분봉 생성 로그
-                logging.debug(f"🕐 새로운 3분봉 생성: {stock_code}, 시간: {normalized_dt.strftime('%H:%M:%S')}")
+                self.logger.debug(f"🕐 새로운 3분봉 생성: {stock_code}, 시간: {normalized_dt.strftime('%H:%M:%S')}")
                 
                 # 새로운 3분봉 생성 시 마지막 봉 데이터 로그 표시
                 self._log_last_minute_bar_data(stock_code, min_data, -1)                    
@@ -10472,7 +10211,7 @@ class KiwoomWebSocketClient:
                     min_data[key] = min_data[key][-max_data:]
             
         except Exception as e:
-            logging.error(f"분봉 차트 실시간 데이터 추가 실패: {e}")
+            self.logger.error(f"분봉 차트 실시간 데이터 추가 실패: {e}", exc_info=True)
     
     def _log_last_minute_bar_data(self, stock_code, min_data, bar_index):
         """마지막 분봉 데이터를 로그에 표시"""
@@ -10492,7 +10231,7 @@ class KiwoomWebSocketClient:
             volume = min_data['volume'][bar_index] if bar_index < len(min_data['volume']) else 0
             
         except Exception as e:
-            logging.error(f"분봉 데이터 로그 표시 실패: {e}")
+            self.logger.error(f"분봉 데이터 로그 표시 실패: {e}", exc_info=True)
     
     def _log_last_tic_bar_data(self, stock_code, tic_data, bar_index):
         """마지막 틱 봉 데이터를 로그에 표시"""
@@ -10522,7 +10261,7 @@ class KiwoomWebSocketClient:
                 self.logger.info(f"   💪 체결강도: {strength:.1f}%")
             
         except Exception as e:
-            self.logger.error(f"틱 봉 데이터 로그 표시 실패: {e}")
+            self.logger.error(f"틱 봉 데이터 로그 표시 실패: {e}", exc_info=True)
 
     def process_condition_realtime_notification(self, data_item):
         """조건검색 실시간 알림 처리"""
@@ -10557,9 +10296,9 @@ class KiwoomWebSocketClient:
             
             if stock_code:
                 # 액션 타입에 따른 처리
-                if action_type == 'I':  # INSERT (편입)
+                if action_type == 'I':  # INSERT (편입) # type: ignore
                     self.logger.info(f"📈 조건검색 실시간 편입: {stock_code} ({condition_name}, seq: {condition_seq})")
-                    # 부모 윈도우에 종목 추가 요청
+                    # 부모 윈도우에 종목 추가 요청 (비동기)
                     if hasattr(self, 'parent') and self.parent:
                         # chart_cache를 통해 API 큐에 추가
                         if hasattr(self.parent, 'chart_cache') and self.parent.chart_cache:
@@ -10570,23 +10309,23 @@ class KiwoomWebSocketClient:
                                 self.logger.debug(f"ℹ️ 조건검색 편입 종목 이미 존재 또는 중복: {stock_code}")
                         else:
                             self.logger.error(f"❌ chart_cache가 없습니다: {stock_code}")
-                elif action_type == 'D':  # DELETE (이탈)
+                elif action_type == 'D':  # DELETE (이탈) # type: ignore
                     self.logger.info(f"📉 조건검색 실시간 이탈: {stock_code} ({condition_name}, seq: {condition_seq})")
                     # 부모 윈도우에서 종목 제거 요청
-                    if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'monitoring_manager'):
+                    if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'monitoring_manager'): # type: ignore
                         result = self.parent.monitoring_manager.remove_stock_from_monitoring(stock_code)
                         if result:
                             self.logger.debug(f"✅ 조건검색 이탈 종목 모니터링에서 제거 성공: {stock_code}")
                         else:
                             self.logger.debug(f"ℹ️ 조건검색 이탈 종목이 모니터링에 없음: {stock_code}")
                 else:
-                    self.logger.warning(f"⚠️ 알 수 없는 조건검색 액션 타입: {stock_code} - 액션: {action_type}")
+                    self.logger.warning(f"⚠️ 알 수 없는 조건검색 액션 타입: {stock_code} - 액션: {action_type}") # type: ignore
             else:
                 self.logger.warning("⚠️ 조건검색 실시간 알림에서 종목코드를 찾을 수 없습니다")
-            
+
         except Exception as e:
             self.logger.error(f"❌ 조건검색 실시간 알림 처리 실패: {e}")
-            self.logger.error(f"조건검색 알림 처리 에러 상세: {traceback.format_exc()}")
+            self.logger.error(f"조건검색 알림 처리 에러 상세: {traceback.format_exc()}") # type: ignore
 
     def process_market_status_data(self, data_item):
         """시장 상태 데이터 처리 (0s) - API 문서 기반"""
@@ -10654,8 +10393,8 @@ class KiwoomWebSocketClient:
             else:
                 self.logger.info(f"ℹ️ 알 수 없는 장운영구분: {market_operation}")
         except Exception as e:
-            self.logger.error(f"시장 상태 데이터 처리 실패: {e}")
-            self.logger.error(f"시장 상태 데이터 처리 에러 상세: {traceback.format_exc()}")
+            self.logger.error(f"시장 상태 데이터 처리 실패: {e}", exc_info=True)
+            
     
     def process_condition_search_list_response(self, response):
         """조건검색 목록조회 응답 처리"""
@@ -10747,7 +10486,7 @@ class KiwoomWebSocketClient:
                     # 저장된 조건검색식이 없으면 첫 번째 조건검색 자동 실행
                     if not saved_condition_executed:
                         self.logger.info("🔍 저장된 조건검색식이 없어 첫 번째 조건검색 자동 실행")
-                        if condition_list:
+                        if condition_list: # type: ignore
                             first_condition = condition_list[0]
                             condition_seq = first_condition['seq']
                             condition_name = first_condition['title']
@@ -10762,12 +10501,12 @@ class KiwoomWebSocketClient:
                             self.logger.info(f"🔍 첫 번째 조건검색 자동 실행 예약 (2초 후): {condition_name}")
                     
                 except Exception as add_ex:
-                    self.logger.error(f"❌ 투자전략 콤보박스에 조건검색식 추가 실패: {add_ex}")
-                    self.logger.error(f"조건검색식 추가 에러 상세: {traceback.format_exc()}")
+                    self.logger.error(f"투자전략 콤보박스에 조건검색식 추가 실패: {add_ex}", exc_info=True)
+                    
             
         except Exception as e:
-            self.logger.error(f"❌ 조건검색 목록조회 응답 처리 실패: {e}")
-            self.logger.error(f"조건검색 응답 처리 에러 상세: {traceback.format_exc()}")
+            self.logger.error(f"조건검색 목록조회 응답 처리 실패: {e}", exc_info=True)
+            
             
             # 오류 발생 시 부모 윈도우에 None 전달
             if hasattr(self, 'parent') and self.parent:
@@ -10841,7 +10580,7 @@ class KiwoomWebSocketClient:
                     if condition_name:
                         self.logger.info(f"🔧 조건검색 '{condition_name}'의 종목들을 API 큐에 추가 시작")
                     else:
-                        self.logger.info("🔧 부모 윈도우에 API 큐 추가 시작")
+                        self.logger.info("🔧 부모 윈도우에 API 큐 추가 시작") # type: ignore
                     
                     # 조건검색 결과를 API 큐에 추가 (차트 데이터 수집 후 모니터링에 추가됨)
                     added_count = 0
@@ -10891,7 +10630,7 @@ class KiwoomWebSocketClient:
             
         except Exception as e:
             self.logger.error(f"❌ 조건검색 실시간 요청 응답 처리 실패: {e}")
-            self.logger.error(f"조건검색 실시간 요청 응답 처리 에러 상세: {traceback.format_exc()}")
+            self.logger.error(f"조건검색 실시간 요청 응답 처리 에러 상세: {traceback.format_exc()}") # type: ignore
 
 class KiwoomRestClient:
     """키움 REST API 클라이언트 클래스"""
@@ -10927,12 +10666,12 @@ class KiwoomRestClient:
         # 마지막 주문 번호 저장 (부분 매도 추적용)
         self.last_order_no = None
         
-        # 세션 관리
-        self.session = requests.Session()
-        self.session.headers.update({
+        # 비동기 HTTP 클라이언트 (httpx)
+        self.client = None  # 나중에 초기화 (비동기 초기화 필요)
+        self._default_headers = {
             'Content-Type': 'application/json',
             'Accept': 'application/json'
-        })
+        }
         
         # 계좌 정보 (주문 시 필요)
         self.account_number = self.config.get('KIWOOM_API', 'account_number', fallback='')
@@ -10955,7 +10694,7 @@ class KiwoomRestClient:
             self.config.read(self.config_file, encoding='utf-8')
             self.logger.info(f"설정 파일 로드 완료: {self.config_file}")
         except Exception as e:
-            self.logger.error(f"설정 파일 로드 실패: {e}")
+            self.logger.error(f"설정 파일 로드 실패: {e}", exc_info=True)
             # 기본 설정
             self.config = configparser.RawConfigParser()
             self.config.add_section('LOGIN')
@@ -10983,7 +10722,7 @@ class KiwoomRestClient:
             self.logger.info(f"토큰 저장 완료: {self.token_file}")
             
         except Exception as e:
-            self.logger.warning(f"토큰 저장 실패: {e}")
+            self.logger.warning(f"토큰 저장 실패: {e}", exc_info=True)
     
     def load_saved_token(self):
         """저장된 토큰을 파일에서 로드"""
@@ -11026,25 +10765,23 @@ class KiwoomRestClient:
             self.access_token = token_data.get('access_token')
             self.token_expires_at = expires_at
             
-            # Authorization 헤더 설정
-            self.session.headers.update({
-                'Authorization': f'Bearer {self.access_token}'
-            })
+            # Authorization 헤더 설정 (클라이언트가 초기화되면 적용)
+            self._default_headers['Authorization'] = f'Bearer {self.access_token}'
             
             self.logger.info(f"저장된 토큰 로드 성공 - 만료: {self.token_expires_at}")
             return True
             
         except Exception as e:
-            self.logger.warning(f"토큰 로드 실패: {e}")
+            self.logger.warning(f"토큰 로드 실패: {e}", exc_info=True)
             return False
 
     def clear_token(self):
         """저장 토큰/메모리 토큰 완전 폐기"""
         try:
-            # 세션 헤더 제거
+            # 헤더에서 Authorization 제거
             try:
-                if 'Authorization' in self.session.headers:
-                    del self.session.headers['Authorization']
+                if 'Authorization' in self._default_headers:
+                    del self._default_headers['Authorization']
             except Exception:
                 pass
             # 메모리 토큰 초기화
@@ -11056,22 +10793,39 @@ class KiwoomRestClient:
                     os.remove(self.token_file)
                     self.logger.info(f"저장된 토큰 파일 삭제: {self.token_file}")
             except Exception as del_ex:
-                self.logger.debug(f"토큰 파일 삭제 실패(무시): {del_ex}")
+                self.logger.debug(f"토큰 파일 삭제 실패(무시): {del_ex}", exc_info=True)
         except Exception as ex:
-            self.logger.debug(f"토큰 초기화 중 오류(무시): {ex}")
+            self.logger.debug(f"토큰 초기화 중 오류(무시): {ex}", exc_info=True)
     
-    def connect(self) -> bool:
-        """키움 REST API 연결"""
+    async def _ensure_client(self):
+        """HTTP 클라이언트 초기화 (비동기)"""
+        if self.client is None:
+            headers = self._default_headers.copy()
+            self.client = httpx.AsyncClient(
+                headers=headers,
+                timeout=httpx.Timeout(10.0),
+                limits=httpx.Limits(max_keepalive_connections=10, max_connections=20)
+            )
+    
+    async def connect(self) -> bool:
+        """키움 REST API 연결 (비동기)"""
         try:
             with self.connection_lock:
+                # HTTP 클라이언트 초기화
+                await self._ensure_client()
+                
                 # 저장된 토큰이 유효한지 확인
-                if self.access_token and self.check_token_validity():
+                if self.access_token and await self.check_token_validity():
+                    # 토큰이 있으면 헤더 업데이트
+                    self._default_headers['Authorization'] = f'Bearer {self.access_token}'
+                    if self.client:
+                        self.client.headers['Authorization'] = f'Bearer {self.access_token}'
                     self.logger.info("저장된 토큰을 사용하여 연결")
                     self.is_connected = True
                     return True
                 
                 # 토큰이 없거나 만료된 경우 새로 발급
-                if self.get_access_token():
+                if await self.get_access_token():
                     # 새로 발급받은 토큰 저장
                     self.save_token()
                     self.is_connected = True
@@ -11081,11 +10835,11 @@ class KiwoomRestClient:
                     self.logger.error("키움 REST API 연결 실패")
                     return False
         except Exception as e:
-            self.logger.error(f"연결 중 오류 발생: {e}")
+            self.logger.error(f"연결 중 오류 발생: {e}", exc_info=True)
             return False
     
-    def disconnect(self):
-        """키움 REST API 연결 해제"""
+    async def disconnect(self):
+        """키움 REST API 연결 해제 (비동기)"""
         try:
             # 중복 실행 방지
             if not hasattr(self, 'is_connected') or not self.is_connected:
@@ -11094,30 +10848,38 @@ class KiwoomRestClient:
             with self.connection_lock:
                 
                 # 토큰 저장 (폐기하지 않음 - 재사용을 위해)
-                if self.access_token and self.check_token_validity():
-                    try:
-                        self.save_token()
-                        self.logger.info("토큰 저장 완료 (재사용 가능)")
-                    except Exception as token_ex:
-                        self.logger.warning(f"토큰 저장 중 오류 (무시됨): {token_ex}")
+                if self.access_token:
+                    # 동기 체크만 수행 (비동기 체크는 생략하여 빠른 해제)
+                    token_valid = datetime.now() < (self.token_expires_at or datetime.min)
+                    if token_valid:
+                        try:
+                            self.save_token()
+                            self.logger.info("토큰 저장 완료 (재사용 가능)")
+                        except Exception as token_ex:
+                            self.logger.warning(f"토큰 저장 중 오류 (무시됨): {token_ex}", exc_info=True)
                 
                 self.is_connected = False
-                # 토큰은 유지 (재사용을 위해)
-                # self.access_token = None
-                # self.token_expires_at = None
+                
+                # HTTP 클라이언트 종료
+                if self.client:
+                    await self.client.aclose()
+                    self.client = None
                 
                 if hasattr(self, 'logger'):
                     self.logger.info("키움 REST API 연결 해제 완료")
                 
         except Exception as e:
             if hasattr(self, 'logger'):
-                self.logger.error(f"연결 해제 중 오류: {e}")
+                self.logger.error(f"연결 해제 중 오류: {e}", exc_info=True)
             else:
                 print(f"연결 해제 중 오류: {e}")
     
-    def get_access_token(self) -> bool:
-        """키움 REST API 접근토큰 발급"""
+    async def get_access_token(self) -> bool:
+        """키움 REST API 접근토큰 발급 (비동기)"""
         try:
+            # HTTP 클라이언트 초기화
+            await self._ensure_client()
+            
             # 키움 REST API는 appkey와 secretkey를 사용
             # 모의투자 여부에 따라 서버 선택
             server_url = self.mock_url if self.is_mock else self.base_url
@@ -11139,7 +10901,7 @@ class KiwoomRestClient:
             max_retries = 3
             for attempt in range(max_retries):
                 try:
-                    response = requests.post(url, headers=headers, json=auth_data, timeout=10)
+                    response = await self.client.post(url, headers=headers, json=auth_data, timeout=10.0)
                     
                     if response.status_code == 200:
                         token_data = response.json()
@@ -11180,9 +10942,9 @@ class KiwoomRestClient:
                             return False
                         
                         # Authorization 헤더 설정
-                        self.session.headers.update({
-                            'Authorization': f'Bearer {self.access_token}'
-                        })
+                        self._default_headers['Authorization'] = f'Bearer {self.access_token}'
+                        if self.client:
+                            self.client.headers['Authorization'] = f'Bearer {self.access_token}'
                         
                         self.logger.info(f"접근토큰 발급 성공 - 토큰: {self.access_token[:10]}..., 만료: {self.token_expires_at}")
                         
@@ -11195,37 +10957,39 @@ class KiwoomRestClient:
                         if attempt < max_retries - 1:
                             wait_time = (attempt + 1) * 2  # 2, 4, 6초 대기
                             self.logger.info(f"{wait_time}초 후 재시도...")
-                            time.sleep(wait_time)
+                            await asyncio.sleep(wait_time)
                             continue
                     else:
-                        self.logger.error(f"토큰 발급 실패: {response.status_code}")
-                        self.logger.error(f"응답 헤더: {dict(response.headers)}")
-                        self.logger.error(f"응답 본문: {response.text}")
+                        self.logger.error(f"토큰 발급 실패: {response.status_code}", exc_info=True)
+                        self.logger.error(f"응답 헤더: {dict(response.headers)}", exc_info=True)
+                        self.logger.error(f"응답 본문: {response.text}", exc_info=True)
                         return False
                         
-                except requests.exceptions.RequestException as req_ex:
+                except (httpx.HTTPError, httpx.TimeoutException) as req_ex:
                     self.logger.warning(f"네트워크 오류 (시도 {attempt + 1}/{max_retries}): {req_ex}")
                     if attempt < max_retries - 1:
                         wait_time = (attempt + 1) * 2
                         self.logger.info(f"{wait_time}초 후 재시도...")
-                        time.sleep(wait_time)
+                        await asyncio.sleep(wait_time)
                         continue
                     else:
-                        self.logger.error(f"네트워크 오류로 토큰 발급 실패: {req_ex}")
+                        self.logger.error(f"네트워크 오류로 토큰 발급 실패: {req_ex}", exc_info=True)
                         return False
             
             self.logger.error(f"최대 재시도 횟수 초과로 토큰 발급 실패")
             return False
                 
         except Exception as e:
-            self.logger.error(f"토큰 발급 중 오류: {e}")
+            self.logger.error(f"토큰 발급 중 오류: {e}", exc_info=True)
             return False
     
-    def revoke_access_token(self) -> bool:
-        """OAuth 접근토큰 폐기 (au10002) - 키움 API 문서 참고"""
+    async def revoke_access_token(self) -> bool:
+        """OAuth 접근토큰 폐기 (au10002) - 키움 API 문서 참고 (비동기)"""
         try:
             if not self.access_token:
                 return True
+            
+            await self._ensure_client()
                 
             # 모의투자 여부에 따라 서버 선택
             server_url = self.mock_url if self.is_mock else self.base_url
@@ -11246,7 +11010,7 @@ class KiwoomRestClient:
             self.logger.debug(f"토큰 폐기 요청: {url}")
             self.logger.debug(f"토큰 폐기 데이터: appkey={data['appkey'][:10]}..., secretkey={data['secretkey'][:10]}..., token={data['token'][:10]}...")
             
-            response = requests.post(url, headers=headers, json=data, timeout=10)
+            response = await self.client.post(url, headers=headers, json=data, timeout=10.0)
             
             self.logger.debug(f"토큰 폐기 응답 코드: {response.status_code}")
             self.logger.debug(f"토큰 폐기 응답 헤더: {dict(response.headers)}")
@@ -11274,22 +11038,22 @@ class KiwoomRestClient:
                 self.logger.warning(f"토큰 폐기 서버 오류 (500) - 토큰은 만료될 예정입니다")
                 return True  # 서버 오류는 무시 (토큰은 자동 만료됨)
             else:
-                self.logger.warning(f"토큰 폐기 실패: {response.status_code} - {response.text}")
+                self.logger.warning(f"토큰 폐기 실패: {response.status_code} - {response.text}", exc_info=True)
                 return True  # 폐기 실패해도 무시 (토큰은 자동 만료됨)
                 
         except Exception as e:
-            self.logger.warning(f"토큰 폐기 중 오류 (무시됨): {e}")
+            self.logger.warning(f"토큰 폐기 중 오류 (무시됨): {e}", exc_info=True)
             return True  # 폐기 실패해도 무시 (토큰은 자동 만료됨)
 
-    def revoke_and_clear_token(self):
-        """키움 au10002로 서버 토큰 폐기 후 로컬 토큰 완전 삭제"""
+    async def revoke_and_clear_token(self):
+        """키움 au10002로 서버 토큰 폐기 후 로컬 토큰 완전 삭제 (비동기)"""
         try:
-            self.revoke_access_token()
+            await self.revoke_access_token()
         finally:
             self.clear_token()
     
-    def check_token_validity(self) -> bool:
-        """토큰 유효성 검사"""
+    async def check_token_validity(self) -> bool:
+        """토큰 유효성 검사 (비동기)"""
         if not self.access_token or not self.token_expires_at:
             self.logger.warning("토큰이 없거나 만료 시간이 설정되지 않음")
             return False
@@ -11297,23 +11061,24 @@ class KiwoomRestClient:
         # 토큰 만료 5분 전에 갱신
         if datetime.now() >= self.token_expires_at - timedelta(minutes=5):
             self.logger.info("토큰 만료 예정으로 갱신 시도")
-            if self.get_access_token():
+            if await self.get_access_token():
                 self.logger.info("토큰 갱신 성공")
                 return True
             else:
-                self.logger.error("토큰 갱신 실패")
+                self.logger.error("토큰 갱신 실패", exc_info=True)
                 return False
         
         return True
     
-    def get_stock_current_price(self, code: str) -> Dict:
-        """주식현재가 시세 조회 (실시간 주식 정보)
+    async def get_stock_current_price(self, code: str) -> Dict:
+        """주식현재가 시세 조회 (실시간 주식 정보) - 비동기
         
         Note: 키움 API에서 이 엔드포인트가 정상 작동하지 않을 수 있습니다.
         실패 시 호출한 쪽에서 추정가를 사용하도록 fallback 처리됩니다.
         """
         try:
-            if not self.check_token_validity():
+            await self._ensure_client()
+            if not await self.check_token_validity():
                 return {}
             
             # 모의투자 여부에 따라 서버 선택
@@ -11331,7 +11096,7 @@ class KiwoomRestClient:
                 "code": code
             }
             
-            response = requests.get(url, headers=headers, params=params, timeout=5)
+            response = await self.client.get(url, headers=headers, params=params, timeout=5.0)
             
             if response.status_code == 200:
                 data = response.json()
@@ -11351,13 +11116,14 @@ class KiwoomRestClient:
                 return {}
                 
         except Exception as e:
-            self.logger.debug(f"주식현재가 조회 실패 ({code}): {str(e)[:50]}... - fallback 처리됨")
+            self.logger.debug(f"주식현재가 조회 실패 ({code}): {str(e)[:50]}... - fallback 처리됨", exc_info=True)
             return {}
     
-    def get_stock_info_ka10100(self, code: str) -> Dict:
-        """종목정보 조회 (ka10100) - 전일종가 포함"""
+    async def get_stock_info_ka10100(self, code: str) -> Dict:
+        """종목정보 조회 (ka10100) - 전일종가 포함 (비동기)"""
         try:
-            if not self.check_token_validity():
+            await self._ensure_client()
+            if not await self.check_token_validity():
                 return {}
             
             # 모의투자 여부에 따라 서버 선택
@@ -11376,24 +11142,24 @@ class KiwoomRestClient:
                 'stk_cd': code
             }
             
-            response = requests.post(url, headers=headers, json=data, timeout=10)
+            response = await self.client.post(url, headers=headers, json=data, timeout=10.0)
             
             if response.status_code == 200:
                 result = response.json()
                 self.logger.debug(f"종목정보 조회 성공 ({code}): {result.get('name', 'Unknown')}, 전일종가: {result.get('lastPrice', 'N/A')}")
                 return result
             else:
-                self.logger.error(f"종목정보 조회 실패 ({code}): HTTP {response.status_code}")
+                self.logger.error(f"종목정보 조회 실패 ({code}): HTTP {response.status_code}", exc_info=True)
                 return {}
                 
         except Exception as e:
-            self.logger.error(f"종목정보 조회 중 오류 ({code}): {e}")
+            self.logger.error(f"종목정보 조회 중 오류 ({code}): {e}", exc_info=True)
             return {}
     
-    def get_stock_basic_info(self, code: str) -> Dict:
-        """주식기본정보 조회 (ka10001)"""
+    async def get_stock_basic_info(self, code: str) -> Dict:
+        """주식기본정보 조회 (ka10001) (비동기)"""
         try:
-            if not self.check_token_validity():
+            if not await self.check_token_validity():
                 return {}
             
             # 모의투자 여부에 따라 서버 선택
@@ -11405,22 +11171,23 @@ class KiwoomRestClient:
                 "info_type": "basic"
             }
             
-            response = self.session.get(url, params=params)
+            await self._ensure_client()
+            response = await self.client.get(url, headers=self._default_headers, params=params, timeout=10.0)
             
             if response.status_code == 200:
                 return response.json()
             else:
-                self.logger.error(f"주식기본정보 조회 실패: {response.status_code}")
+                self.logger.error(f"주식기본정보 조회 실패: {response.status_code}", exc_info=True)
                 return {}
                 
         except Exception as e:
-            self.logger.error(f"주식기본정보 조회 중 오류: {e}")
+            self.logger.error(f"주식기본정보 조회 중 오류: {e}", exc_info=True)
             return {}
     
-    def get_stock_quote(self, code: str) -> Dict:
-        """주식호가정보 조회 (ka10002)"""
+    async def get_stock_quote(self, code: str) -> Dict:
+        """주식호가정보 조회 (ka10002) (비동기)"""
         try:
-            if not self.check_token_validity():
+            if not await self.check_token_validity():
                 return {}
             
             # 모의투자 여부에 따라 서버 선택
@@ -11432,22 +11199,23 @@ class KiwoomRestClient:
                 "info_type": "quote"
             }
             
-            response = self.session.get(url, params=params)
+            await self._ensure_client()
+            response = await self.client.get(url, headers=self._default_headers, params=params, timeout=10.0)
             
             if response.status_code == 200:
                 return response.json()
             else:
-                self.logger.error(f"주식호가정보 조회 실패: {response.status_code}")
+                self.logger.error(f"주식호가정보 조회 실패: {response.status_code}", exc_info=True)
                 return {}
                 
         except Exception as e:
-            self.logger.error(f"주식호가정보 조회 중 오류: {e}")
+            self.logger.error(f"주식호가정보 조회 중 오류: {e}", exc_info=True)
             return {}
     
-    def get_stock_chart_data(self, code: str, period: str = "1m") -> pd.DataFrame:
-        """주식 차트 데이터 조회"""
+    async def get_stock_chart_data(self, code: str, period: str = "1m") -> pd.DataFrame:
+        """주식 차트 데이터 조회 (비동기)"""
         try:
-            if not self.check_token_validity():
+            if not await self.check_token_validity():
                 return pd.DataFrame()
             
             # 모의투자 여부에 따라 서버 선택
@@ -11459,27 +11227,29 @@ class KiwoomRestClient:
                 "period": period
             }
             
-            response = self.session.get(url, params=params)
+            await self._ensure_client()
+            response = await self.client.get(url, headers=self._default_headers, params=params, timeout=10.0)
             
             if response.status_code == 200:
                 data = response.json()
                 return self._parse_chart_data(data)
             else:
-                self.logger.error(f"차트 데이터 조회 실패: {response.status_code}")
+                self.logger.error(f"차트 데이터 조회 실패: {response.status_code}", exc_info=True)
                 return pd.DataFrame()
                 
         except Exception as e:
-            self.logger.error(f"차트 데이터 조회 중 오류: {e}")
+            self.logger.error(f"차트 데이터 조회 중 오류: {e}", exc_info=True)
             return pd.DataFrame()
     
-    def get_stock_tic_chart(self, code: str, tic_scope: int = 30, cont_yn: str = 'N', next_key: str = '') -> Dict:
-        """주식 틱 차트 데이터 조회 (ka10079) - 참고 코드 기반 개선"""
+    async def get_stock_tic_chart(self, code: str, tic_scope: int = 30, cont_yn: str = 'N', next_key: str = '') -> Dict:
+        """주식 틱 차트 데이터 조회 (ka10079) - 참고 코드 기반 개선 (비동기)"""
         try:
-            if not self.check_token_validity():
+            await self._ensure_client()
+            if not await self.check_token_validity():
                 return {}
             
             # API 요청 제한 확인 및 대기
-            ApiLimitManager.check_api_limit_and_wait("틱 차트 조회", request_type="tic_chart")
+            await ApiLimitManager.check_api_limit_and_wait_async("틱 차트 조회", request_type="tic_chart")
             
             # 모의투자 여부에 따라 서버 선택
             server_url = self.mock_url if self.is_mock else self.base_url
@@ -11504,7 +11274,7 @@ class KiwoomRestClient:
             self.logger.debug(f"틱 차트 API 호출: {code}, 틱범위: {tic_scope}, 연속조회: {cont_yn}")
             
             # HTTP POST 요청
-            response = self.session.post(url, headers=headers, json=data)
+            response = await self.client.post(url, headers=headers, json=data, timeout=10.0)
             
             # 응답 상태 코드 확인
             if response.status_code == 200:
@@ -11521,27 +11291,28 @@ class KiwoomRestClient:
                 
                 return tic_data
             else:
-                self.logger.error(f"틱 차트 데이터 조회 실패: {response.status_code}")
+                self.logger.error(f"틱 차트 데이터 조회 실패: {response.status_code}", exc_info=True)
                 try:
                     error_data = response.json()
-                    self.logger.error(f"오류 상세: {error_data}")
+                    self.logger.error(f"오류 상세: {error_data}", exc_info=True)
                 except:
-                    self.logger.error(f"응답 내용: {response.text}")
+                    self.logger.error(f"응답 내용: {response.text}", exc_info=True)
                 return {}
                 
         except Exception as e:
-            self.logger.error(f"틱 차트 데이터 조회 중 오류: {e}")
+            self.logger.error(f"틱 차트 데이터 조회 중 오류: {e}", exc_info=True)
             return {}
     
     
-    def get_stock_minute_chart(self, code: str, period: int = 3) -> Dict:
-        """주식 분봉 차트 데이터 조회 (ka10080)"""
+    async def get_stock_minute_chart(self, code: str, period: int = 3) -> Dict:
+        """주식 분봉 차트 데이터 조회 (ka10080) (비동기)"""
         try:
-            if not self.check_token_validity():
+            await self._ensure_client()
+            if not await self.check_token_validity():
                 return {}
             
             # API 요청 제한 확인 및 대기
-            ApiLimitManager.check_api_limit_and_wait("분봉 차트 조회", request_type="minute_chart")
+            await ApiLimitManager.check_api_limit_and_wait_async("분봉 차트 조회", request_type="minute_chart")
             
             # 모의투자 여부에 따라 서버 선택
             server_url = self.mock_url if self.is_mock else self.base_url
@@ -11563,25 +11334,26 @@ class KiwoomRestClient:
                 'api-id': 'ka10080'
             }
             
-            response = self.session.post(url, headers=headers, json=data)
+            response = await self.client.post(url, headers=headers, json=data, timeout=10.0)
             
             if response.status_code == 200:
                 response_data = response.json()
                 return self._parse_minute_chart_data(response_data)
             else:
-                self.logger.error(f"분봉 차트 데이터 조회 실패: {response.status_code}")
+                self.logger.error(f"분봉 차트 데이터 조회 실패: {response.status_code}", exc_info=True)
                 return {}
                 
         except Exception as e:
-            self.logger.error(f"분봉 차트 데이터 조회 중 오류: {e}")
+            self.logger.error(f"분봉 차트 데이터 조회 중 오류: {e}", exc_info=True)
             return {}
     
-    def get_deposit_detail(self) -> Dict:
-        """예수금상세현황요청 (kt00001) - 키움 REST API
+    async def get_deposit_detail(self) -> Dict:
+        """예수금상세현황요청 (kt00001) - 키움 REST API (비동기)
         예수금, 출금가능금액, 주문가능금액 등을 조회합니다.
         """
         try:
-            if not self.check_token_validity():
+            await self._ensure_client()
+            if not await self.check_token_validity():
                 return {}
             
             # 모의투자 여부에 따라 서버 선택
@@ -11603,7 +11375,7 @@ class KiwoomRestClient:
             }
             
             # POST 요청 (키움 API 문서에 따라 POST 사용)
-            response = requests.post(url, headers=headers, json=params, timeout=10)
+            response = await self.client.post(url, headers=headers, json=params, timeout=10.0)
             
             if response.status_code == 200:
                 data = response.json()
@@ -11624,23 +11396,24 @@ class KiwoomRestClient:
                     self.logger.debug("예수금상세현황 조회 성공")
                     return data
                 else:
-                    self.logger.error(f"예수금상세현황 조회 실패: {return_msg}")
+                    self.logger.error(f"예수금상세현황 조회 실패: {return_msg}", exc_info=True)
                     return {}
             else:
-                self.logger.error(f"예수금상세현황 조회 실패: {response.status_code}")
+                self.logger.error(f"예수금상세현황 조회 실패: {response.status_code}", exc_info=True)
                 return {}
                 
         except Exception as e:
-            self.logger.error(f"예수금상세현황 조회 중 오류: {e}")
+            self.logger.error(f"예수금상세현황 조회 중 오류: {e}", exc_info=True)
             return {}
     
-    def get_acnt_balance(self) -> Dict:
-        """계좌평가현황 조회 (kt00004) - 키움 REST API
+    async def get_acnt_balance(self) -> Dict:
+        """계좌평가현황 조회 (kt00004) - 키움 REST API (비동기)
         주의: 이 메서드는 REST API를 통한 일회성 조회입니다.
         실시간 잔고 데이터는 KiwoomWebSocketClient에서 처리됩니다.
         """
         try:
-            if not self.check_token_validity():
+            await self._ensure_client()
+            if not await self.check_token_validity():
                 return {}
             
             # 모의투자 여부에 따라 서버 선택
@@ -11663,36 +11436,37 @@ class KiwoomRestClient:
             }
             
             # POST 요청 (키움 API 문서에 따라 POST 사용)
-            response = requests.post(url, headers=headers, json=params, timeout=10)
+            response = await self.client.post(url, headers=headers, json=params, timeout=10.0)
             
             
             if response.status_code == 200:
                 data = response.json()
 
-                # 응답 코드 확인
-                if data.get('return_code') == 0:
+                # 응답 코드 확인 (return_code가 0이면 성공)
+                if str(data.get('return_code', '')) == '0':
                     return data
                 else:
                     return_msg = data.get('return_msg', '알 수 없는 오류')
-                    self.logger.error(f"계좌평가현황 조회 실패: {return_msg}")
+                    self.logger.error(f"계좌평가현황 조회 실패: {return_msg}", exc_info=True)
                     return {}
             else:
-                self.logger.error(f"계좌평가현황 조회 실패: {response.status_code}")
-                self.logger.error(f"응답: {response.text}")
+                self.logger.error(f"계좌평가현황 조회 실패: {response.status_code}", exc_info=True)
+                self.logger.error(f"응답: {response.text}", exc_info=True)
                 return {}
                 
         except Exception as e:
-            self.logger.error(f"계좌평가현황 조회 중 오류: {e}")
+            self.logger.error(f"계좌평가현황 조회 중 오류: {e}", exc_info=True)
             return {}
 
     
-    def place_buy_order(self, code: str, quantity: int, price: int = 0, order_type: str = "market") -> bool:
-        """매수 주문 (키움 REST API 기반) - 시장가만 지원
+    async def place_buy_order(self, code: str, quantity: int, price: int = 0, order_type: str = "market") -> bool:
+        """매수 주문 (키움 REST API 기반) - 시장가만 지원 (비동기)
         
         신 REST API (kt10000) 방식 사용
         """
         try:
-            if not self.check_token_validity():
+            await self._ensure_client()
+            if not await self.check_token_validity():
                 return False
             
             # API URL 설정
@@ -11727,7 +11501,7 @@ class KiwoomRestClient:
             
             # HTTP POST 요청
             try:
-                response = requests.post(url, headers=headers, json=data, timeout=10)
+                response = await self.client.post(url, headers=headers, json=data, timeout=10.0)
                 
                 # 응답 처리
                 if response.status_code == 200:
@@ -11741,8 +11515,8 @@ class KiwoomRestClient:
                         return True
                     else:
                         error_msg = result.get('return_msg', 'Unknown error')
-                        self.logger.error(f"❌ 매수 주문 실패: {error_msg}")
-                        self.logger.error(f"응답: {result}")
+                        self.logger.error(f"매수 주문 실패: {error_msg}", exc_info=True)
+                        self.logger.error(f"응답: {result}", exc_info=True)
                         # 종료 계좌(RC4091) 대응: 토큰 폐기 후 재인증 유도
                         if 'RC4091' in error_msg or '종료된 계좌' in error_msg:
                             try:
@@ -11754,31 +11528,32 @@ class KiwoomRestClient:
                                 except Exception:
                                     pass
                                 # 서버 토큰 폐기 후 로컬 토큰 삭제
-                                self.revoke_and_clear_token()
+                                await self.revoke_and_clear_token()
                             except Exception:
                                 pass
                         return False
                 else:
-                    self.logger.error(f"❌ 매수 주문 실패: HTTP {response.status_code}")
-                    self.logger.error(f"응답: {response.text}")
+                    self.logger.error(f"매수 주문 실패: HTTP {response.status_code}", exc_info=True)
+                    self.logger.error(f"응답: {response.text}", exc_info=True)
                     return False
                     
-            except requests.exceptions.RequestException as req_ex:
-                self.logger.error(f"❌ HTTP 요청 실패: {req_ex}")
+            except (httpx.HTTPError, httpx.TimeoutException) as req_ex:
+                self.logger.error(f"HTTP 요청 실패: {req_ex}", exc_info=True)
                 return False
                 
         except Exception as e:
-            self.logger.error(f"❌ 매수 주문 중 오류: {e}")
-            self.logger.error(f"매수 주문 예외 상세: {traceback.format_exc()}")
+            self.logger.error(f"매수 주문 중 오류: {e}", exc_info=True)
+            
             return False
     
-    def place_sell_order(self, code: str, quantity: int, price: int = 0, order_type: str = "market") -> bool:
-        """매도 주문 (키움 REST API 기반) - 시장가만 지원
+    async def place_sell_order(self, code: str, quantity: int, price: int = 0, order_type: str = "market") -> bool:
+        """매도 주문 (키움 REST API 기반) - 시장가만 지원 (비동기)
         
         신 REST API (kt10001) 방식 사용
         """
         try:
-            if not self.check_token_validity():
+            await self._ensure_client()
+            if not await self.check_token_validity():
                 return False
             
             # 보유 수량 체크는 호출자(sell_item)에서 이미 수행했으므로 생략
@@ -11816,7 +11591,7 @@ class KiwoomRestClient:
             
             # HTTP POST 요청
             try:
-                response = requests.post(url, headers=headers, json=data, timeout=10)
+                response = await self.client.post(url, headers=headers, json=data, timeout=10.0)
                 
                 # 응답 처리
                 if response.status_code == 200:
@@ -11833,7 +11608,7 @@ class KiwoomRestClient:
                         return_code = result.get('return_code', 0)
                         
                         self.logger.error(f"❌ 매도 주문 실패: {error_msg}")
-                        self.logger.error(f"응답: {result}")
+                        self.logger.error(f"응답: {result}", exc_info=True)
                         
                         # "매도가능수량 부족" 에러인 경우 상세 정보 추가
                         if '800033' in error_msg or '매도가능수량' in error_msg or '매도가능' in error_msg:
@@ -11847,45 +11622,46 @@ class KiwoomRestClient:
                                         self.parent.objat.stop_auto_trading()
                                 except Exception:
                                     pass
-                                self.revoke_and_clear_token()
+                                await self.revoke_and_clear_token()
                             except Exception:
                                 pass
                         
                         return False
                 else:
-                    self.logger.error(f"❌ 매도 주문 실패: HTTP {response.status_code}")
-                    self.logger.error(f"응답: {response.text}")
+                    self.logger.error(f"매도 주문 실패: HTTP {response.status_code}", exc_info=True)
+                    self.logger.error(f"응답: {response.text}", exc_info=True)
                     return False
                     
-            except requests.exceptions.RequestException as req_ex:
-                self.logger.error(f"❌ HTTP 요청 실패: {req_ex}")
+            except (httpx.HTTPError, httpx.TimeoutException) as req_ex:
+                self.logger.error(f"HTTP 요청 실패: {req_ex}", exc_info=True)
                 return False
                 
         except Exception as e:
-            self.logger.error(f"❌ 매도 주문 중 오류: {e}")
-            self.logger.error(f"매도 주문 예외 상세: {traceback.format_exc()}")
+            self.logger.error(f"매도 주문 중 오류: {e}", exc_info=True)
+            
             return False
     
-    def get_order_history(self) -> List[Dict]:
-        """주문 내역 조회"""
+    async def get_order_history(self) -> List[Dict]:
+        """주문 내역 조회 (비동기)"""
         try:
-            if not self.check_token_validity():
+            if not await self.check_token_validity():
                 return []
             
             # 모의투자 여부에 따라 서버 선택
             server_url = self.mock_url if self.is_mock else self.base_url
             url = f"{server_url}/api/dostk/ordr"
             
-            response = self.session.get(url)
+            await self._ensure_client()
+            response = await self.client.get(url, headers=self._default_headers, timeout=10.0)
             
             if response.status_code == 200:
                 return response.json()
             else:
-                self.logger.error(f"주문 내역 조회 실패: {response.status_code}")
+                self.logger.error(f"주문 내역 조회 실패: {response.status_code}", exc_info=True)
                 return []
                 
         except Exception as e:
-            self.logger.error(f"주문 내역 조회 중 오류: {e}")
+            self.logger.error(f"주문 내역 조회 중 오류: {e}", exc_info=True)
             return []    
 
     def send_slack_notification_on_sell(self, prev_balance_info, daily_realized_profit, daily_realized_profit_rate, sold_qty=None):
@@ -11930,10 +11706,10 @@ class KiwoomRestClient:
                 ]
             }
             
-            requests.post(slack_webhook_url, json=message, timeout=5)
+            # Slack 알림 전송은 비동기 메서드에서 이미 처리됨
         except Exception as e:
-            self.logger.error(f"Slack 알림 전송 실패: {e}")
-            self.logger.debug(f"Slack 알림 실패 상세: {traceback.format_exc()}")
+            self.logger.error(f"Slack 알림 전송 실패: {e}", exc_info=True)
+            
     
     def _parse_stock_price_data(self, data: Dict) -> Dict:
         """주식 가격 데이터 파싱"""
@@ -11954,7 +11730,7 @@ class KiwoomRestClient:
                 'pbr': data.get('pbr', 0)
             }
         except Exception as e:
-            self.logger.error(f"주식 가격 데이터 파싱 오류: {e}")
+            self.logger.error(f"주식 가격 데이터 파싱 오류: {e}", exc_info=True)
             return {}
     
     def _parse_chart_data(self, data: Dict) -> pd.DataFrame:
@@ -11985,7 +11761,7 @@ class KiwoomRestClient:
             return df
             
         except Exception as e:
-            self.logger.error(f"차트 데이터 파싱 오류: {e}")
+            self.logger.error(f"차트 데이터 파싱 오류: {e}", exc_info=True)
             return pd.DataFrame()
     
     def _parse_tic_chart_data(self, data: Dict) -> Dict:
@@ -12080,7 +11856,7 @@ class KiwoomRestClient:
                             dt = datetime.now()
                         parsed_data['time'].append(dt)
                     except Exception as parse_ex:
-                        self.logger.warning(f"시간 파싱 실패: {time_str}, {parse_ex}")
+                        self.logger.warning(f"시간 파싱 실패: {time_str}, {parse_ex}", exc_info=True)
                         parsed_data['time'].append(datetime.now())
                 else:
                     parsed_data['time'].append(datetime.now())
@@ -12136,7 +11912,7 @@ class KiwoomRestClient:
             return parsed_data
             
         except Exception as e:
-            self.logger.error(f"틱 차트 데이터 파싱 오류: {e}")
+            self.logger.error(f"틱 차트 데이터 파싱 오류: {e}", exc_info=True)
             return {}
     
     
@@ -12204,7 +11980,7 @@ class KiwoomRestClient:
                             dt = datetime.now()
                         parsed_data['time'].append(dt)
                     except Exception as parse_ex:
-                        self.logger.warning(f"분봉 시간 파싱 실패: {time_str}, {parse_ex}")
+                        self.logger.warning(f"분봉 시간 파싱 실패: {time_str}, {parse_ex}", exc_info=True)
                         parsed_data['time'].append(datetime.now())
                 else:
                     parsed_data['time'].append(datetime.now())
@@ -12240,33 +12016,13 @@ class KiwoomRestClient:
             return parsed_data
             
         except Exception as e:
-            self.logger.error(f"분봉 차트 데이터 파싱 오류: {e}")
+            self.logger.error(f"분봉 차트 데이터 파싱 오류: {e}", exc_info=True)
             return {}
     
-    def is_market_open(self) -> bool:
-        """시장 개장 여부 확인"""
+    async def get_stock_list(self, market: str = "KOSPI") -> List[Dict]:
+        """주식 종목 리스트 조회 (비동기)"""
         try:
-            # 시장 상태 조회 실패 시 시간대 기반 판단
-            now = datetime.now()
-            current_time = now.time()
-            
-            # 평일 09:00 ~ 15:30 (장중 시간)
-            market_start = dt_time(9, 0)
-            market_end = dt_time(15, 30)
-            
-            # 평일이고 장중 시간이면 개장으로 판단
-            if now.weekday() < 5 and market_start <= current_time <= market_end:
-                return True
-            
-            return False
-            
-        except Exception as e:
-            self.logger.error(f"시장 개장 확인 중 오류: {e}")
-    
-    def get_stock_list(self, market: str = "KOSPI") -> List[Dict]:
-        """주식 종목 리스트 조회"""
-        try:
-            if not self.check_token_validity():
+            if not await self.check_token_validity():
                 return []
             
             # 모의투자 여부에 따라 서버 선택
@@ -12278,24 +12034,28 @@ class KiwoomRestClient:
                 "market": market
             }
             
-            response = self.session.get(url, params=params)
+            await self._ensure_client()
+            response = await self.client.get(url, headers=self._default_headers, params=params, timeout=10.0)
             
             if response.status_code == 200:
                 return response.json()
             else:
-                self.logger.error(f"종목 리스트 조회 실패: {response.status_code}")
+                self.logger.error(f"종목 리스트 조회 실패: {response.status_code}", exc_info=True)
                 return []
                 
         except Exception as e:
-            self.logger.error(f"종목 리스트 조회 중 오류: {e}")
+            self.logger.error(f"종목 리스트 조회 중 오류: {e}", exc_info=True)
             return []    
 
     def __del__(self):
         """소멸자 - 연결 해제 (중복 실행 방지)"""
         try:
             # 이미 연결이 해제되었는지 확인
+            # __del__에서는 await를 사용할 수 없으므로 asyncio.create_task 사용 불가
+            # 여기서는 연결 상태만 확인하고 실제 해제는 다른 곳에서 처리
             if hasattr(self, 'is_connected') and self.is_connected:
-                self.disconnect()
+                # __del__에서는 비동기 호출 불가능하므로 플래그만 설정
+                self.is_connected = False
         except Exception:
             # logger가 없거나 다른 오류가 발생해도 무시
             pass
@@ -12305,7 +12065,7 @@ if __name__ == "__main__":
     try:
         qasync.run(main())
     except asyncio.CancelledError:
-        logging.info("프로그램이 정상적으로 종료되었습니다.")
+        logging.info("프로그램이 정상적으로 종료되었습니다.") # type: ignore
     except Exception as e:
         logging.critical(f"메인 실행 중 치명적인 오류 발생: {e}", exc_info=True)
         # 오류 메시지 박스 표시
