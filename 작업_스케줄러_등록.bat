@@ -14,7 +14,7 @@ echo.
 
 REM 현재 디렉토리의 절대 경로 확인
 set "CURRENT_DIR=%CD%"
-set "EXE_PATH=%CURRENT_DIR%\dist\stock_trader.exe"
+set "EXE_PATH=%CURRENT_DIR%\dist\stock_trader\stock_trader.exe"
 
 REM 실행 파일 존재 확인
 if not exist "%EXE_PATH%" (
@@ -43,7 +43,7 @@ echo.
 
 REM 작업 스케줄러 생성
 schtasks /Create /TN "StockTrader_Auto" ^
-    /TR "\"%EXE_PATH%\"" ^
+    /TR "cmd /c 'cd /d \"%CURRENT_DIR%\dist\stock_trader\" && \"%EXE_PATH%\"'" ^
     /SC WEEKLY ^
     /D MON,TUE,WED,THU,FRI ^
     /ST 08:40 ^
@@ -84,4 +84,3 @@ if %ERRORLEVEL% EQU 0 (
 )
 
 pause
-

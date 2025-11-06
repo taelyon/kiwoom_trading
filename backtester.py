@@ -21,8 +21,8 @@ from PyQt6.QtWidgets import QApplication
 from strategy_utils import (
     KiwoomIndicatorExtractor,
     STRATEGY_SAFE_GLOBALS,
-    build_backtest_buy_locals,
-    build_backtest_sell_locals,
+    prepare_buy_strategy_locals,
+    prepare_sell_strategy_locals,
     evaluate_strategies,
     load_strategies_from_config
 )
@@ -40,6 +40,10 @@ class KiwoomBacktester:
         self.config = configparser.RawConfigParser()
         if config_file:
             try:
+                # 수수료/세금 설정 로드
+                self.config.read(config_file, encoding='utf-8')
+                self.commission_rate = self.config.getfloat('TRADING', 'commission_rate', fallback=0.00015)
+                self.tax_rate = self.config.getfloat('TRADING', 'tax_rate', fallback=0.0018)
                 self.config.read(config_file, encoding='utf-8')
             except Exception as ex:
                 self.logger.error(f"설정 파일 로드 실패: {ex}")
@@ -65,28 +69,6 @@ class KiwoomBacktester:
         # 백테스팅 결과
         self.results = {}
 
-        # '통합 전략' 동적 생성
-        if '통합 전략' not in self.strategies:
-            integrated_buy = []
-            integrated_sell = []
-            
-            # '급등주' 전략이 있으면 추가
-            if '급등주' in self.strategies:
-                integrated_buy.extend(self.strategies['급등주'].get('buy_strategies', []))
-                integrated_sell.extend(self.strategies['급등주'].get('sell_strategies', []))
-            
-            # '갭상승' 전략이 있으면 추가
-            if '갭상승' in self.strategies:
-                integrated_buy.extend(self.strategies['갭상승'].get('buy_strategies', []))
-                integrated_sell.extend(self.strategies['갭상승'].get('sell_strategies', []))
-
-            if integrated_buy or integrated_sell:
-                self.strategies['통합 전략'] = {
-                    'buy_strategies': integrated_buy,
-                    'sell_strategies': integrated_sell
-                }
-                self.logger.info("✅ '통합 전략'을 동적으로 생성했습니다 (급등주 + 갭상승).")
-        
         self.logger.debug(f"키움 백테스터 초기화 완료 (초기 자금: {initial_cash:,}원)")
 
     def get_db_data_range(self):
@@ -109,8 +91,8 @@ class KiwoomBacktester:
         except Exception as ex:
             self.logger.error(f"DB 데이터 기간 조회 실패: {ex}", exc_info=True)
             return None, None
-    
-    def load_stock_data(self, code, start_date, end_date):
+
+    def load_stock_data(self, code, start_date, end_date, chart_type='minute'):
         """통합 주식 데이터 로드 (stock_data 테이블 사용)
         
         Args:
@@ -120,7 +102,7 @@ class KiwoomBacktester:
         """
         try:
             conn = sqlite3.connect(self.db_path)
-            df = self._load_integrated_data(conn, code, start_date, end_date)
+            df = self._load_integrated_data(conn, code, start_date, end_date, chart_type=chart_type)
             
             conn.close()
             
@@ -142,7 +124,7 @@ class KiwoomBacktester:
             self.logger.error(f"데이터 로드 실패 ({code}): {ex}", exc_info=True)
             return pd.DataFrame()
     
-    def _load_integrated_data(self, conn, code, start_date, end_date):
+    def _load_integrated_data(self, conn, code, start_date, end_date, chart_type='tic'):
         """통합 데이터 로드 (틱봉 기준, 분봉 지표 포함)"""
         try:
             # 먼저 테이블의 실제 컬럼을 확인
@@ -188,19 +170,24 @@ class KiwoomBacktester:
 
             if not df.empty:
                 self.logger.info(f"통합 데이터 로드 완료: {code} ({len(df)}개 레코드, {len(existing_columns)}개 컬럼)")
-                # 컬럼명 정리 (백워드 호환성)
-                df = self._standardize_column_names(df)
+                # 컬럼명 정리 (차트 타입에 따라)
+                df = self._standardize_column_names(df, chart_type)
             
             return df
             
         except Exception as ex:
             self.logger.error(f"통합 데이터 로드 실패 ({code}): {ex}", exc_info=True)
             return pd.DataFrame()
-        
-    def _standardize_column_names(self, df):
+
+    def _standardize_column_names(self, df, chart_type='tic'):
         """컬럼명을 표준화하여 기존 백테스팅 코드와 호환"""
         try:
-            # 기본 OHLCV는 그대로 사용
+            prefix = 'tic_'
+            if chart_type == 'minute':
+                prefix = 'min3_'
+            
+            self.logger.debug(f"차트 타입 '{chart_type}'에 따라 '{prefix}' 접두사를 사용하여 컬럼명을 표준화합니다.")
+
             # tic_ 접두사가 붙은 컬럼들을 접두사 없는 표준 컬럼명으로 변경
             # 예: tic_open -> open, tic_ma5 -> ma5
             column_mapping = {col: col[4:] for col in df.columns if col.startswith('tic_')}
@@ -210,7 +197,14 @@ class KiwoomBacktester:
             }
             # 기본 매핑을 먼저 적용하고, 나머지 지표 매핑을 덮어씀
             column_mapping.update(base_mapping)
-            
+
+            # chart_type에 따라 기본 OHLCV 컬럼을 선택
+            base_mapping_prefix = {
+                f'{prefix}open': 'open', f'{prefix}high': 'high', f'{prefix}low': 'low',
+                f'{prefix}close': 'close', f'{prefix}volume': 'volume'
+            }
+            column_mapping.update(base_mapping_prefix)
+
             df = df.rename(columns=column_mapping)
             return df
             
@@ -287,13 +281,15 @@ class KiwoomBacktester:
             shares = self.holdings[code]
             total_amount = shares * price
             
-            # 매도 실행
-            self.cash += total_amount
-            
             # 수익률 계산
-            buy_price = self.buy_prices[code]
-            profit_loss = (price - buy_price) * shares
-            profit_rate = (price - buy_price) / buy_price * 100
+            buy_price = self.buy_prices.get(code, 0)
+            buy_cost_per_share = buy_price * (1 + self.commission_rate)
+            sell_revenue_per_share = price * (1 - self.commission_rate - self.tax_rate)
+            profit_loss = (sell_revenue_per_share - buy_cost_per_share) * shares
+            profit_rate = (profit_loss / (buy_cost_per_share * shares)) * 100 if (buy_cost_per_share * shares) > 0 else 0
+            
+            # 매도 실행 (실수령액 반영)
+            self.cash += (price * shares) * (1 - self.commission_rate - self.tax_rate)
             
             # 거래 기록
             trade = {
@@ -389,7 +385,7 @@ class KiwoomBacktester:
 
         return daily_stats
 
-    def run_backtest(self, codes, start_date, end_date, strategy_name='통합 전략'):
+    def run_backtest(self, codes, start_date, end_date, strategy_name='통합 전략', chart_type='minute'):
         """백테스팅 실행
         
         Args:
@@ -397,9 +393,10 @@ class KiwoomBacktester:
             start_date: 시작일
             end_date: 종료일
             strategy_name: 전략명
+            chart_type: 사용할 차트 데이터 종류 ('tic' 또는 'minute')
         """
         try:
-            self.logger.info(f"백테스팅 시작: {strategy_name} ({start_date} ~ {end_date})")
+            self.logger.info(f"백테스팅 시작: {strategy_name} ({start_date} ~ {end_date}), 차트 타입: {chart_type}")
             
             if strategy_name not in self.strategies:
                 self.logger.error(f"전략을 찾을 수 없음: {strategy_name}")
@@ -408,7 +405,7 @@ class KiwoomBacktester:
             # 데이터 로드 (틱 데이터 우선)
             all_data = {}
             for code in codes:
-                data = self.load_stock_data(code, start_date, end_date)
+                data = self.load_stock_data(code, start_date, end_date, chart_type)
                 if not data.empty:
                     all_data[code] = data
             
@@ -442,9 +439,23 @@ class KiwoomBacktester:
                     for code in list(self.holdings.keys()):
                         if code in all_data and timestamp in all_data[code].index:
                             # 현재 시점까지의 데이터 슬라이스
-                            chart_data = all_data[code].loc[:timestamp]
+                            current_chart_data = all_data[code].loc[:timestamp].copy()
                             
-                            if len(chart_data) > 20:  # 최소 데이터 요구사항
+                            if len(current_chart_data) > 20:  # 최소 데이터 요구사항
+                                # 백테스팅 시점의 데이터로 기술적 지표를 다시 계산
+                                
+                                # 백테스팅을 위한 previous_close, current_open 추출
+                                if len(current_chart_data) > 1:
+                                    previous_close = current_chart_data['close'].iloc[-2]
+                                    current_open = current_chart_data['open'].iloc[-1]
+                                else:
+                                    previous_close, current_open = 0, 0
+                                
+                                indicators = KiwoomIndicatorExtractor.extract_chart_indicators(current_chart_data)
+                                for key, value in indicators.items():
+                                    if isinstance(value, np.ndarray) and len(value) > 0:
+                                        current_chart_data[key] = value
+
                                 # 매도 전략 평가
                                 portfolio_info = {
                                     'holdings': self.holdings.copy(),
@@ -455,14 +466,13 @@ class KiwoomBacktester:
                                 
                                 success, strategy = evaluate_strategies(
                                     sell_strategies,
-                                    build_backtest_sell_locals(
-                                        code, chart_data, 
+                                    prepare_sell_strategy_locals(
+                                        code, current_chart_data, pd.DataFrame(), previous_close, current_open,
                                         self.buy_prices[code], 
-                                        self.buy_times[code],
-                                        current_prices[code],
+                                        self.buy_times[code],                                        
                                         portfolio_info
-                                    ),
-                                    code, "매도"
+                                ),
+                                    code, "매도", is_backtest=True
                                 )
                                 
                                 if success:
@@ -473,10 +483,23 @@ class KiwoomBacktester:
                         if (code not in self.holdings and 
                             timestamp in data.index and 
                             len(data.loc[:timestamp]) > 20):
-                            
+
                             # 현재 시점까지의 데이터 슬라이스
-                            chart_data = data.loc[:timestamp]
+                            current_chart_data = data.loc[:timestamp].copy()
+
+                            # 백테스팅 시점의 데이터로 기술적 지표를 다시 계산
                             
+                            # 백테스팅을 위한 previous_close, current_open 추출
+                            if len(current_chart_data) > 1:
+                                previous_close = current_chart_data['close'].iloc[-2]
+                                current_open = current_chart_data['open'].iloc[-1]
+                            else:
+                                previous_close, current_open = 0, 0
+                                
+                            indicators = KiwoomIndicatorExtractor.extract_chart_indicators(current_chart_data)
+                            for key, value in indicators.items():
+                                if isinstance(value, np.ndarray) and len(value) > 0:
+                                    current_chart_data[key] = value
                             # 매수 전략 평가
                             portfolio_info = {
                                 'holdings': self.holdings.copy(),
@@ -488,8 +511,8 @@ class KiwoomBacktester:
                             
                             success, strategy = evaluate_strategies(
                                 buy_strategies,
-                                build_backtest_buy_locals(code, chart_data, portfolio_info),
-                                code, "매수"
+                                prepare_buy_strategy_locals(code, current_chart_data, pd.DataFrame(), previous_close, current_open, portfolio_info),
+                                code, "매수", is_backtest=True
                             )
                             
                             if success:
@@ -943,7 +966,7 @@ def main():
         end_date = '2024-12-31'
         
         # 전략별 백테스팅 실행
-        strategies = ['통합 전략', '급등주', '갭상승']
+        strategies = ['급등주', '갭상승']
         
         for strategy in strategies:
             if strategy in backtester.strategies:
@@ -952,7 +975,7 @@ def main():
                 backtester.logger.info(f"{'='*50}")
                 
                 # 백테스팅 실행 (틱 데이터 우선)
-                success = backtester.run_backtest(codes, start_date, end_date, strategy)
+                success = backtester.run_backtest(codes, start_date, end_date, strategy, chart_type='minute')
                 
                 if success:
                     # 결과 차트 생성

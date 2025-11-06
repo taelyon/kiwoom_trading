@@ -1,24 +1,17 @@
 [급등주]
-buy_stg_1 = {"name": "스토캐스틱 과매도 탈출 + 눌림목", "content": "is_pullback and tic_STOCHK > 25 and tic_STOCHD > 25 and tic_RSI < 60"}
-buy_stg_2 = {"name": "2순위: 스토캐스틱 과매도 탈출", "content": "is_pullback and tic_STOCHK > 20 and tic_STOCHD > 20 and tic_RSI < 50"}
-buy_stg_3 = {"name": "3순위: 볼린저밴드 하단 지지", "content": "tic_BB_POSITION < 0.2 and tic_RSI < 40 and min3_RSI < 50"}
-sell_stg_1 = {"name": "이동 손절 (-2.5%)", "content": "from_peak_pct <= -2.5"}
-sell_stg_2 = {"name": "5틱/20틱 데드크로스 손절", "content": "tic_MA5 < tic_MA20 and current_profit_pct < 1.0"}
-sell_stg_3 = {"name": "부분 익절 (+1%)", "content": "current_profit_pct >= 1.0", "partial_sell_ratio": 0.5}
-sell_stg_4 = {"name": "기본 손절 (-3%)", "content": "current_profit_pct <= -3.0"}
-sell_stg_5 = {"name": "볼린저밴드 상단 저항 익절", "content": "current_profit_pct > 2.0 and tic_BB_POSITION > 0.95"}
-sell_stg_6 = {"name": "RSI 과매수 익절", "content": "current_profit_pct > 2.0 and tic_RSI > 75 and min3_RSI > 75"}
-sell_stg_7 = {"name": "시간 기반 매도 (10분)", "content": "hold_minutes >= 10 and current_profit_pct < 1.0"}
+buy_stg_1 = {
+	"name": "60틱_모멘텀_돌파",
+	"content":"tic_MA5[-1] > tic_MA20[-1] and tic_MA20[-1] > tic_MA60[-1] and tic_close[-1] > tic_VWAP[-1] and tic_close[-1] > max(tic_high[-20:-1]) and tic_volume[-1] >= tic_avg_volume_20 * 2.0 and tic_RSI[-1] > 60 and tic_RSI[-2] <= 60 and tic_strength[-1] > 120 and min3_MA5[-1] > min3_MA20[-1]"}
+buy_stg_2 = {
+	"name": "60틱_눌림목_리버전",
+	"content": "tic_MA20[-1] > tic_MA60[-1] and tic_low[-2] <= tic_MA20[-2] and tic_close[-1] >= tic_MA20[-1] and tic_STOCHK[-2] < 30 and tic_STOCHK[-1] > 30 and tic_volume[-1] >= tic_avg_volume_20 * 1.3 and tic_close[-1] > tic_VWAP[-1] and is_pullback and min3_MA5[-1] > min3_MA20[-1]"}
+sell_stg_1 = {"name": "60틱_모멘텀_이익실현", "content": "current_price >= buy_price * 1.012 or (tic_high[-1] >= tic_BB_UPPER[-1] and tic_RSI[-1] >= 70) or tic_close[-1] <= tic_MA5[-1] or bars_since_entry >= 15"}
+sell_stg_2 = {"name": "60틱_눌림목_이익실현", "content": "current_price >= buy_price * 1.010 or (tic_high[-1] >= tic_BB_UPPER[-1] and tic_RSI[-1] >= 68) or tic_close[-1] <= tic_MA20[-1] or bars_since_entry >= 20"}
+sell_stg_3 = {
+	"name": "60틱_공통_손절",
+	"content": "current_price <= buy_price * 0.993 or from_peak_pct <= -0.7 or (tic_close[-1] <= tic_MA5[-1] and tic_RSI[-1] < 50)"}
 
 [갭상승]
-buy_stg_1 = {"name": "1순위: VWAP 지지 + 양봉 전환", "content": "gap_rate > 4 and C > O and C > tic_VWAP and abs(C - tic_VWAP) / C < 0.01 and tic_RSI < 65"}
-buy_stg_2 = {"name": "2순위: 시초가 돌파 후 첫 눌림목", "content": "gap_rate > 4 and C > O and is_pullback and tic_MACD_HIST > 0 and min3_MACD_HIST > 0"}
-sell_stg_1 = {"name": "이동 손절 (-2.0%)", "content": "from_peak_pct <= -2.0"}
-sell_stg_2 = {"name": "시초가 이탈 손절", "content": "C < O"}
-sell_stg_3 = {"name": "부분 익절 (+1%)", "content": "current_profit_pct >= 1.0", "partial_sell_ratio": 0.5}
-sell_stg_4 = {"name": "기본 손절 (-3%)", "content": "current_profit_pct <= -3.0"}
-sell_stg_5 = {"name": "VWAP 이탈 손절", "content": "C < tic_VWAP"}
-sell_stg_6 = {"name": "시간 기반 매도 (5분)", "content": "hold_minutes >= 5 and current_profit_pct < 1.0"}
 
 [STRATEGIES]
 stg_integrated = 통합 전략
@@ -30,6 +23,8 @@ target_buy_count = 5
 
 [TRADING]
 evaluation_interval = 1
+commission_rate = 0.0035
+tax_rate = 0.0015
 
 [DATA_SAVING]
 interval_seconds = 60
@@ -49,5 +44,5 @@ autoconnect = True
 webhook = 
 
 [SETTINGS]
-last_strategy = 통합 전략
+last_strategy = 갭상승
 

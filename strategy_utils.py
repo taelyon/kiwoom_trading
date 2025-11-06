@@ -27,7 +27,7 @@ STRATEGY_SAFE_GLOBALS = {
 }
 
 # ==================== 전략 평가 공통 함수 ====================
-def evaluate_strategies(strategies, safe_locals, code="", strategy_type=""):
+def evaluate_strategies(strategies, safe_locals, code="", strategy_type="", is_backtest=False):
     """
     전략 조건들을 평가하고 일치하는 첫 번째 전략을 반환
     
@@ -36,14 +36,15 @@ def evaluate_strategies(strategies, safe_locals, code="", strategy_type=""):
         safe_locals: 평가에 사용할 로컬 변수 딕셔너리
         code: 종목 코드 (로깅용)
         strategy_type: 전략 타입 ("매수", "매도" 등, 로깅용)
+        is_backtest: 백테스팅 모드 여부 (상세 디버그 로그 출력용)
     
     Returns:
         (bool, dict or None): (조건 충족 여부, 충족된 전략 또는 None)
     """
     logger = logging.getLogger(__name__)
 
-    # 매도 전략이고 current_profit_pct가 손절 기준 근처인 경우 상세 디버그
-    is_sell_debug = (strategy_type == "매도" and 
+    # 백테스팅 중이고, 매도 전략이며, current_profit_pct가 손절 기준 근처인 경우에만 상세 디버그
+    is_sell_debug = (is_backtest and strategy_type == "매도" and
                     'current_profit_pct' in safe_locals and 
                     safe_locals.get('current_profit_pct', 0) < -0.6)
     
@@ -91,242 +92,127 @@ class KiwoomIndicatorExtractor:
             if chart_data.empty:
                 return {}
             
-            indicators = {}
-            
-            # ========== 1단계: 캐시된 지표 추출 (재계산 불필요) ==========
-            # chart_data의 컬럼에 이미 계산된 지표가 있는지 확인
-            cached_indicator_keys = [
-                'MA5', 'MA10', 'MA20', 'MA50', 'MA60', 'MA120',
-                'RSI', 'MACD', 'MACD_SIGNAL', 'MACD_HIST',
-                'STOCH_K', 'STOCH_D', 'WILLIAMS_R', 'ROC', 'OBV', 'OBV_MA20',
-                'BB_UPPER', 'BB_MIDDLE', 'BB_LOWER', 'ATR'
-            ]
-            
-            cached_indicators_found = 0
-            for key in cached_indicator_keys:
-                if key in chart_data.columns:
-                    indicator_values = chart_data[key].values
-                    # NaN이 아닌 유효한 값이 있는지 확인
-                    if len(indicator_values) > 0 and not np.all(np.isnan(indicator_values)):
-                        indicators[key] = indicator_values
-                        cached_indicators_found += 1
-            
-            # 캐시된 지표가 충분히 있으면 기본 가격 데이터만 추가하고 반환
-            if cached_indicators_found >= 10:  # 주요 지표 10개 이상 캐시되어 있으면
-                KiwoomIndicatorExtractor.logger.debug(f"✅ 캐시된 지표 {cached_indicators_found}개 활용 (재계산 생략)")
-                
-                # 기본 가격 데이터 추출
-                close = chart_data['close'].values
-                high = chart_data['high'].values
-                low = chart_data['low'].values
-                volume = chart_data['volume'].values
-                
-                # 최신 값들 추출 (스칼라 값)
-                if 'MA5' in indicators and len(indicators['MA5']) > 0:
-                    indicators['MA5_value'] = indicators['MA5'][-1]
-                if 'MA10' in indicators and len(indicators['MA10']) > 0:
-                    indicators['MA10_value'] = indicators['MA10'][-1]
-                if 'MA20' in indicators and len(indicators['MA20']) > 0:
-                    indicators['MA20_value'] = indicators['MA20'][-1]
-                if 'MA60' in indicators and len(indicators['MA60']) > 0:
-                    indicators['MA60_value'] = indicators['MA60'][-1]
-                if 'RSI' in indicators and len(indicators['RSI']) > 0:
-                    indicators['RSI_value'] = indicators['RSI'][-1]
-                    # RSI 신호선
-                    if len(indicators['RSI']) >= 5:
-                        rsi_signal = talib.SMA(indicators['RSI'].astype(float), timeperiod=5)
-                        indicators['RSI_SIGNAL_value'] = rsi_signal[-1] if len(rsi_signal) > 0 else 50
-                    else:
-                        indicators['RSI_SIGNAL_value'] = 50
-                else:
-                    indicators['RSI_value'] = 50
-                    indicators['RSI_SIGNAL_value'] = 50
-                    
-                if 'MACD' in indicators and len(indicators['MACD']) > 0:
-                    indicators['MACD_value'] = indicators['MACD'][-1]
-                if 'MACD_SIGNAL' in indicators and len(indicators['MACD_SIGNAL']) > 0:
-                    indicators['MACD_SIGNAL_value'] = indicators['MACD_SIGNAL'][-1]
-                if 'MACD_HIST' in indicators and len(indicators['MACD_HIST']) > 0:
-                    indicators['MACD_HIST_value'] = indicators['MACD_HIST'][-1]
-                if 'STOCH_K' in indicators and len(indicators['STOCH_K']) > 0:
-                    indicators['STOCHK_value'] = indicators['STOCH_K'][-1]
-                if 'STOCH_D' in indicators and len(indicators['STOCH_D']) > 0:
-                    indicators['STOCHD_value'] = indicators['STOCH_D'][-1]
-                if 'WILLIAMS_R' in indicators and len(indicators['WILLIAMS_R']) > 0:
-                    indicators['WILLIAMS_R_value'] = indicators['WILLIAMS_R'][-1]
-                if 'ROC' in indicators:
-                    roc_array = indicators['ROC']
-                    indicators['ROC_value'] = roc_array[-1] if len(roc_array) > 0 else 0
-                if 'OBV' in indicators and len(indicators['OBV']) > 0:
-                    indicators['OBV_value'] = indicators['OBV'][-1]
-                if 'OBV_MA20' in indicators and len(indicators['OBV_MA20']) > 0:
-                    indicators['OBV_MA20_value'] = indicators['OBV_MA20'][-1]
-                if 'ATR' in indicators and len(indicators['ATR']) > 0:
-                    indicators['ATR_value'] = indicators['ATR'][-1]
-                
-                # 볼린저 밴드 계산
-                if 'BB_UPPER' in indicators and 'BB_LOWER' in indicators:
-                    bb_upper = indicators['BB_UPPER'][-1] if len(indicators['BB_UPPER']) > 0 else 0
-                    bb_middle = indicators['BB_MIDDLE'][-1] if len(indicators.get('BB_MIDDLE', [])) > 0 else 0
-                    bb_lower = indicators['BB_LOWER'][-1] if len(indicators['BB_LOWER']) > 0 else 0
-                    
-                    indicators['BB_UPPER_value'] = bb_upper
-                    indicators['BB_MIDDLE_value'] = bb_middle
-                    indicators['BB_LOWER_value'] = bb_lower
-                    
-                    # 볼린저 밴드 포지션 계산
-                    if bb_upper > 0 and bb_lower > 0:
-                        bb_range = bb_upper - bb_lower
-                        if bb_range > 0 and len(close) > 0:
-                            indicators['BB_POSITION'] = (close[-1] - bb_lower) / bb_range
-                        else:
-                            indicators['BB_POSITION'] = 0.5
-                    else:
-                        indicators['BB_POSITION'] = 0.5
-                    
-                    # 볼린저 밴드 대역폭
-                    if bb_middle > 0:
-                        indicators['BB_BANDWIDTH'] = (bb_upper - bb_lower) / bb_middle
-                    else:
-                        indicators['BB_BANDWIDTH'] = 0
-                
-                # VWAP 계산
-                if len(close) >= 1 and len(volume) >= 1:
-                    typical_price = (high + low + close) / 3
-                    vwap = np.sum(typical_price * volume) / np.sum(volume) if np.sum(volume) > 0 else 0
-                    indicators['VWAP'] = vwap
-                
-                # 가격 정보 (전략에서 사용)
-                indicators['close'] = close[-1] if len(close) > 0 else 0
-                indicators['high'] = high[-1] if len(high) > 0 else 0
-                indicators['low'] = low[-1] if len(low) > 0 else 0
-                
-                return indicators
-            
-            # ========== 2단계: 캐시된 지표가 부족하면 재계산 (타입 안전 처리) ==========
-            KiwoomIndicatorExtractor.logger.debug(f"⚠️ 캐시된 지표 부족 ({cached_indicators_found}개), 재계산 수행")
-            
             # 기본 가격 데이터 추출 및 타입 변환 (안전하게)
             try:
                 close = np.array(chart_data['close'].values, dtype=np.float64)
                 high = np.array(chart_data['high'].values, dtype=np.float64)
                 low = np.array(chart_data['low'].values, dtype=np.float64)
+                open_price = np.array(chart_data['open'].values, dtype=np.float64)
                 volume = np.array(chart_data['volume'].values, dtype=np.float64)
+                # 'strength' 컬럼이 없을 경우를 안전하게 처리
+                if 'strength' in chart_data.columns:
+                    strength = np.array(chart_data['strength'].values, dtype=np.float64)
+                else:
+                    strength = np.zeros(len(close), dtype=np.float64)
             except Exception as type_error:
                 KiwoomIndicatorExtractor.logger.error(f"가격 데이터 타입 변환 실패: {type_error}", exc_info=True)
                 # 타입 변환 실패 시 강제 변환 시도
                 close = pd.to_numeric(chart_data['close'], errors='coerce').fillna(0).values.astype(np.float64)
                 high = pd.to_numeric(chart_data['high'], errors='coerce').fillna(0).values.astype(np.float64)
                 low = pd.to_numeric(chart_data['low'], errors='coerce').fillna(0).values.astype(np.float64)
+                open_price = pd.to_numeric(chart_data['open'], errors='coerce').fillna(0).values.astype(np.float64)
                 volume = pd.to_numeric(chart_data['volume'], errors='coerce').fillna(0).values.astype(np.float64)
-            
+                # 'strength' 컬럼이 없을 경우를 안전하게 처리
+                strength_series = chart_data['strength'] if 'strength' in chart_data.columns else pd.Series([0] * len(close))
+                strength = pd.to_numeric(strength_series, errors='coerce').fillna(0).values.astype(np.float64)
+
+            indicators = {}
+
+            # 1. 캐시된 지표가 있으면 그대로 사용
+            cached_indicator_keys = [
+                'MA5', 'MA10', 'MA20', 'MA60', 'RSI', 'MACD', 'MACD_SIGNAL', 'MACD_HIST',
+                'STOCHK', 'STOCHD', 'WILLIAMS_R', 'ROC', 'OBV', 'OBV_MA20',
+                'BB_UPPER', 'BB_MIDDLE', 'BB_LOWER', 'ATR'
+            ]
+            for key in cached_indicator_keys:
+                if key in chart_data.columns:
+                    indicator_values = chart_data[key].values
+                    if len(indicator_values) > 0 and not np.all(np.isnan(indicator_values)):
+                        indicators[key] = indicator_values
+
+            # 2. 캐시에 없는 지표만 재계산
+
             # 이동평균선
-            if len(close) >= 5:
-                indicators['MA5'] = talib.SMA(close, timeperiod=5)
-                indicators['MA5_value'] = indicators['MA5'][-1] if len(indicators['MA5']) > 0 else 0
-            
-            if len(close) >= 10:
-                indicators['MA10'] = talib.SMA(close, timeperiod=10)
-                indicators['MA10_value'] = indicators['MA10'][-1] if len(indicators['MA10']) > 0 else 0
-            
-            if len(close) >= 20:
-                indicators['MA20'] = talib.SMA(close, timeperiod=20)
-                indicators['MA20_value'] = indicators['MA20'][-1] if len(indicators['MA20']) > 0 else 0
-            
-            if len(close) >= 60:
-                indicators['MA60'] = talib.SMA(close, timeperiod=60)
-                indicators['MA60_value'] = indicators['MA60'][-1] if len(indicators['MA60']) > 0 else 0
-            
+            if 'MA5' not in indicators:
+                indicators['MA5'] = talib.SMA(close, timeperiod=5) if len(close) >= 5 else np.full(len(close), np.nan)
+            if 'MA10' not in indicators:
+                indicators['MA10'] = talib.SMA(close, timeperiod=10) if len(close) >= 10 else np.full(len(close), np.nan)
+            if 'MA20' not in indicators:
+                indicators['MA20'] = talib.SMA(close, timeperiod=20) if len(close) >= 20 else np.full(len(close), np.nan)
+            if 'MA60' not in indicators:
+                indicators['MA60'] = talib.SMA(close, timeperiod=60) if len(close) >= 60 else np.full(len(close), np.nan)
+
             # RSI
-            if len(close) >= 14:
-                indicators['RSI'] = talib.RSI(close, timeperiod=14)
-                indicators['RSI_value'] = indicators['RSI'][-1] if len(indicators['RSI']) > 0 else 50
-                
-                # RSI 신호선 (RSI의 이동평균)
-                if len(indicators['RSI']) >= 5:
-                    rsi_signal = talib.SMA(indicators['RSI'], timeperiod=5)
-                    indicators['RSI_SIGNAL_value'] = rsi_signal[-1] if len(rsi_signal) > 0 else 50
-                else:
-                    indicators['RSI_SIGNAL_value'] = 50
-            
+            if 'RSI' not in indicators:
+                indicators['RSI'] = talib.RSI(close, timeperiod=14) if len(close) >= 14 else np.full(len(close), np.nan)
+
+            if 'RSI' in indicators and 'RSI_SIGNAL' not in indicators and len(indicators['RSI']) >= 5:
+                indicators['RSI_SIGNAL'] = talib.SMA(indicators['RSI'], timeperiod=5)
+
             # MACD
-            if len(close) >= 26:
-                macd, macd_signal, macd_hist = talib.MACD(close)
-                indicators['MACD'] = macd
-                indicators['MACD_SIGNAL'] = macd_signal
-                indicators['MACD_HIST'] = macd_hist
-                indicators['MACD_value'] = macd[-1] if len(macd) > 0 else 0
-                indicators['MACD_SIGNAL_value'] = macd_signal[-1] if len(macd_signal) > 0 else 0
-                
-                # MACD_HIST (Oscillator) - MACD 히스토그램
-                indicators['MACD_HIST_value'] = macd_hist[-1] if len(macd_hist) > 0 else 0
-            
+            if 'MACD' not in indicators:
+                indicators['MACD'], indicators['MACD_SIGNAL'], indicators['MACD_HIST'] = (talib.MACD(close) if len(close) >= 26 
+                                                                                        else (np.full(len(close), np.nan), np.full(len(close), np.nan), np.full(len(close), np.nan)))
+
             # 스토캐스틱
-            if len(high) >= 14 and len(low) >= 14:
-                stoch_k, stoch_d = talib.STOCH(high, low, close)
-                indicators['STOCHK_value'] = stoch_k[-1] if len(stoch_k) > 0 else 50
-                indicators['STOCHD_value'] = stoch_d[-1] if len(stoch_d) > 0 else 50
-            
+            if 'STOCHK' not in indicators and len(high) >= 14 and len(low) >= 14:
+                indicators['STOCHK'], indicators['STOCHD'] = talib.STOCH(high, low, close)
+
             # 볼린저 밴드
-            if len(close) >= 20:
+            if 'BB_UPPER' not in indicators and len(close) >= 20:
                 bb_upper, bb_middle, bb_lower = talib.BBANDS(close, timeperiod=20)
-                indicators['BB_UPPER_value'] = bb_upper[-1] if len(bb_upper) > 0 else 0
-                indicators['BB_MIDDLE_value'] = bb_middle[-1] if len(bb_middle) > 0 else 0
-                indicators['BB_LOWER_value'] = bb_lower[-1] if len(bb_lower) > 0 else 0
-                
-                # 볼린저 밴드 포지션 계산
-                if indicators['BB_UPPER_value'] > 0 and indicators['BB_LOWER_value'] > 0:
-                    bb_range = indicators['BB_UPPER_value'] - indicators['BB_LOWER_value']
-                    if bb_range > 0:
-                        indicators['BB_POSITION'] = (close[-1] - indicators['BB_LOWER_value']) / bb_range
-                    else:
-                        indicators['BB_POSITION'] = 0.5
-                else:
-                    indicators['BB_POSITION'] = 0.5
-                
-                # 볼린저 밴드 대역폭
-                if indicators['BB_MIDDLE_value'] > 0:
-                    indicators['BB_BANDWIDTH'] = bb_range / indicators['BB_MIDDLE_value']
-                else:
-                    indicators['BB_BANDWIDTH'] = 0
-            
+                indicators['BB_UPPER'] = bb_upper
+                indicators['BB_MIDDLE'] = bb_middle
+                indicators['BB_LOWER'] = bb_lower
+
+            # BB_POSITION과 BB_BANDWIDTH는 항상 재계산 (다른 BB 지표에 의존)
+            if 'BB_UPPER' in indicators and 'BB_LOWER' in indicators and 'BB_MIDDLE' in indicators:
+                bb_upper = indicators['BB_UPPER']
+                bb_middle = indicators['BB_MIDDLE']
+                bb_lower = indicators['BB_LOWER']
+                bb_range = bb_upper - bb_lower
+                safe_bb_range = np.where(bb_range == 0, 1e-9, bb_range)
+                indicators['BB_POSITION'] = (close - bb_lower) / safe_bb_range
+                safe_bb_middle = np.where(bb_middle == 0, 1e-9, bb_middle)
+                indicators['BB_BANDWIDTH'] = bb_range / safe_bb_middle
+
             # ATR (Average True Range)
-            if len(high) >= 14 and len(low) >= 14:
-                atr = talib.ATR(high, low, close, timeperiod=14)
-                indicators['ATR_value'] = atr[-1] if len(atr) > 0 else 0
-            
+            if 'ATR' not in indicators and len(high) >= 14 and len(low) >= 14:
+                indicators['ATR'] = talib.ATR(high, low, close, timeperiod=14)
+
             # Williams %R
-            if len(high) >= 14 and len(low) >= 14:
-                williams_r = talib.WILLR(high, low, close, timeperiod=14)
-                indicators['WILLIAMS_R_value'] = williams_r[-1] if len(williams_r) > 0 else -50
-            
+            if 'WILLIAMS_R' not in indicators and len(high) >= 14 and len(low) >= 14:
+                indicators['WILLIAMS_R'] = talib.WILLR(high, low, close, timeperiod=14)
+
             # ROC (Rate of Change)
-            if len(close) >= 12:
-                roc = talib.ROC(close, timeperiod=12)
-                indicators['ROC'] = roc  # 전체 배열 저장 (ROC_recent 계산용)
-                indicators['ROC_value'] = roc[-1] if len(roc) > 0 else 0
-            
+            if 'ROC' not in indicators and len(close) >= 12:
+                indicators['ROC'] = talib.ROC(close, timeperiod=12)
+
             # OBV (On Balance Volume)
-            if len(close) >= 1 and len(volume) >= 1:
+            if 'OBV' not in indicators and len(close) >= 1 and len(volume) >= 1:
                 obv = talib.OBV(close, volume)
-                indicators['OBV_value'] = obv[-1] if len(obv) > 0 else 0
-                
-                # OBV 이동평균
-                if len(obv) >= 20:
-                    obv_ma20 = talib.SMA(obv, timeperiod=20)
-                    indicators['OBV_MA20_value'] = obv_ma20[-1] if len(obv_ma20) > 0 else 0
+                indicators['OBV'] = obv
+            if 'OBV' in indicators and 'OBV_MA20' not in indicators and len(indicators['OBV']) >= 20:
+                indicators['OBV_MA20'] = talib.SMA(indicators['OBV'], timeperiod=20)
             
             # VWAP 계산
             if len(close) >= 1 and len(volume) >= 1:
                 typical_price = (high + low + close) / 3
-                total_volume = np.sum(volume)
-                vwap = np.sum(typical_price * volume) / total_volume if total_volume > 0 else 0
-                indicators['VWAP'] = vwap
+                
+                # 누적 VWAP를 배열 형태로 계산
+                cumulative_pv = np.cumsum(typical_price * volume)
+                cumulative_volume = np.cumsum(volume)
+                safe_cumulative_volume = np.where(cumulative_volume == 0, 1e-9, cumulative_volume)
+                vwap_array = cumulative_pv / safe_cumulative_volume
+                indicators['VWAP'] = vwap_array
             
-            # 가격 정보
-            indicators['close'] = close[-1] if len(close) > 0 else 0
-            indicators['high'] = high[-1] if len(high) > 0 else 0
-            indicators['low'] = low[-1] if len(low) > 0 else 0
+            # 가격 정보 (배열 형태로 저장)
+            indicators['close'] = close
+            indicators['high'] = high
+            indicators['low'] = low
+            indicators['open'] = open_price
+            indicators['volume'] = volume
+            indicators['strength'] = strength
             
             return indicators
             
@@ -357,36 +243,33 @@ class KiwoomIndicatorExtractor:
             logger.error(f"추가 지표 계산 실패: {ex}", exc_info=True)
             return {}
 
-# ==================== 백테스팅용 로컬 변수 빌더 ====================
-def build_backtest_buy_locals(code, chart_data, portfolio_info=None):
-    """백테스팅용 매수 로컬 변수 생성"""
+# ==================== 전략 평가용 로컬 변수 빌더 ====================
+def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, previous_close, current_open, portfolio_info=None):
+    """매수 전략 평가를 위한 로컬 변수 생성"""
     logger = logging.getLogger(__name__)
     try:
-        if chart_data.empty:
+        if tic_chart_data.empty:
             return {}
         
         # 기본 지표 추출
-        indicators = KiwoomIndicatorExtractor.extract_chart_indicators(chart_data)
-        additional = KiwoomIndicatorExtractor.calculate_additional_indicators(indicators, chart_data)
+        tic_indicators = KiwoomIndicatorExtractor.extract_chart_indicators(tic_chart_data)
+        min_indicators = KiwoomIndicatorExtractor.extract_chart_indicators(min_chart_data)
+        additional = KiwoomIndicatorExtractor.calculate_additional_indicators(tic_indicators, tic_chart_data)
         
         # 로컬 변수 딕셔너리 생성
         locals_dict = {}
-        locals_dict.update(indicators)
         locals_dict.update(additional)
-        
-        # 백테스팅에서 실시간 전략과 호환성을 위해 접두사(tic_, min3_)가 붙은 변수 생성
-        # chart_data (DataFrame)의 컬럼명을 기반으로 변수 생성
-        if not chart_data.empty:
-            last_row = chart_data.iloc[-1]
-            for col_name in chart_data.columns:
-                if col_name.startswith('tic_') or col_name.startswith('min3_'):
-                    # 예: 'tic_ma5' -> 'tic_MA5'
-                    try:
-                        parts = col_name.split('_', 1)
-                        var_name = parts[0] + '_' + parts[1].upper()
-                        locals_dict[var_name] = last_row[col_name]
-                    except IndexError:
-                        locals_dict[col_name] = last_row[col_name]
+
+        # 틱 데이터 기반 지표에 'tic_' 접두사 추가
+        for key, value in tic_indicators.items():
+            # 배열 전체를 저장하여 전략에서 tic_close[-1] 형태로 접근 가능하도록 함
+            if isinstance(value, np.ndarray):
+                locals_dict[f'tic_{key}'] = value
+
+        # 분봉 데이터 기반 지표에 'min3_' 접두사 추가
+        for key, value in min_indicators.items():
+            if isinstance(value, np.ndarray):
+                locals_dict[f'min3_{key}'] = value
         
         # 포트폴리오 정보 추가
         if portfolio_info:
@@ -394,15 +277,42 @@ def build_backtest_buy_locals(code, chart_data, portfolio_info=None):
         
         # 백테스팅 특화 변수들
         locals_dict['code'] = code
-        locals_dict['chart_data'] = chart_data
         locals_dict['current_time'] = datetime.now()
         
         # 거래량 관련 변수
-        if not chart_data.empty:
-            volume_series = chart_data['volume']
+        if not tic_chart_data.empty:
+            volume_series = tic_chart_data['volume']
             if len(volume_series) > 0:
                 locals_dict['avg_volume'] = volume_series.mean()
                 locals_dict['volume_ratio'] = volume_series.iloc[-1] / locals_dict['avg_volume'] if locals_dict['avg_volume'] > 0 else 1
+                if len(volume_series) >= 20:
+                    # 최근 20개 틱의 평균 거래량
+                    locals_dict['tic_avg_volume_20'] = volume_series.tail(20).mean()
+
+        # is_pullback 계산 (매수 전략에서도 사용)
+        if len(tic_chart_data['high']) >= 5:
+            recent_highs = tic_chart_data['high'].tail(5).values
+            is_decreasing = all(recent_highs[i] >= recent_highs[i+1] for i in range(len(recent_highs)-1))
+            locals_dict['is_pullback'] = is_decreasing
+        else:
+            locals_dict['is_pullback'] = False
+
+        # gap_rate 계산 (매수 전략에서도 사용)
+        if previous_close > 0 and current_open > 0:
+            # 전일 종가와 당일 시가로 갭 상승률 계산
+            if previous_close > 0:
+                locals_dict['gap_rate'] = (current_open - previous_close) / previous_close * 100
+            else:
+                locals_dict['gap_rate'] = 0
+        else:
+            # 데이터가 부족하면 갭 상승률을 0으로 설정
+            locals_dict['gap_rate'] = 0
+        
+        # 당일 시가 변수 추가
+        locals_dict['current_open'] = current_open
+
+        # 전일 종가 변수 추가
+        locals_dict['previous_close'] = previous_close
         
         return locals_dict
         
@@ -410,36 +320,39 @@ def build_backtest_buy_locals(code, chart_data, portfolio_info=None):
         logger.error(f"백테스팅 매수 로컬 변수 생성 실패 ({code}): {ex}", exc_info=True)
         return {}
 
-def build_backtest_sell_locals(code, chart_data, buy_price, buy_time, current_price, portfolio_info=None):
-    """백테스팅용 매도 로컬 변수 생성"""
+def prepare_sell_strategy_locals(code, tic_chart_data, min_chart_data, previous_close, current_open, buy_price, buy_time, portfolio_info=None, current_price=None, commission_rate=0.00015, tax_rate=0.0018):
+    """매도 전략 평가를 위한 로컬 변수 생성"""
     logger = logging.getLogger(__name__)
     try:
-        if chart_data.empty:
+        if tic_chart_data.empty:
             return {}
         
         # 기본 지표 추출
-        indicators = KiwoomIndicatorExtractor.extract_chart_indicators(chart_data)
-        additional = KiwoomIndicatorExtractor.calculate_additional_indicators(indicators, chart_data)
+        tic_indicators = KiwoomIndicatorExtractor.extract_chart_indicators(tic_chart_data)
+        min_indicators = KiwoomIndicatorExtractor.extract_chart_indicators(min_chart_data)
+        additional = KiwoomIndicatorExtractor.calculate_additional_indicators(tic_indicators, tic_chart_data)
         
         # 로컬 변수 딕셔너리 생성
         locals_dict = {}
-        locals_dict.update(indicators)
         locals_dict.update(additional)
+
+        # 틱 데이터 기반 지표에 'tic_' 접두사 추가
+        for key, value in tic_indicators.items():
+            if isinstance(value, np.ndarray):
+                locals_dict[f'tic_{key}'] = value
+
+        # 분봉 데이터 기반 지표에 'min3_' 접두사 추가
+        for key, value in min_indicators.items():
+            if isinstance(value, np.ndarray):
+                locals_dict[f'min3_{key}'] = value
         
-        # 백테스팅에서 실시간 전략과 호환성을 위해 접두사(tic_, min3_)가 붙은 변수 생성
-        # chart_data (DataFrame)의 컬럼명을 기반으로 변수 생성
-        if not chart_data.empty:
-            last_row = chart_data.iloc[-1]
-            for col_name in chart_data.columns:
-                if col_name.startswith('tic_') or col_name.startswith('min3_'):
-                    # 예: 'tic_ma5' -> 'tic_MA5'
-                    try:
-                        parts = col_name.split('_', 1)
-                        var_name = parts[0] + '_' + parts[1].upper()
-                        locals_dict[var_name] = last_row[col_name]
-                    except IndexError:
-                        locals_dict[col_name] = last_row[col_name]
-        
+        # current_price를 tic_close의 마지막 값으로 정의
+        if current_price is None:
+            current_price = 0
+            if 'tic_close' in locals_dict and len(locals_dict['tic_close']) > 0:
+                current_price = locals_dict['tic_close'][-1]
+                logger.debug(f"[{code}] 매도 평가용 현재가 설정: {current_price} (tic_close[-1])")
+
         # 매매 관련 변수
         locals_dict['code'] = code
         locals_dict['buy_price'] = buy_price
@@ -447,8 +360,12 @@ def build_backtest_sell_locals(code, chart_data, buy_price, buy_time, current_pr
         locals_dict['current_price'] = current_price
         
         # 수익률 계산
+        # 수수료와 세금을 반영한 실질 수익률 계산
         if buy_price > 0:
-            locals_dict['current_profit_pct'] = (current_price - buy_price) / buy_price * 100
+            buy_cost_per_share = buy_price * (1 + commission_rate)
+            sell_revenue_per_share = current_price * (1 - commission_rate - tax_rate)
+            net_profit_per_share = sell_revenue_per_share - buy_cost_per_share
+            locals_dict['current_profit_pct'] = (net_profit_per_share / buy_cost_per_share) * 100 if buy_cost_per_share > 0 else 0
         else:
             locals_dict['current_profit_pct'] = 0
         
@@ -460,7 +377,62 @@ def build_backtest_sell_locals(code, chart_data, buy_price, buy_time, current_pr
         else:
             locals_dict['hold_minutes'] = 0
             locals_dict['hold_hours'] = 0
-        
+
+        # 매수 후 경과된 봉(bar) 개수 계산
+        if buy_time and not tic_chart_data.empty and 'time' in tic_chart_data.columns:
+            try:
+                # 'time' 컬럼을 datetime 객체로 변환
+                tic_times = pd.to_datetime(tic_chart_data['time'])
+                # 매수 시간 이후의 봉 개수 계산
+                locals_dict['bars_since_entry'] = (tic_times > buy_time).sum()
+            except Exception as e:
+                logger.debug(f"[{code}] bars_since_entry 계산 실패: {e}")
+                locals_dict['bars_since_entry'] = 0
+        else:
+            locals_dict['bars_since_entry'] = 0
+
+        # is_pullback 계산
+        if len(tic_chart_data['high']) >= 5:
+            recent_highs = tic_chart_data['high'].tail(5).values
+            is_decreasing = all(recent_highs[i] >= recent_highs[i+1] for i in range(len(recent_highs)-1))
+            locals_dict['is_pullback'] = is_decreasing
+        else:
+            locals_dict['is_pullback'] = False
+
+        # gap_rate 계산
+        if previous_close > 0 and current_open > 0:
+            if previous_close > 0:
+                locals_dict['gap_rate'] = (current_open - previous_close) / previous_close * 100
+            else:
+                locals_dict['gap_rate'] = 0
+        else:
+            locals_dict['gap_rate'] = 0
+
+        # 1틱의 가치(tick_value) 계산
+        def get_tick_value(price):
+            if price < 2000: return 1
+            elif price < 5000: return 5
+            elif price < 20000: return 10
+            elif price < 50000: return 50
+            elif price < 200000: return 100
+            elif price < 500000: return 500
+            else: return 1000
+
+        try:
+            # 현재가를 기준으로 1틱의 가치 계산
+            if current_price > 0:
+                locals_dict['tick_value'] = get_tick_value(current_price)
+            else:
+                locals_dict['tick_value'] = get_tick_value(buy_price) if buy_price > 0 else 10 # fallback
+        except:
+            locals_dict['tick_value'] = 10 # 예외 발생 시 기본값
+
+        # 당일 시가 변수 추가
+        locals_dict['current_open'] = current_open
+
+        # 전일 종가 변수 추가
+        locals_dict['previous_close'] = previous_close
+
         # 포트폴리오 정보 추가
         if portfolio_info:
             locals_dict.update(portfolio_info)
@@ -498,7 +470,7 @@ def load_strategies_from_config(config_file='settings.ini'):
         strategies = {}
         
         # 전략 섹션들 처리
-        strategy_sections = ['VI 발동', '급등주', '갭상승', '통합 전략']
+        strategy_sections = ['VI 발동', '급등주', '갭상승']
         
         for section in strategy_sections:
             if config.has_section(section):

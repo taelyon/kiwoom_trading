@@ -4,10 +4,10 @@
 a = Analysis(
     ['stock_trader.py'],
     pathex=[],
-    binaries=[],
+    binaries=[('C:\\MyAPP\\kiwoom_trading\\.venv\\Lib\\site-packages\\PyQt6\\Qt6', 'PyQt6/Qt6')],
     datas=[],
-    hiddenimports=[],
-    hookspath=['.'],
+    hiddenimports=['talib.stream'],
+    hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
     excludes=['PyQt5'],
