@@ -201,6 +201,10 @@ def setup_logging():
         httpx_logger = logging.getLogger('httpx')
         httpx_logger.setLevel(logging.WARNING)
 
+        # httpcore.http11 DEBUG 로그 비활성화
+        httpcore_logger = logging.getLogger('httpcore.http11')
+        httpcore_logger.setLevel(logging.WARNING)
+
         # UI 로그 핸들러 추가 (INFO 레벨)
         # MyWindow 인스턴스가 생성된 후에 호출되어야 함
         if 'main_window' in globals() and globals()['main_window']:
@@ -1962,6 +1966,14 @@ class AutoTrader(QObject):
             
             raise ex
     
+    async def execute_auto_liquidation_async(self):
+        """15:15 자동 청산 실행"""
+        try:
+            self.logger.info("🕒 15:15 자동 청산 로직 실행")
+            if hasattr(self.parent, 'trading_manager'):
+                await self.parent.trading_manager.sell_all_item()
+        except Exception as ex:
+            self.logger.error(f"❌ 자동 청산 실행 중 오류: {ex}", exc_info=True)
     
     def start_auto_trading(self):
         """자동매매 시작 (거래 시간: evaluation_interval, 거래 시간 외: 1분 타이머)"""
@@ -8578,6 +8590,27 @@ class KiwoomWebSocketClient:
         except Exception as e:
             self.logger.error(f'시장 상태 구독 요청 실패: {e}', exc_info=True)
 
+    async def unsubscribe_market_status(self):
+        """시장 상태 구독 해제 (0s)"""
+        try:
+            grp_no = '1'
+            sub_type = '0s'
+            # 시장 상태 구독 해제 메시지
+            unsubscribe_data = {
+                'trnm': 'UNREG',  # 서비스명: 해제
+                'grp_no': grp_no,  # 그룹번호
+                'data': [{
+                    'item': [''],
+                    'type': [sub_type],
+                }]
+            }
+            await self.send_message(unsubscribe_data)
+            self.logger.info('✅ 시장 상태 구독 해제 요청 전송 완료')
+
+        except Exception as e:
+            self.logger.error(f'시장 상태 구독 해제 요청 실패: {e}', exc_info=True)
+
+
     def process_balance_data(self, data_item):
         """실시간 잔고 데이터 처리 (웹소켓용)
         주의: 이 메서드는 웹소켓을 통한 실시간 잔고 데이터를 처리합니다.
@@ -9963,7 +9996,7 @@ class KiwoomWebSocketClient:
                             else:
                                 self.logger.error(f"❌ chart_cache가 없습니다: {stock['code']}")
                     
-                    self.logger.info(f"✅ 조건검색 실시간 결과 API 큐 추가 완료: {added_count}개 종목 추가, {skipped_count}개 종목 건너뜀")
+                    self.logger.info(f"✅ 조건검색 실시간 결과 API 큐 추가 완료: {added_count}개 종목 추가")
                    
                 else:
                     self.logger.error("❌ 부모 윈도우가 없습니다")
