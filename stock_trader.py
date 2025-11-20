@@ -1436,8 +1436,6 @@ class KiwoomStrategy(QObject):
                 # 차트 데이터 가져오기 (틱/분봉) - chart_cache에서 직접 가져오기
                 tic_chart_data = pd.DataFrame()
                 min_chart_data = pd.DataFrame()
-                previous_close = 0
-                current_open = 0
                 if hasattr(self.parent, 'chart_cache') and self.parent.chart_cache:
                     cache_data = self.parent.chart_cache.get_cached_data(code)
                     if cache_data:
@@ -1539,7 +1537,7 @@ class KiwoomStrategy(QObject):
                 
                 # strategy_utils를 사용하여 매수 전략 평가
                 safe_locals = strategy_utils.prepare_buy_strategy_locals(
-                    code, tic_chart_data, min_chart_data, previous_close, current_open, portfolio
+                    code, tic_chart_data, min_chart_data, portfolio
                 )
                 condition_met, matched_strategy = strategy_utils.evaluate_strategies(
                     buy_strategies, safe_locals, code, "매수"
@@ -1686,8 +1684,6 @@ class KiwoomStrategy(QObject):
             # 차트 데이터 가져오기 (틱/분봉)
             tic_chart_data = pd.DataFrame()
             min_chart_data = pd.DataFrame()
-            previous_close = 0
-            current_open = 0
             if hasattr(self.parent, 'chart_cache') and self.parent.chart_cache:
                 cache_data = self.parent.chart_cache.get_cached_data(code)
                 if cache_data:
@@ -1775,8 +1771,7 @@ class KiwoomStrategy(QObject):
 
             # strategy_utils를 사용하여 매도 전략 평가
             safe_locals = strategy_utils.prepare_sell_strategy_locals(
-                code, tic_chart_data, min_chart_data, previous_close, current_open, 
-                buy_price, buy_time, portfolio, 
+                code, tic_chart_data, min_chart_data, buy_price, buy_time, portfolio, 
                 current_price=current_price,
                 commission_rate=self.trader.commission_rate, 
                 tax_rate=self.trader.tax_rate
@@ -2587,6 +2582,7 @@ class DataManager:
     def __init__(self, parent):
         self.logger = logging.getLogger(self.__class__.__name__)
         self.parent = parent
+        self.stock_code_map = {}  # 종목명: 종목코드 캐시
     
     def safe_int(self, value, default=0):
         """안전한 정수 변환"""
@@ -2661,6 +2657,14 @@ class DataManager:
     
     async def get_stock_code_by_name(self, stock_name):
         """종목명으로 종목코드 조회 - ka10099 API로 전체 목록을 받아와서 검색"""
+        # 1. 캐시에서 먼저 조회
+        if self.stock_code_map and stock_name in self.stock_code_map:
+            stock_code = self.stock_code_map[stock_name]
+            self.logger.info(f"✅ 종목명 캐시 조회 성공: {stock_name} -> {stock_code}")
+            return stock_code
+
+        # 2. 캐시에 없으면 API를 통해 조회 (Fallback)
+        self.logger.warning(f"⚠️ 캐시에 '{stock_name}'이(가) 없어 API로 조회합니다.")
         try:
             if hasattr(self.parent, 'login_handler') and self.parent.login_handler.kiwoom_client:
                 kiwoom_client = self.parent.login_handler.kiwoom_client
@@ -2672,32 +2676,56 @@ class DataManager:
                         'authorization': f'Bearer {kiwoom_client.access_token}',
                         'api-id': 'ka10099',
                     }
-                    # 모의투자 여부에 따라 서버 URL 선택
                     server_url = kiwoom_client.mock_url if kiwoom_client.is_mock else kiwoom_client.base_url
                     data = {'mrkt_tp': market_code}
                     url = f"{server_url}/api/dostk/stkinfo"
                     
                     response = await kiwoom_client.client.post(url, headers=headers, json=data, timeout=10.0)
 
-                    if response.status_code == 200: # type: ignore
+                    if response.status_code == 200:
                         result = response.json()
                         if result.get('return_code') == 0 and 'list' in result:
                             for stock_info in result['list']:
                                 if stock_info.get('name') == stock_name:
                                     stock_code = stock_info.get('code')
                                     if stock_code:
-                                        self.logger.info(f"✅ 종목명 검색 성공: {stock_name} -> {stock_code}")
+                                        self.logger.info(f"✅ 종목명 API 검색 성공: {stock_name} -> {stock_code}")
+                                        # 찾은 종목을 캐시에 추가
+                                        self.stock_code_map[stock_name] = stock_code
                                         return stock_code
                         else:
                             self.logger.warning(f"종목 리스트 조회 실패 (시장: {market_code}): {result.get('return_msg')}")
                     else:
                         self.logger.error(f"종목 리스트 API 호출 실패 (시장: {market_code}): HTTP {response.status_code}")
-
             return None
-            
         except Exception as ex:
             self.logger.error(f"종목명 검색 실패 ({stock_name}): {ex}")
             return None
+
+    async def _cache_all_stock_codes_async(self):
+        """프로그램 시작 시 전체 종목 코드를 메모리에 캐싱"""
+        self.stock_code_map.clear()
+        try:
+            if hasattr(self.parent, 'login_handler') and self.parent.login_handler.kiwoom_client:
+                kiwoom_client = self.parent.login_handler.kiwoom_client
+                for market_code in ['0', '10']: # KOSPI, KOSDAQ
+                    headers = {'Content-Type': 'application/json;charset=UTF-8', 'authorization': f'Bearer {kiwoom_client.access_token}', 'api-id': 'ka10099'}
+                    server_url = kiwoom_client.mock_url if kiwoom_client.is_mock else kiwoom_client.base_url
+                    data = {'mrkt_tp': market_code}
+                    url = f"{server_url}/api/dostk/stkinfo"
+                    response = await kiwoom_client.client.post(url, headers=headers, json=data, timeout=30.0)
+                    if response.status_code == 200:
+                        result = response.json()
+                        if result.get('return_code') == 0 and 'list' in result:
+                            for stock_info in result['list']:
+                                name = stock_info.get('name')
+                                code = stock_info.get('code')
+                                if name and code:
+                                    self.stock_code_map[name] = code
+
+            self.logger.info(f"✅ 전체 종목 코드 캐싱 완료: {len(self.stock_code_map)}개 종목")
+        except Exception as ex:
+            self.logger.error(f"전체 종목 코드 캐싱 실패: {ex}", exc_info=True)
 
 
 class MonitoringManager:
@@ -5306,6 +5334,12 @@ class MyWindow(QWidget):
             except Exception as condition_ex:
                 self.logger.error(f"❌ 조건검색 목록조회 실패: {condition_ex}", exc_info=True)
 
+            # 7. 전체 종목 코드 캐싱
+            try:
+                await self.data_manager._cache_all_stock_codes_async()
+            except Exception as cache_ex:
+                self.logger.error(f"❌ 전체 종목 코드 캐싱 실패: {cache_ex}", exc_info=True)
+
             # 7. 계좌 잔고조회 (즉시 실행)
             try:
                 await self.account_manager.handle_acnt_balance_query_async()
@@ -7035,29 +7069,14 @@ class ChartDataCache(QObject):
         """모니터링 종목 추가"""
         try:            
             if code not in self.cache:
-                # 전일종가 조회 (ka10100 API)
-                current_open = 0
-                previous_close = 0
-                if hasattr(self.parent, 'login_handler') and self.parent.login_handler and self.parent.login_handler.kiwoom_client:
-                    try:
-                        stock_info = await self.parent.login_handler.kiwoom_client.get_stock_info_ka10100(code)
-                        if stock_info:
-                            if 'lastPrice' in stock_info:
-                                previous_close = int(stock_info['lastPrice'])
-                                self.logger.info(f"📊 {code} 전일종가 조회 완료: {previous_close:,}원")
-                            if 'openPrice' in stock_info:
-                                current_open = int(stock_info['openPrice'])
-                                self.logger.info(f"📊 {code} 당일시가 조회 완료: {current_open:,}원")
-                    except Exception as e:
-                        self.logger.error(f"❌ {code} 전일종가 조회 중 오류: {e}")
                 
                 self.cache[code] = {
                     'tic_data': None,
                     'min_data': None,
                     'last_update': None,
                     'last_save': None,
-                    'previous_close': previous_close,  # 전일종가 (한 번만 조회)
-                    'current_open': current_open      # 당일시가 (한 번만 조회)
+                    'previous_close': 0,
+                    'current_open': 0
                 }
                 self.logger.debug(f"✅ 모니터링 종목 추가 완료: {code}")
                 
@@ -10284,71 +10303,6 @@ class KiwoomRestClient:
             self.logger.debug(f"주식현재가 조회 실패 ({code}): {str(e)[:50]}... - fallback 처리됨", exc_info=True)
             return {}
     
-    async def get_stock_info_ka10100(self, code: str) -> Dict:
-        """종목정보 조회 (ka10100) - 전일종가 포함 (비동기)"""
-        try:
-            await self._ensure_client()
-            if not await self.check_token_validity():
-                return {}
-            
-            # 모의투자 여부에 따라 서버 선택
-            server_url = self.mock_url if self.is_mock else self.base_url
-            url = f"{server_url}/api/dostk/stkinfo"
-            
-            # 헤더 설정
-            headers = {
-                'Content-Type': 'application/json;charset=UTF-8',
-                'authorization': f'Bearer {self.access_token}',
-                'api-id': 'ka10100'
-            }
-            
-            # Body 데이터
-            data = {
-                'stk_cd': code
-            }
-            
-            response = await self.client.post(url, headers=headers, json=data, timeout=10.0)
-            
-            if response.status_code == 200:
-                result = response.json()
-                self.logger.debug(f"종목정보 조회 성공 ({code}): {result.get('name', 'Unknown')}, 전일종가: {result.get('lastPrice', 'N/A')}")
-                return result
-            else:
-                self.logger.error(f"종목정보 조회 실패 ({code}): HTTP {response.status_code}", exc_info=True)
-                return {}
-                
-        except Exception as e:
-            self.logger.error(f"종목정보 조회 중 오류 ({code}): {e}", exc_info=True)
-            return {}
-    
-    async def get_stock_basic_info(self, code: str) -> Dict:
-        """주식기본정보 조회 (ka10001) (비동기)"""
-        try:
-            if not await self.check_token_validity():
-                return {}
-            
-            # 모의투자 여부에 따라 서버 선택
-            server_url = self.mock_url if self.is_mock else self.base_url
-            url = f"{server_url}/api/dostk/stkinfo"
-            
-            params = {
-                "code": code,
-                "info_type": "basic"
-            }
-            
-            await self._ensure_client()
-            response = await self.client.get(url, headers=self._default_headers, params=params, timeout=10.0)
-            
-            if response.status_code == 200:
-                return response.json()
-            else:
-                self.logger.error(f"주식기본정보 조회 실패: {response.status_code}", exc_info=True)
-                return {}
-                
-        except Exception as e:
-            self.logger.error(f"주식기본정보 조회 중 오류: {e}", exc_info=True)
-            return {}
-    
     async def get_stock_chart_data(self, code: str, period: str = "1m") -> pd.DataFrame:
         """주식 차트 데이터 조회 (비동기)"""
         try:
@@ -10362,6 +10316,9 @@ class KiwoomRestClient:
             params = {
                 "code": code,
                 "period": period
+
+
+                
             }
             
             await self._ensure_client()

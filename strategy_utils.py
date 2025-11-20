@@ -244,7 +244,7 @@ class KiwoomIndicatorExtractor:
             return {}
 
 # ==================== 전략 평가용 로컬 변수 빌더 ====================
-def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, previous_close, current_open, portfolio_info=None):
+def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_info=None):
     """매수 전략 평가를 위한 로컬 변수 생성"""
     logger = logging.getLogger(__name__)
     try:
@@ -289,38 +289,13 @@ def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, previous_c
                     # 최근 20개 틱의 평균 거래량
                     locals_dict['tic_avg_volume_20'] = volume_series.tail(20).mean()
 
-        # is_pullback 계산 (매수 전략에서도 사용)
-        if len(tic_chart_data['high']) >= 5:
-            recent_highs = tic_chart_data['high'].tail(5).values
-            is_decreasing = all(recent_highs[i] >= recent_highs[i+1] for i in range(len(recent_highs)-1))
-            locals_dict['is_pullback'] = is_decreasing
-        else:
-            locals_dict['is_pullback'] = False
-
-        # gap_rate 계산 (매수 전략에서도 사용)
-        if previous_close > 0 and current_open > 0:
-            # 전일 종가와 당일 시가로 갭 상승률 계산
-            if previous_close > 0:
-                locals_dict['gap_rate'] = (current_open - previous_close) / previous_close * 100
-            else:
-                locals_dict['gap_rate'] = 0
-        else:
-            # 데이터가 부족하면 갭 상승률을 0으로 설정
-            locals_dict['gap_rate'] = 0
-        
-        # 당일 시가 변수 추가
-        locals_dict['current_open'] = current_open
-
-        # 전일 종가 변수 추가
-        locals_dict['previous_close'] = previous_close
-        
         return locals_dict
         
     except Exception as ex:
         logger.error(f"백테스팅 매수 로컬 변수 생성 실패 ({code}): {ex}", exc_info=True)
         return {}
 
-def prepare_sell_strategy_locals(code, tic_chart_data, min_chart_data, previous_close, current_open, buy_price, buy_time, portfolio_info=None, current_price=None, commission_rate=0.00015, tax_rate=0.0018):
+def prepare_sell_strategy_locals(code, tic_chart_data, min_chart_data, buy_price, buy_time, portfolio_info=None, current_price=None, commission_rate=0.00015, tax_rate=0.0018):
     """매도 전략 평가를 위한 로컬 변수 생성"""
     logger = logging.getLogger(__name__)
     try:
@@ -390,48 +365,6 @@ def prepare_sell_strategy_locals(code, tic_chart_data, min_chart_data, previous_
                 locals_dict['bars_since_entry'] = 0
         else:
             locals_dict['bars_since_entry'] = 0
-
-        # is_pullback 계산
-        if len(tic_chart_data['high']) >= 5:
-            recent_highs = tic_chart_data['high'].tail(5).values
-            is_decreasing = all(recent_highs[i] >= recent_highs[i+1] for i in range(len(recent_highs)-1))
-            locals_dict['is_pullback'] = is_decreasing
-        else:
-            locals_dict['is_pullback'] = False
-
-        # gap_rate 계산
-        if previous_close > 0 and current_open > 0:
-            if previous_close > 0:
-                locals_dict['gap_rate'] = (current_open - previous_close) / previous_close * 100
-            else:
-                locals_dict['gap_rate'] = 0
-        else:
-            locals_dict['gap_rate'] = 0
-
-        # 1틱의 가치(tick_value) 계산
-        def get_tick_value(price):
-            if price < 2000: return 1
-            elif price < 5000: return 5
-            elif price < 20000: return 10
-            elif price < 50000: return 50
-            elif price < 200000: return 100
-            elif price < 500000: return 500
-            else: return 1000
-
-        try:
-            # 현재가를 기준으로 1틱의 가치 계산
-            if current_price > 0:
-                locals_dict['tick_value'] = get_tick_value(current_price)
-            else:
-                locals_dict['tick_value'] = get_tick_value(buy_price) if buy_price > 0 else 10 # fallback
-        except:
-            locals_dict['tick_value'] = 10 # 예외 발생 시 기본값
-
-        # 당일 시가 변수 추가
-        locals_dict['current_open'] = current_open
-
-        # 전일 종가 변수 추가
-        locals_dict['previous_close'] = previous_close
 
         # 포트폴리오 정보 추가
         if portfolio_info:
