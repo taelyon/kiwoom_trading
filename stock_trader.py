@@ -6304,10 +6304,10 @@ class PyQtGraphRealtimeWidget(QWidget):
         if hasattr(self, 'minute_chart_widget') and self.minute_chart_widget is not None:
             self.minute_chart_widget.clear_chart()
     
-    def optimized_plot_charts(self):
+    def optimized_plot_charts(self, tic_data=None, min_data=None):
         """PyQtGraph 최적화된 차트 그리기"""
         try:
-            self.logger.debug(f"🔍 PyQtGraph optimized_plot_charts 호출됨")
+            self.logger.debug(f"🔍 PyQtGraph optimized_plot_charts 호출됨 (tic: {tic_data is not None}, min: {min_data is not None})")
             current_time = time.time()
             
             # 틱 차트 그리기
@@ -6315,12 +6315,12 @@ class PyQtGraphRealtimeWidget(QWidget):
             if self.chart_data.get('tics'):
                 self._draw_pyqtchart_tic_chart()
             
-            # 분봉 차트 그리기
-            if self.chart_data.get('minutes'):
-                self._draw_pyqtchart_minute_chart()
+            # 분봉 차트 그리기 (데이터를 직접 전달받아 사용)
+            if min_data:
+                self._draw_pyqtchart_minute_chart(min_data)
                 
         except Exception as ex:
-            self.logger.error(f"❌ PyQtGraph 차트 그리기 실패: {ex}")
+            self.logger.error(f"❌ PyQtGraph 차트 그리기 실패: {ex}", exc_info=True)
     
     def _draw_pyqtchart_tic_chart(self):
         """PyQtGraph 틱 차트 그리기"""
@@ -6543,19 +6543,19 @@ class PyQtGraphRealtimeWidget(QWidget):
         else:
             self.logger.warning("⚠️ 이동평균선 데이터를 찾을 수 없습니다")
     
-    def _draw_pyqtchart_minute_chart(self):
+    def _draw_pyqtchart_minute_chart(self, minute_data=None):
         """PyQtGraph 분봉 차트 그리기"""
         try:
             # 위젯 초기화 확인
             if not hasattr(self, 'minute_chart_widget') or self.minute_chart_widget is None:
                 self.logger.error("❌ PyQtGraph 분봉 차트 위젯이 초기화되지 않았습니다")
                 return
-                
+            
             self.logger.debug("🔍 PyQtGraph 분봉 차트 그리기 시작")
             self.minute_chart_widget.clear_chart()
             
             # technical_indicators 변수 초기화
-            if not hasattr(self, 'technical_indicators'):
+            if not hasattr(self, 'technical_indicators'): # 이 부분은 minute_chart 전용으로 분리될 수 있습니다.
                 self.technical_indicators = {}
             
             # 분봉 데이터 가져오기
@@ -6563,7 +6563,7 @@ class PyQtGraphRealtimeWidget(QWidget):
             if not minute_data:
                 self.logger.warning("⚠️ PyQtGraph 분봉 데이터가 없습니다")
                 return
-                
+            
             # 데이터 처리 및 변환
             data_list = self._process_minute_data(minute_data)
             if not data_list:
@@ -6695,18 +6695,12 @@ class PyQtGraphRealtimeWidget(QWidget):
                     min_updated = self._is_data_updated(min_data, self.last_drawn_min_datapoint)
 
                     if tic_updated or min_updated:
-                        self.last_update_time = current_time
-                        
-                        # 변경된 데이터만 self.chart_data에 저장
-                        if tic_data:
-                            self.chart_data['tics'] = tic_data
-                            self.last_drawn_tic_datapoint = self._get_last_datapoint(tic_data)
-                        if min_data:
-                            self.chart_data['minutes'] = min_data
-                            self.last_drawn_min_datapoint = self._get_last_datapoint(min_data)
-                        
-                        # 차트 다시 그리기
-                        self.optimized_plot_charts()
+                        self.last_update_time = current_time # type: ignore
+                        # 변경된 데이터로 차트 다시 그리기
+                        self.optimized_plot_charts(tic_data=tic_data, min_data=min_data)
+                        # 마지막으로 그린 데이터 포인트 업데이트
+                        self.last_drawn_tic_datapoint = self._get_last_datapoint(tic_data)
+                        self.last_drawn_min_datapoint = self._get_last_datapoint(min_data)
                     
         except Exception as ex:
             self.logger.error(f"❌ 최적화된 차트 업데이트 실패: {ex}")
@@ -8950,6 +8944,15 @@ class KiwoomWebSocketClient:
                 
                 # 매도 체결 완료 → 보유종목 리스트에서 제거 (람다 클로저 문제 방지)
                 elif buy_sell_flag == '1': # '1'은 매도를 의미
+                    # 매도 체결 완료 시 실현 손익 직접 계산 및 알림
+                    # process_balance_data에서도 처리되지만, 주문체결 시점에서 더 빠르게 처리하기 위해 여기서도 수행
+                    prev_balance_info = self.balance_data.get(stock_code)
+                    if prev_balance_info:
+                        sold_qty = prev_balance_info.get('quantity', 0)
+                        daily_realized_profit = float(values.get('990', '0'))
+                        daily_realized_profit_rate = float(values.get('991', '0'))
+                        asyncio.create_task(self.parent.login_handler.kiwoom_client.send_slack_notification_on_sell(prev_balance_info, daily_realized_profit, daily_realized_profit_rate, sold_qty))
+
                     self.logger.debug(f"✅ 매도 체결 완료 → 보유종목에서 제거: {stock_code}")
 
                     # '주문 진행 중' 상태 해제
