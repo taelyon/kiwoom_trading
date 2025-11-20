@@ -4056,31 +4056,30 @@ class AccountManager:
 
     async def handle_acnt_balance_query_async(self):
         """계좌 잔고조회 (비동기 버전) - post_login_setup에서 사용"""
-        parent = self.parent
         try:
             self.logger.debug("🔧 계좌 잔고 조회 시작 (비동기)")
             
-            if not hasattr(parent, 'trader') or not parent.trader:
+            if not hasattr(self.parent, 'trader') or not self.parent.trader:
                 self.logger.warning("⚠️ 트레이더가 초기화되지 않았습니다")
                 return
             
             # 1. 예수금상세현황 조회
             try:
-                deposit_data = await parent.trader.client.get_deposit_detail()
+                deposit_data = await self.parent.trader.client.get_deposit_detail()
                 if deposit_data and 'entr' in deposit_data:
-                    entr_amount = parent.data_manager.safe_int(deposit_data.get('entr', 0))
-                    parent.trading_tab.terminalOutput.append(f"예수금: {entr_amount:,}원")
+                    entr_amount = self.parent.data_manager.safe_int(deposit_data.get('entr', 0))
+                    self.logger.info(f"예수금: {entr_amount:,}원")
             except Exception as deposit_ex:
                 self.logger.error(f"❌ 예수금상세현황 조회 실패: {deposit_ex}")
 
             # 2. REST API 잔고조회
             try:
-                balance_data = await parent.trader.client.get_acnt_balance()
+                balance_data = await self.parent.trader.client.get_acnt_balance()
                 if balance_data and 'stk_acnt_evlt_prst' in balance_data:
                     holdings = balance_data.get('stk_acnt_evlt_prst', [])
                     await self._initialize_balance_data_from_rest_api(holdings)
                 else:
-                    logging.warning("⚠️ 계좌 잔고 조회 실패 또는 보유 종목 없음 (비동기 조회)")
+                    self.logger.warning("⚠️ 계좌 잔고 조회 실패 또는 보유 종목 없음 (비동기 조회)")
                     
             except Exception as balance_ex:
                 logging.error(f"계좌 잔고 조회 실패 (비동기): {balance_ex}", exc_info=True)
@@ -7617,79 +7616,6 @@ class ChartDataCache(QObject):
         # API 제한 초과 방지를 위해 종목코드만 반환
         return f"종목{code}"
     
-    def log_ohlc_indicators_table(self, data, title, data_type):
-        """OHLC와 기술적지표를 표 형태로 로그 출력"""
-        try:
-            times = data['time']
-            opens = data['open']
-            highs = data['high']
-            lows = data['low']
-            closes = data['close']
-            
-            if not closes or len(closes) == 0:
-                return
-            
-            # 전체 데이터로 기술적지표 계산 (표시는 최근 10개만)
-            sma5 = self._calculate_sma(closes, 5) if len(closes) >= 5 else []
-            sma20 = self._calculate_sma(closes, 20) if len(closes) >= 20 else []
-            rsi = self._calculate_rsi(closes, 14) if len(closes) >= 14 else []
-            macd_result = self._calculate_macd(closes) if len(closes) >= 26 else {'macd_line': [], 'signal_line': [], 'histogram': []}
-            macd_line, signal_line, histogram = macd_result.get('macd_line', []), macd_result.get('signal_line', []), macd_result.get('histogram', [])
-            
-            # 최근 10개 데이터만 표시
-            display_count = min(10, len(closes))
-            start_idx = max(0, len(closes) - display_count)
-            
-            # 표시할 데이터 슬라이스
-            times = times[start_idx:]
-            opens = opens[start_idx:]
-            highs = highs[start_idx:]
-            lows = lows[start_idx:]
-            closes = closes[start_idx:]
-            
-            # 표 헤더 출력
-            logging.debug(f"📊 {title} OHLC & 기술적지표 분석표")
-            logging.debug(f"{'시간':<8} {'시가':<8} {'고가':<8} {'저가':<8} {'종가':<8} {'SMA5':<8} {'SMA20':<8} {'RSI':<6} {'MACD':<8} {'Signal':<8} {'Hist':<8}")
-            
-            # 각 시점별 데이터 출력
-            for i in range(len(closes)):
-                time_str = times[i].strftime('%H:%M:%S') if hasattr(times[i], 'strftime') else str(times[i])[-8:]
-                
-                # 전체 데이터에서의 실제 인덱스 계산 (표시 시작점 + 현재 인덱스)
-                actual_idx = start_idx + i
-                
-                # 기술적지표 값 계산
-                sma5_val = ""
-                if sma5 and len(sma5) > actual_idx:
-                    sma5_val = f"{sma5[actual_idx]:.0f}"
-                
-                sma20_val = ""
-                if sma20 and len(sma20) > actual_idx:
-                    sma20_val = f"{sma20[actual_idx]:.0f}"
-                
-                rsi_val = ""
-                if rsi and len(rsi) > actual_idx:
-                    rsi_val = f"{rsi[actual_idx]:.1f}"
-                
-                macd_val = ""
-                if macd_line and len(macd_line) > actual_idx:
-                    macd_val = f"{macd_line[actual_idx]:.2f}"
-                
-                signal_val = ""
-                if signal_line and len(signal_line) > actual_idx:
-                    signal_val = f"{signal_line[actual_idx]:.2f}"
-                
-                hist_val = ""
-                if histogram and len(histogram) > actual_idx:
-                    hist_val = f"{histogram[actual_idx]:.2f}"
-                
-                # 데이터 출력
-                logging.debug(f"{time_str:<8} {opens[i]:<8.0f} {highs[i]:<8.0f} {lows[i]:<8.0f} {closes[i]:<8.0f} {sma5_val:<8} {sma20_val:<8} {rsi_val:<6} {macd_val:<8} {signal_val:<8} {hist_val:<8}")
-            
-            
-        except Exception as ex:
-            logging.error(f"OHLC 분석표 출력 실패: {ex}")
-
     def start(self):
         """캐시 업데이트 및 저장 타이머 시작"""
         try:
