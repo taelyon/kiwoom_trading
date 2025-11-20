@@ -5191,6 +5191,17 @@ class MyWindow(QWidget):
 
     async def _shutdown_async(self):
         """비동기 종료 처리"""
+        # 0. 진행 중인 모든 차트 데이터 수집 작업 취소
+        if self.chart_cache and hasattr(self.chart_cache, 'active_chart_tasks'):
+            active_tasks = list(self.chart_cache.active_chart_tasks.values())
+            if active_tasks:
+                self.logger.debug(f"🔌 진행 중인 {len(active_tasks)}개의 차트 데이터 수집 작업을 취소합니다.")
+                for task in active_tasks:
+                    task.cancel()
+                try:
+                    await asyncio.gather(*active_tasks, return_exceptions=True)
+                except asyncio.CancelledError:
+                    pass # 예상된 예외
         # 1. 웹소켓 연결 해제
         if self.login_handler and hasattr(self.login_handler, 'websocket_client') and self.login_handler.websocket_client:
             self.logger.info("🔌 웹소켓 연결 해제를 시도합니다...")
@@ -6881,6 +6892,9 @@ class ChartDataCache(QObject):
     async def _collect_chart_data_internal(self, code, max_retries=3):
         """내부 차트 데이터 수집 (asyncio 기반)"""
         # 수동 매매 작업이 진행 중이면 데이터 수집을 건너뜁니다.
+        if not self.queue_processing:
+            self.logger.debug(f"데이터 수집 건너뜀 (큐 처리 중 아님): {code}")
+            return
         if hasattr(self.parent, 'trading_lock') and self.parent.trading_lock.locked():
             self.logger.debug(f"수동 매매 작업 진행 중 - 차트 데이터 수집 건너뜀: {code}")
             return
@@ -6945,6 +6959,9 @@ class ChartDataCache(QObject):
             
             # 메인 스레드에서 콜백 실행
             QTimer.singleShot(0, lambda: self._on_chart_data_ready(code, tic_data, min_data))
+        except asyncio.CancelledError:
+            self.logger.debug(f"데이터 수집 작업 취소됨: {code}")
+            # 작업이 취소되었을 때는 오류 로그를 남기지 않고 조용히 종료
             
         except Exception as e:
             self.logger.error(f"차트 데이터 수집 실패 ({code}): {e}")
@@ -7136,9 +7153,6 @@ class ChartDataCache(QObject):
             
         except Exception as ex:
             self.logger.error(f"❌ API 큐 처리 실패: {ex}")
-        finally:
-            # 큐 처리 완료
-            self.queue_processing = False
 
     def remove_monitoring_stock(self, code):
         """모니터링 종목 제거"""
