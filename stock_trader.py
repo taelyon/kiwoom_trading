@@ -7254,8 +7254,6 @@ class ChartDataCache(QObject):
     def update_all_charts(self):
         """모든 모니터링 종목 차트 데이터 업데이트 - 큐 시스템 사용"""
         try:
-            self.logger.info("🔄 주기적 차트 데이터 업데이트 실행 (모든 모니터링 종목)")
-
             now = datetime.now()
             
             # 장 시작 시간(09:00) 이전에는 업데이트 중지
@@ -8594,36 +8592,18 @@ class KiwoomWebSocketClient:
                         profit_symbol = "📈" if daily_realized_profit > 0 else "📉"
                         self.logger.debug(f"  {profit_symbol} 당일실현손익: {daily_realized_profit:,.0f}원 ({daily_realized_profit_rate:+.2f}%)")
                     
-                    # 부모 윈도우를 통해 모니터링과 보유종목 리스트에 추가
-                    if hasattr(self, 'parent') and self.parent:
-                        try:
-                            # 메인 스레드에서 실행되도록 QTimer 사용 (람다 클로저 문제 방지)
+                    # 매수 주문 체결 시에만 UI에 추가 (매도 후 재추가 방지)
+                    # 매수 체결은 process_order_execution_data에서 처리하므로, 여기서는 중복 추가를 방지합니다.
+                    if stock_code in self.parent.trader.pending_buy_orders:
+                        # UI에 종목 추가 (메인 스레드에서 실행)
+                        if hasattr(self, 'parent') and self.parent:
                             QTimer.singleShot(0, lambda code=stock_code, name=stock_name: self._add_stock_to_ui(code, name))
-                        except Exception as ui_err:
-                            self.logger.error(f"UI 업데이트 예약 실패: {ui_err}")
                 else:
                     # 수량이 0인 경우 → 매도 체결 완료
                     if stock_code in self.balance_data:
-                        
-                        # 부분 매도 추적 목록에 해당 종목이 있는지 확인
-                        is_partial_sell = False
-                        if hasattr(self.parent, 'trader') and self.parent.trader:
-                            for order_no, details in self.parent.trader.sell_order_details.items():
-                                if details.get('code') == stock_code:
-                                    is_partial_sell = True
-                                    break
-
-                        # 슬랙 알림은 process_order_execution_data에서 직접 계산하여 전송하므로 여기서는 생략합니다.
-                        self.logger.debug(f"🔍 매도 체결 전 balance_data: {list(self.balance_data.keys())} ({len(self.balance_data)}개 종목)")     
-                        self.logger.info(f"💰 매도 체결 완료: {stock_name}({stock_code})")
-
-                    # 슬랙 알림 전송
-                    prev_balance_info = self.balance_data.get(stock_code)
-                    if prev_balance_info:
-                        sold_qty = prev_balance_info.get('quantity', 0)
-                        if hasattr(self.parent, 'login_handler') and self.parent.login_handler.kiwoom_client:
-                            asyncio.create_task(self.parent.login_handler.kiwoom_client.send_slack_notification_on_sell(prev_balance_info, daily_realized_profit, daily_realized_profit_rate, sold_qty))
-                                                
+                        # 로그 및 슬랙 알림은 주문체결(00) 데이터 처리 시 한 번만 수행하므로 여기서는 제거합니다.
+                        self.logger.debug(f"실시간 잔고(04) 수신: {stock_code} 수량 0. (매도 완료 처리됨)")
+                        # 슬랙 알림 전송 로직 제거
                         if daily_realized_profit != 0:
                             profit_symbol = "✅" if daily_realized_profit > 0 else "❌"
                             self.logger.info(f"  {profit_symbol} 당일실현손익: {daily_realized_profit:+,.0f}원 ({daily_realized_profit_rate:+.2f}%)")
@@ -8742,17 +8722,16 @@ class KiwoomWebSocketClient:
             
             # 부분 매도 주문 완료 시 슬랙 알림
             if order_status == '체결' and order_no in self.parent.trader.sell_order_details:
-                order_detail = self.parent.trader.sell_order_details[order_no]
-                order_detail['filled_qty'] += exec_qty_int
+                order_detail = self.parent.trader.sell_order_details.get(order_no)
+                if order_detail:
+                    order_detail['filled_qty'] += exec_qty_int
+                    self.logger.debug(f"📊 부분 매도 체결 진행: 주문번호={order_no}, 체결량={exec_qty_int}주, 누적체결량={order_detail['filled_qty']}/{order_detail['total_qty']}")
                 
-                self.logger.debug(f"📊 부분 매도 체결 진행: 주문번호={order_no}, 체결량={exec_qty_int}주, 누적체결량={order_detail['filled_qty']}/{order_detail['total_qty']}")
-
-                # 주문 수량이 모두 체결되었는지 확인
-                if order_detail['filled_qty'] >= order_detail['total_qty']:
-                    self.logger.info(f"🎉 부분 매도 주문 완료: {stock_name}({stock_code}) {order_detail['total_qty']}주")
-
-                    # 추적 목록에서 제거
-                    del self.parent.trader.sell_order_details[order_no]
+                    # 주문 수량이 모두 체결되었는지 확인
+                    if order_detail['filled_qty'] >= order_detail['total_qty']:
+                        self.logger.info(f"🎉 부분 매도 주문 완료: {stock_name}({stock_code}) {order_detail['total_qty']}주")
+                        # 추적 목록에서 제거
+                        del self.parent.trader.sell_order_details[order_no]
 
             # 체결 완료 확인: 주문상태='체결' AND 미체결수량=0
             if order_status == '체결' and unfilled_qty_int == 0:                
@@ -8760,24 +8739,31 @@ class KiwoomWebSocketClient:
                 # 매도 체결 완료 시 실현 손익 직접 계산 및 알림
                 # 손익 계산 및 로깅은 process_balance_data에서 처리하므로 여기서는 제거합니다.
 
-                if buy_sell_flag == '2': # '2'는 매수를 의미
-
+                if buy_sell_flag == '2':  # '2'는 매수를 의미
                     # '매수 주문 진행 중' 상태 해제
                     if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'trader'):
                         if stock_code in self.parent.trader.pending_buy_orders: # type: ignore
                             self.parent.trader.pending_buy_orders.discard(stock_code)
-
-                    if stock_code in self.balance_data:
-                        # 매수 체결 완료 로그 표시
-                        self.logger.info(f"💰 매수 체결 완료: {stock_name}({stock_code})")
-
+                    
+                    # 매수 체결 완료 로그 표시
+                    self.logger.info(f"💰 매수 체결 완료: {stock_name}({stock_code})")
+                    
                     if hasattr(self, 'parent') and self.parent:
                         QTimer.singleShot(0, lambda code=stock_code, name=stock_name: self._add_stock_to_ui(code, name))
                 
                 # 매도 체결 완료 → 보유종목 리스트에서 제거 (람다 클로저 문제 방지)
                 elif buy_sell_flag == '1': # '1'은 매도를 의미
-                    # 매도 체결 완료 시 실현 손익 직접 계산 및 알림
-                    # process_balance_data에서도 처리되지만, 주문체결 시점에서 더 빠르게 처리하기 위해 여기서도 수행
+                    # 전량 매도인지 부분 매도인지 확인
+                    is_full_sell = order_no not in self.parent.trader.sell_order_details
+                    # 매도 체결 완료 로그 표시
+                    self.logger.info(f"💰 매도 체결 완료: {stock_name}({stock_code})")
+
+                    # '주문 진행 중' 상태 해제
+                    if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'trader'):
+                        if stock_code in self.parent.trader.pending_sell_orders: # type: ignore
+                            self.parent.trader.pending_sell_orders.discard(stock_code)
+                    
+                    # 주문이 완전히 체결되었을 때만 슬랙 알림 전송
                     prev_balance_info = self.balance_data.get(stock_code)
                     if prev_balance_info:
                         sold_qty = prev_balance_info.get('quantity', 0)
@@ -8785,17 +8771,10 @@ class KiwoomWebSocketClient:
                         daily_realized_profit_rate = float(values.get('991', '0'))
                         asyncio.create_task(self.parent.login_handler.kiwoom_client.send_slack_notification_on_sell(prev_balance_info, daily_realized_profit, daily_realized_profit_rate, sold_qty))
 
-                    self.logger.debug(f"✅ 매도 체결 완료 → 보유종목에서 제거: {stock_code}")
 
-                    # '주문 진행 중' 상태 해제
-                    if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'trader'):
-                        if stock_code in self.parent.trader.pending_sell_orders: # type: ignore
-                            self.parent.trader.pending_sell_orders.discard(stock_code)
-                    
-                    # balance_data에서 즉시 제거하여 UI 불일치 방지
-                    if stock_code in self.balance_data:
-                        # 매도 체결 완료 로그 표시                   
-                        self.logger.info(f"💰 매도 체결 완료: {stock_name}({stock_code})")
+                    # 전량 매도 시에만 balance_data에서 즉시 제거
+                    if is_full_sell and stock_code in self.balance_data:
+                        del self.balance_data[stock_code]
 
                     # UI 업데이트 (보유종목 리스트 및 투자현황표)
                     if hasattr(self, 'parent') and self.parent:
