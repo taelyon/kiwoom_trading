@@ -237,6 +237,9 @@ class KiwoomIndicatorExtractor:
                 else:
                     additional['ROC_recent'] = []
             
+            # is_pullback의 기본값을 False로 설정
+            additional['is_pullback'] = False
+            
             # is_pullback: 최근 고점 대비 하락 여부 (buy_stg_눌림목)
             if 'tic_high' in indicators:
                 high_array = indicators.get('tic_high')

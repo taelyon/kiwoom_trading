@@ -19,7 +19,7 @@ import time
 import traceback
 import warnings
 from collections import deque
-from datetime import datetime, timedelta, time as dt_time
+from datetime import datetime, time as dt_time, timedelta
 from threading import Lock
 from typing import Dict, List, Optional, Any
 
@@ -204,6 +204,10 @@ def setup_logging():
         # httpcore.http11 DEBUG 로그 비활성화
         httpcore_logger = logging.getLogger('httpcore.http11')
         httpcore_logger.setLevel(logging.WARNING)
+
+        # httpcore.connection DEBUG 로그 비활성화
+        httpcore_conn_logger = logging.getLogger('httpcore.connection')
+        httpcore_conn_logger.setLevel(logging.WARNING)
 
         # UI 로그 핸들러 추가 (INFO 레벨)
         # MyWindow 인스턴스가 생성된 후에 호출되어야 함
@@ -1096,7 +1100,7 @@ class KiwoomTrader(QObject):
             return {}
 
     def _sync_holdings_with_websocket(self):
-        """self.holdings를 웹소켓 잔고 데이터와 동기화"""
+        """self.holdings를 웹소켓 잔고 데이터와 동기화""" # type: ignore
         try:
             if not (hasattr(self, 'parent') and self.parent and
                     hasattr(self.parent, 'login_handler') and self.parent.login_handler and
@@ -1168,7 +1172,7 @@ class KiwoomTrader(QObject):
         
         return self.balance_data.copy()
 
-    async def get_account_balance(self) -> Dict:
+    async def get_account_balance(self) -> dict:
         """투자계좌자산현황조회 - 투자가능 현금 조회용 (비동기)
         매수 시 투자가능 현금을 확인하기 위한 API
         """
@@ -1272,7 +1276,7 @@ class KiwoomStrategy(QObject):
         self.parent = parent
 
         # 종목별 매수 신호 생성 동시성 제어를 위한 Lock
-        self._buy_signal_locks: Dict[str, asyncio.Lock] = {}
+        self._buy_signal_locks: dict[str, asyncio.Lock] = {}
         
         # PyQt6에서는 QTextCursor 메타타입 등록이 불필요함
         
@@ -1945,6 +1949,7 @@ class AutoTrader(QObject):
             self.parent = parent            
             self.is_running = True  # 자동매매 항상 활성화
             self.auto_liquidation_executed = False  # 15:15 자동 청산 실행 여부
+            self.daily_report_sent = False # 15:30 장마감 리포트 전송 여부
             self.logger.debug("🔍 자동매매 실행 상태 초기화 완료 (항상 활성화)")
             
             # evaluation_interval 설정값으로 매매 판단 타이머 초기화
@@ -1969,6 +1974,16 @@ class AutoTrader(QObject):
                 await self.parent.trading_manager.sell_all_item()
         except Exception as ex:
             self.logger.error(f"❌ 자동 청산 실행 중 오류: {ex}", exc_info=True)
+
+    async def _execute_daily_report_async(self):
+        """15:30 장 마감 리포트 실행"""
+        try:
+            self.logger.info("🕒 15:30 장 마감 - 최종 실현 손익 리포트 전송 시작")
+            if hasattr(self.parent, 'login_handler') and self.parent.login_handler.kiwoom_client:
+                total_profit, total_profit_rate = await self.parent.login_handler.kiwoom_client.get_daily_realized_profit()
+                await self.parent.login_handler.kiwoom_client.send_slack_daily_report(total_profit, total_profit_rate)
+        except Exception as ex:
+            self.logger.error(f"❌ 장 마감 리포트 실행 중 오류: {ex}", exc_info=True)
     
     def start_auto_trading(self):
         """자동매매 시작 (거래 시간: evaluation_interval, 거래 시간 외: 1분 타이머)"""
@@ -2042,10 +2057,16 @@ class AutoTrader(QObject):
                 self.logger.info("🕒 15:15 도달 - 모든 보유 종목 자동 청산 시작")
                 await self.execute_auto_liquidation_async()  # 청산 완료까지 대기
                 self.auto_liquidation_executed = True  # 청산 완료 후 플래그 설정
+
+            # 15:30 장 마감 리포트 전송 (1회만 실행)
+            if current_time_str == "15:30" and not self.daily_report_sent:
+                await self._execute_daily_report_async()
+                self.daily_report_sent = True
             
             # 다음날을 위해 플래그 리셋 (15:31 이후)
             if current_time_str == "15:31" and self.auto_liquidation_executed:
                 self.auto_liquidation_executed = False
+                self.daily_report_sent = False
                 if hasattr(self, '_trading_stopped_logged'): # type: ignore
                     delattr(self, '_trading_stopped_logged')
                 logging.debug("🔄 자동 청산 플래그 리셋 완료")
@@ -2753,6 +2774,10 @@ class MonitoringManager:
             # 차트 캐시에 추가
             if hasattr(self.parent, 'chart_cache') and self.parent.chart_cache:
                 await self.parent.chart_cache.add_monitoring_stock(code)
+
+            # 모니터링 종목 수 변경에 따른 차트 업데이트 주기 조절
+            if hasattr(self.parent, 'chart_cache') and self.parent.chart_cache:
+                self.parent.chart_cache.update_chart_update_interval()
             
             # 실시간 체결 데이터 구독
             if hasattr(self.parent, 'login_handler') and hasattr(self.parent.login_handler, 'websocket_client'):
@@ -2791,6 +2816,10 @@ class MonitoringManager:
             # 차트 캐시에 추가
             if hasattr(self.parent, 'chart_cache') and self.parent.chart_cache:
                 await self.parent.chart_cache.add_monitoring_stock(code)
+
+            # 모니터링 종목 수 변경에 따른 차트 업데이트 주기 조절
+            if hasattr(self.parent, 'chart_cache') and self.parent.chart_cache:
+                self.parent.chart_cache.update_chart_update_interval()
             
             # 실시간 체결 데이터 구독 (await 사용)
             if hasattr(self.parent, 'login_handler') and hasattr(self.parent.login_handler, 'websocket_client'):
@@ -2824,6 +2853,10 @@ class MonitoringManager:
             if hasattr(self.parent, 'chart_cache') and self.parent.chart_cache:
                 self.parent.chart_cache.remove_monitoring_stock(code)
             
+            # 모니터링 종목 수 변경에 따른 차트 업데이트 주기 조절
+            if hasattr(self.parent, 'chart_cache') and self.parent.chart_cache:
+                self.parent.chart_cache.update_chart_update_interval()
+
             # 실시간 체결 데이터 구독 해제
             if hasattr(self.parent, 'login_handler') and hasattr(self.parent.login_handler, 'websocket_client'):
                 ws_client = self.parent.login_handler.websocket_client
@@ -2856,6 +2889,10 @@ class MonitoringManager:
             # 각 종목을 모니터링에서 제거
             for code in stock_codes:
                 await self.remove_stock_from_monitoring(code)
+
+            # 모니터링 종목 수 변경에 따른 차트 업데이트 주기 조절 (제거 후 한 번만 호출)
+            if hasattr(self.parent, 'chart_cache') and self.parent.chart_cache:
+                self.parent.chart_cache.update_chart_update_interval()
             
             # 조건검색 결과 딕셔너리에서 제거
             del self.parent.condition_search_results[seq]
@@ -3237,6 +3274,10 @@ class StrategyManager:
         # 2. 모니터링 리스트 박스 비우기
         self.parent.trading_tab.monitoringBox.clear()
         
+        # 3. 모니터링 종목이 비워졌으므로 차트 업데이트 주기 조절 (타이머 중지)
+        if hasattr(self.parent, 'chart_cache') and self.parent.chart_cache:
+            self.parent.chart_cache.update_chart_update_interval()
+
         # 3. 차트 캐시 및 관련 데이터 초기화
         if hasattr(self.parent, 'chart_cache') and self.parent.chart_cache:
             self.parent.chart_cache.stop() # stop() 메서드가 캐시를 비우고 타이머를 중지
@@ -3605,7 +3646,7 @@ class TradingManager(QObject):
                                         holdings = balance_result.get('stk_acnt_evlt_prst', balance_result.get('output1', []))
                                         for stock in holdings:
                                             raw_code = stock.get('stk_cd', stock.get('pdno', ''))
-                                            stock_code = self.parent.normalize_stock_code(raw_code)
+                                            stock_code = self.parent.data_manager.normalize_stock_code(raw_code)
                                             if stock_code == code:
                                                 quantity = self.parent.data_manager.safe_int(stock.get('rmnd_qty', stock.get('hldg_qty', 0)))
                                                 self.logger.debug(f"📡 REST API 잔고: {code} {quantity}주")
@@ -7283,7 +7324,7 @@ class ChartDataCache(QObject):
                 self.api_request_queue.append(code)
                 added_count += 1
             
-            self.logger.info(f"📋 주기적 업데이트: {added_count}개 종목을 API 요청 큐에 추가 (총 큐: {len(self.api_request_queue)}개)")
+            self.logger.debug(f"📋 주기적 업데이트: {added_count}개 종목을 API 요청 큐에 추가 (총 큐: {len(self.api_request_queue)}개)")
             
         except Exception as ex:
             logging.error(f"❌ 전체 차트 데이터 업데이트 실패: {ex}", exc_info=True)
@@ -7650,9 +7691,9 @@ class ChartDataCache(QObject):
     def start(self):
         """캐시 업데이트 및 저장 타이머 시작"""
         try:
-            if self.update_timer and not self.update_timer.isActive():
-                chartdata_update_interval = getattr(self.trader, 'chartdata_update_interval', 10)
-                self.update_timer.start(chartdata_update_interval * 1000)
+            # update_timer는 모니터링 종목 수에 따라 동적으로 간격이 조절되므로 여기서 시작하지 않음
+            self.update_chart_update_interval()
+
             if self.save_timer and not self.save_timer.isActive():
                 self.save_timer.start(60000)
             self.logger.debug("✅ ChartDataCache 타이머 시작")
@@ -7671,6 +7712,33 @@ class ChartDataCache(QObject):
             logging.debug("📊 차트 데이터 캐시 정리 완료")
         except Exception as ex:
             logging.error(f"❌ 차트 데이터 캐시 정리 실패: {ex}", exc_info=True)
+
+    def update_chart_update_interval(self):
+        """모니터링 종목 수에 따라 차트 업데이트 주기를 동적으로 조절합니다."""
+        try:
+            if not self.update_timer:
+                return
+
+            monitoring_codes = self.parent.monitoring_manager.get_monitoring_stock_codes()
+            num_stocks = len(monitoring_codes)
+
+            if num_stocks > 0:
+                # 종목당 3초 간격으로 설정
+                new_interval_seconds = num_stocks * 3
+                new_interval_ms = new_interval_seconds * 1000
+
+                # 현재 타이머 간격과 다를 경우에만 업데이트
+                if self.update_timer.interval() != new_interval_ms or not self.update_timer.isActive():
+                    self.update_timer.setInterval(new_interval_ms)
+                    if not self.update_timer.isActive(): self.update_timer.start()
+                    self.logger.debug(f"🔄 차트 업데이트 주기 변경: {num_stocks}개 종목 * 3초 = {new_interval_seconds}초")
+            else:
+                # 모니터링 종목이 없으면 타이머 중지
+                if self.update_timer.isActive():
+                    self.update_timer.stop()
+                    self.logger.info("⏹️ 모니터링 종목이 없어 차트 업데이트 타이머를 중지합니다.")
+        except Exception as ex:
+            self.logger.error(f"❌ 차트 업데이트 주기 조절 실패: {ex}", exc_info=True)
     
     def _calculate_technical_indicators(self, data, chart_type=None):
         """기술적 지표 계산"""
@@ -7990,24 +8058,33 @@ class KiwoomWebSocketClient:
     
     async def run(self):
         """웹소켓 클라이언트 실행 (키움증권 예시코드 기반)"""
-        try:
-            # 서버에 연결
-            if await self.connect():
-                # 메시지를 계속 받을 준비
-                await self.receive_messages()
+        reconnect_delay = 5  # 재연결 시도 간격 (초)
+        while self.keep_running:
+            try:
+                # 서버에 연결
+                if await self.connect():
+                    # 메시지를 계속 받을 준비
+                    await self.receive_messages()
 
-        except asyncio.CancelledError:
-            self.logger.debug("🛑 웹소켓 클라이언트 태스크가 취소되었습니다")
-            raise  # CancelledError는 다시 발생시켜야 함
-        except websockets.ConnectionClosed:
-            self.logger.info("🔌 웹소켓 연결이 정상적으로 종료되었습니다 (run).")
-        except Exception as e:
-            self.logger.error(f"웹소켓 클라이언트 실행 중 오류: {e}", exc_info=True)
+            except asyncio.CancelledError:
+                self.logger.debug("🛑 웹소켓 클라이언트 태스크가 취소되었습니다")
+                break # CancelledError는 루프를 완전히 종료
 
-        finally:
-            self.logger.debug("🔌 웹소켓 클라이언트 정리 중...")
-            await self.disconnect()
-            self.logger.debug("✅ 웹소켓 클라이언트 정리 완료")
+            except websockets.ConnectionClosed as e:
+                self.logger.warning(f"🔌 웹소켓 연결이 종료되었습니다 (Code: {e.code}). {reconnect_delay}초 후 재연결을 시도합니다.")
+
+            except Exception as e:
+                self.logger.error(f"웹소켓 클라이언트 실행 중 오류: {e}. {reconnect_delay}초 후 재연결을 시도합니다.", exc_info=True)
+
+            finally:
+                # 연결이 끊겼으므로 정리
+                await self.disconnect()
+                
+                # 프로그램 종료가 아니라면 재연결을 위해 대기
+                if self.keep_running:
+                    await asyncio.sleep(reconnect_delay)
+        
+        self.logger.info("✅ 웹소켓 클라이언트 실행이 완전히 종료되었습니다.")
 
     async def send_message(self, message):
         """메시지 전송 (키움증권 예시코드 기반)"""
@@ -8601,13 +8678,27 @@ class KiwoomWebSocketClient:
                 else:
                     # 수량이 0인 경우 → 매도 체결 완료
                     if stock_code in self.balance_data:
-                        # 로그 및 슬랙 알림은 주문체결(00) 데이터 처리 시 한 번만 수행하므로 여기서는 제거합니다.
-                        self.logger.debug(f"실시간 잔고(04) 수신: {stock_code} 수량 0. (매도 완료 처리됨)")
-                        # 슬랙 알림 전송 로직 제거
-                        if daily_realized_profit != 0:
-                            profit_symbol = "✅" if daily_realized_profit > 0 else "❌"
-                            self.logger.info(f"  {profit_symbol} 당일실현손익: {daily_realized_profit:+,.0f}원 ({daily_realized_profit_rate:+.2f}%)")
-                                                
+                        self.logger.info(f"💰 전량 매도 완료 감지 (실시간 잔고): {stock_name}({stock_code})")
+                        
+                        # 요청: 전량 매도 완료 시, 그 시점까지의 '전체' 당일실현손익을 슬랙으로 전송
+                        # REST API를 호출하여 전체 실현손익을 조회하고 알림을 보내는 비동기 작업을 시작합니다.
+                        if hasattr(self.parent, 'login_handler') and self.parent.login_handler.kiwoom_client:
+                            prev_balance_info = self.balance_data.get(stock_code, {})
+                            sold_qty = prev_balance_info.get('quantity', 0)
+                            
+                            # 단일 종목의 실현 손익 로깅
+                            if daily_realized_profit != 0:
+                                profit_symbol = "✅" if daily_realized_profit > 0 else "❌"
+                                self.logger.info(f"  (종목별) 당일실현손익: {daily_realized_profit:+,.0f}원 ({daily_realized_profit_rate:+.2f}%)")
+
+                            # 전체 실현손익 조회 및 슬랙 알림 전송을 위한 비동기 태스크 생성
+                            asyncio.create_task(self._send_total_profit_notification_on_sell(
+                                prev_balance_info,
+                                sold_qty
+                            ))
+                        else:
+                            self.logger.warning("⚠️ 슬랙 알림 전송 실패: KiwoomClient를 찾을 수 없습니다.")
+                        
                         # 잔고에서 제거
                         del self.balance_data[stock_code]
                         self.logger.debug(f"✅ 잔고에서 제거 완료: {stock_code}")
@@ -8651,6 +8742,25 @@ class KiwoomWebSocketClient:
         except Exception as e:
             self.logger.error(f"실시간 잔고 데이터 처리 실패: {e}", exc_info=True)
 
+    async def _send_total_profit_notification_on_sell(self, prev_balance_info, sold_qty):
+        """
+        전량 매도 완료 시, 계좌 전체의 당일 실현 손익을 조회하여 슬랙으로 알림을 보냅니다.
+        """
+        try:
+            kiwoom_client = self.parent.login_handler.kiwoom_client
+            
+            # REST API를 통해 계좌 전체의 당일 실현 손익 조회
+            total_profit, total_profit_rate = await kiwoom_client.get_daily_realized_profit()
+            
+            # 슬랙 알림 전송
+            await kiwoom_client.send_slack_sell_notification(
+                prev_balance_info=prev_balance_info,
+                sold_qty=sold_qty,
+                total_daily_profit=total_profit,
+                total_daily_profit_rate=total_profit_rate
+            )
+        except Exception as e:
+            self.logger.error(f"전체 실현 손익 슬랙 알림 전송 중 오류: {e}", exc_info=True)
     
     def process_order_execution_data(self, data_item):
         """주문체결 실시간 데이터 처리 (type '00')
@@ -8764,17 +8874,10 @@ class KiwoomWebSocketClient:
                             self.parent.trader.pending_sell_orders.discard(stock_code)
                     
                     # 주문이 완전히 체결되었을 때만 슬랙 알림 전송
-                    prev_balance_info = self.balance_data.get(stock_code)
-                    if prev_balance_info:
-                        sold_qty = prev_balance_info.get('quantity', 0)
-                        daily_realized_profit = float(values.get('990', '0'))
-                        daily_realized_profit_rate = float(values.get('991', '0'))
-                        asyncio.create_task(self.parent.login_handler.kiwoom_client.send_slack_notification_on_sell(prev_balance_info, daily_realized_profit, daily_realized_profit_rate, sold_qty))
-
-
-                    # 전량 매도 시에만 balance_data에서 즉시 제거
-                    if is_full_sell and stock_code in self.balance_data:
-                        del self.balance_data[stock_code]
+                    if is_full_sell:
+                        prev_balance_info = self.balance_data.get(stock_code)
+                        if prev_balance_info:
+                            pass # 슬랙 알림 로직을 process_balance_data로 이동
 
                     # UI 업데이트 (보유종목 리스트 및 투자현황표)
                     if hasattr(self, 'parent') and self.parent:
@@ -10556,6 +10659,36 @@ class KiwoomRestClient:
             # API 실패 시 기존 캐시 데이터 반환 (있다면)
             return self._balance_cache if self._balance_cache else {}
 
+    async def get_daily_realized_profit(self) -> tuple[float, float]:
+        """
+        계좌의 당일 실현 손익과 손익률을 조회합니다. (REST API)
+        
+        Returns:
+            tuple: (당일 실현 손익 금액, 당일 실현 손익률)
+                   조회 실패 시 (0.0, 0.0) 반환
+        """
+        try:
+            balance_data = await self.get_acnt_balance()
+            if not balance_data:
+                self.logger.warning("⚠️ 당일 실현 손익 조회 실패: 계좌평가현황 데이터 없음")
+                return 0.0, 0.0
+
+            # 키움 API 응답에서 당일 실현 손익 관련 필드 추출
+            # dts_dt_profit_loss_amt: 당일실현손익금액
+            # dts_dt_profit_loss_rate: 당일실현손익률
+            profit_amt_str = balance_data.get('dts_dt_profit_loss_amt', '0')
+            profit_rate_str = balance_data.get('dts_dt_profit_loss_rate', '0')
+
+            profit_amt = float(profit_amt_str)
+            profit_rate = float(profit_rate_str)
+
+            self.logger.info(f"💰 당일 실현 손익 조회 (전체): {profit_amt:,.0f}원 ({profit_rate:.2f}%)")
+            return profit_amt, profit_rate
+
+        except Exception as e:
+            self.logger.error(f"❌ 당일 실현 손익 조회 중 오류: {e}", exc_info=True)
+            return 0.0, 0.0
+
     
     async def place_buy_order(self, code: str, quantity: int, price: int = 0, order_type: str = "market") -> bool:
         """매수 주문 (키움 REST API 기반) - 시장가만 지원 (비동기)
@@ -10762,44 +10895,45 @@ class KiwoomRestClient:
             self.logger.error(f"주문 내역 조회 중 오류: {e}", exc_info=True)
             return []    
 
-    async def send_slack_notification_on_sell(self, prev_balance_info, daily_realized_profit, daily_realized_profit_rate, sold_qty=None):
+    async def send_slack_sell_notification(self, prev_balance_info: dict, sold_qty: int, total_daily_profit: float, total_daily_profit_rate: float) -> None:
         """매도 체결 시 슬랙 알림 전송"""
         try:
             # Slack 설정 로드
-            # [SLACK] 또는 [slack] 섹션 모두 지원
             if self.config.has_section('SLACK'):
                 slack_webhook_url = self.config.get('SLACK', 'webhook', fallback=None)
             else:
                 slack_webhook_url = self.config.get('slack', 'webhook', fallback=None)
+            
             if not slack_webhook_url:
                 self.logger.debug("Slack 웹훅 URL이 설정되지 않아 알림을 보내지 않습니다.")
                 return
 
             stock_name = prev_balance_info.get('name', '알수없음')
             stock_code = prev_balance_info.get('code', '000000')
+            average_price = prev_balance_info.get('average_price', 0)
+            current_price = prev_balance_info.get('current_price', 0) # 매도 시점의 가격
             
             # 알림 제목 설정
-            if sold_qty:
-                title = f"📈 부분 매도 완료: {stock_name}({stock_code})"
-                fallback_text = f"부분 매도: {stock_name} ({sold_qty}주)"
-            else:
-                title = f"✅ 전량 매도 완료: {stock_name}({stock_code})"
-                fallback_text = f"전량 매도: {stock_name}"
+            title = f"✅ 전량 매도 완료: {stock_name}({stock_code})"
+            fallback_text = f"전량 매도: {stock_name}"
 
             # 메시지 포맷
-            profit_text = f"*{daily_realized_profit:+,}원* ({daily_realized_profit_rate:+.2f}%)"
-            color = "#28a745" if daily_realized_profit >= 0 else "#dc3545" # 수익: 녹색, 손실: 빨강
+            total_profit_text = f"*{total_daily_profit:+,}원* ({total_daily_profit_rate:+.2f}%)"
+            color = "#28a745" if total_daily_profit >= 0 else "#dc3545" # 수익: 녹색, 손실: 빨강
             
             message = {
                 "text": title, # 모바일 알림 등에서 기본으로 표시될 텍스트
                 "attachments": [
                     {
                         "color": color,
-                        "fallback": f"{fallback_text} - 당일실현손익: {daily_realized_profit:+,}원",
+                        "fallback": f"{fallback_text} - 현재까지의 당일 총 실현손익: {total_daily_profit:+,}원",
                         "fields": [
-                            {"title": "체결 수량", "value": f"{sold_qty}주" if sold_qty else "전량", "short": True},
-                            {"title": "당일실현손익", "value": profit_text, "short": True}
+                            {"title": "매도 수량", "value": f"{sold_qty}주", "short": True},
+                            {"title": "매입/매도 단가", "value": f"{average_price:,.0f} / {current_price:,.0f}", "short": True},
+                            {"title": "현재까지의 당일 총 실현손익", "value": total_profit_text, "short": False}
                         ],
+                        "footer": "Kiwoom Auto Trader",
+                        "ts": int(time.time())
                     }
                 ]
             }
@@ -10811,8 +10945,50 @@ class KiwoomRestClient:
         except Exception as e:
             self.logger.error(f"Slack 알림 전송 실패: {e}", exc_info=True)
             
+    async def send_slack_daily_report(self, total_profit: float, total_profit_rate: float) -> None:
+        """장 마감 시 최종 실현 손익을 슬랙으로 리포트"""
+        try:
+            # Slack 설정 로드
+            if self.config.has_section('SLACK'):
+                slack_webhook_url = self.config.get('SLACK', 'webhook', fallback=None)
+            else:
+                slack_webhook_url = self.config.get('slack', 'webhook', fallback=None)
+
+            if not slack_webhook_url:
+                self.logger.debug("Slack 웹훅 URL이 설정되지 않아 일일 리포트를 보내지 않습니다.")
+                return
+
+            today_str = datetime.now().strftime("%Y년 %m월 %d일")
+            title = f"📈 {today_str} 장 마감 리포트"
+            fallback_text = f"장 마감 리포트 - 당일 총 실현손익: {total_profit:+,}원"
+
+            # 메시지 포맷
+            total_profit_text = f"*{total_profit:+,}원* ({total_profit_rate:+.2f}%)"
+            color = "#3498db" # 정보성 메시지 색상
+
+            message = {
+                "text": title,
+                "attachments": [
+                    {
+                        "color": color,
+                        "fallback": fallback_text,
+                        "fields": [
+                            {"title": "당일 총 실현손익", "value": total_profit_text, "short": False}
+                        ],
+                        "footer": "Kiwoom Auto Trader",
+                        "ts": int(time.time())
+                    }
+                ]
+            }
+
+            # 비동기 HTTP 클라이언트로 웹훅 전송
+            async with httpx.AsyncClient() as client:
+                await client.post(slack_webhook_url, json=message)
+            self.logger.info(f"🔔 슬랙으로 장 마감 리포트 전송 완료.")
+        except Exception as e:
+            self.logger.error(f"Slack 일일 리포트 전송 실패: {e}", exc_info=True)
     
-    def _parse_stock_price_data(self, data: Dict) -> Dict:
+    def _parse_stock_price_data(self, data: dict) -> dict:
         """주식 가격 데이터 파싱"""
         try:
             return {
@@ -10834,7 +11010,7 @@ class KiwoomRestClient:
             self.logger.error(f"주식 가격 데이터 파싱 오류: {e}", exc_info=True)
             return {}
     
-    def _parse_chart_data(self, data: Dict) -> pd.DataFrame:
+    def _parse_chart_data(self, data: dict) -> pd.DataFrame:
         """차트 데이터 파싱"""
         try:
             if 'data' not in data:
@@ -10865,7 +11041,7 @@ class KiwoomRestClient:
             self.logger.error(f"차트 데이터 파싱 오류: {e}", exc_info=True)
             return pd.DataFrame()
     
-    def _parse_tic_chart_data(self, data: Dict) -> Dict:
+    def _parse_tic_chart_data(self, data: dict) -> dict:
         """틱 차트 데이터 파싱 (ka10079 응답 형식) - 키움 API 문서 참고"""
         try:
             # API 응답 구조 확인
@@ -11018,7 +11194,7 @@ class KiwoomRestClient:
     
     
     
-    def _parse_minute_chart_data(self, data: Dict) -> Dict:
+    def _parse_minute_chart_data(self, data: dict) -> dict:
         """분봉 차트 데이터 파싱 (ka10080 응답 형식) - 키움 API 문서 참고"""
         try:
             # API 응답 구조 확인
