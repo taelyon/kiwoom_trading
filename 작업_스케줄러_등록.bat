@@ -43,7 +43,7 @@ echo.
 
 REM 작업 스케줄러 생성
 schtasks /Create /TN "StockTrader_Auto" ^
-    /TR "cmd /c 'cd /d \"%CURRENT_DIR%\dist\stock_trader\" && \"%EXE_PATH%\"'" ^
+    /TR "cmd /c start \"Stock Trader\" /B /D \"%CURRENT_DIR%\dist\stock_trader\" \"%EXE_PATH%\"" ^
     /SC WEEKLY ^
     /D MON,TUE,WED,THU,FRI ^
     /ST 08:40 ^

@@ -3254,33 +3254,47 @@ class StrategyManager:
             self.logger.error(f"전략 내용 로드 실패: {ex}")
     
     async def _clear_monitoring_list(self):
-        """모니터링 리스트와 관련된 모든 상태를 초기화합니다."""
+        """모니터링 리스트와 관련된 상태를 초기화합니다. (단, 보유 종목은 제외)"""
         self.logger.info("🔄 투자 전략 변경으로 인해 기존 모니터링 목록을 초기화합니다.")
         
-        # 1. 서버에 등록된 *모든* 조건검색을 해제 시도 (상태 불일치 해결)
+        # 1. 현재 보유 중인 종목 코드를 가져옵니다.
+        holding_codes = set()
+        if hasattr(self.parent, 'trading_tab') and hasattr(self.parent.trading_tab, 'boughtBox'):
+            for i in range(self.parent.trading_tab.boughtBox.count()):
+                item = self.parent.trading_tab.boughtBox.item(i)
+                if item:
+                    holding_codes.add(item.text().split()[0])
+        self.logger.debug(f"보유 종목은 모니터링에서 제외하지 않습니다: {list(holding_codes)}")
+
+        # 2. 서버에 등록된 *모든* 조건검색을 해제 시도 (상태 불일치 해결)
         if hasattr(self.parent, 'condition_search_list') and self.parent.condition_search_list:
             all_seqs = [c['seq'] for c in self.parent.condition_search_list]
             self.logger.debug(f"🔍 모든 조건검색 해제 시도: {all_seqs}")
             for seq in all_seqs:
-                # 해제 요청을 보냅니다 (서버에 등록 안되어있으면 무시됨).
                 await self.parent.stop_condition_realtime(seq)
         
-        # 2. 클라이언트의 활성 목록도 비웁니다.
+        # 3. 클라이언트의 활성 목록도 비웁니다.
         if hasattr(self.parent, 'active_realtime_conditions'):
             self.parent.active_realtime_conditions.clear()
-
         self.logger.debug("✅ 모든 실시간 조건검색 모니터링 중단 완료.")
 
-        # 2. 모니터링 리스트 박스 비우기
-        self.parent.trading_tab.monitoringBox.clear()
+        # 4. 모니터링 리스트 박스에서 보유 종목을 제외하고 비우기
+        monitoring_box = self.parent.trading_tab.monitoringBox
+        for i in range(monitoring_box.count() - 1, -1, -1):
+            item = monitoring_box.item(i)
+            if item and item.text().split()[0] not in holding_codes:
+                monitoring_box.takeItem(i)
         
-        # 3. 모니터링 종목이 비워졌으므로 차트 업데이트 주기 조절 (타이머 중지)
+        # 5. 모니터링 종목이 비워졌으므로 차트 업데이트 주기 조절 (타이머 중지)
         if hasattr(self.parent, 'chart_cache') and self.parent.chart_cache:
             self.parent.chart_cache.update_chart_update_interval()
 
-        # 3. 차트 캐시 및 관련 데이터 초기화
+        # 6. 차트 캐시에서 보유 종목이 아닌 것들만 제거
         if hasattr(self.parent, 'chart_cache') and self.parent.chart_cache:
-            self.parent.chart_cache.stop() # stop() 메서드가 캐시를 비우고 타이머를 중지
+            codes_to_remove = [code for code in self.parent.chart_cache.cache.keys() if code not in holding_codes]
+            for code in codes_to_remove:
+                self.parent.chart_cache.remove_monitoring_stock(code)
+            self.logger.debug(f"차트 캐시에서 {len(codes_to_remove)}개 종목 제거 완료.")
 
     async def stg_changed(self):
         """전략 변경 이벤트 핸들러 (비동기)"""
@@ -5593,7 +5607,6 @@ class MyWindow(QWidget):
 async def main():
     """메인 실행 함수 - qasync를 사용한 비동기 처리"""
     global main_window
-    print("프로그램 시작")
     setup_logging()
     logging.debug("🚀 프로그램 시작 - 로깅 설정 완료")
 
