@@ -947,15 +947,16 @@ class KiwoomTrader(QObject):
                             del self.highest_prices[code]
                             self.logger.debug(f"🗑️ {code} 최고가 정보 초기화 (전량 매도)")
 
-                # 부분 매도 주문 정보 추적
+                # 매도 주문 체결 추적
                 ord_no = self.client.last_order_no
                 if ord_no:
                     self.sell_order_details[ord_no] = {
                         'code': code,
                         'total_qty': quantity,
-                        'filled_qty': 0
+                        'filled_qty': 0,
+                        'is_full_sale': is_full_sell
                     }
-                    self.logger.debug(f"📋 부분 매도 주문 추적 시작: 주문번호={ord_no}, 종목={code}, 수량={quantity}주")
+                    self.logger.debug(f"📋 매도 주문 추적 시작: 주문번호={ord_no}, 종목={code}, 수량={quantity}주, 전량매도={is_full_sell}")
                 
                 # holdings 딕셔너리 업데이트 (매도 평가를 위한 동기화)
                 if is_full_sell:
@@ -3758,9 +3759,7 @@ class TradingManager(QObject):
                     self.logger.warning(f"⚠️ 보유 수량 없음: {code}")
                     # QMessageBox.warning(self.parent, "매도 불가", f"{code} 보유 수량이 없습니다.\n웹소켓과 REST API 모두 확인했습니다.")
                     await self._restart_timers_after_manual_trade(autotrader, chart_cache)
-                    return
-                
-                self.logger.info(f"💰 전량 매도 실행: {code} {quantity}주")
+                    return                
                 
                 if hasattr(self.parent, 'login_handler') and self.parent.login_handler and hasattr(self.parent.login_handler, 'kiwoom_client'):
                     success = await self.parent.login_handler.kiwoom_client.place_sell_order(code, quantity, 0, "market")
@@ -4155,7 +4154,33 @@ class AccountManager:
             except Exception as deposit_ex:
                 self.logger.error(f"❌ 예수금상세현황 조회 실패: {deposit_ex}")
 
-            # 2. REST API 잔고조회
+            # 2. 계좌평가잔고내역 조회 (kt00018)
+            try:
+                self.logger.debug("🔍 계좌평가잔고내역 조회 중...")
+                eval_status = await self.parent.trader.client.get_account_evaluation_status()
+                if eval_status:
+                    total_purchase_amount = self.parent.data_manager.safe_int(eval_status.get('tot_pur_amt', 0))
+                    total_eval_pl_amount = self.parent.data_manager.safe_int(eval_status.get('tot_evlt_pl', 0))
+                    total_profit_rate = self.parent.data_manager.safe_float(eval_status.get('tot_prft_rt', 0.0))
+
+                    self.logger.info(f"총매입금액: {total_purchase_amount:,}원")
+                    self.logger.info(f"총평가손익금액: {total_eval_pl_amount:+,}원")
+                    self.logger.info(f"총수익률: {total_profit_rate:.2f}%")
+
+                    # 종목별 평가손익 및 수익률 로깅
+                    stock_list = eval_status.get('acnt_evlt_remn_indv_tot', [])
+                    if stock_list:
+                        for stock in stock_list:
+                            stock_name = stock.get('stk_nm', 'N/A')
+                            eval_profit = self.parent.data_manager.safe_int(stock.get('evltv_prft', 0))
+                            profit_rate = self.parent.data_manager.safe_float(stock.get('prft_rt', 0.0))
+                            self.logger.info(f"- {stock_name}: 평가손익 {eval_profit:+,}원, 수익률 {profit_rate:.2f}%")
+                else:
+                    self.logger.warning("⚠️ 계좌평가잔고내역 조회 실패")
+            except Exception as eval_ex:
+                self.logger.error(f"❌ 계좌평가잔고내역 조회 중 오류: {eval_ex}", exc_info=True)
+
+            # 3. REST API 잔고조회
             try:
                 balance_data = await self.parent.trader.client.get_acnt_balance()
                 if balance_data and 'stk_acnt_evlt_prst' in balance_data:
@@ -8555,8 +8580,6 @@ class KiwoomWebSocketClient:
                 order_available_qty_str = values.get('933', '0')  # 주문가능수량
                 daily_net_buy_str = values.get('945', '0')  # 당일순매수량
                 daily_total_profit_str = values.get('950', '0')  # 당일총매도손익
-                daily_realized_profit_str = values.get('990', '0')  # 당일실현손익(유가)
-                daily_realized_profit_rate_str = values.get('991', '0')  # 당일실현손익율(유가)
                 
                 # 데이터 변환
                 quantity = int(quantity_str) if quantity_str else 0
@@ -8565,10 +8588,7 @@ class KiwoomWebSocketClient:
                 total_purchase = float(total_purchase_str) if total_purchase_str else 0.0
                 order_available_qty = int(order_available_qty_str) if order_available_qty_str else 0
                 daily_net_buy = int(daily_net_buy_str) if daily_net_buy_str else 0
-                daily_total_profit = float(daily_total_profit_str) if daily_total_profit_str else 0.0
-                daily_realized_profit = float(daily_realized_profit_str) if daily_realized_profit_str else 0.0
-                # 991 필드는 % 값이므로 그대로 사용
-                daily_realized_profit_rate = float(daily_realized_profit_rate_str) if daily_realized_profit_rate_str else 0.0 
+                daily_total_profit = float(daily_total_profit_str) if daily_total_profit_str else 0.0 
                 
                 # 수량이 0보다 큰 경우에만 처리
                 if quantity > 0:
@@ -8620,8 +8640,6 @@ class KiwoomWebSocketClient:
                         'total_purchase': total_purchase,
                         'daily_net_buy': daily_net_buy,
                         'daily_total_profit': daily_total_profit,
-                        'daily_realized_profit': daily_realized_profit,
-                        'daily_realized_profit_rate': daily_realized_profit_rate,
                         'updated_at': datetime.now().isoformat()
                     }
                     
@@ -8677,11 +8695,7 @@ class KiwoomWebSocketClient:
                     if daily_total_profit != 0:
                         profit_symbol = "📈" if daily_total_profit > 0 else "📉"
                         self.logger.debug(f"  {profit_symbol} 당일총매도손익: {daily_total_profit:,.0f}원")
-                        
-                    if daily_realized_profit != 0:
-                        profit_symbol = "📈" if daily_realized_profit > 0 else "📉"
-                        self.logger.debug(f"  {profit_symbol} 당일실현손익: {daily_realized_profit:,.0f}원 ({daily_realized_profit_rate:+.2f}%)")
-                    
+
                     # 매수 주문 체결 시에만 UI에 추가 (매도 후 재추가 방지)
                     # 매수 체결은 process_order_execution_data에서 처리하므로, 여기서는 중복 추가를 방지합니다.
                     if stock_code in self.parent.trader.pending_buy_orders:
@@ -8699,15 +8713,20 @@ class KiwoomWebSocketClient:
                             prev_balance_info = self.balance_data.get(stock_code, {})
                             sold_qty = prev_balance_info.get('quantity', 0)
                             
-                            # 단일 종목의 실현 손익 로깅
-                            if daily_realized_profit != 0:
-                                profit_symbol = "✅" if daily_realized_profit > 0 else "❌"
-                                self.logger.info(f"  (종목별) 당일실현손익: {daily_realized_profit:+,.0f}원 ({daily_realized_profit_rate:+.2f}%)")
+                            # 당일총매도손익 및 손익률 로깅 (950, 8019 필드)
+                            daily_total_sell_profit_str = values.get('950', '0')
+                            daily_total_sell_profit_rate_str = values.get('8019', '0')
+                            daily_total_sell_profit = float(daily_total_sell_profit_str) if daily_total_sell_profit_str else 0.0
+                            daily_total_sell_profit_rate = float(daily_total_sell_profit_rate_str) if daily_total_sell_profit_rate_str else 0.0
+                            if daily_total_sell_profit != 0:
+                                self.logger.info(f"  당일총매도손익: {daily_total_sell_profit:+,}원 ({daily_total_sell_profit_rate:+.2f}%)")
 
                             # 전체 실현손익 조회 및 슬랙 알림 전송을 위한 비동기 태스크 생성
                             asyncio.create_task(self._send_total_profit_notification_on_sell(
                                 prev_balance_info,
-                                sold_qty
+                                sold_qty,
+                                daily_total_sell_profit,
+                                daily_total_sell_profit_rate
                             ))
                         else:
                             self.logger.warning("⚠️ 슬랙 알림 전송 실패: KiwoomClient를 찾을 수 없습니다.")
@@ -8755,22 +8774,19 @@ class KiwoomWebSocketClient:
         except Exception as e:
             self.logger.error(f"실시간 잔고 데이터 처리 실패: {e}", exc_info=True)
 
-    async def _send_total_profit_notification_on_sell(self, prev_balance_info, sold_qty):
+    async def _send_total_profit_notification_on_sell(self, prev_balance_info, sold_qty, daily_total_sell_profit, daily_total_sell_profit_rate):
         """
         전량 매도 완료 시, 계좌 전체의 당일 실현 손익을 조회하여 슬랙으로 알림을 보냅니다.
         """
         try:
             kiwoom_client = self.parent.login_handler.kiwoom_client
             
-            # REST API를 통해 계좌 전체의 당일 실현 손익 조회
-            total_profit, total_profit_rate = await kiwoom_client.get_daily_realized_profit()
-            
             # 슬랙 알림 전송
             await kiwoom_client.send_slack_sell_notification(
                 prev_balance_info=prev_balance_info,
                 sold_qty=sold_qty,
-                total_daily_profit=total_profit,
-                total_daily_profit_rate=total_profit_rate
+                daily_total_sell_profit=daily_total_sell_profit,
+                daily_total_sell_profit_rate=daily_total_sell_profit_rate
             )
         except Exception as e:
             self.logger.error(f"전체 실현 손익 슬랙 알림 전송 중 오류: {e}", exc_info=True)
@@ -8848,11 +8864,15 @@ class KiwoomWebSocketClient:
                 order_detail = self.parent.trader.sell_order_details.get(order_no)
                 if order_detail:
                     order_detail['filled_qty'] += exec_qty_int
-                    self.logger.debug(f"📊 부분 매도 체결 진행: 주문번호={order_no}, 체결량={exec_qty_int}주, 누적체결량={order_detail['filled_qty']}/{order_detail['total_qty']}")
+                    log_prefix = "전량" if order_detail.get('is_full_sale') else "부분"
+                    self.logger.debug(f"📊 {log_prefix} 매도 체결 진행: 주문번호={order_no}, 체결량={exec_qty_int}주, 누적체결량={order_detail['filled_qty']}/{order_detail['total_qty']}")
                 
                     # 주문 수량이 모두 체결되었는지 확인
                     if order_detail['filled_qty'] >= order_detail['total_qty']:
-                        self.logger.info(f"🎉 부분 매도 주문 완료: {stock_name}({stock_code}) {order_detail['total_qty']}주")
+                        if order_detail.get('is_full_sale'):
+                            self.logger.info(f"🎉 전량 매도 주문 완료: {stock_name}({stock_code}) {order_detail['total_qty']}주")
+                        else:
+                            self.logger.info(f"🎉 부분 매도 주문 완료: {stock_name}({stock_code}) {order_detail['total_qty']}주")
                         # 추적 목록에서 제거
                         del self.parent.trader.sell_order_details[order_no]
 
@@ -8923,7 +8943,7 @@ class KiwoomWebSocketClient:
             
             if not monitoring_exists:
                 self.parent.monitoring_manager.add_stock_to_monitoring(stock_code, None)
-                self.logger.info(f"✅ 모니터링 리스트에 추가: {stock_code} ({stock_name})")
+                self.logger.debug(f"✅ 모니터링 리스트에 추가: {stock_code} ({stock_name})")
             
             # 2. 보유종목 리스트에 추가
             holding_exists = False
@@ -8943,32 +8963,6 @@ class KiwoomWebSocketClient:
                 # 디버그 로그: 투자 현황표 업데이트 전 balance_data 상태
                 if hasattr(self, 'balance_data'):
                     self.logger.debug(f"🔍 투자 현황표 업데이트 전 WebSocket balance_data: {list(self.balance_data.keys())} ({len(self.balance_data)}개 종목)") # type: ignore
-                self.parent.update_stock_table()
-                
-        except Exception as e:
-            self.logger.error(f"UI 종목 추가 실패 ({stock_code}): {e}", exc_info=True)
-            
-    
-    def _add_stock_to_ui(self, stock_code, stock_name):
-        """UI에 종목 추가 (메인 스레드에서 실행)"""
-        try:
-            if not hasattr(self, 'parent') or not self.parent:
-                return
-            
-            # 보유종목 리스트에 추가
-            holding_exists = False
-            for i in range(self.parent.trading_tab.boughtBox.count()):
-                item_text = self.parent.trading_tab.boughtBox.item(i).text()
-                if stock_code in item_text:
-                    holding_exists = True
-                    break
-            
-            if not holding_exists:
-                self.parent.trading_tab.boughtBox.addItem(stock_code)
-                self.logger.info(f"✅ 보유종목 리스트에 추가: {stock_code} ({stock_name})")
-            
-            # 투자 현황표 업데이트
-            if hasattr(self.parent, 'update_stock_table'):
                 self.parent.update_stock_table()
                 
         except Exception as e:
@@ -10672,36 +10666,86 @@ class KiwoomRestClient:
             # API 실패 시 기존 캐시 데이터 반환 (있다면)
             return self._balance_cache if self._balance_cache else {}
 
-    async def get_daily_realized_profit(self) -> tuple[float, float]:
+    async def get_account_evaluation_status(self, cont_yn='N', next_key=''):
         """
-        계좌의 당일 실현 손익과 손익률을 조회합니다. (REST API)
+        계좌평가잔고내역요청 (kt00018) API를 호출하여 계좌 평가 현황을 조회합니다.
         
+        Args:
+            cont_yn (str): 연속조회여부 ('N' or 'Y')
+            next_key (str): 연속조회키
+            
         Returns:
-            tuple: (당일 실현 손익 금액, 당일 실현 손익률)
-                   조회 실패 시 (0.0, 0.0) 반환
+            dict: API 응답 데이터 (실패 시 빈 딕셔너리)
         """
         try:
-            balance_data = await self.get_acnt_balance()
-            if not balance_data:
-                self.logger.warning("⚠️ 당일 실현 손익 조회 실패: 계좌평가현황 데이터 없음")
-                return 0.0, 0.0
+            await self._ensure_client()
+            if not await self.check_token_validity():
+                return {}
 
-            # 키움 API 응답에서 당일 실현 손익 관련 필드 추출
-            # dts_dt_profit_loss_amt: 당일실현손익금액
-            # dts_dt_profit_loss_rate: 당일실현손익률
-            profit_amt_str = balance_data.get('dts_dt_profit_loss_amt', '0')
-            profit_rate_str = balance_data.get('dts_dt_profit_loss_rate', '0')
+            # API URL 설정
+            host = self.mock_url if self.is_mock else self.base_url
+            endpoint = '/api/dostk/acnt'
+            url = host + endpoint
 
-            profit_amt = float(profit_amt_str)
-            profit_rate = float(profit_rate_str)
+            # 헤더 데이터
+            headers = {
+                'Content-Type': 'application/json;charset=UTF-8',
+                'authorization': f'Bearer {self.access_token}',
+                'cont-yn': cont_yn,
+                'next-key': next_key,
+                'api-id': 'kt00018',
+            }
 
-            self.logger.info(f"💰 당일 실현 손익 조회 (전체): {profit_amt:,.0f}원 ({profit_rate:.2f}%)")
-            return profit_amt, profit_rate
+            # 요청 데이터
+            params = {
+                'qry_tp': '1',  # 조회구분 1:합산
+                'dmst_stex_tp': 'KRX',  # 국내거래소구분
+            }
+
+            # HTTP POST 요청
+            response = await self.client.post(url, headers=headers, json=params, timeout=10.0)
+            
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('return_code') == 0:
+                    self.logger.debug("✅ 계좌평가잔고내역 조회 성공")
+                    return data
+                else:
+                    error_msg = data.get('return_msg', '알 수 없는 오류')
+                    self.logger.error(f"❌ 계좌평가잔고내역 조회 API 오류: {error_msg}")
+                    return {}
+            else:
+                self.logger.error(f"❌ 계좌평가잔고내역 조회 HTTP 오류: {response.status_code}")
+                return {}
 
         except Exception as e:
-            self.logger.error(f"❌ 당일 실현 손익 조회 중 오류: {e}", exc_info=True)
-            return 0.0, 0.0
+            self.logger.error(f"❌ 계좌평가잔고내역 조회 중 예외 발생: {e}", exc_info=True)
+            return {}
 
+    async def get_daily_realized_profit(self) -> tuple[float, float]:
+        """
+        당일 실현 손익과 수익률을 조회합니다. (kt00018 API 사용)
+
+        Returns:
+            tuple[float, float]: (당일 총 실현 손익, 당일 총 실현 손익률)
+        """
+        try:
+            eval_status = await self.get_account_evaluation_status()
+            if eval_status and eval_status.get('return_code') == 0:
+                # API 응답에서 'tot_evlt_pl' (총평가손익금액)과 'tot_prft_rt' (총수익률) 필드를 사용합니다.
+                # 키움 API 문서에 따르면 kt00018의 응답에 당일 실현 손익 관련 필드가 포함되어 있습니다.
+                # 여기서는 'tot_evlt_pl'을 당일 실현 손익으로 간주합니다.
+                # 실제 필드명은 API 문서에 따라 정확히 확인해야 합니다.
+                total_profit = float(eval_status.get('tot_evlt_pl', 0))
+                total_profit_rate = float(eval_status.get('tot_prft_rt', 0.0))
+                self.logger.debug(f"✅ 당일 실현 손익 조회 성공: {total_profit:+,}원 ({total_profit_rate:.2f}%)")
+                return total_profit, total_profit_rate
+            else:
+                self.logger.warning("⚠️ 당일 실현 손익 조회 실패 (API 응답 오류)")
+                return 0.0, 0.0
+        except Exception as e:
+            self.logger.error(f"❌ 당일 실현 손익 조회 중 예외 발생: {e}", exc_info=True)
+            return 0.0, 0.0
     
     async def place_buy_order(self, code: str, quantity: int, price: int = 0, order_type: str = "market") -> bool:
         """매수 주문 (키움 REST API 기반) - 시장가만 지원 (비동기)
@@ -10908,7 +10952,7 @@ class KiwoomRestClient:
             self.logger.error(f"주문 내역 조회 중 오류: {e}", exc_info=True)
             return []    
 
-    async def send_slack_sell_notification(self, prev_balance_info: dict, sold_qty: int, total_daily_profit: float, total_daily_profit_rate: float) -> None:
+    async def send_slack_sell_notification(self, prev_balance_info: dict, sold_qty: int, daily_total_sell_profit: float, daily_total_sell_profit_rate: float) -> None:
         """매도 체결 시 슬랙 알림 전송"""
         try:
             # Slack 설정 로드
@@ -10931,19 +10975,19 @@ class KiwoomRestClient:
             fallback_text = f"전량 매도: {stock_name}"
 
             # 메시지 포맷
-            total_profit_text = f"*{total_daily_profit:+,}원* ({total_daily_profit_rate:+.2f}%)"
-            color = "#28a745" if total_daily_profit >= 0 else "#dc3545" # 수익: 녹색, 손실: 빨강
+            total_profit_text = f"*{daily_total_sell_profit:+,}원* ({daily_total_sell_profit_rate:+.2f}%)"
+            color = "#28a745" if daily_total_sell_profit >= 0 else "#dc3545" # 수익: 녹색, 손실: 빨강
             
             message = {
                 "text": title, # 모바일 알림 등에서 기본으로 표시될 텍스트
                 "attachments": [
                     {
                         "color": color,
-                        "fallback": f"{fallback_text} - 현재까지의 당일 총 실현손익: {total_daily_profit:+,}원",
+                        "fallback": f"{fallback_text} - 당일총매도손익: {daily_total_sell_profit:+,}원",
                         "fields": [
                             {"title": "매도 수량", "value": f"{sold_qty}주", "short": True},
                             {"title": "매입/매도 단가", "value": f"{average_price:,.0f} / {current_price:,.0f}", "short": True},
-                            {"title": "현재까지의 당일 총 실현손익", "value": total_profit_text, "short": False}
+                            {"title": "당일총매도손익", "value": total_profit_text, "short": False}
                         ],
                         "footer": "Kiwoom Auto Trader",
                         "ts": int(time.time())

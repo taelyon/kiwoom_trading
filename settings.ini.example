@@ -1,15 +1,14 @@
 [급등주]
 buy_stg_1 = {
-	"name": "60틱_모멘텀_돌파",
-	"content":"tic_MA5[-1] > tic_MA20[-1] and tic_MA20[-1] > tic_MA60[-1] and tic_close[-1] > tic_VWAP[-1] and tic_close[-1] > max(tic_high[-20:-1]) and tic_volume[-1] >= tic_avg_volume_20 * 2.0 and tic_RSI[-1] > 60 and tic_RSI[-2] <= 60 and tic_strength[-1] > 120 and min3_MA5[-1] > min3_MA20[-1]"}
+	"name": "60틱_모멘텀_빌드업",
+	"content": "tic_MA5[-1] > tic_MA20[-1] and tic_MA20[-1] > tic_MA60[-1] and tic_close[-1] > tic_VWAP[-1] and tic_RSI[-1] > 55 and tic_RSI[-2] <= 55 and tic_strength[-1] > 110 and min3_MA5[-1] > min3_MA20[-1] and tic_close[-1] > tic_BB_MIDDLE[-1]"
+}
 buy_stg_2 = {
 	"name": "60틱_눌림목_리버전",
 	"content": "tic_MA20[-1] > tic_MA60[-1] and tic_low[-2] <= tic_MA20[-2] and tic_close[-1] >= tic_MA20[-1] and tic_STOCHK[-2] < 30 and tic_STOCHK[-1] > 30 and tic_volume[-1] >= tic_avg_volume_20 * 1.3 and tic_close[-1] > tic_VWAP[-1] and is_pullback and min3_MA5[-1] > min3_MA20[-1]"}
-sell_stg_1 = {"name": "60틱_모멘텀_이익실현", "content": "current_price >= buy_price * 1.012 or (tic_high[-1] >= tic_BB_UPPER[-1] and tic_RSI[-1] >= 70) or tic_close[-1] <= tic_MA5[-1] or bars_since_entry >= 15"}
-sell_stg_2 = {"name": "60틱_눌림목_이익실현", "content": "current_price >= buy_price * 1.010 or (tic_high[-1] >= tic_BB_UPPER[-1] and tic_RSI[-1] >= 68) or tic_close[-1] <= tic_MA20[-1] or bars_since_entry >= 20"}
-sell_stg_3 = {
-	"name": "60틱_공통_손절",
-	"content": "current_price <= buy_price * 0.993 or from_peak_pct <= -0.7 or (tic_close[-1] <= tic_MA5[-1] and tic_RSI[-1] < 50)"}
+sell_stg_1 = {"name": "이익실현_및_추적손절", "content": "current_price >= buy_price * 1.025 or from_peak_pct <= -1.5"}
+sell_stg_2 = {"name": "시간초과_및_모멘텀_붕괴", "content": "bars_since_entry >= 30 or (tic_close[-1] < tic_MA20[-1] and tic_RSI[-1] < 50)"}
+sell_stg_3 = {"name": "공통_손절", "content": "current_price <= buy_price * 0.985"}
 
 [갭상승]
 
