@@ -348,6 +348,8 @@ class AsyncDatabaseManager:
             'MA5', 'MA10', 'MA20', 'MA50', 'MA60', 'MA120', 'RSI', 'MACD', 'MACD_SIGNAL', 'MACD_HIST',
             'BB_UPPER', 'BB_MIDDLE', 'BB_LOWER', 'STOCH_K', 'STOCH_D', 'WILLIAMS_R', 'ROC', 'OBV', 'OBV_MA20', 'ATR'
         ]
+        self._conn = None
+        self._db_lock = asyncio.Lock()
         # 비동기 초기화는 별도로 호출해야 함
         # self.init_database()  # 비동기 메서드이므로 직접 호출 불가
     
@@ -355,8 +357,11 @@ class AsyncDatabaseManager:
         """데이터베이스 초기화 (비동기 I/O)"""
         try:
             
-            async with aiosqlite.connect(self.db_path, timeout=10.0) as conn:
-                cursor = await conn.cursor()
+            if self._conn is None:
+                self._conn = await aiosqlite.connect(self.db_path, timeout=10.0)
+
+            async with self._db_lock:
+                cursor = await self._conn.cursor()
             
             # stock_data 테이블은 생성하지 않음 (틱 데이터와 분봉 데이터만 사용)
             
@@ -401,7 +406,7 @@ class AsyncDatabaseManager:
                 '''
                 await cursor.execute(create_table_sql)
                 
-                await conn.commit()
+                await self._conn.commit()
             
             # 데이터베이스 초기화 로그 제거
             
@@ -415,8 +420,11 @@ class AsyncDatabaseManager:
             if not tic_data or not min_data:
                 return
             
-            async with aiosqlite.connect(self.db_path, timeout=10.0) as conn:
-                cursor = await conn.cursor()
+            if self._conn is None:
+                await self.init_database()
+
+            async with self._db_lock:
+                cursor = await self._conn.cursor()
                 
                 current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 
@@ -548,7 +556,7 @@ class AsyncDatabaseManager:
 
                     await cursor.execute(sql, tuple(values))
                 
-                await conn.commit()
+                await self._conn.commit()
                 # 데이터 저장 완료 로그 제거 (너무 빈번함)
                 
         except Exception as ex:
@@ -635,8 +643,11 @@ class AsyncDatabaseManager:
     async def save_trade_record(self, code, datetime_str, order_type, quantity, price, strategy=""):
         """매매 기록 저장 (비동기 I/O)"""
         try:
-            async with aiosqlite.connect(self.db_path, timeout=10.0) as conn:
-                cursor = await conn.cursor()
+            if self._conn is None:
+                await self.init_database()
+
+            async with self._db_lock:
+                cursor = await self._conn.cursor()
                 
                 amount = quantity * price
                 
@@ -646,7 +657,7 @@ class AsyncDatabaseManager:
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                 ''', (code, datetime_str, order_type, quantity, price, amount, strategy))
                 
-                await conn.commit()
+                await self._conn.commit()
                 
                 self.logger.debug(f"매매 기록 저장: {code} {order_type} {quantity}주 @ {price}")
             
@@ -9620,7 +9631,7 @@ class KiwoomWebSocketClient:
             }
             
             # 시장 상태 상세 정보 로그 출력
-            self.logger.info(f"🔔 장운영구분 (215): {market_operation}, 체결시간 (20): {execution_time}, 장시작예상잔여시간 (214): {remaining_time}")
+            self.logger.debug(f"🔔 장운영구분 (215): {market_operation}, 체결시간 (20): {execution_time}, 장시작예상잔여시간 (214): {remaining_time}")
             
             # 장운영구분에 따른 상세 로그 메시지
             if market_operation == '0':
@@ -9637,6 +9648,8 @@ class KiwoomWebSocketClient:
                 self.logger.info("⏸️ 장종료 예상지수종료 시간입니다.")
             elif market_operation == '8':
                 self.logger.info("⏹️ 장마감 시간이 되었습니다. 거래가 종료됩니다.")
+            elif market_operation == 'o':
+                self.logger.info("ℹ️ 장 개시 전 시간외 종가매매 시간입니다.")
             elif market_operation == 'a':
                 self.logger.info("ℹ️ 시간외 종가매매 시작")
             elif market_operation == 'P':
@@ -10236,7 +10249,7 @@ class KiwoomRestClient:
                         if self.client:
                             self.client.headers['Authorization'] = f'Bearer {self.access_token}'
                         
-                        self.logger.info(f"접근토큰 발급 성공 - 토큰: {self.access_token[:10]}..., 만료: {self.token_expires_at}")
+                        self.logger.info(f"접근토큰 발급 성공, 만료: {self.token_expires_at}")
                         
                         return True
                     elif response.status_code == 500:
