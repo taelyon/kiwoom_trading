@@ -86,8 +86,14 @@ class KiwoomIndicatorExtractor:
     logger = logging.getLogger(__qualname__)
        
     @staticmethod
-    def extract_chart_indicators(chart_data):
-        """차트 데이터에서 기술적 지표 추출 (캐시된 지표 우선 활용)"""
+    def extract_chart_indicators(chart_data, allowed_indicators=None):
+        """
+        차트 데이터에서 기술적 지표 추출 (캐시된 지표 우선 활용)
+        
+        Args:
+            chart_data: 차트 데이터 DataFrame
+            allowed_indicators: 계산할 지표 이름 리스트 (None이면 모든 지표 계산)
+        """
         try:
             if chart_data.empty:
                 return {}
@@ -118,6 +124,10 @@ class KiwoomIndicatorExtractor:
 
             indicators = {}
 
+            def is_target(key):
+                if allowed_indicators is None: return True
+                return key in allowed_indicators
+
             # 1. 캐시된 지표가 있으면 그대로 사용
             cached_indicator_keys = [
                 'MA5', 'MA10', 'MA20', 'MA60', 'RSI', 'MACD', 'MACD_SIGNAL', 'MACD_HIST',
@@ -125,7 +135,7 @@ class KiwoomIndicatorExtractor:
                 'BB_UPPER', 'BB_MIDDLE', 'BB_LOWER', 'ATR'
             ]
             for key in cached_indicator_keys:
-                if key in chart_data.columns:
+                if is_target(key) and key in chart_data.columns:
                     indicator_values = chart_data[key].values
                     if len(indicator_values) > 0 and not np.all(np.isnan(indicator_values)):
                         indicators[key] = indicator_values
@@ -133,70 +143,72 @@ class KiwoomIndicatorExtractor:
             # 2. 캐시에 없는 지표만 재계산
 
             # 이동평균선
-            if 'MA5' not in indicators:
+            if is_target('MA5') and 'MA5' not in indicators:
                 indicators['MA5'] = talib.SMA(close, timeperiod=5) if len(close) >= 5 else np.full(len(close), np.nan)
-            if 'MA10' not in indicators:
+            if is_target('MA10') and 'MA10' not in indicators:
                 indicators['MA10'] = talib.SMA(close, timeperiod=10) if len(close) >= 10 else np.full(len(close), np.nan)
-            if 'MA20' not in indicators:
+            if is_target('MA20') and 'MA20' not in indicators:
                 indicators['MA20'] = talib.SMA(close, timeperiod=20) if len(close) >= 20 else np.full(len(close), np.nan)
-            if 'MA60' not in indicators:
+            if is_target('MA60') and 'MA60' not in indicators:
                 indicators['MA60'] = talib.SMA(close, timeperiod=60) if len(close) >= 60 else np.full(len(close), np.nan)
 
             # RSI
-            if 'RSI' not in indicators:
+            if is_target('RSI') and 'RSI' not in indicators:
                 indicators['RSI'] = talib.RSI(close, timeperiod=14) if len(close) >= 14 else np.full(len(close), np.nan)
 
-            if 'RSI' in indicators and 'RSI_SIGNAL' not in indicators and len(indicators['RSI']) >= 5:
+            if is_target('RSI_SIGNAL') and 'RSI' in indicators and 'RSI_SIGNAL' not in indicators and len(indicators['RSI']) >= 5:
                 indicators['RSI_SIGNAL'] = talib.SMA(indicators['RSI'], timeperiod=5)
 
             # MACD
-            if 'MACD' not in indicators:
+            if (is_target('MACD') or is_target('MACD_SIGNAL') or is_target('MACD_HIST')) and 'MACD' not in indicators:
                 indicators['MACD'], indicators['MACD_SIGNAL'], indicators['MACD_HIST'] = (talib.MACD(close) if len(close) >= 26 
                                                                                         else (np.full(len(close), np.nan), np.full(len(close), np.nan), np.full(len(close), np.nan)))
 
             # 스토캐스틱
-            if 'STOCHK' not in indicators and len(high) >= 14 and len(low) >= 14:
+            if (is_target('STOCHK') or is_target('STOCHD')) and 'STOCHK' not in indicators and len(high) >= 14 and len(low) >= 14:
                 indicators['STOCHK'], indicators['STOCHD'] = talib.STOCH(high, low, close)
 
             # 볼린저 밴드
-            if 'BB_UPPER' not in indicators and len(close) >= 20:
+            if (is_target('BB_UPPER') or is_target('BB_MIDDLE') or is_target('BB_LOWER')) and 'BB_UPPER' not in indicators and len(close) >= 20:
                 bb_upper, bb_middle, bb_lower = talib.BBANDS(close, timeperiod=20)
                 indicators['BB_UPPER'] = bb_upper
                 indicators['BB_MIDDLE'] = bb_middle
                 indicators['BB_LOWER'] = bb_lower
 
             # BB_POSITION과 BB_BANDWIDTH는 항상 재계산 (다른 BB 지표에 의존)
-            if 'BB_UPPER' in indicators and 'BB_LOWER' in indicators and 'BB_MIDDLE' in indicators:
+            if (is_target('BB_POSITION') or is_target('BB_BANDWIDTH')) and 'BB_UPPER' in indicators and 'BB_LOWER' in indicators and 'BB_MIDDLE' in indicators:
                 bb_upper = indicators['BB_UPPER']
                 bb_middle = indicators['BB_MIDDLE']
                 bb_lower = indicators['BB_LOWER']
                 bb_range = bb_upper - bb_lower
                 safe_bb_range = np.where(bb_range == 0, 1e-9, bb_range)
-                indicators['BB_POSITION'] = (close - bb_lower) / safe_bb_range
-                safe_bb_middle = np.where(bb_middle == 0, 1e-9, bb_middle)
-                indicators['BB_BANDWIDTH'] = bb_range / safe_bb_middle
+                if is_target('BB_POSITION'):
+                    indicators['BB_POSITION'] = (close - bb_lower) / safe_bb_range
+                if is_target('BB_BANDWIDTH'):
+                    safe_bb_middle = np.where(bb_middle == 0, 1e-9, bb_middle)
+                    indicators['BB_BANDWIDTH'] = bb_range / safe_bb_middle
 
             # ATR (Average True Range)
-            if 'ATR' not in indicators and len(high) >= 14 and len(low) >= 14:
+            if is_target('ATR') and 'ATR' not in indicators and len(high) >= 14 and len(low) >= 14:
                 indicators['ATR'] = talib.ATR(high, low, close, timeperiod=14)
 
             # Williams %R
-            if 'WILLIAMS_R' not in indicators and len(high) >= 14 and len(low) >= 14:
+            if is_target('WILLIAMS_R') and 'WILLIAMS_R' not in indicators and len(high) >= 14 and len(low) >= 14:
                 indicators['WILLIAMS_R'] = talib.WILLR(high, low, close, timeperiod=14)
 
             # ROC (Rate of Change)
-            if 'ROC' not in indicators and len(close) >= 12:
+            if is_target('ROC') and 'ROC' not in indicators and len(close) >= 12:
                 indicators['ROC'] = talib.ROC(close, timeperiod=12)
 
             # OBV (On Balance Volume)
-            if 'OBV' not in indicators and len(close) >= 1 and len(volume) >= 1:
+            if (is_target('OBV') or is_target('OBV_MA20')) and 'OBV' not in indicators and len(close) >= 1 and len(volume) >= 1:
                 obv = talib.OBV(close, volume)
                 indicators['OBV'] = obv
-            if 'OBV' in indicators and 'OBV_MA20' not in indicators and len(indicators['OBV']) >= 20:
+            if is_target('OBV_MA20') and 'OBV' in indicators and 'OBV_MA20' not in indicators and len(indicators['OBV']) >= 20:
                 indicators['OBV_MA20'] = talib.SMA(indicators['OBV'], timeperiod=20)
             
             # VWAP 계산
-            if len(close) >= 1 and len(volume) >= 1:
+            if is_target('VWAP') and len(close) >= 1 and len(volume) >= 1:
                 typical_price = (high + low + close) / 3
                 
                 # 누적 VWAP를 배열 형태로 계산

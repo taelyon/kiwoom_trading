@@ -167,13 +167,6 @@ class TradingTabWidget(QWidget):
         self.comboStg.setFixedWidth(200)
         strategyLayout.addWidget(self.comboStg, alignment=Qt.AlignmentFlag.AlignLeft)
         strategyLayout.addStretch()
-        self.counterlabel = QLabel('타이머: 0')
-        self.counterlabel.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        strategyLayout.addWidget(self.counterlabel)
-        self.chart_status_label = QLabel("Chart: None")
-        self.chart_status_label.setProperty("class", "disconnected")
-        self.chart_status_label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        strategyLayout.addWidget(self.chart_status_label)
 
         # 매수 전략
         buyStrategyLayout = QHBoxLayout()

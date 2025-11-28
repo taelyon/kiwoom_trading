@@ -19,11 +19,14 @@ class AsyncDatabaseManager:
             'MA5', 'MA10', 'MA20', 'MA50', 'MA60', 'MA120', 'RSI', 'MACD', 'MACD_SIGNAL', 'MACD_HIST',
             'BB_UPPER', 'BB_MIDDLE', 'BB_LOWER', 'STOCH_K', 'STOCH_D', 'WILLIAMS_R', 'ROC', 'OBV', 'OBV_MA20', 'ATR'
         ]
+        # 3분봉 저장 대상 지표 (DB 스키마 및 저장 시 사용)
+        self.min_target_indicators = [
+            'MA5', 'MA10', 'MA20', 'MA50', 'MA60', 'MA120', 
+            'RSI', 'MACD', 'MACD_SIGNAL', 'MACD_HIST'
+        ]
         self._conn = None
         self._db_lock = asyncio.Lock()
-        # 비동기 초기화는 별도로 호출해야 함
-        # self.init_database()  # 비동기 메서드이므로 직접 호출 불가
-    
+
     async def init_database(self):
         """데이터베이스 초기화 (비동기 I/O)"""
         try:
@@ -53,7 +56,8 @@ class AsyncDatabaseManager:
             
                 # 통합 주식 데이터 테이블 동적 생성
                 tic_indicator_cols = ", ".join([f"tic_{col.lower()} REAL" for col in self.indicator_list])
-                min_indicator_cols = ", ".join([f"min3_{col.lower()} REAL" for col in self.indicator_list])
+                # min_indicator_cols는 min_target_indicators에 있는 것만 생성
+                min_indicator_cols = ", ".join([f"min3_{col.lower()} REAL" for col in self.indicator_list if col in self.min_target_indicators])
                 
                 create_table_sql = f'''
                     CREATE TABLE IF NOT EXISTS stock_data (
@@ -122,16 +126,22 @@ class AsyncDatabaseManager:
                 # 테이블 스키마 동적 업데이트
                 await self._ensure_table_schema(cursor, all_indicators)
 
+                # 3분봉용 저장할 지표 필터링 (self.min_target_indicators 사용)
+                # min_target_indicators = [...] # 삭제됨
+                
                 # 동적으로 컬럼명과 플레이스홀더 생성
                 tic_indicator_cols = ", ".join([f"tic_{col.lower()}" for col in all_indicators])
-                min_indicator_cols = ", ".join([f"min3_{col.lower()}" for col in all_indicators])
+                # min_indicator_cols는 min_target_indicators에 있는 것만 생성 (all_indicators에 포함되어 있어야 함)
+                min_indicator_cols = ", ".join([f"min3_{col.lower()}" for col in all_indicators if col in self.min_target_indicators])
                 
                 columns = (
                     "code, datetime, tic_open, tic_high, tic_low, tic_close, tic_volume, tic_strength, "
                     f"{tic_indicator_cols}, {min_indicator_cols}, created_at"
                 )
                 
-                placeholders = ", ".join(["?"] * (9 + len(all_indicators) * 2))
+                # min_indicator_cols에 포함된 컬럼 개수 계산
+                min_col_count = len([col for col in all_indicators if col in self.min_target_indicators])
+                placeholders = ", ".join(["?"] * (9 + len(all_indicators) + min_col_count))
 
                 sql = f"INSERT OR REPLACE INTO stock_data ({columns}) VALUES ({placeholders})"
                 
@@ -191,13 +201,27 @@ class AsyncDatabaseManager:
 
                     # 분봉 기술적 지표 값 추가
                     for indicator in all_indicators:
-                        try:
-                            indicator_data = min_data.get(indicator, [])
-                            
-                            # 배열인 경우 특정 인덱스 접근
-                            if isinstance(indicator_data, (list, tuple, np.ndarray)):
-                                if min_idx >= 0 and min_idx < len(indicator_data):
-                                    value = indicator_data[min_idx]
+                        if indicator in self.min_target_indicators:
+                            try:
+                                indicator_data = min_data.get(indicator, [])
+                                
+                                # 배열인 경우 특정 인덱스 접근
+                                if isinstance(indicator_data, (list, tuple, np.ndarray)):
+                                    if min_idx >= 0 and min_idx < len(indicator_data):
+                                        value = indicator_data[min_idx]
+                                        # numpy scalar 변환
+                                        if isinstance(value, np.generic):
+                                            value = value.item()
+                                        # NaN이 아닌 경우에만 추가
+                                        if not pd.isna(value):
+                                            values.append(value)
+                                        else:
+                                            values.append(None)
+                                    else:
+                                        values.append(None)
+                                else:
+                                    # 단일 값인 경우
+                                    value = indicator_data
                                     # numpy scalar 변환
                                     if isinstance(value, np.generic):
                                         value = value.item()
@@ -206,22 +230,9 @@ class AsyncDatabaseManager:
                                         values.append(value)
                                     else:
                                         values.append(None)
-                                else:
-                                    values.append(None)
-                            else:
-                                # 단일 값인 경우
-                                value = indicator_data
-                                # numpy scalar 변환
-                                if isinstance(value, np.generic):
-                                    value = value.item()
-                                # NaN이 아닌 경우에만 추가
-                                if not pd.isna(value):
-                                    values.append(value)
-                                else:
-                                    values.append(None)
-                        except Exception as ex:
-                            self.logger.debug(f"분봉 지표 처리 중 오류 ({indicator}): {ex}")
-                            values.append(None)
+                            except Exception as ex:
+                                self.logger.debug(f"분봉 지표 처리 중 오류 ({indicator}): {ex}")
+                                values.append(None)
                     
                     values.append(current_time)
 
@@ -248,8 +259,11 @@ class AsyncDatabaseManager:
                 
                 if tic_col not in existing_columns:
                     new_columns.append(tic_col)
-                if min_col not in existing_columns: # min_ -> min3_
-                    new_columns.append(min_col)
+                
+                # 3분봉 컬럼은 min_target_indicators에 포함된 경우에만 추가
+                if indicator in self.min_target_indicators:
+                    if min_col not in existing_columns: # min_ -> min3_
+                        new_columns.append(min_col)
             
             # 새 컬럼들 추가
             for col in new_columns:
