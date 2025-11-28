@@ -1,0 +1,688 @@
+import logging
+import asyncio
+import configparser
+import json
+import traceback
+import pandas as pd
+from datetime import datetime
+from PyQt6.QtCore import QObject, pyqtSignal
+
+import strategy_utils
+
+# ==================== 키움 전략 클래스 ====================
+class KiwoomStrategy(QObject):
+    """키움 REST API 기반 전략 클래스"""
+    
+    # 시그널 정의
+    signal_strategy_result = pyqtSignal(str, str, dict)  # code, action, data
+    clear_signal = pyqtSignal()
+    
+    def __init__(self, trader, parent):
+        super().__init__()
+        self.logger = logging.getLogger(self.__class__.__name__)
+        self.trader = trader
+        self.client = trader.client
+        self.db_manager = trader.db_manager
+        self.parent = parent
+
+        # 종목별 매수 신호 생성 동시성 제어를 위한 Lock
+        self._buy_signal_locks: dict[str, asyncio.Lock] = {}
+        
+        # PyQt6에서는 QTextCursor 메타타입 등록이 불필요함
+        
+        # 전략 설정 로드
+        self.load_strategy_config()
+            
+    def load_strategy_config(self):
+        """전략 설정 로드"""
+        try:
+            config = configparser.RawConfigParser()
+            config.read('settings.ini', encoding='utf-8')
+            
+            # 현재 전략 로드
+            self.current_strategy = config.get('SETTINGS', 'last_strategy', fallback='통합 전략')
+            
+            # 전략별 설정 로드 - [STRATEGIES] 섹션 기반으로 동적 로드
+            self.strategy_config = {}
+            if config.has_section('STRATEGIES'):
+                for key, strategy_name in config.items('STRATEGIES'):
+                    if key.startswith('stg_') or key == 'stg_integrated':
+                        # 해당 전략명과 일치하는 섹션이 있으면 로드
+                        if config.has_section(strategy_name):
+                            self.strategy_config[strategy_name] = dict(config.items(strategy_name)) # type: ignore
+                            self.logger.debug(f"✅ 전략 설정 로드: {strategy_name}")
+            
+            self.logger.debug(f"전략 설정 로드 완료: {self.current_strategy}")
+            
+        except Exception as ex:
+            self.logger.error(f"전략 설정 로드 실패: {ex}", exc_info=True)
+    
+    async def evaluate_strategy(self, code, market_data):
+        """전략 평가 및 실행 (비동기)"""
+        try:
+            # 디버그 로그: 최초 1회만 출력 (종목별)
+            if not hasattr(self, '_eval_debug_codes'):
+                self._eval_debug_codes = set()
+            
+            is_first_eval = code not in self._eval_debug_codes
+            if is_first_eval:
+                self.logger.debug(f"📊 [{code}] 전략 평가 시작 (전략: {self.current_strategy})")
+                self._eval_debug_codes.add(code)
+            
+            # 현재 전략에 따른 매수/매도 신호 평가
+            # 1. 통합 전략이 선택된 경우: 모든 종목에 통합 전략 적용
+            # 2. 조건검색으로 찾은 종목: 해당 조건검색의 전략 사용
+            # 3. 그 외: 현재 선택된 전략 사용
+            
+            stock_condition_map = self.parent.stock_condition_map if hasattr(self.parent, 'stock_condition_map') else {}
+            
+            # UI에서 선택된 전략
+            selected_strategy_name = self.current_strategy
+            
+            # 실제 적용할 전략 결정
+            # 1순위: 조건검색으로 포착된 종목은 해당 조건검색식의 전략을 사용
+            if code in stock_condition_map:
+                effective_strategy_name = stock_condition_map[code]
+                if is_first_eval:
+                    self.logger.debug(f"📍 [{code}] 조건검색 전략 사용: {effective_strategy_name} (UI 선택: {selected_strategy_name})")
+            # 2순위: 그 외의 경우(수동 추가 등)는 UI에서 선택된 전략을 사용
+            else:
+                effective_strategy_name = selected_strategy_name
+                if is_first_eval:
+                    self.logger.debug(f"📍 [{code}] UI 선택 전략 사용: {effective_strategy_name}")
+            
+            if effective_strategy_name != "통합 전략" and effective_strategy_name not in self.strategy_config:
+                if is_first_eval:
+                    self.logger.warning(f"⚠️ [{code}] 전략 '{effective_strategy_name}'이 설정에 없음")
+                return
+            
+            if is_first_eval:
+                self.logger.debug(f"✅ [{code}] 전략 설정 확인됨: {effective_strategy_name}")
+            
+            # 매수 신호 평가
+            buy_signals = await self.get_buy_signals(code, market_data, effective_strategy_name)
+            if buy_signals:
+                self.logger.debug(f"📈 [{code}] 매수 신호 {len(buy_signals)}개 발견")
+                await self.execute_buy_signals(code, buy_signals)
+            elif is_first_eval:
+                self.logger.debug(f"ℹ️ [{code}] 매수 조건 미충족")
+            
+            # 매도 신호 평가 (보유 종목인 경우에만)
+            portfolio = self.trader.get_portfolio_status()
+            if code in portfolio['holdings']:
+                if is_first_eval:
+                    self.logger.debug(f"🔎 [{code}] 보유 종목 - 매도 평가 진행")
+                sell_signals = await self.get_sell_signals(code, market_data, effective_strategy_name)
+                if sell_signals:
+                    self.logger.debug(f"📉 [{code}] 매도 신호 {len(sell_signals)}개 발견")
+                    await self.execute_sell_signals(code, sell_signals)
+            else:
+                # 보유 종목이 아닌 경우 디버그 로그 (최초 1회만)
+                if is_first_eval:
+                    # 웹소켓 balance_data 확인
+                    ws_has_stock = False
+                    try:
+                        if (hasattr(self.parent, 'login_handler') and self.parent.login_handler and
+                            hasattr(self.parent.login_handler, 'websocket_client') and self.parent.login_handler.websocket_client and
+                            hasattr(self.parent.login_handler.websocket_client, 'balance_data')):
+                            ws_balance_data = self.parent.login_handler.websocket_client.balance_data
+                            if ws_balance_data and code in ws_balance_data:
+                                ws_quantity = ws_balance_data[code].get('quantity', 0)
+                                if ws_quantity > 0:
+                                    ws_has_stock = True
+                                    self.logger.warning(f"⚠️ [{code}] 웹소켓에는 보유 중이지만 self.holdings에 없음 (웹소켓 수량: {ws_quantity}주)")
+                                    self.logger.warning(f"get_portfolio_status 동기화 필요 - holdings: {list(portfolio['holdings'].keys())}, 웹소켓: {list(ws_balance_data.keys())}")
+                    except Exception as ws_check_ex:
+                        self.logger.debug(f"웹소켓 체크 중 오류: {ws_check_ex}", exc_info=True)
+                    
+                    if not ws_has_stock:
+                        self.logger.debug(f"ℹ️ [{code}] 보유 종목 아님 - 매도 평가 건너뜀")
+                    
+        except Exception as ex:
+            self.logger.error(f"전략 평가 실패 ({code}): {ex}", exc_info=True)
+            
+    
+    async def get_buy_signals(self, code, market_data, strategy_name):
+        """매수 신호 생성 - strategy_utils를 사용한 기술적 지표 기반 평가"""
+        try:
+            # 종목별 Lock 가져오기 또는 생성
+            if code not in self._buy_signal_locks:
+                self._buy_signal_locks[code] = asyncio.Lock()
+            lock = self._buy_signal_locks[code]
+
+            async with lock:
+                signals = []
+                
+                # 디버그 로그: 최초 1회만 출력 (종목별)
+                if not hasattr(self, '_buy_signal_debug_codes'):
+                    self._buy_signal_debug_codes = set()
+                
+                is_first_check = code not in self._buy_signal_debug_codes
+                if is_first_check:
+                    self.logger.debug(f"🔍 [{code}] 매수 신호 검사 시작")
+                    self._buy_signal_debug_codes.add(code)
+                
+                # 포트폴리오 상태 확인
+                portfolio = self.trader.get_portfolio_status()
+                if portfolio['total_holdings'] >= portfolio['max_holdings']:
+                    if is_first_check:
+                        self.logger.debug(f"⚠️ [{code}] 매수 불가: 보유 종목 수 한도 도달 ({portfolio['total_holdings']}/{portfolio['max_holdings']})")
+                    return signals
+                
+                # 이미 보유 중인 종목인지 확인
+                if code in portfolio['holdings']:
+                    if is_first_check:
+                        self.logger.debug(f"⚠️ [{code}] 매수 불가: 이미 보유 중")
+                    return signals
+
+                # '매수 주문 진행 중'인 종목은 매수 신호 생성 건너뛰기 (중복 주문 방지 강화)
+                if hasattr(self.trader, 'pending_buy_orders') and code in self.trader.pending_buy_orders:
+                    if is_first_check:
+                        self.logger.debug(f"⏳ [{code}] 매수 주문이 이미 진행 중이므로 신호 생성을 건너뜁니다.")
+                    return signals
+
+                # '매수 주문 진행 중'인 종목은 매수 신호 생성 건너뛰기
+                if code in self.trader.pending_buy_orders:
+                    if is_first_check:
+                        self.logger.debug(f"⏳ [{code}] 매수 주문이 이미 진행 중이므로 신호 생성을 건너뜁니다.")
+                    return signals
+                
+                # 차트 데이터 가져오기 (틱/분봉) - chart_cache에서 직접 가져오기
+                tic_chart_data = pd.DataFrame()
+                min_chart_data = pd.DataFrame()
+                if hasattr(self.parent, 'chart_cache') and self.parent.chart_cache:
+                    cache_data = self.parent.chart_cache.get_cached_data(code)
+                    if cache_data:
+                        tic_data = cache_data.get('tic_data', {})
+                        min_data = cache_data.get('min_data', {})
+                        previous_close = cache_data.get('previous_close', 0)
+                        current_open = cache_data.get('current_open', 0)
+
+                        if tic_data and len(tic_data.get('close', [])) > 0:
+                            try:
+                                tic_chart_data = pd.DataFrame(tic_data).dropna().reset_index(drop=True)
+                            except Exception as ex:
+                                if is_first_check:
+                                    self.logger.warning(f"차트 데이터 변환 실패 ({code}): {ex}", exc_info=True)
+                                tic_chart_data = pd.DataFrame()
+
+                        if min_data and len(min_data.get('close', [])) > 0:
+                            try:
+                                min_chart_data = pd.DataFrame(min_data).dropna().reset_index(drop=True)
+                            except Exception as ex:
+                                if is_first_check:
+                                    self.logger.warning(f"분봉 차트 데이터 변환 실패 ({code}): {ex}", exc_info=True)
+                                min_chart_data = pd.DataFrame()
+
+                        if is_first_check:
+                            self.logger.debug(f"✅ [{code}] 차트 데이터 준비 완료: {len(tic_chart_data)}개 틱, {len(min_chart_data)}개 분봉")
+                    else:
+                        if is_first_check:
+                            self.logger.warning(f"⚠️ [{code}] cache_data가 없음")
+                else:
+                    if is_first_check:
+                        self.logger.warning(f"⚠️ [{code}] chart_cache 없음")
+                
+                # 매수 전략 로드
+                # 차트 데이터가 비어있으면 평가를 건너뜀
+                if tic_chart_data.empty:
+                    if is_first_check:
+                        self.logger.debug(f"ℹ️ [{code}] 틱 차트 데이터가 비어있어 매수 평가를 건너뜁니다.")
+                    return signals
+
+                buy_strategies = []
+
+                # 통합 전략: '급등주' + '갭상승' 전략을 합산 적용
+                if strategy_name == "통합 전략":
+                    merged_sections = []
+                    if '급등주' in self.strategy_config:
+                        merged_sections.append(('급등주', self.strategy_config['급등주']))
+                    if '갭상승' in self.strategy_config:
+                        merged_sections.append(('갭상승', self.strategy_config['갭상승']))
+
+                    for section_name, section_conf in merged_sections:
+                        # buy_stg_* 만 숫자순 정렬해 결합
+                        items = sorted([item for item in section_conf.items() if item[0].startswith('buy_stg_')], key=lambda x: int(x[0].split('_')[-1]))
+                        items.sort(key=lambda x: int(x[0].split('_')[-1]) if x[0].split('_')[-1].isdigit() else 999)
+                        for key, value in items:
+                            try:
+                                strategy_data = json.loads(value)
+                                # 전략명에 섹션 표기 추가(로그 가독성)
+                                if isinstance(strategy_data, dict) and 'name' in strategy_data:
+                                    strategy_data['name'] = f"[{section_name}] {strategy_data['name']}"
+                                buy_strategies.append(strategy_data)
+                            except json.JSONDecodeError:
+                                if is_first_check: # type: ignore
+                                    self.logger.warning(f"⚠️ [{code}] 매수 전략 파싱 실패: {section_name}.{key}")
+
+                    if buy_strategies and is_first_check:
+                        self.logger.debug(f"✅ [{code}] 통합 전략 로드 완료: 급등주+갭상승 매수 전략 {len(buy_strategies)}개")
+                else:
+                    # 개별 전략 섹션에서 매수 조건 가져오기
+                    if strategy_name in self.strategy_config:
+                        strategy_conf = self.strategy_config[strategy_name]
+                        items = sorted([item for item in strategy_conf.items() if item[0].startswith('buy_stg_')], key=lambda x: int(x[0].split('_')[-1]))
+                        items.sort(key=lambda x: int(x[0].split('_')[-1]) if x[0].split('_')[-1].isdigit() else 999)
+                        for key, value in items:
+                            try:
+                                strategy_data = json.loads(value)
+                                buy_strategies.append(strategy_data)
+                            except json.JSONDecodeError:
+                                if is_first_check: # type: ignore
+                                    self.logger.warning(f"⚠️ [{code}] 매수 전략 파싱 실패: {key}")
+                        if buy_strategies and is_first_check:
+                            self.logger.debug(f"✅ [{code}] strategy_config에서 매수 전략 {len(buy_strategies)}개 로드됨: {strategy_name}")
+                
+                # 전략이 없으면 기본 전략 사용 (매우 보수적)
+                if not buy_strategies:
+                    if is_first_check:
+                        self.logger.warning(f"⚠️ [{code}] 매수 전략 없음 - 기본 전략 사용 (RSI < 30 + MACD 골든크로스)")
+                    # 기본 전략: RSI 과매도 + MACD 골든크로스
+                    buy_strategies = [{
+                        'name': '기본 전략',
+                        'conditions': [
+                            {'indicator': 'RSI', 'operator': '<', 'value': 30},
+                            {'indicator': 'MACD_HIST', 'operator': '>', 'value': 0}
+                        ]
+                    }]
+                
+                if is_first_check:
+                    self.logger.debug(f"✅ [{code}] 최종 매수 전략 {len(buy_strategies)}개 준비 완료")
+                
+                # strategy_utils를 사용하여 매수 전략 평가
+                safe_locals = strategy_utils.prepare_buy_strategy_locals(
+                    code, tic_chart_data, min_chart_data, portfolio
+                )
+                condition_met, matched_strategy = strategy_utils.evaluate_strategies(
+                    buy_strategies, safe_locals, code, "매수"
+                )
+                
+                if is_first_check:
+                    self.logger.debug(f"ℹ️ [{code}] 매수 조건 {'충족' if condition_met else '미충족'}: {matched_strategy.get('name', 'N/A') if matched_strategy else ''}")
+                
+                if condition_met and matched_strategy:
+                    current_price = market_data.get('current_price', 0)
+                    
+                    # 매수 수량 계산 (최대투자종목수 기반 분산투자)
+                    # 주의: get_buy_signals는 동기 메서드이므로 비동기 호출이 어려움
+                    available_cash = await self.trader.get_available_cash()
+                    
+                    # 가용자금이 0 이하이거나 현재가가 0이면 매수 신호 생성 안함
+                    if available_cash <= 0:
+                        if is_first_check:
+                            self.logger.debug(f"ℹ️ [{code}] 가용자금 부족으로 매수 불가 ({available_cash:,.0f}원)")
+                        return []
+                    
+                    if current_price <= 0:
+                        if is_first_check:
+                            self.logger.debug(f"ℹ️ [{code}] 현재가 정보 없음 - 매수 불가")
+                        return []
+                    
+                    # 매수가능 종목수 조회
+                    if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'login_handler'):
+                        available_buy_count = self.parent.login_handler.get_available_buy_count()
+                    else:
+                        available_buy_count = portfolio.get('max_holdings', 3) - portfolio.get('total_holdings', 0)
+                    
+                    # 매수 가능 종목수가 0 이하면 매수 신호 생성 안함
+                    if available_buy_count <= 0:
+                        if is_first_check:
+                            self.logger.debug(f"ℹ️ [{code}] 최대 보유 종목수 도달 - 매수 불가")
+                        return []
+                    
+                    # 한 종목당 투자 예산 = 가용자금 ÷ 매수가능종목수
+                    budget = available_cash // available_buy_count
+                    quantity = max(1, int(budget / current_price))
+                    
+                    strategy_display_name = matched_strategy.get('name', strategy_name)
+                    self.logger.info(f"📈 매수 신호 발생: {code} - {strategy_display_name}")
+                    self.logger.debug(f"💰 매수 수량 계산: 가용자금={available_cash:,.0f}원, 매수가능종목={available_buy_count}개")
+                    self.logger.debug(f"   종목당예산={budget:,.0f}원, 현재가={current_price:,}원 → {quantity}주")
+                    
+                    signals.append({
+                        'strategy': matched_strategy.get('name', strategy_name),
+                        'code': code,
+                        'quantity': quantity,
+                        'price': 0,  # 시장가
+                        'reason': f"기술적 지표 기반 매수 조건 충족: {matched_strategy.get('name', '')}"
+                    })
+                
+                return signals
+            
+        except Exception as ex:
+            self.logger.error(f"매수 신호 생성 실패 ({code}): {ex}", exc_info=True)
+            traceback.print_exc()
+            return []
+    
+    async def get_sell_signals(self, code, market_data, strategy_name):
+        """매도 신호 생성 - strategy_utils를 사용한 기술적 지표 기반 평가 (비동기)"""
+        try:
+            signals = []
+            
+            # 디버그: 최초 1회만 매도 평가 시작 로그
+            if not hasattr(self, '_sell_eval_codes'):
+                self._sell_eval_codes = set()
+            is_first_sell_check = code not in self._sell_eval_codes
+            if is_first_sell_check:
+                self._sell_eval_codes.add(code)
+            
+            # 보유 중인 종목인지 확인
+            portfolio = self.trader.get_portfolio_status()
+            if code not in portfolio['holdings']:
+                # 매도 불가 로그 제거 (너무 빈번함)
+                return signals
+
+            # '주문 진행 중'인 종목은 매도 신호 생성 건너뛰기 (중복 주문 방지 강화)
+            if code in self.trader.pending_sell_orders:
+                if is_first_sell_check: # type: ignore
+                    self.logger.debug(f"⏳ [{code}] 매도 주문이 이미 진행 중이므로 신호 생성을 건너뜁니다.")
+                return signals
+
+            # '주문 진행 중'인 종목은 매도 신호 생성 건너뛰기
+            if code in self.trader.pending_sell_orders:
+                if is_first_sell_check: # type: ignore
+                    self.logger.debug(f"⏳ [{code}] 매도 주문이 이미 진행 중이므로 신호 생성을 건너뜁니다.")
+                return signals
+            
+            # 최초 매도 평가 시작 로그
+            if is_first_sell_check: # type: ignore
+                self.logger.debug(f"🔍 [{code}] 매도 평가 시작 (전략: {strategy_name})")
+            
+            # 보유 정보
+            holding_info = portfolio['holdings'][code]
+            
+            # 매수 시 사용된 전략 확인
+            buy_strategy_name = holding_info.get('buy_strategy', strategy_name)
+            # 매수 전략 이름에서 섹션 이름 추출 (예: "[급등주] 2순위..." -> "급등주")
+            if buy_strategy_name and buy_strategy_name.startswith('['):
+                try:
+                    strategy_name = buy_strategy_name.split(']')[0][1:]
+                except Exception: pass
+            
+            # 보유 정보
+            holding_info = portfolio['holdings'][code]
+            buy_price = portfolio['buy_prices'].get(code, 0)
+            buy_time = portfolio['buy_times'].get(code)
+            quantity = holding_info.get('quantity', 0)
+            
+            if buy_price <= 0 or quantity <= 0:
+                # 보유 정보 불완전 로그 제거 (너무 빈번함)
+                return signals
+
+            # 매수 후 최소 보유 시간(Grace Period) 설정 (예: 60초)
+            min_hold_seconds = 60 
+            if buy_time:
+                time_since_buy = (datetime.now() - buy_time).total_seconds()
+                if time_since_buy < min_hold_seconds:
+                    if is_first_sell_check: # type: ignore
+                        self.logger.debug(f"⏳ [{code}] 매수 후 {time_since_buy:.1f}초 경과. 매도 평가 유예 중 (최소 {min_hold_seconds}초)")
+                    return signals # 유예 시간 동안 매도 신호 생성 안 함
+
+            
+            # 최고가 실시간 업데이트
+            current_price = market_data.get('current_price', 0)
+            if current_price > 0:
+                # 최고가가 없거나 현재가가 더 높으면 업데이트
+                if code not in self.trader.highest_prices:
+                    self.trader.highest_prices[code] = current_price
+                elif current_price > self.trader.highest_prices[code]:
+                    old_highest = self.trader.highest_prices[code]
+                    self.trader.highest_prices[code] = current_price
+                    self.logger.info(f"📈 {code} 최고가 갱신: {old_highest:,}원 → {current_price:,}원")
+                
+                # 포트폴리오 딕셔너리에 업데이트된 최고가 반영
+                portfolio['highest_prices'] = self.trader.highest_prices.copy() # type: ignore
+            
+            # 하드코딩된 이동 손절 로직을 제거하고 settings.ini의 전략 평가로 통합합니다.
+
+            # 차트 데이터 가져오기 (틱/분봉)
+            tic_chart_data = pd.DataFrame()
+            min_chart_data = pd.DataFrame()
+            if hasattr(self.parent, 'chart_cache') and self.parent.chart_cache:
+                cache_data = self.parent.chart_cache.get_cached_data(code)
+                if cache_data:
+                    tic_data = cache_data.get('tic_data', {})
+                    min_data = cache_data.get('min_data', {})
+                    previous_close = cache_data.get('previous_close', 0)
+                    current_open = cache_data.get('current_open', 0)
+                    if tic_data:
+                        try:
+                            tic_chart_data = pd.DataFrame(tic_data).dropna().reset_index(drop=True)
+                        except Exception:
+                            tic_chart_data = pd.DataFrame()
+                    if min_data:
+                        try:
+                            min_chart_data = pd.DataFrame(min_data).dropna().reset_index(drop=True)
+                        except Exception:
+                            min_chart_data = pd.DataFrame()
+            
+            # 매도 전략 로드
+            sell_strategies = []
+
+            # 통합 전략: '급등주' + '갭상승' 전략을 합산 적용
+            if strategy_name == "통합 전략":
+                merged_sections = []
+                if '급등주' in self.strategy_config:
+                    merged_sections.append(('급등주', self.strategy_config['급등주']))
+                if '갭상승' in self.strategy_config:
+                    merged_sections.append(('갭상승', self.strategy_config['갭상승']))
+
+                for section_name, section_conf in merged_sections:
+                    items = [(k, v) for k, v in section_conf.items() if k.startswith('sell_stg_')]
+                    items.sort(key=lambda x: int(x[0].split('_')[-1]) if x[0].split('_')[-1].isdigit() else 999)
+                    for key, value in items:
+                        try:
+                            strategy_data = json.loads(value)
+                            if isinstance(strategy_data, dict) and 'name' in strategy_data:
+                                strategy_data['name'] = f"[{section_name}] {strategy_data['name']}"
+                            sell_strategies.append(strategy_data)
+                        except json.JSONDecodeError:
+                            self.logger.debug(f"매도 전략 파싱 실패 ({code}): {section_name}.{key}", exc_info=True)
+                if is_first_sell_check and sell_strategies: # type: ignore
+                    self.logger.debug(f"✅ [{code}] 통합 전략 로드 완료: 급등주+갭상승 매도 전략 {len(sell_strategies)}개")
+            
+            # strategy_config에서 현재 전략의 매도 조건 가져오기 (통합 전략이 아닌 경우)
+            if not sell_strategies and strategy_name != "통합 전략" and strategy_name in self.strategy_config:
+                strategy_conf = self.strategy_config[strategy_name]
+                # sell_stg_로 시작하는 키들을 찾아서 파싱 (숫자 순서로 정렬)
+                sell_stg_items = [(key, value) for key, value in strategy_conf.items() if key.startswith('sell_stg_')]
+                # 숫자 순서로 정렬 (sell_stg_1, sell_stg_2, ... 순서)
+                sell_stg_items.sort(key=lambda x: int(x[0].split('_')[-1]) if x[0].split('_')[-1].isdigit() else 999)
+                
+                for key, value in sell_stg_items:
+                    try:
+                        strategy_data = json.loads(value)
+                        sell_strategies.append(strategy_data)
+                    except json.JSONDecodeError:
+                        self.logger.debug(f"매도 전략 파싱 실패 ({code}): {key}", exc_info=True)
+            
+            # 전략이 없으면 기본 손절/익절 전략 사용
+            if not sell_strategies:
+                if is_first_sell_check: # type: ignore
+                    self.logger.debug(f"⚠️ [{code}] 매도 전략 없음 - 기본 손익 전략 사용")
+                # 기본 전략: -3% 손절, +5% 익절
+                sell_strategies = [{
+                    'name': '기본 손익 전략',
+                    'conditions': [
+                        {'type': 'stop_loss', 'value': -3.0},   # -3% 손절
+                        {'type': 'take_profit', 'value': 5.0}   # +5% 익절
+                    ]
+                }]
+            else:
+                if is_first_sell_check: # type: ignore
+                    self.logger.debug(f"✅ [{code}] 매도 전략 {len(sell_strategies)}개 로드됨: {strategy_name}")
+            
+            # 현재 수익률 계산 (전략 평가 전에)
+            current_price = market_data.get('current_price', 0)
+            profit_rate = (current_price - buy_price) / buy_price * 100 if buy_price > 0 else 0
+            
+            # 손절 조건 도달 시 디버그 로그 (자주 출력되지 않도록 조건부)
+            if profit_rate < -0.6:  # 손절 기준 근처일 때만 디버그 # type: ignore
+                self.logger.debug(f"🔍 [{code}] 손절 조건 도달 확인: 수익률={profit_rate:.2f}%, 매입가={buy_price:,}원, 현재가={current_price:,}원")
+                self.logger.debug(f"🔍 [{code}] 로드된 매도 전략 수: {len(sell_strategies)}개")
+                for idx, stg in enumerate(sell_strategies):
+                    logging.debug(f"🔍 [{code}] 전략 {idx+1}: {stg.get('name', 'N/A')} - 조건: {stg.get('content', 'N/A')}")
+
+            # strategy_utils를 사용하여 매도 전략 평가
+            safe_locals = strategy_utils.prepare_sell_strategy_locals(
+                code, tic_chart_data, min_chart_data, buy_price, buy_time, portfolio, 
+                current_price=current_price,
+                commission_rate=self.trader.commission_rate, 
+                tax_rate=self.trader.tax_rate
+            )
+            condition_met, matched_strategy = strategy_utils.evaluate_strategies(
+                sell_strategies, safe_locals, code, "매도"
+            )
+                
+            if condition_met and matched_strategy:
+                # 매도 조건 충족 시, 실제 주문 가능한 수량을 REST API로 최종 확인
+                # 부분 익절 비율 확인
+                partial_sell_ratio = matched_strategy.get('partial_sell_ratio')
+
+                order_available_qty = 0
+                try:
+                    if hasattr(self.parent, 'login_handler') and self.parent.login_handler and hasattr(self.parent.login_handler, 'kiwoom_client'):
+                        balance_result = await self.parent.login_handler.kiwoom_client.get_acnt_balance()
+                        if balance_result:
+                            api_holdings = balance_result.get('stk_acnt_evlt_prst', balance_result.get('output1', []))
+                            for stock in api_holdings:
+                                raw_code = stock.get('stk_cd', stock.get('pdno', ''))
+                                stock_code = self.parent.data_manager.normalize_stock_code(raw_code)
+                                if stock_code == code:
+                                    # 부분 익절인 경우, 보유 수량의 절반을 계산
+                                    total_holding_qty = self.parent.data_manager.safe_int(stock.get('hldg_qty', 0))
+                                    if partial_sell_ratio and 0 < partial_sell_ratio < 1:
+                                        # 부분 익절 수량 계산 (소수점 버림)
+                                        order_available_qty = int(total_holding_qty * partial_sell_ratio)
+                                        self.logger.info(f"📡 부분 익절 수량 계산: 보유수량 {total_holding_qty}주 * {partial_sell_ratio} = {order_available_qty}주")
+                                    else:
+                                        # 전량 매도
+                                        order_available_qty = self.parent.data_manager.safe_int(stock.get('rmnd_qty', 0))
+                                        self.logger.info(f"전량 매도 수량 조회 (REST API): {code} 주문가능수량 {order_available_qty}주")
+                                    break
+                    # REST API 조회 실패 시 웹소켓 데이터로 대체
+                    if order_available_qty <= 0:
+                         if (hasattr(self.parent, 'login_handler') and self.parent.login_handler and hasattr(self.parent.login_handler, 'websocket_client')): # type: ignore
+                            ws_balance_data = self.parent.login_handler.websocket_client.balance_data
+                            if ws_balance_data and code in ws_balance_data:
+                                order_available_qty = ws_balance_data[code].get('order_available_qty', 0)
+                                if partial_sell_ratio and 0 < partial_sell_ratio < 1:
+                                    total_holding_qty = ws_balance_data[code].get('quantity', 0)
+                                    order_available_qty = int(total_holding_qty * partial_sell_ratio)
+                                    self.logger.info(f"💰 부분 익절 수량 계산 (웹소켓 Fallback): 보유수량 {total_holding_qty}주 * {partial_sell_ratio} = {order_available_qty}주")
+                                else:
+                                    self.logger.info(f"전량 매도 수량 조회 (웹소켓 Fallback): {code} 주문가능수량 {order_available_qty}주")
+
+                except Exception as qty_check_ex:
+                    self.logger.error(f"주문가능수량 확인 중 오류 ({code}): {qty_check_ex}", exc_info=True)
+
+                if order_available_qty <= 0:
+                    self.logger.warning(f"⚠️ 매도 신호가 발생했으나 주문가능수량이 0주입니다. (다른 주문 처리 중일 수 있음): {code}")
+                    return signals
+
+                strategy_display_name = matched_strategy.get('name', strategy_name)
+                self.logger.info(f"📉 매도 신호 발생: {code} - {strategy_display_name}")
+                self.logger.debug(f"💰 매입가={buy_price:,}원, 현재가={current_price:,}원, 수익률={profit_rate:.2f}%")
+                self.logger.debug(f"📊 보유수량={quantity:,}주, 주문가능수량={order_available_qty:,}주, 매도수량={order_available_qty:,}주")
+                
+                signals.append({
+                    'strategy': matched_strategy.get('name', strategy_name),
+                    'code': code,
+                    'quantity': order_available_qty,  # 주문가능수량만큼만 매도
+                    'price': 0,  # 시장가
+                    'reason': f"기술적 지표 기반 매도 조건 충족: {matched_strategy.get('name', '')} (수익률: {profit_rate:.2f}%)"
+                })
+            else:
+                # 매도 조건 미충족 시 현재 수익률 표시 (최초 1회만)
+                if is_first_sell_check: # type: ignore
+                    self.logger.debug(f"ℹ️ [{code}] 매도 조건 미충족 (보유 중, 수익률: {profit_rate:.2f}%)")
+            
+            return signals
+            
+        except Exception as ex:
+            self.logger.error(f"매도 신호 생성 실패 ({code}): {ex}", exc_info=True)
+            traceback.print_exc()
+            return []
+    
+    async def execute_buy_signals(self, code, signals):
+        """매수 신호 실행 (비동기)"""
+        try:
+            for signal in signals:
+                success = await self.trader.place_buy_order(
+                    code, 
+                    signal['quantity'], 
+                    signal['price'], 
+                    signal['strategy']
+                )
+                
+                if success:
+                    self.signal_strategy_result.emit(
+                        code, 
+                        "buy", 
+                        {
+                            'strategy': signal['strategy'],
+                            'reason': signal['reason'],
+                            'quantity': signal['quantity'],
+                            'price': signal['price']
+                        }
+                    )
+                    
+        except Exception as ex:
+            self.logger.error(f"매수 신호 실행 실패 ({code}): {ex}", exc_info=True)
+    
+    async def execute_sell_signals(self, code, signals):
+        """매도 신호 실행 (비동기)"""
+        try:
+            for idx, signal in enumerate(signals):
+                requested_quantity = signal['quantity']
+                
+                # 실제 주문 전 주문가능수량 최종 확인 (웹소켓 실시간 데이터)
+                actual_order_available_qty = requested_quantity  # 기본값
+                try:
+                    if (hasattr(self.parent, 'login_handler') and self.parent.login_handler and
+                        hasattr(self.parent.login_handler, 'websocket_client') and self.parent.login_handler.websocket_client and
+                        hasattr(self.parent.login_handler.websocket_client, 'balance_data')):
+                        
+                        ws_balance_data = self.parent.login_handler.websocket_client.balance_data
+                        if ws_balance_data and code in ws_balance_data:
+                            actual_order_available_qty = ws_balance_data[code].get('order_available_qty', requested_quantity)
+                            if actual_order_available_qty < requested_quantity:
+                                self.logger.warning(f"⚠️ [{code}] 주문가능수량 변경 감지: 요청={requested_quantity}주, 실제={actual_order_available_qty}주 (다른 주문으로 인한 변경)")
+                except Exception as ws_check_ex:
+                    self.logger.debug(f"주문 전 주문가능수량 체크 중 오류 ({code}): {ws_check_ex}", exc_info=True)
+                
+                # 주문가능수량이 0주 이하면 주문 스킵
+                if actual_order_available_qty <= 0:
+                    self.logger.warning(f"⚠️ [{code}] 주문가능수량 0주 - 주문 스킵 (다른 주문 처리 중)")
+                    continue
+                
+                # 실제 주문 가능한 수량으로 제한
+                final_quantity = min(requested_quantity, actual_order_available_qty)
+                if final_quantity < requested_quantity:
+                    self.logger.info(f"📊 [{code}] 주문 수량 조정: {requested_quantity}주 → {final_quantity}주")
+                
+                success = await self.trader.place_sell_order(
+                    code, 
+                    final_quantity,  # 조정된 수량 사용
+                    signal['price'], 
+                    signal['strategy']
+                )
+                
+                if success:
+                    self.logger.info(f"✅ [{code}] 매도 주문 성공: {signal['strategy']} - {final_quantity}주")
+                    
+                    self.signal_strategy_result.emit(
+                        code, 
+                        "sell", 
+                        {
+                            'strategy': signal['strategy'],
+                            'reason': signal['reason'],
+                            'quantity': final_quantity,  # 실제 주문된 수량
+                            'price': signal['price']
+                        }
+                    )
+                else:
+                    self.logger.error(f"❌ [{code}] 매도 주문 실패: {signal['strategy']} - {final_quantity}주")
+                    
+        except Exception as ex:
+            self.logger.error(f"매도 신호 실행 실패 ({code}): {ex}", exc_info=True)

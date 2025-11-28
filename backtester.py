@@ -13,6 +13,7 @@ from datetime import datetime
 # 서드파티 라이브러리
 import numpy as np
 import pandas as pd
+pd.set_option('future.no_silent_downcasting', True)
 import pyqtgraph as pg
 from pyqtgraph.exporters import ImageExporter
 from PyQt6.QtWidgets import QApplication
@@ -115,7 +116,7 @@ class KiwoomBacktester:
             df.set_index('datetime', inplace=True)
             
             # 결측값 처리
-            df = df.ffill().fillna(0)
+            df = df.ffill().fillna(0).infer_objects(copy=False)
             
             self.logger.info(f"데이터 로드 완료: {code} ({len(df)}개 레코드)")
             return df
@@ -426,6 +427,7 @@ class KiwoomBacktester:
             sell_strategies = self.strategies[strategy_name]['sell_strategies']
             
             # 백테스팅 실행
+            self.logger.info(f"백테스팅 루프 시작: 총 {len(timestamps)}개 시점")
             for i, timestamp in enumerate(timestamps):
                 try:
                     current_prices = {}
@@ -467,10 +469,10 @@ class KiwoomBacktester:
                                 success, strategy = evaluate_strategies(
                                     sell_strategies,
                                     prepare_sell_strategy_locals(
-                                        code, current_chart_data, pd.DataFrame(), previous_close, current_open,
+                                        code, current_chart_data, pd.DataFrame(),
                                         self.buy_prices[code], 
                                         self.buy_times[code],                                        
-                                        portfolio_info
+                                        portfolio_info=portfolio_info
                                 ),
                                     code, "매도", is_backtest=True
                                 )
@@ -489,12 +491,12 @@ class KiwoomBacktester:
 
                             # 백테스팅 시점의 데이터로 기술적 지표를 다시 계산
                             
-                            # 백테스팅을 위한 previous_close, current_open 추출
-                            if len(current_chart_data) > 1:
-                                previous_close = current_chart_data['close'].iloc[-2]
-                                current_open = current_chart_data['open'].iloc[-1]
-                            else:
-                                previous_close, current_open = 0, 0
+                            # 백테스팅을 위한 previous_close, current_open 추출 (사용되지 않음)
+                            # if len(current_chart_data) > 1:
+                            #     previous_close = current_chart_data['close'].iloc[-2]
+                            #     current_open = current_chart_data['open'].iloc[-1]
+                            # else:
+                            #     previous_close, current_open = 0, 0
                                 
                             indicators = KiwoomIndicatorExtractor.extract_chart_indicators(current_chart_data)
                             for key, value in indicators.items():
@@ -511,7 +513,7 @@ class KiwoomBacktester:
                             
                             success, strategy = evaluate_strategies(
                                 buy_strategies,
-                                prepare_buy_strategy_locals(code, current_chart_data, pd.DataFrame(), previous_close, current_open, portfolio_info),
+                                prepare_buy_strategy_locals(code, current_chart_data, pd.DataFrame(), portfolio_info=portfolio_info),
                                 code, "매수", is_backtest=True
                             )
                             
