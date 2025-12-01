@@ -15,6 +15,7 @@ from utils import ApiLimitManager, safe_float_conversion, get_resource_path
 from kiwoom_api import KiwoomRestClient, KiwoomWebSocketClient
 from trader import KiwoomTrader
 from backtester import KiwoomBacktester
+from strategy import KiwoomStrategy
 
 class LoginHandler(QObject):
     """로그인 및 연결 관리 클래스"""
@@ -241,8 +242,11 @@ class LoginHandler(QObject):
                     if not hasattr(self.parent, 'trader') or not self.parent.trader:
                         buycount = int(self.parent.trading_tab.buycountEdit.text())
                         self.parent.trader = KiwoomTrader(self.kiwoom_client, buycount, self.parent)
-                        # 트레이더 객체 생성 로그 제거
                         
+                        # 전략 객체 생성
+                        self.parent.objstg = KiwoomStrategy(self.parent.trader, self.parent)
+                        self.logger.debug("✅ 전략 객체(KiwoomStrategy) 생성 완료")
+
                         # ChartDataCache의 trader 속성 업데이트
                         if hasattr(self.parent, 'chart_cache') and self.parent.chart_cache:
                             self.parent.chart_cache.trader = self.parent.trader
