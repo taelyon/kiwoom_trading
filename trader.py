@@ -851,7 +851,6 @@ class AutoTrader(QObject):
                 # 거래 시간 도달 - 1분 모니터링 타이머 중지, evaluation_interval 타이머 시작
                 if self.time_monitor_timer.isActive():
                     self.time_monitor_timer.stop() # type: ignore
-                    self.logger.info("⏰ 시간 모니터링 타이머 중지 (거래 시간 도달)")
                 
                 if not self.trading_check_timer.isActive():
                     interval_ms = self.trader.evaluation_interval * 1000  # 초 -> 밀리초
