@@ -910,9 +910,17 @@ class ChartDataCache(QObject):
             low_prices = data.get('low', [])
             volumes = data.get('volume', [])
             
-            if len(close_prices) < 5:
+            # 데이터 길이 일치화 (가장 짧은 길이로 맞춤)
+            min_len = min(len(close_prices), len(high_prices), len(low_prices), len(volumes))
+            
+            if min_len < 5:
                 return data
                 
+            # 모든 배열을 최소 길이에 맞춰 자름 (데이터 무결성 보장)
+            close_prices = close_prices[:min_len]
+            high_prices = high_prices[:min_len]
+            low_prices = low_prices[:min_len]
+            volumes = volumes[:min_len]
             
             # numpy 배열로 변환
             close_array = np.array(close_prices, dtype=float)

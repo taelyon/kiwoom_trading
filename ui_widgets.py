@@ -292,18 +292,25 @@ class BacktestTabWidget(QWidget):
         period_layout = QHBoxLayout()
         period_layout.setContentsMargins(0, 0, 0, 0)
         
-        # 시작일
+        # 시작일 (기본값: 1개월 전)
         period_layout.addWidget(QLabel("시작일:"))
         self.bt_start_date = QLineEdit()
         self.bt_start_date.setPlaceholderText("YYYYMMDD")
         self.bt_start_date.setFixedWidth(120)
-        period_layout.addWidget(self.bt_start_date)
         
-        # 종료일
+        # 종료일 (기본값: 오늘)
         period_layout.addWidget(QLabel("종료일:"))
         self.bt_end_date = QLineEdit()
         self.bt_end_date.setPlaceholderText("YYYYMMDD")
         self.bt_end_date.setFixedWidth(120)
+
+        # 기본값 설정 (1개월)
+        today = QDate.currentDate()
+        one_month_ago = today.addMonths(-1)
+        self.bt_start_date.setText(one_month_ago.toString("yyyyMMdd"))
+        self.bt_end_date.setText(today.toString("yyyyMMdd"))
+        
+        period_layout.addWidget(self.bt_start_date)
         period_layout.addWidget(self.bt_end_date)
         
         # DB 기간 불러오기 버튼
@@ -323,6 +330,14 @@ class BacktestTabWidget(QWidget):
         self.bt_initial_cash = QLineEdit("10000000")
         self.bt_initial_cash.setFixedWidth(120)
         settings_layout.addWidget(self.bt_initial_cash)
+        settings_layout.addStretch(1)
+        
+        # 대상 종목 선택
+        settings_layout.addWidget(QLabel("대상 종목:"))
+        self.bt_stock_combo = QComboBox()
+        self.bt_stock_combo.setFixedWidth(120)
+        self.bt_stock_combo.addItem("전체 종목")
+        settings_layout.addWidget(self.bt_stock_combo)
         settings_layout.addStretch(1)
         
         # 전략 선택

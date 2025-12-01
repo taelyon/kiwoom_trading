@@ -650,7 +650,9 @@ class AutoTrader(QObject):
         try:
             self.logger.info("🕒 15:15 자동 청산 로직 실행")
             if hasattr(self.parent, 'trading_manager'):
-                await self.parent.trading_manager.sell_all_item()
+                await self.parent.trading_manager.sell_all_item(is_auto=True)
+                # 청산 완료 로그
+                self.logger.info("⏹️ 15:15 자동 청산 완료 - 모든 매매 활동 중지")
         except Exception as ex:
             self.logger.error(f"❌ 자동 청산 실행 중 오류: {ex}", exc_info=True)
 
@@ -658,6 +660,12 @@ class AutoTrader(QObject):
         """15:30 장 마감 리포트 실행"""
         try:
             self.logger.info("🕒 15:30 장 마감 - 최종 실현 손익 리포트 전송 시작")
+            
+            # 모든 매도 체결 처리가 완료될 때까지 대기 (5초)
+            # 15:15 자동 청산 후 체결 알림이 15:30까지 지연될 수 있음
+            self.logger.debug("⏳ 모든 매도 체결 처리 완료 대기 중... (5초)")
+            await asyncio.sleep(5)
+            
             if hasattr(self.parent, 'login_handler') and self.parent.login_handler.kiwoom_client:
                 total_profit, total_profit_rate = await self.parent.login_handler.kiwoom_client.get_daily_realized_profit()
                 await self.parent.login_handler.kiwoom_client.send_slack_daily_report(total_profit, total_profit_rate)
@@ -734,13 +742,13 @@ class AutoTrader(QObject):
             # 15:15에 자동 청산 (1회만 실행)
             if current_time_str == "15:15" and not self.auto_liquidation_executed:
                 self.logger.info("🕒 15:15 도달 - 모든 보유 종목 자동 청산 시작")
+                self.auto_liquidation_executed = True  # 플래그를 먼저 설정 (중복 실행 방지)
                 await self.execute_auto_liquidation_async()  # 청산 완료까지 대기
-                self.auto_liquidation_executed = True  # 청산 완료 후 플래그 설정
 
             # 15:30 장 마감 리포트 전송 (1회만 실행)
             if current_time_str == "15:30" and not self.daily_report_sent:
+                self.daily_report_sent = True  # 플래그를 먼저 설정 (중복 실행 방지)
                 await self._execute_daily_report_async()
-                self.daily_report_sent = True
             
             # 다음날을 위해 플래그 리셋 (15:31 이후)
             if current_time_str == "15:31" and self.auto_liquidation_executed:
@@ -808,10 +816,7 @@ class AutoTrader(QObject):
             
             # 15:15 자동 청산 이후에는 매매 중지
             if self.auto_liquidation_executed:
-                # 최초 1회만 로그 출력
-                if not hasattr(self, '_trading_stopped_logged'): # type: ignore
-                    self.logger.info("⏹️ 15:15 자동 청산 완료 - 모든 매매 활동 중지")
-                    self._trading_stopped_logged = True
+                # 청산 완료 후 매매 중지 (로그는 execute_auto_liquidation_async에서 출력됨)
                 return
             
             # 모니터링 중인 모든 종목에 대해 매매 판단 실행 (동시 처리)

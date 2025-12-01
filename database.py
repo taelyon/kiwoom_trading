@@ -29,65 +29,106 @@ class AsyncDatabaseManager:
 
     async def init_database(self):
         """데이터베이스 초기화 (비동기 I/O)"""
-        try:
-            
-            if self._conn is None:
-                self._conn = await aiosqlite.connect(self.db_path, timeout=10.0)
+        max_retries = 3
+        retry_delay = 0.5  # 500ms
+        
+        for attempt in range(max_retries):
+            try:
+                # 연결이 없거나 닫혀있으면 새로 연결
+                if self._conn is None:
+                    self._conn = await aiosqlite.connect(self.db_path, timeout=30.0, isolation_level=None)
+                    self.logger.debug(f"✅ 데이터베이스 연결 생성 완료: {self.db_path}")
 
-            async with self._db_lock:
-                cursor = await self._conn.cursor()
-            
-            # stock_data 테이블은 생성하지 않음 (틱 데이터와 분봉 데이터만 사용)
-            
-            # 매매 기록 테이블
-                await cursor.execute('''
-                CREATE TABLE IF NOT EXISTS trade_records (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    code TEXT NOT NULL,
-                    datetime TEXT NOT NULL,
-                    order_type TEXT NOT NULL,
-                    quantity INTEGER,
-                    price REAL,
-                    amount REAL,
-                    strategy TEXT,
-                    profit_loss REAL DEFAULT 0
-                )
-            ''')
-            
-                # 통합 주식 데이터 테이블 동적 생성
-                tic_indicator_cols = ", ".join([f"tic_{col.lower()} REAL" for col in self.indicator_list])
-                # min_indicator_cols는 min_target_indicators에 있는 것만 생성
-                min_indicator_cols = ", ".join([f"min3_{col.lower()} REAL" for col in self.indicator_list if col in self.min_target_indicators])
+                async with self._db_lock:
+                    cursor = await self._conn.cursor()
                 
-                create_table_sql = f'''
-                    CREATE TABLE IF NOT EXISTS stock_data (
+                    # WAL 모드 설정 (동시성 향상) - 가장 먼저 실행
+                    await cursor.execute("PRAGMA journal_mode=WAL;")
+                    await cursor.execute("PRAGMA synchronous=NORMAL;")  # 성능 향상
+                    
+                    # 매매 기록 테이블
+                    await cursor.execute('''
+                        CREATE TABLE IF NOT EXISTS trade_records (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            code TEXT NOT NULL,
+                            datetime TEXT NOT NULL,
+                            order_type TEXT NOT NULL,
+                            quantity INTEGER,
+                            price REAL,
+                            amount REAL,
+                            strategy TEXT,
+                            profit_loss REAL DEFAULT 0
+                        )
+                    ''')
+                    
+                    # 통합 주식 데이터 테이블 동적 생성
+                    # 기본 OHLCV 컬럼
+                    base_columns = """
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         code TEXT NOT NULL,
                         datetime TEXT NOT NULL,
-                        -- 틱봉 데이터
+                        -- 틱봉 기본 데이터
                         tic_open REAL,
                         tic_high REAL,
                         tic_low REAL,
                         tic_close REAL,
                         tic_volume INTEGER,
                         tic_strength REAL,
-                        -- 기술적 지표 (틱봉)
-                        {tic_indicator_cols},
-                        -- 기술적 지표 (분봉)
-                        {min_indicator_cols},
-                        created_at TEXT,
-                        UNIQUE(code, datetime)
-                    )
-                '''
-                await cursor.execute(create_table_sql)
+                        tic_last_tic_cnt REAL
+                    """
+                    
+                    # 틱봉 기술적 지표 (중복 제거 및 정렬)
+                    tic_indicators = [
+                        'MA5', 'MA10', 'MA20', 'MA50', 'MA60', 'MA120',  # 이동평균
+                        'RSI', 'RSI_SIGNAL',  # RSI
+                        'MACD', 'MACD_SIGNAL', 'MACD_HIST',  # MACD
+                        'BB_UPPER', 'BB_MIDDLE', 'BB_LOWER', 'BB_BANDWIDTH', 'BB_POSITION',  # 볼린저 밴드
+                        'STOCH_K', 'STOCH_D',  # 스토캐스틱 (중복 제거: stochk, stochd 제외)
+                        'WILLIAMS_R',  # 윌리엄스 %R
+                        'ROC',  # 변화율
+                        'OBV', 'OBV_MA20',  # OBV
+                        'ATR',  # ATR
+                        'VWAP'  # VWAP
+                    ]
+                    tic_indicator_cols = ", ".join([f"tic_{col.lower()} REAL" for col in tic_indicators])
+                    
+                    # 3분봉 기술적 지표 (min_target_indicators만)
+                    min_indicator_cols = ", ".join([f"min3_{col.lower()} REAL" for col in self.min_target_indicators])
+                    
+                    create_table_sql = f'''
+                        CREATE TABLE IF NOT EXISTS stock_data (
+                            {base_columns},
+                            -- 기술적 지표 (틱봉)
+                            {tic_indicator_cols},
+                            -- 기술적 지표 (3분봉)
+                            {min_indicator_cols},
+                            -- 메타데이터
+                            created_at TEXT,
+                            UNIQUE(code, datetime)
+                        )
+                    '''
+                    await cursor.execute(create_table_sql)
+                    
+                    # commit은 isolation_level=None이면 자동으로 처리됨
+                    self.logger.debug("✅ 데이터베이스 초기화 완료")
                 
-                await self._conn.commit()
-            
-            # 데이터베이스 초기화 로그 제거
-            
-        except Exception as ex:
-            self.logger.error(f"데이터베이스 초기화 실패: {ex}")
-            raise ex
+                # 성공하면 루프 종료
+                break
+                
+            except Exception as ex:
+                if attempt < max_retries - 1:
+                    self.logger.warning(f"데이터베이스 초기화 실패 (시도 {attempt + 1}/{max_retries}): {ex}")
+                    await asyncio.sleep(retry_delay)
+                    # 연결 재설정
+                    if self._conn:
+                        try:
+                            await self._conn.close()
+                        except:
+                            pass
+                        self._conn = None
+                else:
+                    self.logger.error(f"데이터베이스 초기화 실패 (최대 재시도 횟수 초과): {ex}")
+                    raise ex
     
     async def save_stock_data(self, code, tic_data, min_data):
         """통합 주식 데이터 저장 (틱봉 기준, 분봉 데이터 포함)"""
@@ -117,11 +158,41 @@ class AsyncDatabaseManager:
                 tic_indicators = [key for key in tic_data.keys() if key not in basic_keys]
                 min_indicators = [key for key in min_data.keys() if key not in basic_keys]
                 
-                # 모든 지표 통합 (중복 제거) # type: ignore
-                all_indicators = list(set(tic_indicators + min_indicators))
+                # 허용된 지표 목록 (대소문자 구분 없이)
+                allowed_indicators = {
+                    'MA5', 'MA10', 'MA20', 'MA50', 'MA60', 'MA120',
+                    'RSI', 'RSI_SIGNAL',
+                    'MACD', 'MACD_SIGNAL', 'MACD_HIST',
+                    'BB_UPPER', 'BB_MIDDLE', 'BB_LOWER', 'BB_BANDWIDTH', 'BB_POSITION',
+                    'STOCH_K', 'STOCH_D',  # 정규화된 이름만 허용
+                    'WILLIAMS_R', 'ROC', 'OBV', 'OBV_MA20', 'ATR', 'VWAP',
+                    'LAST_TIC_CNT'
+                }
+                
+                # 지표 이름 정규화 및 필터링
+                def normalize_indicator(name):
+                    """지표 이름을 정규화 (deprecated 이름 변환)"""
+                    name_upper = name.upper()
+                    # deprecated 이름 매핑
+                    mapping = {
+                        'STOCHK': 'STOCH_K',
+                        'STOCHD': 'STOCH_D'
+                    }
+                    return mapping.get(name_upper, name_upper)
+                
+                # 정규화 및 필터링
+                normalized_tic = [normalize_indicator(ind) for ind in tic_indicators]
+                normalized_min = [normalize_indicator(ind) for ind in min_indicators]
+                
+                # 허용된 지표만 선택
+                filtered_tic = [ind for ind in normalized_tic if ind in allowed_indicators]
+                filtered_min = [ind for ind in normalized_min if ind in allowed_indicators]
+                
+                # 모든 지표 통합 (중복 제거)
+                all_indicators = list(set(filtered_tic + filtered_min))
                 all_indicators.sort()  # 정렬하여 일관성 유지
                 
-                logging.debug(f"📊 {code}: 감지된 기술적 지표 - 틱봉: {tic_indicators}, 분봉: {min_indicators}, 통합: {all_indicators}")
+                logging.debug(f"📊 {code}: 감지된 기술적 지표 - 틱봉: {filtered_tic}, 분봉: {filtered_min}, 통합: {all_indicators}")
                 
                 # 테이블 스키마 동적 업데이트
                 await self._ensure_table_schema(cursor, all_indicators)
@@ -145,7 +216,8 @@ class AsyncDatabaseManager:
 
                 sql = f"INSERT OR REPLACE INTO stock_data ({columns}) VALUES ({placeholders})"
                 
-                # 틱봉 데이터 개수만큼 저장
+                # 틱봉 데이터 개수만큼 저장할 데이터 준비
+                batch_values = []
                 for i in range(len(tic_times)):
                     # 해당 시점의 분봉 데이터 찾기 (시간 기준으로 매칭)
                     min_idx = self._find_matching_minute_data(tic_times[i], min_data.get('time', []))
@@ -168,7 +240,24 @@ class AsyncDatabaseManager:
                     # 틱봉 기술적 지표 값 추가
                     for indicator in all_indicators:
                         try:
-                            indicator_data = tic_data.get(indicator, [])
+                            # 정규화된 이름과 원본 이름 모두 시도
+                            indicator_data = None
+                            
+                            # 먼저 정규화된 이름으로 시도
+                            if indicator in tic_data:
+                                indicator_data = tic_data.get(indicator, [])
+                            else:
+                                # 역매핑 시도 (STOCH_K -> stochk)
+                                reverse_mapping = {
+                                    'STOCH_K': 'stochk',
+                                    'STOCH_D': 'stochd'
+                                }
+                                original_name = reverse_mapping.get(indicator)
+                                if original_name and original_name in tic_data:
+                                    indicator_data = tic_data.get(original_name, [])
+                                else:
+                                    # 소문자로 시도
+                                    indicator_data = tic_data.get(indicator.lower(), [])
                             
                             # 배열인 경우 특정 인덱스 접근
                             if isinstance(indicator_data, (list, tuple, np.ndarray)):
@@ -203,7 +292,24 @@ class AsyncDatabaseManager:
                     for indicator in all_indicators:
                         if indicator in self.min_target_indicators:
                             try:
-                                indicator_data = min_data.get(indicator, [])
+                                # 정규화된 이름과 원본 이름 모두 시도
+                                indicator_data = None
+                                
+                                # 먼저 정규화된 이름으로 시도
+                                if indicator in min_data:
+                                    indicator_data = min_data.get(indicator, [])
+                                else:
+                                    # 역매핑 시도 (STOCH_K -> stochk)
+                                    reverse_mapping = {
+                                        'STOCH_K': 'stochk',
+                                        'STOCH_D': 'stochd'
+                                    }
+                                    original_name = reverse_mapping.get(indicator)
+                                    if original_name and original_name in min_data:
+                                        indicator_data = min_data.get(original_name, [])
+                                    else:
+                                        # 소문자로 시도
+                                        indicator_data = min_data.get(indicator.lower(), [])
                                 
                                 # 배열인 경우 특정 인덱스 접근
                                 if isinstance(indicator_data, (list, tuple, np.ndarray)):
@@ -235,8 +341,10 @@ class AsyncDatabaseManager:
                                 values.append(None)
                     
                     values.append(current_time)
+                    batch_values.append(tuple(values))
 
-                    await cursor.execute(sql, tuple(values))
+                if batch_values:
+                    await cursor.executemany(sql, batch_values)
                 
                 await self._conn.commit()
                 # 데이터 저장 완료 로그 제거 (너무 빈번함)
@@ -247,6 +355,9 @@ class AsyncDatabaseManager:
     async def _ensure_table_schema(self, cursor, indicators):
         """테이블 스키마에 필요한 컬럼들이 있는지 확인하고 없으면 추가"""
         try:
+            # 허용되지 않는 deprecated 컬럼 이름
+            deprecated_indicators = {'stochk', 'stochd', 'STOCHK', 'STOCHD'}
+            
             # 기존 테이블의 컬럼 정보 조회
             await cursor.execute("PRAGMA table_info(stock_data)")
             existing_columns = [row[1] for row in await cursor.fetchall()]
@@ -254,6 +365,11 @@ class AsyncDatabaseManager:
             # 새로 추가할 컬럼들 확인
             new_columns = []
             for indicator in indicators:
+                # deprecated 지표는 건너뛰기
+                if indicator in deprecated_indicators or indicator.upper() in deprecated_indicators:
+                    self.logger.debug(f"⚠️ Deprecated 지표 무시: {indicator}")
+                    continue
+                
                 tic_col = f"tic_{indicator.lower()}"
                 min_col = f"min3_{indicator.lower()}"
                 

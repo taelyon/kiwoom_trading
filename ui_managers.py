@@ -3,12 +3,13 @@ import asyncio
 import configparser
 import json
 import os
+import ast
 import time
 import io
 import threading
 import aiofiles
 from datetime import datetime, timedelta
-from PyQt6.QtCore import QObject, pyqtSignal, QTimer, Qt
+from PyQt6.QtCore import QObject, pyqtSignal, QTimer, Qt, QThread
 from PyQt6.QtWidgets import QMessageBox, QListWidgetItem, QApplication
 from utils import ApiLimitManager, safe_float_conversion, get_resource_path
 from kiwoom_api import KiwoomRestClient, KiwoomWebSocketClient
@@ -1297,8 +1298,12 @@ class TradingManager(QObject):
         except Exception as ex:
             self.logger.error(f"거래 모드 변경 실패: {ex}")
     
-    async def sell_all_item(self):
-        """전체 매도 (키움 REST API 기반) (비동기)"""
+    async def sell_all_item(self, is_auto=False):
+        """전체 매도 (키움 REST API 기반) (비동기)
+        
+        Args:
+            is_auto: True면 자동 청산, False면 수동 전체 매도
+        """
         # 다른 비동기 작업과의 충돌을 막기 위해 락을 사용합니다.
         if self.parent.trading_lock.locked():
             self.logger.warning("⚠️ 다른 수동 매매 작업이 이미 진행 중입니다.")
@@ -1310,7 +1315,12 @@ class TradingManager(QObject):
             autotrader.stop_auto_trading()
         if chart_cache and chart_cache.update_timer:
             chart_cache.update_timer.stop()
-        self.logger.info("수동 전체 매도 시작 - 모든 주기적 타이머 일시 중지")
+        
+        # 로그 메시지 구분
+        if is_auto:
+            self.logger.info("자동 청산 - 모든 주기적 타이머 일시 중지")
+        else:
+            self.logger.info("수동 전체 매도 시작 - 모든 주기적 타이머 일시 중지")
         try:
             async with self.parent.trading_lock:
                 if self.parent.trading_tab.boughtBox.count() == 0:
@@ -1319,7 +1329,11 @@ class TradingManager(QObject):
                     self._restart_timers_after_manual_trade(autotrader, chart_cache)
                     return
 
-                self.logger.info("🔄 전체 매도 시작")
+                # 로그 메시지 구분
+                if is_auto:
+                    self.logger.info("🔄 자동 청산 매도 시작")
+                else:
+                    self.logger.info("🔄 전체 매도 시작")
                 
                 # 보유 종목 목록 생성
                 sell_items = []
@@ -1370,26 +1384,66 @@ class TradingManager(QObject):
                             self.logger.warning(f"⚠️ {code} 보유 수량 없음 - 건너뜀")
                             continue
                         
-                        # 매도 주문 실행
+                        # 매도 주문 실행 (재시도 로직 포함)
                         if hasattr(self.parent, 'login_handler') and self.parent.login_handler and hasattr(self.parent.login_handler, 'kiwoom_client'):
-                            success = await self.parent.login_handler.kiwoom_client.place_sell_order(code, quantity, 0, "market")
-                            if success:
-                                success_count += 1
-                            # API 요청 제한을 피하기 위해 약간의 지연 추가
+                            max_retries = 3
+                            retry_delay = 1.0  # 초기 대기 시간
+                            success = False
+                            
+                            for attempt in range(max_retries):
+                                try:
+                                    success = await self.parent.login_handler.kiwoom_client.place_sell_order(code, quantity, 0, "market")
+                                    
+                                    if success:
+                                        success_count += 1
+                                        if is_auto:
+                                            self.logger.info(f"✅ 자동 청산 성공: {code} {quantity}주")
+                                        else:
+                                            self.logger.info(f"✅ 전체 매도 성공: {code} {quantity}주")
+                                        break  # 성공하면 재시도 중단
+                                    else:
+                                        self.logger.warning(f"⚠️ 매도 주문 실패 (시도 {attempt + 1}/{max_retries}): {code}")
+                                        
+                                except Exception as order_ex:
+                                    error_msg = str(order_ex)
+                                    
+                                    # HTTP 429 (Rate Limit) 오류 감지
+                                    if "429" in error_msg or "Too Many Requests" in error_msg:
+                                        if attempt < max_retries - 1:
+                                            self.logger.warning(f"⚠️ API Rate Limit 초과 - {retry_delay}초 후 재시도 ({attempt + 1}/{max_retries}): {code}")
+                                            await asyncio.sleep(retry_delay)
+                                            retry_delay *= 2  # 지수 백오프
+                                            continue
+                                        else:
+                                            self.logger.error(f"❌ API Rate Limit 초과 - 최대 재시도 횟수 도달: {code}")
+                                    else:
+                                        self.logger.error(f"❌ 매도 주문 오류: {code} - {error_msg}")
+                                        break
+                            
+                            if not success:
+                                if is_auto:
+                                    self.logger.error(f"❌ 자동 청산 실패: {code}")
+                                else:
+                                    self.logger.error(f"❌ 전체 매도 실패: {code}")
+                            
+                            # API 요청 제한을 피하기 위해 종목 간 지연 추가
                             if len(sell_items) > 1:
-                                await asyncio.sleep(0.5)
-
-                                self.logger.info(f"✅ 전체 매도 성공: {code} {quantity}주")
-                            else:
-                                self.logger.error(f"❌ 전체 매도 실패: {code}")
+                                await asyncio.sleep(0.8)  # 0.5초 -> 0.8초로 증가
+                                
                     except Exception as item_ex:
                         self.logger.error(f"❌ {code} 매도 중 오류: {item_ex}")
                 
                 # 결과 로그
                 if success_count > 0:
-                    self.logger.info(f"✅ 전체 매도 완료: {success_count}개 종목")
+                    if is_auto:
+                        self.logger.info(f"✅ 자동 청산 완료: {success_count}개 종목 매도")
+                    else:
+                        self.logger.info(f"✅ 전체 매도 완료: {success_count}개 종목")
                 else:
-                    self.logger.error("❌ 전체 매도 실패")
+                    if is_auto:
+                        self.logger.error("❌ 자동 청산 실패")
+                    else:
+                        self.logger.error("❌ 전체 매도 실패")
         except Exception as ex:
             self.logger.error(f"전체 매도 작업 중 오류 발생: {ex}", exc_info=True)
             # QMessageBox.critical(self.parent, "전체 매도 오류", f"전체 매도 중 오류가 발생했습니다: {ex}")
@@ -1597,58 +1651,103 @@ class TradingManager(QObject):
         self.logger.debug("수동 매매 완료 - 모든 주기적 타이머 다시 시작")
 
 
+class BacktestWorker(QThread):
+    """백테스팅을 비동기로 실행하기 위한 워커 스레드"""
+    finished_signal = pyqtSignal(object, bool)  # backtester, success
+    error_signal = pyqtSignal(str)
+
+    def __init__(self, backtester, codes, start_date, end_date, strategy_name):
+        super().__init__()
+        self.backtester = backtester
+        self.codes = codes
+        self.start_date = start_date
+        self.end_date = end_date
+        self.strategy_name = strategy_name
+
+    def run(self):
+        try:
+            # 백테스팅 실행 (시간이 오래 걸리는 작업)
+            success = self.backtester.run_backtest(self.codes, self.start_date, self.end_date, self.strategy_name)
+            self.finished_signal.emit(self.backtester, success)
+        except Exception as e:
+            self.error_signal.emit(str(e))
+
 class BacktestManager:
     """백테스팅 관리 매니저"""
     
     def __init__(self, parent):
         self.logger = logging.getLogger(self.__class__.__name__)
         self.parent = parent
+        self.worker = None  # 워커 스레드 참조 유지
     
     def load_backtest_strategies(self):
-        """백테스팅 전략 콤보박스 로드"""
+        """백테스팅 탭의 전략 콤보박스 로드"""
         try:
+            self.parent.backtest_tab.bt_strategy_combo.clear()
+            
+            # 설정 파일에서 전략 로드
             config = configparser.RawConfigParser()
             config.read('settings.ini', encoding='utf-8')
             
-            self.parent.backtest_tab.bt_strategy_combo.clear()
+            strategies = []
             if config.has_section('STRATEGIES'):
-                for key, value in config.items('STRATEGIES'):
-                    if key.startswith('stg_') or key == 'stg_integrated':
-                        self.parent.backtest_tab.bt_strategy_combo.addItem(value)
+                # 섹션의 모든 키에 대한 값을 가져옴 (예: stg_1 = 급등주 -> '급등주')
+                for key in config['STRATEGIES']:
+                    strategies.append(config['STRATEGIES'][key])
             
-            # 기본 전략 설정
+            # 기본 전략 추가 (없으면)
+            if '통합 전략' not in strategies:
+                strategies.insert(0, '통합 전략')
+            
+            # 중복 제거 (순서 유지)
+            strategies = list(dict.fromkeys(strategies))
+            
+            self.parent.backtest_tab.bt_strategy_combo.addItems(strategies)
+            
+            # 마지막 선택 전략 설정 (SETTINGS -> last_strategy)
             if config.has_option('SETTINGS', 'last_strategy'):
-                last_strategy = config.get('SETTINGS', 'last_strategy') # type: ignore
+                last_strategy = config.get('SETTINGS', 'last_strategy')
                 index = self.parent.backtest_tab.bt_strategy_combo.findText(last_strategy)
                 if index >= 0:
                     self.parent.backtest_tab.bt_strategy_combo.setCurrentIndex(index)
             
-            self.logger.debug("백테스팅 전략 콤보박스 로드 완료")
+            self.logger.debug(f"백테스팅 전략 로드 완료: {len(strategies)}개")
             
         except Exception as ex:
-            self.logger.error(f"백테스팅 전략 콤보박스 로드 실패: {ex}")
-    
+            self.logger.error(f"백테스팅 전략 로드 실패: {ex}")
+
     def load_db_period(self):
-        """DB 기간 불러오기"""
+        """DB 데이터 기간 및 종목 목록 조회 및 UI 설정"""
         try:
-            # KiwoomBacktester 인스턴스를 생성하여 DB 경로를 올바르게 참조
-            # DB 파일 경로는 backtester.py에 정의되어 있음
             backtester = KiwoomBacktester(db_path='stock_data.db')
             start_date, end_date = backtester.get_db_data_range()
-
+            
             if start_date and end_date:
                 self.parent.backtest_tab.bt_start_date.setText(start_date)
                 self.parent.backtest_tab.bt_end_date.setText(end_date)
-                self.logger.debug(f"DB 기간 로드: {start_date} ~ {end_date}")
-            else: # type: ignore
-                self.logger.warning("DB에서 날짜 정보를 찾을 수 없습니다.")
+                self.logger.info(f"DB 데이터 기간 로드: {start_date} ~ {end_date}")
+            else:
+                self.logger.warning("DB에 데이터가 없거나 기간을 조회할 수 없습니다.")
+            
+            # 종목 목록 로드
+            codes = backtester.get_all_stock_codes()
+            self.parent.backtest_tab.bt_stock_combo.clear()
+            self.parent.backtest_tab.bt_stock_combo.addItem("전체 종목")
+            if codes:
+                self.parent.backtest_tab.bt_stock_combo.addItems(codes)
+                self.logger.info(f"DB 종목 목록 로드 완료: {len(codes)}개")
                 
         except Exception as ex:
-            self.logger.error(f"DB 기간 로드 실패: {ex}")
+            self.logger.error(f"DB 정보 로드 실패: {ex}")
     
     def run_backtest(self):
-        """백테스팅 실행"""
+        """백테스팅 실행 (비동기)"""
         try:
+            # 중복 실행 방지
+            if self.worker and self.worker.isRunning():
+                self.logger.warning("이미 백테스팅이 진행 중입니다.")
+                return
+
             # 1. KiwoomBacktester 인스턴스 생성 (기간 조회를 위해 먼저 생성)
             backtester = KiwoomBacktester(db_path='stock_data.db')
     
@@ -1669,24 +1768,54 @@ class BacktestManager:
                 self.logger.warning("백테스팅 입력 오류: 시작일, 종료일, 투자 전략을 모두 선택해주세요.")
                 return
 
-            self.logger.info(f"백테스팅 시작: {strategy_name} ({start_date} ~ {end_date})") # type: ignore
+            self.logger.info(f"백테스팅 시작 요청: {strategy_name} ({start_date} ~ {end_date})") # type: ignore
             self.parent.backtest_tab.bt_results_text.clear()
             self.parent.backtest_tab.bt_results_text.append(f"백테스팅을 시작합니다: {strategy_name}\n")
+            self.parent.backtest_tab.bt_results_text.append("데이터 로딩 및 분석 중... 잠시만 기다려주세요.\n(데이터 양에 따라 시간이 소요될 수 있습니다)\n")
+            
+            # UI 비활성화
+            self.parent.backtest_tab.bt_run_button.setEnabled(False)
+            self.parent.backtest_tab.bt_run_button.setText("진행 중...")
             QApplication.processEvents()
 
-            # 4. 백테스팅 대상 종목 가져오기 (모니터링 중인 종목 사용) # type: ignore
-            codes = self.parent.monitoring_manager.get_monitoring_stock_codes()
+            # 4. 백테스팅 대상 종목 가져오기
+            selected_stock = self.parent.backtest_tab.bt_stock_combo.currentText()
+            
+            if selected_stock == "전체 종목":
+                codes = backtester.get_all_stock_codes()
+            else:
+                codes = [selected_stock]
+                
             if not codes:
-                self.logger.warning("백테스팅 오류: 백테스팅을 실행할 모니터링 대상 종목이 없습니다.")
+                self.logger.warning("백테스팅 오류: 대상 종목이 없습니다.")
+                self.parent.backtest_tab.bt_run_button.setEnabled(True)
+                self.parent.backtest_tab.bt_run_button.setText("백테스팅 실행")
                 return
 
-            self.parent.backtest_tab.bt_results_text.append(f"대상 종목: {', '.join(codes)}\n")
+            self.parent.backtest_tab.bt_results_text.append(f"대상 종목: {len(codes)}개 종목\n")
             QApplication.processEvents()
+            
+            # 5. 워커 스레드 생성 및 실행
+            self.worker = BacktestWorker(backtester, codes, start_date, end_date, strategy_name)
+            self.worker.finished_signal.connect(self.on_backtest_finished)
+            self.worker.error_signal.connect(self.on_backtest_error)
+            self.worker.start()
 
-            # 5. 백테스팅 실행 # type: ignore
-            success = backtester.run_backtest(codes, start_date, end_date, strategy_name)
+        except Exception as ex:
+            self.logger.error(f"백테스팅 실행 준비 실패: {ex}")
+            self.parent.backtest_tab.bt_run_button.setEnabled(True)
+            self.parent.backtest_tab.bt_run_button.setText("백테스팅 실행")
+            # QMessageBox.critical(self.parent, "백테스팅 오류", f"백테스팅 실행 중 오류가 발생했습니다:\n{ex}")
 
-            # 6. 결과 표시
+    def on_backtest_finished(self, backtester, success):
+        """백테스팅 완료 처리"""
+        try:
+            strategy_name = self.worker.strategy_name
+            
+            # UI 복구
+            self.parent.backtest_tab.bt_run_button.setEnabled(True)
+            self.parent.backtest_tab.bt_run_button.setText("백테스팅 실행")
+            
             if success and strategy_name in backtester.results:
                 result = backtester.results[strategy_name]
                 summary = (
@@ -1699,17 +1828,27 @@ class BacktestManager:
                 self.parent.backtest_tab.bt_results_text.append("\n=== 백테스팅 결과 ===\n" + summary)
                 backtester.plot_results(strategy_name)
                 backtester.export_results(strategy_name)
+                self.logger.info("백테스팅 완료 및 결과 표시 성공")
             else:
                 self.parent.backtest_tab.bt_results_text.append("\n백테스팅 실행에 실패했거나 결과가 없습니다.")
-
+                self.logger.warning("백테스팅 실패 또는 결과 없음")
+                
         except Exception as ex:
-            self.logger.error(f"백테스팅 실행 실패: {ex}")
-            # QMessageBox.critical(self.parent, "백테스팅 오류", f"백테스팅 실행 중 오류가 발생했습니다:\n{ex}")
+            self.logger.error(f"백테스팅 결과 처리 중 오류: {ex}")
+            self.parent.backtest_tab.bt_results_text.append(f"\n결과 처리 중 오류 발생: {ex}")
+
+    def on_backtest_error(self, error_msg):
+        """백테스팅 에러 처리"""
+        self.logger.error(f"백테스팅 중 오류 발생: {error_msg}")
+        self.parent.backtest_tab.bt_results_text.append(f"\n❌ 백테스팅 중 오류 발생: {error_msg}")
+        
+        # UI 복구
+        self.parent.backtest_tab.bt_run_button.setEnabled(True)
+        self.parent.backtest_tab.bt_run_button.setText("백테스팅 실행")
 
 
 class AccountManager:
     """계좌 조회 및 잔고 관리 매니저"""
-    
     def __init__(self, parent: 'MyWindow'):
         self.logger = logging.getLogger(self.__class__.__name__)
         self.parent = parent

@@ -75,7 +75,7 @@ class KiwoomBacktester:
     def get_db_data_range(self):
         """데이터베이스에 저장된 데이터의 전체 기간을 조회"""
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = sqlite3.connect(self.db_path, timeout=30.0)
             cursor = conn.cursor()
             
             # stock_data 테이블에서 전체 기간 조회
@@ -93,6 +93,19 @@ class KiwoomBacktester:
             self.logger.error(f"DB 데이터 기간 조회 실패: {ex}", exc_info=True)
             return None, None
 
+    def get_all_stock_codes(self):
+        """DB에 저장된 모든 종목 코드 조회"""
+        try:
+            conn = sqlite3.connect(self.db_path, timeout=30.0)
+            cursor = conn.cursor()
+            cursor.execute("SELECT DISTINCT code FROM stock_data")
+            codes = [row[0] for row in cursor.fetchall()]
+            conn.close()
+            return codes
+        except Exception as ex:
+            self.logger.error(f"종목 코드 조회 실패: {ex}", exc_info=True)
+            return []
+
     def load_stock_data(self, code, start_date, end_date, chart_type='minute'):
         """통합 주식 데이터 로드 (stock_data 테이블 사용)
         
@@ -102,7 +115,7 @@ class KiwoomBacktester:
             end_date: 종료일
         """
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = sqlite3.connect(self.db_path, timeout=30.0)
             df = self._load_integrated_data(conn, code, start_date, end_date, chart_type=chart_type)
             
             conn.close()
@@ -183,30 +196,26 @@ class KiwoomBacktester:
     def _standardize_column_names(self, df, chart_type='tic'):
         """컬럼명을 표준화하여 기존 백테스팅 코드와 호환"""
         try:
+            # DB에는 항상 tic_ 접두사를 가진 OHLCV 데이터만 저장됨 (min3_close 등은 없음)
+            # 따라서 chart_type과 관계없이 tic_ 컬럼을 기본 OHLCV로 매핑해야 함
             prefix = 'tic_'
-            if chart_type == 'minute':
-                prefix = 'min3_'
             
-            self.logger.debug(f"차트 타입 '{chart_type}'에 따라 '{prefix}' 접두사를 사용하여 컬럼명을 표준화합니다.")
+            self.logger.debug(f"차트 타입 '{chart_type}'이지만 DB 구조에 따라 '{prefix}' 접두사를 가진 컬럼을 기본 OHLCV로 매핑합니다.")
 
-            # tic_ 접두사가 붙은 컬럼들을 접두사 없는 표준 컬럼명으로 변경
-            # 예: tic_open -> open, tic_ma5 -> ma5
-            column_mapping = {col: col[4:] for col in df.columns if col.startswith('tic_')}
-            base_mapping = {
-                'tic_open': 'open', 'tic_high': 'high', 'tic_low': 'low',
-                'tic_close': 'close', 'tic_volume': 'volume'
+            # 기본 OHLCV 컬럼만 표준 이름으로 변경 (open, high, low, close, volume)
+            # 나머지 지표 컬럼(tic_MA5, min3_MA5 등)은 그대로 유지하여 전략에서 사용할 수 있게 함
+            rename_map = {
+                f'{prefix}open': 'open',
+                f'{prefix}high': 'high',
+                f'{prefix}low': 'low',
+                f'{prefix}close': 'close',
+                f'{prefix}volume': 'volume'
             }
-            # 기본 매핑을 먼저 적용하고, 나머지 지표 매핑을 덮어씀
-            column_mapping.update(base_mapping)
-
-            # chart_type에 따라 기본 OHLCV 컬럼을 선택
-            base_mapping_prefix = {
-                f'{prefix}open': 'open', f'{prefix}high': 'high', f'{prefix}low': 'low',
-                f'{prefix}close': 'close', f'{prefix}volume': 'volume'
-            }
-            column_mapping.update(base_mapping_prefix)
-
-            df = df.rename(columns=column_mapping)
+            
+            # 데이터프레임에 해당 컬럼이 있을 때만 매핑
+            final_map = {k: v for k, v in rename_map.items() if k in df.columns}
+            
+            df = df.rename(columns=final_map)
             return df
             
         except Exception as ex:
@@ -551,8 +560,12 @@ class KiwoomBacktester:
     def analyze_results(self, strategy_name):
         """백테스팅 결과 분석"""
         try:
-            if not self.trades or not self.equity_curve:
-                self.logger.warning("분석할 거래 기록이나 자산 곡선이 없습니다.")
+            if not self.trades:
+                self.logger.warning(f"'{strategy_name}' 전략에 대한 매매 기록이 없습니다. 조건이 너무 까다롭거나 데이터가 부족할 수 있습니다.")
+                return
+
+            if not self.equity_curve:
+                self.logger.warning("분석할 자산 곡선 데이터가 없습니다.")
                 return
 
             # 일별 성과 분석
@@ -777,7 +790,7 @@ class KiwoomBacktester:
     def check_available_data(self, code=None):
         """데이터베이스에서 사용 가능한 데이터 확인"""
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = sqlite3.connect(self.db_path, timeout=30.0)
             
             # 사용 가능한 종목과 데이터 타입 확인
             available_data = {

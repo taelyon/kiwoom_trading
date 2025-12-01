@@ -8,3 +8,6 @@ build/
 .venv/
 logs/
 kiwoom_token.json
+stock_data.db-wal
+stock_data.db-shm
+stock_data.db

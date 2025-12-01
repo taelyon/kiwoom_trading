@@ -2733,22 +2733,26 @@ class KiwoomRestClient:
 
     async def get_daily_realized_profit(self) -> tuple[float, float]:
         """
-        당일 실현 손익과 수익률을 조회합니다. (kt00018 API 사용)
-
+        당일 실현 손익과 수익률을 조회합니다. (kt00004 API 사용)
+        
         Returns:
             tuple[float, float]: (당일 총 실현 손익, 당일 총 실현 손익률)
         """
         try:
-            eval_status = await self.get_account_evaluation_status()
-            if eval_status and eval_status.get('return_code') == 0:
-                # API 응답에서 'tot_evlt_pl' (총평가손익금액)과 'tot_prft_rt' (총수익률) 필드를 사용합니다.
-                # 키움 API 문서에 따르면 kt00018의 응답에 당일 실현 손익 관련 필드가 포함되어 있습니다.
-                # 여기서는 'tot_evlt_pl'을 당일 실현 손익으로 간주합니다.
-                # 실제 필드명은 API 문서에 따라 정확히 확인해야 합니다.
-                total_profit = float(eval_status.get('tot_evlt_pl', 0))
-                total_profit_rate = float(eval_status.get('tot_prft_rt', 0.0))
-                self.logger.debug(f"✅ 당일 실현 손익 조회 성공: {total_profit:+,}원 ({total_profit_rate:.2f}%)")
-                return total_profit, total_profit_rate
+            # kt00004 (계좌평가현황요청) API 호출
+            balance_data = await self.get_acnt_balance()
+            
+            if balance_data and str(balance_data.get('return_code', '')) == '0':
+                # API 응답에서 'tdy_lspft' (당일투자손익)과 'tdy_pft_rt' (당일손익율) 필드를 사용합니다.
+                # kt00004 응답 필드:
+                # tdy_lspft: 당일투자손익
+                # tdy_pft_rt: 당일손익율
+                
+                tdy_lspft = float(balance_data.get('tdy_lspft', 0))
+                tdy_pft_rt = float(balance_data.get('tdy_pft_rt', 0.0))
+                
+                self.logger.debug(f"✅ 당일 실현 손익 조회 성공 (kt00004): {tdy_lspft:+,}원 ({tdy_pft_rt:.2f}%)")
+                return tdy_lspft, tdy_pft_rt
             else:
                 self.logger.warning("⚠️ 당일 실현 손익 조회 실패 (API 응답 오류)")
                 return 0.0, 0.0

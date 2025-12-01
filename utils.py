@@ -9,6 +9,7 @@ from datetime import datetime
 
 # PyQt6 관련
 from PyQt6.QtWidgets import QTextEdit
+from PyQt6.QtCore import QObject, pyqtSignal
 
 IS_WINDOWS = sys.platform.startswith('win')
 
@@ -80,58 +81,54 @@ def safe_float_conversion(value, default=0.0):
         # float 변환 실패 로그 제거 (너무 빈번함)
         return default
 
+class LogSignaler(QObject):
+    """로그 메시지 전달을 위한 시그널러"""
+    log_signal = pyqtSignal(str)
+
 class QTextEditLogger(logging.Handler):
-    """QTextEdit에 로그를 출력하는 핸들러 (스레드 안전)"""
+    """QTextEdit에 로그를 출력하는 핸들러 (스레드 안전 - 시그널 사용)"""
     
-    # 이 클래스는 로깅 핸들러 자체이므로 self.logger를 사용하지 않습니다.
     def __init__(self, text_widget):
         super().__init__()
         self.text_widget = text_widget
+        self.signaler = LogSignaler()
+        self.signaler.log_signal.connect(self.append_log)
         
-    def emit(self, record):
+    def append_log(self, msg):
+        """메인 스레드에서 실행되는 로그 추가 메서드"""
         try:
-            # QTextEdit 위젯이 유효한지 더 강화된 검사
-            if not self.text_widget or not hasattr(self, 'text_widget'):
-                # 핸들러 자체를 로거에서 제거
-                logging.getLogger().removeHandler(self)
+            if not self.text_widget:
                 return
                 
-            # 위젯이 삭제되었는지 확인
+            # 위젯 유효성 검사 (삭제된 객체 접근 방지)
             try:
-                if not hasattr(self.text_widget, 'append'):
+                # isVisible 호출로 C++ 객체 존재 여부 간접 확인
+                if not hasattr(self.text_widget, 'isVisible'):
                     return
-                # 위젯이 삭제되었는지 확인 (isVisible() 호출 시 RuntimeError 발생 가능)
                 self.text_widget.isVisible()
-            except (RuntimeError, AttributeError):
-                # 위젯이 삭제된 경우
+            except RuntimeError:
                 return
+
+            if hasattr(self.text_widget, 'append'):
+                self.text_widget.append(msg)
                 
-            msg = self.format(record)
-            
-            # 스레드 안전한 텍스트 추가
-            try:
-                # QTextEdit이 여전히 유효한지 다시 확인
-                if hasattr(self.text_widget, 'append'):
-                    self.text_widget.append(msg)
-                
-                # 스크롤은 안전하게 처리
+                # 스크롤 처리
                 try:
                     if hasattr(self.text_widget, 'verticalScrollBar'):
                         scrollbar = self.text_widget.verticalScrollBar()
                         if scrollbar and scrollbar.isVisible():
-                            max_val = scrollbar.maximum()
-                            if max_val > 0:
-                                scrollbar.setValue(max_val)
-                except (RuntimeError, AttributeError):
-                    # 스크롤 실패 시 무시
+                            scrollbar.setValue(scrollbar.maximum())
+                except Exception:
                     pass
-                    
-            except (RuntimeError, AttributeError):
-                # 텍스트 추가 실패 시 무시 (위젯이 삭제된 경우)
-                pass
-                
         except Exception:
-            # 로그 핸들러에서 예외가 발생하면 무시 (무한 루프 방지)
+            pass
+            
+    def emit(self, record):
+        try:
+            msg = self.format(record)
+            # 시그널 발생 (스레드 안전)
+            self.signaler.log_signal.emit(msg)
+        except Exception:
             pass
 
 def setup_logging():
