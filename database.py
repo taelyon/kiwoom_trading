@@ -464,3 +464,26 @@ class AsyncDatabaseManager:
             
         except Exception as ex:
             self.logger.error(f"매매 기록 저장 실패: {ex}", exc_info=True)
+
+    async def clear_tables(self):
+        """데이터베이스 테이블 초기화 (장 시작 전 정리용)"""
+        try:
+            if self._conn is None:
+                await self.init_database()
+
+            async with self._db_lock:
+                cursor = await self._conn.cursor()
+                
+                # 주식 데이터 및 매매 기록 삭제
+                await cursor.execute("DELETE FROM stock_data")
+                await cursor.execute("DELETE FROM trade_records")
+                
+                await self._conn.commit()
+                
+                self.logger.info("🧹 데이터베이스 테이블(stock_data, trade_records) 데이터 삭제 완료")
+                
+                # VACUUM으로 파일 크기 최적화 (선택사항, 시간이 걸릴 수 있음)
+                # await cursor.execute("VACUUM") 
+                
+        except Exception as ex:
+            self.logger.error(f"데이터베이스 초기화 실패: {ex}", exc_info=True)

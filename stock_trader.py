@@ -8,6 +8,7 @@ import os
 import asyncio
 import traceback
 from threading import Lock
+from datetime import datetime
 
 # pyqtgraph가 PyQt6를 사용하도록 환경변수 설정 (PyQt5 충돌 방지)
 os.environ['PYQTGRAPH_QT_LIB'] = 'PyQt6'
@@ -475,19 +476,6 @@ class MyWindow(QWidget):
         """로그인 후 설정"""
         try:
             # 중복 실행 방지
-            if self._post_login_setup_done:
-                self.logger.debug("post_login_setup이 이미 실행되었습니다. 건너뜁니다.")
-                return
-
-            # 1. 트레이더 객체 확인 (이미 API 연결 시 생성됨)
-            if not hasattr(self, 'trader') or not self.trader:
-                self.logger.warning("⚠️ 트레이더 객체가 없습니다. API 연결을 확인해주세요.")
-                return # type: ignore
-
-            # 2. 전략 객체 초기화
-            if not self.objstg:
-                self.objstg = KiwoomStrategy(self.trader, self)
-                self.logger.debug("🔍 KiwoomStrategy 객체 생성 완료")
 
             # 3. 시그널 연결
             try:
