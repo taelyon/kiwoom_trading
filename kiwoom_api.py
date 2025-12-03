@@ -874,6 +874,23 @@ class KiwoomWebSocketClient:
                 self.logger.debug(f"  💵 주문가: {order_price}원 | 주문수량: {order_qty_int:,}주")
             elif order_status == '거부':
                 self.logger.debug(f"  ⚠️ 거부사유: {reject_reason}")
+                # 거부 시 '주문 진행 중' 상태 해제
+                if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'trader'):
+                    if stock_code in self.parent.trader.pending_sell_orders:
+                        self.parent.trader.pending_sell_orders.discard(stock_code)
+                        self.logger.debug(f"🔓 [{stock_code}] 매도 주문 거부로 인해 진행 중 상태 해제")
+                    if hasattr(self.parent.trader, 'pending_buy_orders') and stock_code in self.parent.trader.pending_buy_orders:
+                        self.parent.trader.pending_buy_orders.discard(stock_code)
+                        self.logger.debug(f"🔓 [{stock_code}] 매수 주문 거부로 인해 진행 중 상태 해제")
+            elif order_status == '취소':
+                # 취소 시 '주문 진행 중' 상태 해제
+                if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'trader'):
+                    if stock_code in self.parent.trader.pending_sell_orders:
+                        self.parent.trader.pending_sell_orders.discard(stock_code)
+                        self.logger.debug(f"🔓 [{stock_code}] 매도 주문 취소로 인해 진행 중 상태 해제")
+                    if hasattr(self.parent.trader, 'pending_buy_orders') and stock_code in self.parent.trader.pending_buy_orders:
+                        self.parent.trader.pending_buy_orders.discard(stock_code)
+                        self.logger.debug(f"🔓 [{stock_code}] 매수 주문 취소로 인해 진행 중 상태 해제")
             
             
             # 부분 매도 주문 완료 시 슬랙 알림
@@ -1016,6 +1033,7 @@ class KiwoomWebSocketClient:
                             if chart_widget.current_code == stock_code:
                                 self.logger.debug(f"현재 차트 종목({stock_code})이 보유 및 모니터링 목록에서 모두 제거되어 차트를 초기화합니다.")
                                 chart_widget.set_current_code(None)
+                                chart_widget.clear_charts() # 명시적으로 차트 내용 지우기
                     break
             
             # 투자 현황표 업데이트

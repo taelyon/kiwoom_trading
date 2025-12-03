@@ -98,6 +98,17 @@ class KiwoomStrategy(QObject):
             
             if is_first_eval:
                 self.logger.debug(f"✅ [{code}] 전략 설정 확인됨: {effective_strategy_name}")
+
+            # 매도 주문이 진행 중인 경우 전략 평가 건너뛰기 (중복 주문 방지)
+            if code in self.trader.pending_sell_orders:
+                # 디버그 로그는 최초 1회만 출력 (너무 빈번함)
+                if not hasattr(self, '_pending_order_log_codes'):
+                    self._pending_order_log_codes = set()
+                
+                if code not in self._pending_order_log_codes:
+                    self.logger.debug(f"⏳ [{code}] 매도 주문 진행 중이므로 전략 평가를 건너뜁니다.")
+                    self._pending_order_log_codes.add(code)
+                return
             
             # 매수 신호 평가
             buy_signals = await self.get_buy_signals(code, market_data, effective_strategy_name)
@@ -304,46 +315,54 @@ class KiwoomStrategy(QObject):
                 )
                 
                 if is_first_check:
-                    self.logger.debug(f"ℹ️ [{code}] 매수 조건 {'충족' if condition_met else '미충족'}: {matched_strategy.get('name', 'N/A') if matched_strategy else ''}")
-                
+                    self.logger.debug(f"📊 [{code}] 매수 전략 평가 결과: {condition_met}")
+
                 if condition_met and matched_strategy:
-                    current_price = market_data.get('current_price', 0)
+                    self.logger.info(f"📈 매수 신호 발생: {code} - {matched_strategy.get('name', '')}")
                     
-                    # 매수 수량 계산 (최대투자종목수 기반 분산투자)
-                    # 주의: get_buy_signals는 동기 메서드이므로 비동기 호출이 어려움
-                    available_cash = await self.trader.get_available_cash()
-                    
-                    # 가용자금이 0 이하이거나 현재가가 0이면 매수 신호 생성 안함
-                    if available_cash <= 0:
-                        if is_first_check:
-                            self.logger.debug(f"ℹ️ [{code}] 가용자금 부족으로 매수 불가 ({available_cash:,.0f}원)")
-                        return []
-                    
-                    if current_price <= 0:
-                        if is_first_check:
-                            self.logger.debug(f"ℹ️ [{code}] 현재가 정보 없음 - 매수 불가")
-                        return []
-                    
-                    # 매수가능 종목수 조회
-                    if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'login_handler'):
-                        available_buy_count = self.parent.login_handler.get_available_buy_count()
-                    else:
-                        available_buy_count = portfolio.get('max_holdings', 3) - portfolio.get('total_holdings', 0)
-                    
-                    # 매수 가능 종목수가 0 이하면 매수 신호 생성 안함
-                    if available_buy_count <= 0:
-                        if is_first_check:
-                            self.logger.debug(f"ℹ️ [{code}] 최대 보유 종목수 도달 - 매수 불가")
-                        return []
-                    
-                    # 한 종목당 투자 예산 = 가용자금 ÷ 매수가능종목수
-                    budget = available_cash // available_buy_count
-                    quantity = max(1, int(budget / current_price))
-                    
-                    strategy_display_name = matched_strategy.get('name', strategy_name)
-                    self.logger.info(f"📈 매수 신호 발생: {code} - {strategy_display_name}")
-                    self.logger.debug(f"💰 매수 수량 계산: 가용자금={available_cash:,.0f}원, 매수가능종목={available_buy_count}개")
-                    self.logger.debug(f"   종목당예산={budget:,.0f}원, 현재가={current_price:,}원 → {quantity}주")
+                    # 매수 수량 계산: (예수금 / (최대보유종목수 - 현재보유종목수)) / 현재가
+                    try:
+                        # 1. 투자가능 현금 조회 (캐시 사용)
+                        available_cash = await self.trader.get_available_cash()
+                        
+                        # 2. 남은 매수 가능 종목 수 계산
+                        max_holdings = portfolio['max_holdings']
+                        current_holdings_count = portfolio['total_holdings']
+                        remaining_slots = max_holdings - current_holdings_count
+                        
+                        if remaining_slots <= 0:
+                            self.logger.warning(f"⚠️ [{code}] 매수 불가: 보유 종목 수 한도 초과 ({current_holdings_count}/{max_holdings})")
+                            return signals
+
+                        # 3. 1종목당 배정할 금액 계산
+                        # 예수금의 98%만 사용하여 미수 발생 방지 및 수수료 여유 확보
+                        safe_cash = available_cash * 0.98
+                        amount_per_stock = safe_cash / remaining_slots
+                        
+                        # 4. 수량 계산
+                        # 현재가 결정 (틱 데이터 -> 분봉 데이터 순)
+                        current_price = 0
+                        if not tic_chart_data.empty and 'close' in tic_chart_data.columns:
+                            current_price = tic_chart_data['close'].iloc[-1]
+                        elif not min_chart_data.empty and 'close' in min_chart_data.columns:
+                            current_price = min_chart_data['close'].iloc[-1]
+                            
+                        if current_price > 0:
+                            quantity = int(amount_per_stock / current_price)
+                        else:
+                            quantity = 1 # 현재가가 0인 경우 (오류 방지)
+                            self.logger.warning(f"⚠️ [{code}] 현재가를 찾을 수 없어 수량을 1로 설정합니다. (틱/분봉 데이터 부족)")
+                            
+                        # 최소 1주 이상 매수
+                        if quantity < 1:
+                            self.logger.warning(f"⚠️ [{code}] 매수 수량 계산 결과 0주 (예수금 부족): 배정금액 {amount_per_stock:,.0f}원 / 현재가 {current_price:,}원")
+                            quantity = 1 # 최소 1주는 매수 시도
+                        
+                        self.logger.info(f"💰 매수 수량 계산: {quantity}주 (예수금 {available_cash:,.0f}원 / 남은슬롯 {remaining_slots}개 = 종목당 {amount_per_stock:,.0f}원 / 현재가 {current_price:,}원)")
+
+                    except Exception as qty_ex:
+                        self.logger.error(f"매수 수량 계산 중 오류: {qty_ex}", exc_info=True)
+                        quantity = 1 # 오류 시 기본값
                     
                     signals.append({
                         'strategy': matched_strategy.get('name', strategy_name),
@@ -378,17 +397,7 @@ class KiwoomStrategy(QObject):
                 # 매도 불가 로그 제거 (너무 빈번함)
                 return signals
 
-            # '주문 진행 중'인 종목은 매도 신호 생성 건너뛰기 (중복 주문 방지 강화)
-            if code in self.trader.pending_sell_orders:
-                if is_first_sell_check: # type: ignore
-                    self.logger.debug(f"⏳ [{code}] 매도 주문이 이미 진행 중이므로 신호 생성을 건너뜁니다.")
-                return signals
 
-            # '주문 진행 중'인 종목은 매도 신호 생성 건너뛰기
-            if code in self.trader.pending_sell_orders:
-                if is_first_sell_check: # type: ignore
-                    self.logger.debug(f"⏳ [{code}] 매도 주문이 이미 진행 중이므로 신호 생성을 건너뜁니다.")
-                return signals
             
             # 최초 매도 평가 시작 로그
             if is_first_sell_check: # type: ignore

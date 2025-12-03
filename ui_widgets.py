@@ -551,6 +551,16 @@ class PyQtGraphWidget(pg.PlotWidget):
         # 데이터 초기화
         self.current_data = None
         
+        # PlotItem의 모든 아이템 제거 (확실하게 비우기 - 세로선, 텍스트 등 포함)
+        self.plotItem.clear()
+        
+        # X축 눈금(레이블) 초기화
+        if self.getAxis('bottom'):
+            self.getAxis('bottom').setTicks([])
+        
+        # 그리드 설정 복구 (clear()로 인해 초기화될 수 있음)
+        self.showGrid(x=True, y=False, alpha=0.5)
+        
     def add_candlestic_data(self, data, chart_type="default"):
         """캔들스틱 데이터 추가"""
         try:
@@ -929,6 +939,16 @@ class PyQtGraphWidget(pg.PlotWidget):
         try:
             if self.legend_item:
                 self.legend_item.clear()
+                # 씬에서 제거 시도
+                if self.legend_item.scene():
+                    self.legend_item.scene().removeItem(self.legend_item)
+                elif self.plotItem:
+                    # PlotItem에서 제거 시도 (setParentItem으로 추가된 경우)
+                    try:
+                        self.plotItem.removeItem(self.legend_item)
+                    except:
+                        pass
+                
                 self.legend_item = None
                 self.logger.debug("✅ 범례 제거 완료")
         except Exception as ex:
@@ -983,63 +1003,8 @@ class PyQtGraphWidget(pg.PlotWidget):
             tics = []  # (index, "label") 튜플의 리스트
             last_label_minute = -1
             
-            # 실제 데이터에서 분 단위를 확인하여 동적으로 레이블 간격 설정
-            minutes_in_data = set()
-            for i, item in enumerate(data):
-                try:
-                    if not isinstance(item, (list, tuple)) or len(item) < 5:
-                        continue
-                    
-                    timestamp, _, _, _, _ = item
-                    
-                    # 시간 데이터 처리
-                    if isinstance(timestamp, (int, float)):
-                        if timestamp < 10000000000:  # 초 단위인 경우
-                            dt = datetime.fromtimestamp(timestamp)
-                        else:  # 밀리초 단위인 경우
-                            dt = datetime.fromtimestamp(timestamp / 1000)
-                    elif isinstance(timestamp, datetime):
-                        dt = timestamp
-                    else:
-                        # 기본 시간 설정
-                        dt = datetime.now()
-                    
-                    minute = dt.minute
-                    minutes_in_data.add(minute)
-                    
-                except Exception as e:
-                    continue
-            
-            # 데이터에 있는 분 단위를 기반으로 레이블 간격 설정
-            if minutes_in_data:
-                # 30분 단위로 가장 가까운 분들을 찾기
-                if chart_type == "tic":
-                    # 틱차트: 30분 단위로 가장 가까운 분들
-                    target_minutes = [0, 30]
-                elif chart_type == "minute":
-                    # 분차트: 30분 단위로 가장 가까운 분들
-                    target_minutes = [0, 30]
-                else:
-                    # 기본: 30분 단위
-                    target_minutes = [0, 30]
-                
-                # 실제 데이터에 있는 분들 중에서 목표 분에 가장 가까운 것들 선택
-                label_intervals = []
-                for target in target_minutes:
-                    closest_minute = min(minutes_in_data, key=lambda x: abs(x - target))
-                    if abs(closest_minute - target) <= 15:  # 15분 이내 차이면 허용
-                        label_intervals.append(closest_minute)
-                
-                # 만약 30분 단위에 해당하는 데이터가 없으면 모든 데이터의 분을 사용
-                if not label_intervals:
-                    label_intervals = sorted(list(minutes_in_data))
-                    # 너무 많으면 간격을 두고 선택
-                    if len(label_intervals) > 10:
-                        step = len(label_intervals) // 5
-                        label_intervals = label_intervals[::step]
-            else:
-                # 데이터가 없으면 기본값 사용
-                label_intervals = [0, 30]
+            # 30분 단위 경계 감지 로직으로 변경 (데이터가 드문 경우에도 정확히 표시하기 위함)
+            last_interval_index = -1
             
             for i, item in enumerate(data):
                 try:
@@ -1057,17 +1022,22 @@ class PyQtGraphWidget(pg.PlotWidget):
                     elif isinstance(timestamp, datetime):
                         dt = timestamp
                     else:
-                        # 기본 시간 설정
                         dt = datetime.now()
                     
-                    minute = dt.minute
+                    # 현재 시간의 30분 단위 인덱스 계산 (예: 09:00~09:29 -> 18, 09:30~09:59 -> 19)
+                    current_interval_index = (dt.hour * 60 + dt.minute) // 30
                     
                     label = ""
-                    if minute in label_intervals and minute != last_label_minute:
-                        last_label_minute = minute
+                    # 첫 데이터이거나, 새로운 30분 구간에 진입했을 때 레이블 표시
+                    if last_interval_index != -1 and current_interval_index > last_interval_index:
                         label = dt.strftime("%H:%M")
-                    elif minute not in label_intervals:
-                        last_label_minute = -1
+                    elif last_interval_index == -1:
+                         # 첫 데이터는 항상 표시하지 않고, 0분이나 30분에 가까울 때만 표시하거나
+                         # 또는 그냥 첫 데이터도 표시 (여기서는 깔끔함을 위해 첫 데이터가 30분 단위에 가까우면 표시)
+                         if dt.minute < 5 or dt.minute > 55 or (25 < dt.minute < 35):
+                             label = dt.strftime("%H:%M")
+                    
+                    last_interval_index = current_interval_index
                     
                     if label:
                         tics.append((i, label))  # (X축 인덱스, 표시할 텍스트)
@@ -1079,6 +1049,8 @@ class PyQtGraphWidget(pg.PlotWidget):
             # pyqtgraph는 겹치는 레이블을 자동으로 숨겨 "..." 문제가 발생하지 않음
             if tics:
                 axis.setTicks([tics])
+                # 그리드 설정 (X축 눈금에 맞춰 세로선 표시)
+                self.showGrid(x=True, y=False, alpha=0.3)
                 self.logger.debug(f"🔍 PyQtGraphWidget X축 레이블 설정 완료: {len(tics)}개 레이블 ({chart_type} 차트)")
                 
         except Exception as ex:

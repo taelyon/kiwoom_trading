@@ -764,6 +764,12 @@ class AutoTrader(QObject):
 
                 # 청산 완료 로그
                 self.logger.info("⏹️ 15:15 자동 청산 완료 - 모든 매매 활동 중지")
+                
+                # 자동 청산 직후 조건검색 실시간 중단 (사용자 요청)
+                if hasattr(self.parent, 'condition_search_manager'):
+                    await self.parent.condition_search_manager.stop_all_conditions()
+                    self.logger.info("⏹️ 조건검색 실시간 구독 해제 완료")
+                    
         except Exception as ex:
             self.logger.error(f"❌ 자동 청산 실행 중 오류: {ex}", exc_info=True)
 
@@ -772,9 +778,7 @@ class AutoTrader(QObject):
         try:
             self.logger.info("🕒 15:30 장 마감 - 최종 실현 손익 리포트 전송 시작")
             
-            # 장 마감 후 조건검색 실시간 중단
-            if hasattr(self.parent, 'condition_search_manager'):
-                await self.parent.condition_search_manager.stop_all_conditions()
+            # 모든 매도 체결 처리가 완료될 때까지 대기 (5초)
             
             # 모든 매도 체결 처리가 완료될 때까지 대기 (5초)
             # 15:15 자동 청산 후 체결 알림이 15:30까지 지연될 수 있음

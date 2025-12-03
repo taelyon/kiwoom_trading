@@ -1,20 +1,12 @@
 [급등주]
-buy_stg_1 = {
-	"name": "60틱_모멘텀_빌드업",
-	"content": "tic_MA5[-1] > tic_MA20[-1] and tic_MA20[-1] > tic_MA60[-1] and tic_close[-1] > tic_VWAP[-1] and tic_RSI[-1] > 55 and tic_RSI[-2] <= 55 and tic_strength[-1] > 110 and min3_MA5[-1] > min3_MA20[-1] and tic_close[-1] > tic_BB_MIDDLE[-1]"}
-buy_stg_2 = {
-	"name": "60틱_눌림목_리버전",
-	"content": "tic_MA20[-1] > tic_MA60[-1] and tic_low[-2] <= tic_MA20[-2] and tic_close[-1] >= tic_MA20[-1] and tic_STOCHK[-2] < 30 and tic_STOCHK[-1] > 30 and tic_volume[-1] >= tic_avg_volume_20 * 1.3 and tic_close[-1] > tic_VWAP[-1] and is_pullback and min3_MA5[-1] > min3_MA20[-1]"}
-sell_stg_1 = {"name": "이익실현_및_추적손절", "content": "current_price >= buy_price * 1.025 or from_peak_pct <= -1.5"}
-sell_stg_2 = {"name": "시간초과_및_모멘텀_붕괴", "content": "bars_since_entry >= 30 or (tic_close[-1] < tic_MA20[-1] and tic_RSI[-1] < 50)"}
-sell_stg_3 = {"name": "칼손절_방어", "content": "current_profit_pct <= -2.0"}
-
-[갭상승]
+buy_stg_1 = {"name": "추세", "content": "tic_MA5[-1] > tic_MA20[-1] and tic_MA5[-1] > tic_MA60[-1] and tic_volume[-1] > tic_avg_volume_10 * 2 and tic_close[-1] > min3_MA20[-1] and min3_MA5[-1] > min3_MA20[-1] and min3_MACD_HIST[-1] > 0 and min3_MA5[-1] > min3_MA5[-2]"}
+sell_stg_1 = {"name": "이익실현", "content": "current_price >= buy_price * 1.0185"}
+sell_stg_2 = {"name": "추적손절", "content": "from_peak_pct <= -1.0"}
+sell_stg_3 = {"name": "칼손절", "content": "current_price < buy_price * 0.98"}
 
 [STRATEGIES]
-stg_integrated = 통합 전략
-stg_1 = 급등주
-stg_2 = 갭상승
+stg_integrated = ?ľíŠ ?ëľ
+stg_1 = ę¸ëąěŁ?
 
 [BUYCOUNT]
 target_buy_count = 5
@@ -39,7 +31,8 @@ secretkey =
 autoconnect = True
 
 [SLACK]
-webhook = 
+webhook = https://hooks.slack.com/services/YOUR_WEBHOOK_URL
 
 [SETTINGS]
 last_strategy = 급등주
+
