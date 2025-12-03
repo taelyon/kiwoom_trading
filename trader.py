@@ -138,11 +138,14 @@ class KiwoomTrader(QObject):
         except Exception as ex:
             self.logger.error(f"설정 로드 실패: {ex}", exc_info=True)
     
-    def add_to_blacklist(self, code):
+    def add_to_blacklist(self, code, reason=""):
         """종목을 당일 매수 금지 목록에 추가"""
         self.daily_blacklist.add(code)
         self.save_blacklist() # 변경사항 저장
-        self.logger.info(f"🚫 [{code}] 당일 매수 금지 목록(Blacklist)에 추가됨")
+        log_msg = f"🚫 [{code}] 당일 매수 금지 목록(Blacklist)에 추가됨"
+        if reason:
+            log_msg += f" (사유: {reason})"
+        self.logger.info(log_msg)
 
     def is_blacklisted(self, code):
         """종목이 당일 매수 금지 목록에 있는지 확인"""

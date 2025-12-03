@@ -508,6 +508,32 @@ class ChartDataCache(QObject):
         except Exception as ex:
             return False
 
+    def remove_stock(self, code):
+        """캐시에서 종목 제거 및 데이터 수집 중단"""
+        try:
+            # 캐시에서 제거
+            if code in self.cache:
+                del self.cache[code]
+                self.logger.debug(f"🗑️ ChartDataCache: {code} 캐시 데이터 제거됨")
+            
+            # API 큐에서 제거
+            if code in self.api_request_queue:
+                self.api_request_queue.remove(code)
+                self.logger.debug(f"🗑️ ChartDataCache: {code} API 큐에서 제거됨")
+            
+            # 활성 태스크 취소
+            if code in self.active_chart_tasks:
+                task = self.active_chart_tasks[code]
+                if not task.done():
+                    task.cancel()
+                    self.logger.debug(f"🗑️ ChartDataCache: {code} 데이터 수집 태스크 취소됨")
+                del self.active_chart_tasks[code]
+                
+            return True
+        except Exception as ex:
+            self.logger.error(f"ChartDataCache 종목 제거 실패 ({code}): {ex}", exc_info=True)
+            return False
+
     def get_chart_data(self, code):
         """캐시된 차트 데이터 조회"""
         try:

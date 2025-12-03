@@ -1662,6 +1662,23 @@ class PyQtGraphRealtimeWidget(QWidget):
         
         return last_datapoint if 'time' in last_datapoint else None
 
+    def clear_charts(self):
+        """모든 차트 초기화"""
+        try:
+            self.current_code = None
+            self.last_drawn_tic_datapoint = None
+            self.last_drawn_min_datapoint = None
+            
+            if hasattr(self, 'tic_chart_widget'):
+                self.tic_chart_widget.clear_chart()
+                
+            if hasattr(self, 'minute_chart_widget'):
+                self.minute_chart_widget.clear_chart()
+                
+            self.logger.debug("✅ 실시간 차트 위젯 초기화 완료")
+        except Exception as ex:
+            self.logger.error(f"❌ 차트 초기화 실패: {ex}")
+
 
 
 

@@ -148,9 +148,60 @@ class KiwoomStrategy(QObject):
                     
                     if not ws_has_stock:
                         self.logger.debug(f"ℹ️ [{code}] 보유 종목 아님 - 매도 평가 건너뜀")
+            
+            # 급등주 전략일 경우 모멘텀 상실 체크 (보유 종목이 아닐 때만)
+            if effective_strategy_name == "급등주" and code not in portfolio['holdings']:
+                await self.check_momentum_loss(code, market_data)
                     
         except Exception as ex:
             self.logger.error(f"전략 평가 실패 ({code}): {ex}", exc_info=True)
+
+    async def check_momentum_loss(self, code, market_data):
+        """급등주 모멘텀 상실 여부 확인 및 처리"""
+        try:
+            # 1. 고점 대비 하락률 체크
+            # 현재가
+            current_price = market_data.get('current_price', 0)
+            if current_price == 0:
+                return
+
+            # 당일 고가 (틱 데이터나 분봉 데이터에서 추출 필요)
+            # 여기서는 간단히 틱 데이터의 고가를 사용하거나, market_data에 고가 정보가 없다면 계산
+            tic_data = market_data.get('tic_data', {})
+            high_price = 0
+            
+            # 틱 데이터에서 고가 찾기 (최근 데이터 기준)
+            if tic_data and 'close' in tic_data:
+                # 최근 N개의 틱 데이터 중 최고가 (또는 전체 틱 중 최고가)
+                # 데이터가 많으면 전체를 다 도는 것은 비효율적일 수 있으나, 
+                # 여기서는 캐시된 데이터 범위 내에서의 고가를 사용
+                high_price = max(tic_data['close'])
+            
+            # 분봉 데이터가 있다면 분봉 고가도 고려
+            min_data = market_data.get('min_data', {})
+            if min_data and 'high' in min_data:
+                min_high = max(min_data['high'])
+                high_price = max(high_price, min_high)
+            
+            if high_price > 0:
+                drop_rate = (current_price - high_price) / high_price * 100
+                
+                # 고점 대비 -5% 이상 하락 시 모멘텀 상실로 간주
+                if drop_rate <= -5.0:
+                    self.logger.info(f"📉 [{code}] 급등주 모멘텀 상실 감지 (고점 대비 {drop_rate:.2f}%)")
+                    
+                    # 블랙리스트 추가
+                    if hasattr(self.trader, 'add_to_blacklist'):
+                        self.trader.add_to_blacklist(code)
+                        self.logger.info(f"🚫 [{code}] 블랙리스트 추가 완료 (사유: 모멘텀 상실)")
+                    
+                    # 모니터링 제거 요청
+                    if hasattr(self.parent, 'remove_monitoring_stock'):
+                        self.parent.remove_monitoring_stock(code)
+                        self.logger.info(f"🗑️ [{code}] 모니터링 목록에서 제거됨")
+
+        except Exception as ex:
+            self.logger.error(f"모멘텀 체크 중 오류 ({code}): {ex}", exc_info=True)
             
     
     async def get_buy_signals(self, code, market_data, strategy_name):
@@ -186,11 +237,11 @@ class KiwoomStrategy(QObject):
                         self.logger.debug(f"⚠️ [{code}] 매수 불가: 이미 보유 중")
                     return signals
 
-                # 당일 매수 금지(Blacklist) 종목인지 확인
-                if self.trader.is_blacklisted(code):
-                    if is_first_check:
-                        self.logger.debug(f"🚫 [{code}] 매수 불가: 당일 매수 금지 목록(Blacklist)에 포함됨")
-                    return signals
+                # 당일 매수 금지(Blacklist) 종목인지 확인 - 사용자 요청으로 제거 (재매수 허용)
+                # if self.trader.is_blacklisted(code):
+                #     if is_first_check:
+                #         self.logger.debug(f"🚫 [{code}] 매수 불가: 당일 매수 금지 목록(Blacklist)에 포함됨")
+                #     return signals
 
                 # '매수 주문 진행 중'인 종목은 매수 신호 생성 건너뛰기 (중복 주문 방지 강화)
                 if hasattr(self.trader, 'pending_buy_orders') and code in self.trader.pending_buy_orders:

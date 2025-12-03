@@ -744,6 +744,35 @@ class MyWindow(QWidget):
             self.logger.error(f"❌ 조건검색 실시간 해제 실패: {ex}", exc_info=True)
 
 
+
+    def remove_monitoring_stock(self, code):
+        """모니터링 목록에서 종목 제거 (전략에서 호출)"""
+        try:
+            # 1. 모니터링 목록 UI에서 제거
+            if hasattr(self, 'trading_tab') and self.trading_tab.monitoringBox:
+                items = self.trading_tab.monitoringBox.findItems(code, Qt.MatchFlag.MatchStartsWith)
+                for item in items:
+                    # 정확한 코드 일치 확인 (예: "005930 - 삼성전자" -> "005930")
+                    if item.text().split()[0] == code:
+                        row = self.trading_tab.monitoringBox.row(item)
+                        self.trading_tab.monitoringBox.takeItem(row)
+                        self.logger.debug(f"🗑️ [{code}] 모니터링 목록 UI에서 제거됨")
+            
+            # 2. 차트 캐시에서 제거 (데이터 수집 중단)
+            if self.chart_cache:
+                self.chart_cache.remove_stock(code)
+                self.logger.debug(f"🗑️ [{code}] 차트 데이터 캐시에서 제거됨")
+                
+            # 3. 실시간 차트가 해당 종목을 보고 있다면 초기화
+            if hasattr(self.trading_tab, 'realtime_chart_widget') and self.trading_tab.realtime_chart_widget:
+                if self.trading_tab.realtime_chart_widget.current_stock_code == code:
+                    self.trading_tab.realtime_chart_widget.clear_charts()
+                    self.logger.debug(f"🗑️ [{code}] 실시간 차트 초기화됨")
+
+        except Exception as ex:
+            self.logger.error(f"모니터링 종목 제거 실패 ({code}): {ex}", exc_info=True)
+
+
 async def main():
     """메인 실행 함수 - qasync를 사용한 비동기 처리"""
     global main_window

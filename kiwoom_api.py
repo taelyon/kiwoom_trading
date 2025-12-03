@@ -1573,6 +1573,12 @@ class KiwoomWebSocketClient:
                 # 액션 타입에 따른 처리
                 if action_type == 'I':  # INSERT (편입) # type: ignore
                     self.logger.info(f"📈 조건검색 실시간 편입: {stock_code} ({condition_name}, seq: {condition_seq})")
+                    
+                    # 블랙리스트 확인
+                    if hasattr(self.parent, 'trader') and self.parent.trader and self.parent.trader.is_blacklisted(stock_code):
+                        self.logger.info(f"🚫 [{stock_code}] 블랙리스트에 포함된 종목이므로 조건검색 편입을 무시합니다.")
+                        return
+
                     # 부모 윈도우에 종목 추가 요청 (비동기)
                     if hasattr(self, 'parent') and self.parent:
                         # chart_cache를 통해 API 큐에 추가 # type: ignore
@@ -1922,6 +1928,14 @@ class KiwoomWebSocketClient:
                         
                         # 이미 모니터링에 존재하는지 사전 확인
                         already_exists = False
+                        
+                        # 블랙리스트 확인
+                        if hasattr(self.parent, 'trader') and self.parent.trader and self.parent.trader.is_blacklisted(stock['code']):
+                            self.logger.info(f"🚫 [{stock['code']}] 블랙리스트에 포함된 종목이므로 조건검색 결과 추가를 무시합니다.")
+                            already_exists = True # 블랙리스트면 이미 존재하는 것처럼 처리하여 추가 방지
+                            skipped_count += 1
+                            continue
+
                         if hasattr(self.parent, 'monitoringBox'):
                             for j in range(self.parent.trading_tab.monitoringBox.count()):
                                 item_text = self.parent.trading_tab.monitoringBox.item(j).text()
