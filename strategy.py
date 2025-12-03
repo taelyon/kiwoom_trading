@@ -175,6 +175,12 @@ class KiwoomStrategy(QObject):
                         self.logger.debug(f"⚠️ [{code}] 매수 불가: 이미 보유 중")
                     return signals
 
+                # 당일 매수 금지(Blacklist) 종목인지 확인
+                if self.trader.is_blacklisted(code):
+                    if is_first_check:
+                        self.logger.debug(f"🚫 [{code}] 매수 불가: 당일 매수 금지 목록(Blacklist)에 포함됨")
+                    return signals
+
                 # '매수 주문 진행 중'인 종목은 매수 신호 생성 건너뛰기 (중복 주문 방지 강화)
                 if hasattr(self.trader, 'pending_buy_orders') and code in self.trader.pending_buy_orders:
                     if is_first_check:
@@ -669,7 +675,7 @@ class KiwoomStrategy(QObject):
                 )
                 
                 if success:
-                    self.logger.info(f"✅ [{code}] 매도 주문 성공: {signal['strategy']} - {final_quantity}주")
+                    self.logger.debug(f"✅ [{code}] 매도 주문 성공: {signal['strategy']} - {final_quantity}주")
                     
                     self.signal_strategy_result.emit(
                         code, 
@@ -681,6 +687,16 @@ class KiwoomStrategy(QObject):
                             'price': signal['price']
                         }
                     )
+
+                    # 추적손절(Trailing Stop)로 매도된 경우 당일 재매수 금지(Blacklist) 추가
+                    # 전략명이나 매도 사유에 '추적손절' 또는 'Trailing Stop' 키워드가 포함된 경우
+                    strategy_name_check = signal['strategy']
+                    reason_check = signal['reason']
+                    
+                    if ('추적손절' in strategy_name_check or 'Trailing Stop' in strategy_name_check or 
+                        '추적손절' in reason_check or 'Trailing Stop' in reason_check):
+                        self.trader.add_to_blacklist(code)
+                        self.logger.info(f"🚫 [{code}] 추적손절로 매도되어 당일 매수 금지 목록에 추가됨")
                 else:
                     self.logger.error(f"❌ [{code}] 매도 주문 실패: {signal['strategy']} - {final_quantity}주")
                     

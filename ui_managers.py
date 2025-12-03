@@ -536,6 +536,19 @@ class MonitoringManager:
     async def remove_stock_from_monitoring(self, code):
         """모니터링 리스트박스에서 종목 제거"""
         try:
+            # 보유 중인 종목인지 확인
+            is_held = False
+            if hasattr(self.parent, 'boughtBox'):
+                for i in range(self.parent.boughtBox.count()):
+                    if code in self.parent.boughtBox.item(i).text():
+                        is_held = True
+                        break
+            
+            # 보유 중인 종목이면 제거하지 않음 (UI 및 캐시 모두 유지)
+            if is_held:
+                self.logger.info(f"🛡️ {code}는 보유 중인 종목이므로 모니터링 목록에서 제거하지 않습니다.")
+                return True
+            
             # 리스트박스에서 제거
             for i in range(self.parent.trading_tab.monitoringBox.count()):
                 item = self.parent.trading_tab.monitoringBox.item(i)
@@ -543,7 +556,7 @@ class MonitoringManager:
                     self.parent.trading_tab.monitoringBox.takeItem(i)
                     self.logger.debug(f"✅ 모니터링 종목 제거: {code}")
                     break
-            
+
             # 차트 캐시에서도 제거 (모니터링 중단)
             # 차트 위젯이 제거된 종목을 표시하고 있었다면 차트 초기화
             if hasattr(self.parent, 'trading_tab') and hasattr(self.parent.trading_tab, 'realtime_chart_widget'):
@@ -655,7 +668,7 @@ class MonitoringManager:
     
     def get_monitoring_stock_codes(self):
         """
-        모니터링 박스에서 종목 코드 리스트 추출 (통합 버전)
+        모니터링 박스 및 보유 종목 박스에서 종목 코드 리스트 추출 (통합 버전)
         
         다양한 형식의 아이템 텍스트를 파싱하여 종목코드만 추출:
         - "종목코드 - 종목명" 형식
@@ -666,30 +679,45 @@ class MonitoringManager:
             list: 종목코드 리스트
         """
         try:
-            stock_codes = []
-            monitoring_box = self.parent.trading_tab.monitoringBox
+            stock_codes = set() # 중복 제거를 위해 set 사용
             
-            for i in range(monitoring_box.count()):
-                item = monitoring_box.item(i)
-                if not item:
-                    continue
+            # 1. 모니터링 박스에서 추출
+            if hasattr(self.parent, 'trading_tab') and hasattr(self.parent.trading_tab, 'monitoringBox'):
+                monitoring_box = self.parent.trading_tab.monitoringBox
+                for i in range(monitoring_box.count()):
+                    item = monitoring_box.item(i)
+                    if not item: continue
+                    item_text = item.text().strip()
+                    if not item_text: continue
                     
-                item_text = item.text().strip()
-                if not item_text:
-                    continue
-                
-                code = item_text
-                
-                # 'A' 접두사 제거
-                if code.startswith('A'):
-                    code = code[1:]
-                
-                # 6자리 종목코드만 허용
-                if code and code.isdigit() and len(code) == 6:
-                    stock_codes.append(code)
+                    code = item_text.split()[0] # 첫 번째 공백 앞부분 사용 (종목코드)
+                    
+                    # 'A' 접두사 제거
+                    if code.startswith('A'): code = code[1:]
+                    
+                    # 6자리 종목코드만 허용
+                    if code and code.isdigit() and len(code) == 6:
+                        stock_codes.add(code)
+
+            # 2. 보유 종목 박스에서 추출 (보유 종목도 차트 업데이트 필요)
+            if hasattr(self.parent, 'boughtBox'):
+                bought_box = self.parent.boughtBox
+                for i in range(bought_box.count()):
+                    item = bought_box.item(i)
+                    if not item: continue
+                    item_text = item.text().strip()
+                    if not item_text: continue
+                    
+                    code = item_text.split()[0]
+                    
+                    if code.startswith('A'): code = code[1:]
+                    
+                    if code and code.isdigit() and len(code) == 6:
+                        stock_codes.add(code)
             
-            self.logger.debug(f"모니터링 종목 코드 추출: {len(stock_codes)}개 - {stock_codes}")
-            return stock_codes
+            result_list = list(stock_codes)
+            self.logger.debug(f"모니터링+보유 종목 코드 추출: {len(result_list)}개 - {result_list}")
+            return result_list
             
         except Exception as ex:
             self.logger.error(f"모니터링 종목 코드 추출 실패: {ex}")
@@ -1387,6 +1415,11 @@ class TradingManager(QObject):
                         if quantity <= 0:
                             self.logger.warning(f"⚠️ {code} 보유 수량 없음 - 건너뜀")
                             continue
+
+                        # 이미 매도 주문 진행 중인지 확인 (중복 매도 방지)
+                        if hasattr(self.parent, 'trader') and self.parent.trader and code in self.parent.trader.pending_sell_orders:
+                            self.logger.info(f"⏳ {code} 이미 매도 주문이 진행 중이므로 자동 청산에서 건너뜁니다.")
+                            continue
                         
                         # 매도 주문 실행 (재시도 로직 포함)
                         if hasattr(self.parent, 'login_handler') and self.parent.login_handler and hasattr(self.parent.login_handler, 'kiwoom_client'):
@@ -1518,7 +1551,7 @@ class TradingManager(QObject):
                 if hasattr(self.parent, 'login_handler') and self.parent.login_handler and hasattr(self.parent.login_handler, 'kiwoom_client'):
                     success = await self.parent.login_handler.kiwoom_client.place_sell_order(code, quantity, 0, "market")
                     if success:
-                        self.logger.info(f"✅ 매도 주문 성공: {code} {quantity}주 전량 매도")
+                        self.logger.debug(f"✅ 매도 주문 성공: {code} {quantity}주 전량 매도")
                     else:
                         self.logger.error(f"❌ 매도 주문 실패: {code}")
                         # QMessageBox.warning(self.parent, "매도 실패", f"{code} 매도 주문이 실패했습니다.")
@@ -1830,11 +1863,18 @@ class BacktestManager:
                     f"최대 낙폭: {result['max_drawdown']:.2f}%"
                 )
                 self.parent.backtest_tab.bt_results_text.append("\n=== 백테스팅 결과 ===\n" + summary)
-                backtester.plot_results(strategy_name)
+                self.parent.backtest_tab.bt_results_text.append("\n=== 백테스팅 결과 ===\n" + summary)
+                
+                # 차트 위젯에 결과 그리기 (인터랙티브 차트)
+                backtester.plot_results(strategy_name, target_widget=self.parent.backtest_tab.bt_chart_widget)
+                
+                # 엑셀 내보내기 (선택 사항)
                 backtester.export_results(strategy_name)
                 self.logger.info("백테스팅 완료 및 결과 표시 성공")
+
             else:
                 self.parent.backtest_tab.bt_results_text.append("\n백테스팅 실행에 실패했거나 결과가 없습니다.")
+                self.logger.warning("백테스팅 실패 또는 결과 없음")
                 self.logger.warning("백테스팅 실패 또는 결과 없음")
                 
         except Exception as ex:
@@ -2068,6 +2108,12 @@ class AccountManager:
                     # REST API 필드명 매핑
                     raw_code = stock.get('stk_cd', stock.get('pdno', ''))
                     stock_code = parent.data_manager.normalize_stock_code(raw_code)  # A 접두사 제거
+                    
+                    # 최근 매도된 종목이면 건너뛰기 (UI 재출현 방지)
+                    if hasattr(parent, 'trader') and parent.trader and parent.trader.is_recently_sold(stock_code):
+                        self.logger.debug(f"🚫 {stock_code} 최근 매도된 종목이므로 REST API 잔고 반영 건너뜀")
+                        continue
+
                     stock_name = stock.get('stk_nm', stock.get('prdt_name', ''))
                     quantity = parent.data_manager.safe_int(stock.get('rmnd_qty', stock.get('hldg_qty', 0)))
                     current_price = parent.data_manager.safe_int(stock.get('cur_prc', stock.get('prpr', 0)))
@@ -2339,5 +2385,22 @@ class ConditionSearchManager:
                     await self.parent.execute_condition_search(condition_seq, condition_name) # type: ignore
         except Exception as ex:
             self.logger.error(f"조건검색 실행 실패: {ex}", exc_info=True)
+
+    async def stop_all_conditions(self):
+        """모든 실시간 조건검색 중단"""
+        try:
+            if not hasattr(self.parent, 'condition_search_list') or not self.parent.condition_search_list:
+                return
+
+            self.logger.info("🛑 장 마감으로 인한 모든 실시간 조건검색 중단 요청")
+            for condition in self.parent.condition_search_list:
+                seq = condition.get('seq')
+                if seq is not None:
+                    await self.parent.stop_condition_realtime(seq)
+                    await asyncio.sleep(0.2) # 약간의 딜레이
+            
+            self.logger.info("✅ 모든 실시간 조건검색이 중단되었습니다.")
+        except Exception as ex:
+            self.logger.error(f"❌ 모든 실시간 조건검색 중단 실패: {ex}")
 
 

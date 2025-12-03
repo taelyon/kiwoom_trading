@@ -3,6 +3,8 @@ import asyncio
 import concurrent.futures
 import configparser
 import time
+import json
+import os
 from datetime import datetime
 from PyQt6.QtCore import QObject, pyqtSignal, QTimer
 from qasync import asyncSlot
@@ -36,6 +38,9 @@ class KiwoomTrader(QObject):
         self.buy_times = {}  # 매수 시간
         self.highest_prices = {}  # 최고가 추적
 
+        # 최근 전량 매도한 종목 추적 (UI 재출현 방지용, {code: timestamp})
+        self.sold_blacklist = {}
+
         # 매도 주문 진행 중인 종목 추적 (중복 매도 방지)
         self.pending_sell_orders = set()
 
@@ -57,6 +62,10 @@ class KiwoomTrader(QObject):
 
         # 종목별 매수 주문 동시성 제어를 위한 Lock
         self._buy_order_locks = {}
+
+        # 당일 매수 금지 종목 (추적손절 등으로 매도된 종목)
+        self.daily_blacklist = set()
+        self.load_blacklist()  # 파일에서 블랙리스트 복원
         
         # 설정 로드
         self.load_settings()
@@ -107,7 +116,7 @@ class KiwoomTrader(QObject):
             config.read('settings.ini', encoding='utf-8')
             
             # 매매 설정
-            self.evaluation_interval = config.getint('TRADING', 'evaluation_interval', fallback=5)
+            self.evaluation_interval = config.getint('TRADING', 'evaluation_interval', fallback=1)
 
             # 수수료/세금 설정 (인라인 주석 처리)
             commission_rate_str = config.get('TRADING', 'commission_rate', fallback='0.00015')
@@ -119,7 +128,7 @@ class KiwoomTrader(QObject):
 
             
             # 데이터 저장 설정
-            self.data_saving_interval = config.getint('DATA_SAVING', 'interval_seconds', fallback=5)
+            self.data_saving_interval = config.getint('DATA_SAVING', 'interval_seconds', fallback=60)
             
             # 차트 업데이트 설정
             self.chartdata_update_interval = config.getint('CHART', 'chartdata_update_interval', fallback=10)
@@ -129,6 +138,71 @@ class KiwoomTrader(QObject):
         except Exception as ex:
             self.logger.error(f"설정 로드 실패: {ex}", exc_info=True)
     
+    def add_to_blacklist(self, code):
+        """종목을 당일 매수 금지 목록에 추가"""
+        self.daily_blacklist.add(code)
+        self.save_blacklist() # 변경사항 저장
+        self.logger.info(f"🚫 [{code}] 당일 매수 금지 목록(Blacklist)에 추가됨")
+
+    def is_blacklisted(self, code):
+        """종목이 당일 매수 금지 목록에 있는지 확인"""
+        return code in self.daily_blacklist
+
+    def reset_blacklist(self):
+        """당일 매수 금지 목록 초기화"""
+        if self.daily_blacklist:
+            self.logger.info(f"🔄 당일 매수 금지 목록 초기화: {len(self.daily_blacklist)}개 종목 해제")
+            self.daily_blacklist.clear()
+            self.save_blacklist() # 변경사항 저장
+        else:
+            self.logger.debug("🔄 당일 매수 금지 목록 초기화 (목록 비어있음)")
+
+    def load_blacklist(self):
+        """파일에서 블랙리스트 로드"""
+        try:
+            if os.path.exists('blacklist.json'):
+                with open('blacklist.json', 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    
+                saved_date = data.get('date')
+                current_date = datetime.now().strftime('%Y-%m-%d')
+                
+                # 날짜가 오늘과 같으면 복원
+                if saved_date == current_date:
+                    self.daily_blacklist = set(data.get('codes', []))
+                    self.logger.info(f"📂 블랙리스트 복원 완료: {len(self.daily_blacklist)}개 종목 ({saved_date})")
+                else:
+                    self.logger.info(f"📂 지난 블랙리스트 파일 무시 (날짜 불일치: {saved_date} != {current_date})")
+                    self.daily_blacklist.clear()
+                    # 날짜가 바뀌었으므로 파일도 초기화
+                    self.save_blacklist()
+        except Exception as ex:
+            self.logger.error(f"블랙리스트 로드 실패: {ex}")
+
+    def save_blacklist(self):
+        """블랙리스트를 파일에 저장"""
+        try:
+            data = {
+                'date': datetime.now().strftime('%Y-%m-%d'),
+                'codes': list(self.daily_blacklist)
+            }
+            with open('blacklist.json', 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=4)
+        except Exception as ex:
+            self.logger.error(f"블랙리스트 저장 실패: {ex}")
+
+    def is_recently_sold(self, code):
+        """최근 전량 매도된 종목인지 확인 (UI 재출현 방지용)"""
+        if code in self.sold_blacklist:
+            sold_time = self.sold_blacklist[code]
+            # 10초 동안은 재출현 방지
+            if (datetime.now() - sold_time).total_seconds() < 10:
+                return True
+            else:
+                # 시간이 지났으면 목록에서 제거
+                del self.sold_blacklist[code]
+        return False
+
     async def get_current_price(self, code):
         """현재가 조회 (실패 시 0 반환하여 fallback 처리) (비동기)"""
         try:
@@ -325,6 +399,10 @@ class KiwoomTrader(QObject):
                         del self.buy_prices[code]
                     if code in self.buy_times:
                         del self.buy_times[code]
+                    
+                    # 최근 전량 매도 목록에 추가 (UI 재출현 방지)
+                    self.sold_blacklist[code] = datetime.now()
+                    self.logger.debug(f"🚫 [{code}] 최근 전량 매도 목록에 추가 (10초간 UI 재출현 방지)")
                 else:
                     # 부분 매도 시 수량만 업데이트
                     if code in self.holdings:
@@ -335,7 +413,8 @@ class KiwoomTrader(QObject):
                 # 전량 매도 시 보유종목 리스트에서 즉시 제거 (종목 수 제한 동기화)
                 if is_full_sell and self.parent and hasattr(self.parent, 'boughtBox'):
                     for i in range(self.parent.boughtBox.count()):
-                        if self.parent.boughtBox.item(i).text() == code:
+                        # 종목 코드 포함 여부로 확인 (공백 등 처리)
+                        if code in self.parent.boughtBox.item(i).text():
                             self.parent.boughtBox.takeItem(i)
                             new_count = self.parent.boughtBox.count()
                             self.logger.info(f"✅ 보유종목 리스트에서 제거: {code} (전량 매도, 남은 종목 {new_count}개)")
@@ -345,6 +424,12 @@ class KiwoomTrader(QObject):
                 
                 self.signal_order_result.emit(code, "sell", quantity, price, True)
                 self.logger.debug(f"✅ 매도 주문 성공: {code} {quantity}주 (키움 REST API)")
+                
+                # 주문 성공 시 '주문 진행 중' 상태 해제
+                if code in self.pending_sell_orders:
+                    self.pending_sell_orders.discard(code)
+                    self.logger.debug(f"🟢 [{code}] 매도 주문 성공으로 진행 중 상태 해제")
+                
                 return True
             else:
                 self.signal_order_result.emit(code, "sell", quantity, price, False)
@@ -358,9 +443,10 @@ class KiwoomTrader(QObject):
         except Exception as ex:
             self.logger.error(f"매도 주문 중 오류 ({code}): {ex}", exc_info=True)
             self.signal_order_result.emit(code, "sell", quantity, price, False)
+            if code in self.pending_sell_orders:
+                self.pending_sell_orders.discard(code)
             return False
         finally:
-            # finally 블록은 주문 성공/실패와 관계없이 실행되므로, 실패 시에만 상태를 해제하도록 위로 이동
             pass
     
     def get_portfolio_status(self):
@@ -490,14 +576,26 @@ class KiwoomTrader(QObject):
             # 웹소켓에 있는 종목은 self.holdings에 추가/업데이트
             for code, balance_info in ws_balance_data.items():
                 quantity = balance_info.get('quantity', 0)
+                average_price = balance_info.get('average_price', 0)
+                
                 if quantity > 0:
                     if code not in self.holdings:
                         self.holdings[code] = {'quantity': quantity}
-                        self.buy_prices[code] = balance_info.get('average_price', 0)
+                        self.buy_prices[code] = average_price
                         self.buy_times[code] = datetime.now() # 시간 정보가 없으므로 현재 시간으로 설정
-                        self.logger.debug(f"🆕 [{code}] holdings 동기화: 웹소켓 잔고로 신규 추가")
+                        self.logger.debug(f"🆕 [{code}] holdings 동기화: 웹소켓 잔고로 신규 추가 (단가: {average_price:,}원)")
                     else:
-                        self.holdings[code]['quantity'] = quantity # 수량 동기화
+                        # 수량 동기화
+                        if self.holdings[code]['quantity'] != quantity:
+                            self.logger.debug(f"🔄 [{code}] 수량 동기화: {self.holdings[code]['quantity']} -> {quantity}")
+                            self.holdings[code]['quantity'] = quantity
+                        
+                        # 매입단가 동기화 (중요: 주문 시점의 추정가와 실제 체결가가 다를 수 있음)
+                        if average_price > 0 and code in self.buy_prices:
+                            old_price = self.buy_prices[code]
+                            if abs(old_price - average_price) > 0: # 차이가 있으면 업데이트
+                                self.buy_prices[code] = average_price
+                                self.logger.info(f"🔄 [{code}] 매입단가 보정 (체결가 반영): {old_price:,.0f}원 -> {average_price:,.0f}원")
                 else:
                     # 수량이 0인 경우 (전량 매도 완료) holdings에서 제거
                     if code in self.holdings:
@@ -651,6 +749,19 @@ class AutoTrader(QObject):
             self.logger.info("🕒 15:15 자동 청산 로직 실행")
             if hasattr(self.parent, 'trading_manager'):
                 await self.parent.trading_manager.sell_all_item(is_auto=True)
+                
+                # 모든 매도 주문이 체결될 때까지 대기 (최대 60초)
+                # sell_order_details는 체결이 완료되면 항목이 제거됨
+                wait_seconds = 0
+                while self.trader.sell_order_details and wait_seconds < 60:
+                    await asyncio.sleep(1)
+                    wait_seconds += 1
+                    if wait_seconds % 10 == 0:
+                        self.logger.info(f"⏳ 자동 청산 매도 체결 대기 중... ({len(self.trader.sell_order_details)}건 남음)")
+                
+                if self.trader.sell_order_details:
+                    self.logger.warning(f"⚠️ 일부 매도 주문 미체결 상태로 대기 시간 종료 ({len(self.trader.sell_order_details)}건)")
+
                 # 청산 완료 로그
                 self.logger.info("⏹️ 15:15 자동 청산 완료 - 모든 매매 활동 중지")
         except Exception as ex:
@@ -660,6 +771,10 @@ class AutoTrader(QObject):
         """15:30 장 마감 리포트 실행"""
         try:
             self.logger.info("🕒 15:30 장 마감 - 최종 실현 손익 리포트 전송 시작")
+            
+            # 장 마감 후 조건검색 실시간 중단
+            if hasattr(self.parent, 'condition_search_manager'):
+                await self.parent.condition_search_manager.stop_all_conditions()
             
             # 모든 매도 체결 처리가 완료될 때까지 대기 (5초)
             # 15:15 자동 청산 후 체결 알림이 15:30까지 지연될 수 있음
@@ -769,6 +884,16 @@ class AutoTrader(QObject):
             
             # 거래 시간 범위 밖이면 타이머 중지하고 모니터링 타이머로 전환
             if current_time_minutes < start_time_minutes:
+                # 08:50분에 블랙리스트 초기화 (장 시작 전)
+                if current_time_str == "08:50":
+                     if not hasattr(self, '_blacklist_reset_done') or not self._blacklist_reset_done:
+                        self.trader.reset_blacklist()
+                        self._blacklist_reset_done = True
+                elif current_time_str == "08:51":
+                    if hasattr(self, '_blacklist_reset_done'):
+                        delattr(self, '_blacklist_reset_done')
+
+                # 9:00 이전 - 1초 타이머 중지, 1분 모니터링 타이머 시작
                 # 9:00 이전 - 1초 타이머 중지, 1분 모니터링 타이머 시작
                 if self.trading_check_timer.isActive():
                     self.trading_check_timer.stop() # type: ignore

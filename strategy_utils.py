@@ -301,6 +301,23 @@ def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_
         if portfolio_info:
             locals_dict.update(portfolio_info)
         
+        # 기존 데이터프레임에 있는 'tic_', 'min3_' 접두사 컬럼들도 로컬 변수에 추가 (백테스팅 호환성)
+        # DB에서 로드된 데이터는 이미 계산된 지표를 포함할 수 있음
+        for col in tic_chart_data.columns:
+            if col.startswith('tic_') or col.startswith('min3_'):
+                locals_dict[col] = tic_chart_data[col].values
+                
+                # 대소문자 호환성을 위해 대문자 버전도 추가 (예: min3_ma20 -> min3_MA20)
+                # 접두사(tic_, min3_)는 소문자 유지, 나머지 지표명은 대문자로 변환
+                if col.startswith('tic_'):
+                    upper_key = 'tic_' + col[4:].upper()
+                    if upper_key != col:
+                        locals_dict[upper_key] = tic_chart_data[col].values
+                elif col.startswith('min3_'):
+                    upper_key = 'min3_' + col[5:].upper()
+                    if upper_key != col:
+                        locals_dict[upper_key] = tic_chart_data[col].values
+        
         # 백테스팅 특화 변수들
         locals_dict['code'] = code
         locals_dict['current_time'] = datetime.now()
@@ -311,9 +328,9 @@ def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_
             if len(volume_series) > 0:
                 locals_dict['avg_volume'] = volume_series.mean()
                 locals_dict['volume_ratio'] = volume_series.iloc[-1] / locals_dict['avg_volume'] if locals_dict['avg_volume'] > 0 else 1
-                if len(volume_series) >= 20:
-                    # 최근 20개 틱의 평균 거래량
-                    locals_dict['tic_avg_volume_20'] = volume_series.tail(20).mean()
+                if len(volume_series) >= 10:
+                    # 최근 10개 틱의 평균 거래량
+                    locals_dict['tic_avg_volume_10'] = volume_series.tail(10).mean()
 
         return locals_dict
         
@@ -396,6 +413,23 @@ def prepare_sell_strategy_locals(code, tic_chart_data, min_chart_data, buy_price
         if portfolio_info:
             locals_dict.update(portfolio_info)
             
+        # 기존 데이터프레임에 있는 'tic_', 'min3_' 접두사 컬럼들도 로컬 변수에 추가 (백테스팅 호환성)
+        # DB에서 로드된 데이터는 이미 계산된 지표를 포함할 수 있음
+        for col in tic_chart_data.columns:
+            if col.startswith('tic_') or col.startswith('min3_'):
+                locals_dict[col] = tic_chart_data[col].values
+                
+                # 대소문자 호환성을 위해 대문자 버전도 추가 (예: min3_ma20 -> min3_MA20)
+                # 접두사(tic_, min3_)는 소문자 유지, 나머지 지표명은 대문자로 변환
+                if col.startswith('tic_'):
+                    upper_key = 'tic_' + col[4:].upper()
+                    if upper_key != col:
+                        locals_dict[upper_key] = tic_chart_data[col].values
+                elif col.startswith('min3_'):
+                    upper_key = 'min3_' + col[5:].upper()
+                    if upper_key != col:
+                        locals_dict[upper_key] = tic_chart_data[col].values
+
             # 최고가 추적
             highest_price = portfolio_info.get('highest_prices', {}).get(code, current_price)
             locals_dict['highest_price'] = highest_price

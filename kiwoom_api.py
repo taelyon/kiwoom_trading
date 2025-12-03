@@ -719,9 +719,7 @@ class KiwoomWebSocketClient:
                             QTimer.singleShot(0, lambda code=stock_code, name=stock_name: self._add_stock_to_ui(code, name))
                 else:
                     # 수량이 0인 경우 → 매도 체결 완료
-                    if stock_code in self.balance_data:
-                        self.logger.info(f"💰 전량 매도 완료 감지 (실시간 잔고): {stock_name}({stock_code})")
-                        
+                    if stock_code in self.balance_data:                       
                         # 요청: 전량 매도 완료 시, 그 시점까지의 '전체' 당일실현손익을 슬랙으로 전송
                         # REST API를 호출하여 전체 실현손익을 조회하고 알림을 보내는 비동기 작업을 시작합니다.
                         if hasattr(self.parent, 'login_handler') and self.parent.login_handler.kiwoom_client:
@@ -777,6 +775,10 @@ class KiwoomWebSocketClient:
                             if hasattr(self.parent.objtrader, 'highest_prices') and stock_code in self.parent.objtrader.highest_prices:
                                 del self.parent.objtrader.highest_prices[stock_code]
                                 self.logger.info(f"🗑️ {stock_code} 최고가 정보 제거 완료 (objtrader, 웹소켓 체결)")
+                        
+                        # [수정] 전량 매도 시 투자현황표 즉시 업데이트 (잔고 삭제 반영)
+                        if hasattr(self.parent, 'update_stock_table'):
+                            QTimer.singleShot(0, self.parent.update_stock_table)
             else:
                 # 실시간 잔고 데이터 수신 시, UI 테이블 업데이트 트리거
                 current_time = time.time()
@@ -2733,29 +2735,64 @@ class KiwoomRestClient:
 
     async def get_daily_realized_profit(self) -> tuple[float, float]:
         """
-        당일 실현 손익과 수익률을 조회합니다. (kt00004 API 사용)
+        당일 실현 손익과 수익률을 조회합니다. (ka10170 당일매매일지요청 API 사용)
         
         Returns:
             tuple[float, float]: (당일 총 실현 손익, 당일 총 실현 손익률)
         """
         try:
-            # kt00004 (계좌평가현황요청) API 호출
-            balance_data = await self.get_acnt_balance()
-            
-            if balance_data and str(balance_data.get('return_code', '')) == '0':
-                # API 응답에서 'tdy_lspft' (당일투자손익)과 'tdy_pft_rt' (당일손익율) 필드를 사용합니다.
-                # kt00004 응답 필드:
-                # tdy_lspft: 당일투자손익
-                # tdy_pft_rt: 당일손익율
-                
-                tdy_lspft = float(balance_data.get('tdy_lspft', 0))
-                tdy_pft_rt = float(balance_data.get('tdy_pft_rt', 0.0))
-                
-                self.logger.debug(f"✅ 당일 실현 손익 조회 성공 (kt00004): {tdy_lspft:+,}원 ({tdy_pft_rt:.2f}%)")
-                return tdy_lspft, tdy_pft_rt
-            else:
-                self.logger.warning("⚠️ 당일 실현 손익 조회 실패 (API 응답 오류)")
+            await self._ensure_client()
+            if not await self.check_token_validity():
                 return 0.0, 0.0
+
+            # API URL 설정
+            host = 'https://mockapi.kiwoom.com' if self.is_mock else 'https://api.kiwoom.com'
+            endpoint = '/api/dostk/acnt'
+            url = host + endpoint
+
+            # 헤더 설정
+            headers = {
+                'Content-Type': 'application/json;charset=UTF-8',
+                'authorization': f'Bearer {self.access_token}',
+                'cont-yn': 'N',
+                'next-key': '',
+                'api-id': 'ka10170',  # TR명: 당일매매일지요청
+            }
+
+            # 요청 데이터
+            params = {
+                'base_dt': '',       # 기준일자 (공백: 금일)
+                'ottks_tp': '2',     # 단주구분 (2: 당일매도 전체)
+                'ch_crd_tp': '0',    # 현금신용구분 (0: 전체)
+            }
+
+            # HTTP POST 요청
+            response = await self.client.post(url, headers=headers, json=params, timeout=10.0)
+
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('return_code') == 0:
+                    # 응답 데이터 파싱
+                    # tot_pl_amt: 총손익금액
+                    # tot_prft_rt: 총수익률
+                    
+                    tot_pl_amt_str = data.get('tot_pl_amt', '0')
+                    tot_prft_rt_str = data.get('tot_prft_rt', '0')
+                    
+                    # 빈 문자열 처리 및 float 변환
+                    tot_pl_amt = float(tot_pl_amt_str) if tot_pl_amt_str else 0.0
+                    tot_prft_rt = float(tot_prft_rt_str) if tot_prft_rt_str else 0.0
+                    
+                    self.logger.debug(f"✅ 당일 실현 손익 조회 성공 (ka10170): {tot_pl_amt:+,}원 ({tot_prft_rt:.2f}%)")
+                    return tot_pl_amt, tot_prft_rt
+                else:
+                    error_msg = data.get('return_msg', '알 수 없는 오류')
+                    self.logger.warning(f"⚠️ 당일 실현 손익 조회 실패 (API 오류): {error_msg}")
+                    return 0.0, 0.0
+            else:
+                self.logger.warning(f"⚠️ 당일 실현 손익 조회 실패 (HTTP {response.status_code})")
+                return 0.0, 0.0
+
         except Exception as e:
             self.logger.error(f"❌ 당일 실현 손익 조회 중 예외 발생: {e}", exc_info=True)
             return 0.0, 0.0
@@ -3011,7 +3048,7 @@ class KiwoomRestClient:
             # 비동기 HTTP 클라이언트로 웹훅 전송
             async with httpx.AsyncClient() as client:
                 await client.post(slack_webhook_url, json=message)
-            self.logger.info(f"🔔 슬랙 알림 전송 완료: {title}")
+            self.logger.debug(f"🔔 슬랙 알림 전송 완료: {title}")
         except Exception as e:
             self.logger.error(f"Slack 알림 전송 실패: {e}", exc_info=True)
             

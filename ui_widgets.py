@@ -381,6 +381,14 @@ class BacktestTabWidget(QWidget):
         
         right_widget.setLayout(right_layout)
         
+        # 차트 표시용 위젯 추가 (PyQtGraph)
+        self.bt_chart_widget = pg.PlotWidget()
+        self.bt_chart_widget.setBackground('w')
+        self.bt_chart_widget.setTitle("백테스팅 결과 차트")
+        self.bt_chart_widget.showGrid(x=True, y=True)
+        self.bt_chart_widget.addLegend()
+        right_layout.addWidget(self.bt_chart_widget)
+        
         overall_layout.addWidget(left_widget, 1)
         overall_layout.addWidget(right_widget, 2)
         overall_tab.setLayout(overall_layout)
@@ -686,6 +694,16 @@ class PyQtGraphWidget(pg.PlotWidget):
             self.logger.error(f"❌ 선 차트 데이터 추가 실패: {ex}")
             self.logger.error(f"❌ 선 차트 데이터 추가 오류 상세: {traceback.format_exc()}")
     
+    def add_infinite_line(self, pos, angle=0, pen=None, label=None, labelOpts=None):
+        """무한 선 추가 (매입단가 표시용)"""
+        try:
+            line = pg.InfiniteLine(pos=pos, angle=angle, pen=pen, label=label, labelOpts=labelOpts)
+            self.addItem(line)
+            return line
+        except Exception as ex:
+            self.logger.error(f"❌ 무한 선 추가 실패: {ex}")
+            return None
+
     def remove_line_item(self, name):
         """선 차트 아이템 제거"""
         if name in self.line_items:
@@ -1279,7 +1297,12 @@ class PyQtGraphRealtimeWidget(QWidget):
             # 차트 위젯 업데이트
             self.tic_chart_widget.update()
             self.tic_chart_widget.repaint()
+            self.tic_chart_widget.update()
+            self.tic_chart_widget.repaint()
             self.logger.debug("✅ 틱 차트 위젯 업데이트 완료")
+
+            # 매입단가 표시 (보유 종목인 경우)
+            self._add_buy_price_line(self.tic_chart_widget)
                                           
         except Exception as ex:
             self.logger.error(f"❌ PyQtGraph 틱 차트 그리기 실패: {ex}", exc_info=True)
@@ -1501,7 +1524,12 @@ class PyQtGraphRealtimeWidget(QWidget):
             # 차트 위젯 업데이트
             self.minute_chart_widget.update()
             self.minute_chart_widget.repaint()
+            self.minute_chart_widget.update()
+            self.minute_chart_widget.repaint()
             self.logger.debug("✅ 분봉 차트 위젯 업데이트 완료")
+
+            # 매입단가 표시 (보유 종목인 경우)
+            self._add_buy_price_line(self.minute_chart_widget)
                                           
         except Exception as ex:
             self.logger.error(f"❌ PyQtGraph 분봉 차트 그리기 실패: {ex}", exc_info=True)
@@ -1664,3 +1692,47 @@ class PyQtGraphRealtimeWidget(QWidget):
 
 
 
+
+    def _add_buy_price_line(self, chart_widget):
+        """차트에 매입단가 선 추가"""
+        try:
+            # 현재 종목이 보유 중인지 확인
+            if not self.current_code:
+                return
+
+            buy_price = 0
+            is_held = False
+            
+            # 부모 윈도우를 통해 보유 정보 확인
+            if hasattr(self.parent_window, 'trader') and self.parent_window.trader:
+                portfolio = self.parent_window.trader.get_portfolio_status()
+                if self.current_code in portfolio['holdings']:
+                    is_held = True
+                    buy_price = portfolio['buy_prices'].get(self.current_code, 0)
+            
+            # 보유 중이고 매입가가 유효하면 선 그리기
+            if is_held and buy_price > 0:
+                # 기존 매입단가 선 제거 (InfiniteLine 타입 찾아서 제거)
+                for item in chart_widget.plotItem.items[:]:
+                    if isinstance(item, pg.InfiniteLine):
+                        chart_widget.removeItem(item)
+                
+                # 매입단가 선 추가
+                # 잘 보이는 마젠타색 점선으로 변경 (두께 2)
+                pen = pg.mkPen(color=(255, 0, 255), width=2, style=Qt.PenStyle.DashLine) 
+                chart_widget.add_infinite_line(
+                    pos=buy_price, 
+                    angle=0, 
+                    pen=pen, 
+                    label=f"매입가: {buy_price:,.0f}", 
+                    labelOpts={'position': 0.1, 'color': (255, 0, 255), 'movable': True, 'fill': (255, 255, 255, 200)}
+                )
+                self.logger.debug(f"✅ {chart_widget.plotItem.titleLabel.text} 매입단가 선 표시: {buy_price:,.0f}원")
+            else:
+                # 보유 중이 아니면 기존 선 제거
+                for item in chart_widget.plotItem.items[:]:
+                    if isinstance(item, pg.InfiniteLine):
+                        chart_widget.removeItem(item)
+
+        except Exception as ex:
+            self.logger.error(f"❌ 매입단가 선 표시 실패: {ex}")

@@ -638,8 +638,13 @@ class KiwoomBacktester:
         except Exception as ex:
             self.logger.error(f"결과 분석 실패: {ex}", exc_info=True)
     
-    def plot_results(self, strategy_name):
-        """결과 차트 생성 (pyqtgraph 사용)"""
+    def plot_results(self, strategy_name, target_widget=None):
+        """결과 차트 생성 (pyqtgraph 사용)
+        
+        Args:
+            strategy_name: 전략명
+            target_widget: 차트를 그릴 대상 PlotWidget (None이면 이미지 파일로 저장)
+        """
         try:
             if strategy_name not in self.results:
                 self.logger.error(f"결과를 찾을 수 없음: {strategy_name}")
@@ -652,16 +657,28 @@ class KiwoomBacktester:
                 self.logger.warning("자산 곡선 데이터가 없습니다.")
                 return
 
-            # QApplication 인스턴스가 없으면 생성 (스크립트 단독 실행 시 필요)
-            app = QApplication.instance()
-            if app is None:
-                app = QApplication([])
+            # 타겟 위젯이 있으면 그것을 사용, 없으면 새로 생성
+            if target_widget:
+                pw = target_widget
+                pw.clear() # 기존 내용 지우기
+                # 범례가 이미 있으면 다시 추가할 필요 없음 (또는 clear()가 범례도 지우는지 확인 필요)
+                # pw.addLegend() # PlotWidget.clear()는 아이템만 지우고 설정은 유지할 수 있음. 
+                # 안전하게 범례 다시 추가 시도 (try-except)
+                try:
+                    pw.addLegend()
+                except:
+                    pass
+            else:
+                # QApplication 인스턴스가 없으면 생성 (스크립트 단독 실행 시 필요)
+                app = QApplication.instance()
+                if app is None:
+                    app = QApplication([])
 
-            # pyqtgraph 차트 위젯 생성
-            pw = pg.PlotWidget()
-            pw.setBackground('w')
-            pw.setWindowTitle(f'{strategy_name} - 백테스팅 결과')
-            pw.addLegend()
+                # pyqtgraph 차트 위젯 생성
+                pw = pg.PlotWidget()
+                pw.setBackground('w')
+                pw.setWindowTitle(f'{strategy_name} - 백테스팅 결과')
+                pw.addLegend()
 
             # 자산 곡선
             timestamps = [point['timestamp'] for point in equity_curve]
@@ -685,10 +702,8 @@ class KiwoomBacktester:
             sell_points = []
             for trade in trades:
                 trade_time = trade['timestamp'].timestamp()
-                trade_price = trade['price'] # 거래 가격
                 
                 # 자산 곡선에서 해당 시점의 자산 가치를 찾아 y 좌표로 사용
-                # equity_curve는 시간순으로 정렬되어 있다고 가정
                 y_value = self.initial_cash
                 for point in equity_curve:
                     if point['timestamp'].timestamp() >= trade_time:
@@ -701,11 +716,16 @@ class KiwoomBacktester:
                     sell_points.append({'pos': (trade_time, y_value), 'symbol': 't1', 'brush': pg.mkBrush('r'), 'size': 15})
 
             if buy_points:
-                pw.plotItem.addItems([pg.ScatterPlotItem(buy_points, name='매수')])
+                pw.plotItem.addItem(pg.ScatterPlotItem(buy_points, name='매수'))
             if sell_points:
-                pw.plotItem.addItems([pg.ScatterPlotItem(sell_points, name='매도')])
+                pw.plotItem.addItem(pg.ScatterPlotItem(sell_points, name='매도'))
 
-            # 수익률 곡선
+            # 수익률 곡선 (오른쪽 축)
+            # 기존 ViewBox 제거 (중복 방지)
+            for item in pw.scene().items():
+                if isinstance(item, pg.ViewBox) and item != pw.plotItem.vb:
+                    pw.scene().removeItem(item)
+
             p2 = pg.ViewBox()
             pw.scene().addItem(p2)
             pw.getAxis('right').linkToView(p2)
@@ -716,13 +736,24 @@ class KiwoomBacktester:
 
             def update_view():
                 p2.setGeometry(pw.getViewBox().sceneBoundingRect())
+                p2.linkedViewChanged(pw.getViewBox(), p2.XAxis)
+            
+            # 기존 연결 해제 후 다시 연결 (중복 연결 방지)
+            try:
+                pw.getViewBox().sigResized.disconnect(update_view)
+            except:
+                pass
             pw.getViewBox().sigResized.connect(update_view)
+            
+            update_view() # 초기 뷰 업데이트
 
-            # 차트 저장
-            chart_filename = f"backtest_result_{strategy_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
-            exporter = ImageExporter(pw.plotItem)
-            exporter.export(chart_filename)
-            self.logger.info(f"차트 저장: {chart_filename}")
+            # 타겟 위젯이 없었을 때만 이미지 저장 (기존 동작 유지)
+            if not target_widget:
+                # 차트 저장
+                chart_filename = f"backtest_result_{strategy_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+                exporter = ImageExporter(pw.plotItem)
+                exporter.export(chart_filename)
+                self.logger.info(f"차트 저장: {chart_filename}")
 
         except Exception as ex:
             self.logger.error(f"차트 생성 실패: {ex}", exc_info=True)
