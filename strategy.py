@@ -213,7 +213,7 @@ class KiwoomStrategy(QObject):
                     # 모니터링 제거 요청
                     if hasattr(self.parent, 'remove_monitoring_stock'):
                         self.parent.remove_monitoring_stock(code)
-                        self.logger.info(f"🗑️ [{code}] 모니터링 목록에서 제거됨")
+                        self.logger.debug(f"🗑️ [{code}] 모니터링 목록에서 제거됨")
 
         except Exception as ex:
             self.logger.error(f"모멘텀 체크 중 오류 ({code}): {ex}", exc_info=True)
@@ -771,15 +771,8 @@ class KiwoomStrategy(QObject):
                         }
                     )
 
-                    # 추적손절(Trailing Stop)로 매도된 경우 당일 재매수 금지(Blacklist) 추가
-                    # 전략명이나 매도 사유에 '추적손절' 또는 'Trailing Stop' 키워드가 포함된 경우
-                    strategy_name_check = signal['strategy']
-                    reason_check = signal['reason']
-                    
-                    if ('추적손절' in strategy_name_check or 'Trailing Stop' in strategy_name_check or 
-                        '추적손절' in reason_check or 'Trailing Stop' in reason_check):
-                        self.trader.add_to_blacklist(code)
-                        self.logger.info(f"🚫 [{code}] 추적손절로 매도되어 당일 매수 금지 목록에 추가됨")
+                    # 추적손절(Trailing Stop)로 매도된 경우 당일 재매수 금지(Blacklist) 추가 로직 제거됨
+                    # (사용자 요청: 추적손절 매도시 당일 매수 금지 목록에 추가하는 기능을 없애 줘)
                 else:
                     self.logger.error(f"❌ [{code}] 매도 주문 실패: {signal['strategy']} - {final_quantity}주")
                     

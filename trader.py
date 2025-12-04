@@ -148,7 +148,7 @@ class KiwoomTrader(QObject):
         log_msg = f"🚫 [{code}] 당일 매수 금지 목록(Blacklist)에 추가됨"
         if reason:
             log_msg += f" (사유: {reason})"
-        self.logger.info(log_msg)
+        self.logger.debug(log_msg)
 
     def is_blacklisted(self, code):
         """종목이 당일 매수 금지 목록에 있는지 확인"""
