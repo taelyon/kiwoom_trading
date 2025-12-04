@@ -1593,16 +1593,12 @@ class KiwoomWebSocketClient:
                 elif action_type == 'D':  # DELETE (이탈) # type: ignore
                     self.logger.info(f"📉 조건검색 실시간 이탈: {stock_code} ({condition_name}, seq: {condition_seq})")
                     
-                    # 보유 종목인지 확인
+                    # 보유 종목인지 확인 (Trader 객체 사용)
                     is_holding = False
-                    if hasattr(self, 'parent') and self.parent:
-                        # boughtBox (보유종목 리스트)에서 확인
-                        if hasattr(self.parent.trading_tab, 'boughtBox'):
-                            for i in range(self.parent.trading_tab.boughtBox.count()):
-                                item = self.parent.trading_tab.boughtBox.item(i)
-                                if item and stock_code in item.text():
-                                    is_holding = True
-                                    break
+                    if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'trader') and self.parent.trader:
+                        portfolio = self.parent.trader.get_portfolio_status()
+                        if stock_code in portfolio.get('holdings', {}):
+                            is_holding = True
                     
                     # 보유 중인 종목은 모니터링에서 제거하지 않음
                     if is_holding:
