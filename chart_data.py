@@ -925,7 +925,7 @@ class ChartDataCache(QObject):
                 # 모니터링 종목이 없으면 타이머 중지
                 if self.update_timer.isActive():
                     self.update_timer.stop()
-                    self.logger.info("⏹️ 모니터링 종목이 없어 차트 업데이트 타이머를 중지합니다.")
+                    self.logger.debug("⏹️ 모니터링 종목이 없어 차트 업데이트 타이머를 중지합니다.")
         except Exception as ex:
             self.logger.error(f"❌ 차트 업데이트 주기 조절 실패: {ex}", exc_info=True)
     
