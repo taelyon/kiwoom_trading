@@ -342,6 +342,12 @@ class KiwoomTrader(QObject):
                 return False
 
             # 키움 REST API를 통한 매도 주문
+            
+            # 중복 주문 방지 확인
+            if code in self.pending_sell_orders:
+                self.logger.warning(f"⏳ [{code}] 이미 매도 주문이 진행 중입니다. 중복 주문을 방지합니다.")
+                return False
+
             # 주문 전, '주문 진행 중' 상태로 설정
             self.pending_sell_orders.add(code)
             self.logger.debug(f"⏳ [{code}] 매도 주문 진행 중 상태로 설정 (중복 주문 방지)")
