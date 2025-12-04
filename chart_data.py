@@ -49,6 +49,19 @@ class ChartDataCache(QObject):
         except Exception as ex:
             self.logger.error(f"❌ ChartDataCache 초기화 실패: {ex}", exc_info=True)
             raise ex
+
+    def stop(self):
+        """모든 타이머 중지 및 리소스 정리"""
+        try:
+            if self.update_timer.isActive():
+                self.update_timer.stop()
+            if self.save_timer.isActive():
+                self.save_timer.stop()
+            if self.queue_timer.isActive():
+                self.queue_timer.stop()
+            self.logger.info("⏹️ ChartDataCache 타이머 중지 완료")
+        except Exception as ex:
+            self.logger.error(f"❌ ChartDataCache 중지 실패: {ex}")
     
 
     def collect_chart_data_async(self, code, max_retries=3):
@@ -769,12 +782,11 @@ class ChartDataCache(QObject):
                 logging.debug(f"⏰ 장 시작 시간({market_open_time.strftime('%H:%M:%S')}) 이전이므로 DB 저장을 중지합니다.")
                 return
                 
-            # 장 마감 시간(15:30) 이후에는 DB 저장 중지
-            market_close_time = now.replace(hour=15, minute=30, second=0, microsecond=0)
-            
-            if now > market_close_time:
-                logging.debug(f"⏰ 장 마감 시간({market_close_time.strftime('%H:%M:%S')}) 이후이므로 DB 저장을 중지합니다.")
-                return
+            # 장 마감 시간(15:30) 이후 체크 로직 제거 - 자동 청산 완료 시 외부에서 stop() 호출로 제어됨
+            # market_close_time = now.replace(hour=15, minute=30, second=0, microsecond=0)
+            # if now > market_close_time:
+            #     logging.debug(f"⏰ 장 마감 시간({market_close_time.strftime('%H:%M:%S')}) 이후이므로 DB 저장을 중지합니다.")
+            #     return
 
             if not hasattr(self.trader, 'db_manager') or not self.trader.db_manager:
                 logging.warning("❌ DB 매니저가 없어서 저장할 수 없습니다")
@@ -843,7 +855,7 @@ class ChartDataCache(QObject):
             if saved_count > 0:
                 logging.debug(f"📊 통합 차트 데이터 DB 저장 완료: {saved_count}개 종목")
             else:
-                logging.warning("⚠️ 저장된 데이터가 없습니다")
+                logging.debug(f"ℹ️ 저장된 차트 데이터(틱/분봉)가 없습니다 (모니터링 종목: {len(self.cache)}개)")
                 
         except Exception as ex:
             logging.error(f"통합 차트 데이터 DB 저장 실패: {ex}", exc_info=True)

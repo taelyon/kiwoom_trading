@@ -1694,6 +1694,8 @@ class KiwoomWebSocketClient:
                 self.logger.info("⏸️ NXT 종가매매가 종료되었습니다.")
             elif market_operation == 'W':
                 self.logger.info("🌙 NXT 애프터마켓이 종료되었습니다.")
+            elif market_operation == 's':
+                self.logger.info("ℹ️ 장운영구분 's': 장마감전 동시호가 또는 장마감 진행 중입니다.")
             else:
                 self.logger.info(f"ℹ️ 알 수 없는 장운영구분: {market_operation}")
         except Exception as e:

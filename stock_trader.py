@@ -793,13 +793,12 @@ async def main():
     # ChartDataCache의 타이머들을 메인 스레드에서 초기화 및 시작
     if window.chart_cache:
         window.chart_cache.update_timer.timeout.connect(window.chart_cache.update_all_charts)
-        window.chart_cache.save_timer.timeout.connect(window.chart_cache._trigger_async_save_to_database) # type: ignore
+        # save_timer는 ChartDataCache.__init__에서 이미 연결됨 (중복 연결 방지)
         window.chart_cache.queue_timer.timeout.connect(window.chart_cache._process_api_queue)
         
         window.chart_cache.save_timer.start(60000)  # 1분마다 DB 저장
         window.chart_cache.queue_timer.start(2000)  # 2초마다 큐 처리 시작
         window.logger.info("✅ ChartDataCache 타이머 시작 완료 (메인 스레드)")
-    
     # qasync가 관리하는 이벤트 루프가 종료될 때까지 대기
     loop = asyncio.get_running_loop()
     await loop.create_future()

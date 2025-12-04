@@ -786,6 +786,11 @@ class AutoTrader(QObject):
                 if hasattr(self.parent, 'condition_search_manager'):
                     await self.parent.condition_search_manager.stop_all_conditions()
                     self.logger.info("⏹️ 조건검색 실시간 구독 해제 완료")
+                
+                # ChartDataCache 타이머 중지 (DB 저장 등)
+                if hasattr(self.parent, 'chart_cache') and self.parent.chart_cache:
+                    self.parent.chart_cache.stop()
+                    self.logger.info("⏹️ 차트 데이터 캐시 및 DB 저장 타이머 중지 완료")
                     
         except Exception as ex:
             self.logger.error(f"❌ 자동 청산 실행 중 오류: {ex}", exc_info=True)
