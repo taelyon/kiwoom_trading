@@ -765,7 +765,7 @@ class MyWindow(QWidget):
                 
             # 3. 실시간 차트가 해당 종목을 보고 있다면 초기화
             if hasattr(self.trading_tab, 'realtime_chart_widget') and self.trading_tab.realtime_chart_widget:
-                if self.trading_tab.realtime_chart_widget.current_stock_code == code:
+                if self.trading_tab.realtime_chart_widget.current_code == code:
                     self.trading_tab.realtime_chart_widget.clear_charts()
                     self.logger.debug(f"🗑️ [{code}] 실시간 차트 초기화됨")
 

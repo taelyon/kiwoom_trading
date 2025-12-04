@@ -1690,38 +1690,274 @@ class PyQtGraphRealtimeWidget(QWidget):
                 return
 
             buy_price = 0
+            self.minute_chart_widget.repaint()
+            self.minute_chart_widget.update()
+            self.minute_chart_widget.repaint()
+            self.logger.debug("✅ 분봉 차트 위젯 업데이트 완료")
+
+            # 매입단가 표시 (보유 종목인 경우)
+            self._add_buy_price_line(self.minute_chart_widget)
+                                          
+        except Exception as ex:
+            self.logger.error(f"❌ PyQtGraph 분봉 차트 그리기 실패: {ex}", exc_info=True)
+    
+    def _process_minute_data(self, minute_data):
+        """분봉 데이터 처리 및 변환"""
+        if isinstance(minute_data, dict):
+            if 'output' in minute_data and minute_data['output']:
+                # API 응답 구조: {'output': [...]}
+                data_list = minute_data['output']
+                self._extract_moving_averages_for_minute(minute_data)
+            elif 'close' in minute_data and isinstance(minute_data.get('close'), list):
+                # API 응답 구조: {'time': [...], 'open': [...], 'high': [...], 'low': [...], 'close': [...]}
+                data_list = self._convert_list_to_dict_format(minute_data)
+                self._extract_moving_averages_for_minute(minute_data)
+            elif 'time' in minute_data and 'close' in minute_data:
+                # 단일 데이터
+                data_list = [minute_data]
+            else:
+                # 기타 키 확인
+                possible_keys = ['time', 'open', 'high', 'low', 'close', 'volume']
+                if any(key in minute_data for key in possible_keys):
+                    data_list = [minute_data]
+                else:
+                    self.logger.warning("⚠️ 분봉 데이터에 필요한 키가 없음")
+                    return None
+        elif isinstance(minute_data, list):
+            data_list = minute_data
+        else:
+            self.logger.warning(f"⚠️ 분봉 데이터 형식이 예상과 다름: {type(minute_data)}")
+            return None
+            
+        return data_list
+    
+    def _extract_moving_averages_for_minute(self, minute_data):
+        """분봉 차트용 이동평균선 데이터 추출"""
+        ma_indicators = {}
+        for key in ['MA5', 'MA10', 'MA20']:  # 분봉 차트용 이동평균선
+            if key in minute_data and minute_data[key] is not None:
+                ma_indicators[key] = minute_data[key]
+        
+        if ma_indicators:
+            self.technical_indicators = ma_indicators
+            self.logger.debug(f"✅ 분봉 이동평균선 데이터 추출 완료: {list(ma_indicators.keys())}")
+        else:
+            self.logger.warning("⚠️ 분봉 이동평균선 데이터를 찾을 수 없습니다")
+    
+    def _add_moving_averages_to_minute_chart(self, candlestic_data):
+        """분봉 차트에 이동평균선 추가"""
+        if not hasattr(self, 'technical_indicators') or not self.technical_indicators:
+            self.logger.warning("⚠️ technical_indicators 변수를 찾을 수 없습니다")
+            return
+        
+        if not isinstance(self.technical_indicators, dict):
+            self.logger.warning(f"⚠️ technical_indicators가 딕셔너리가 아닙니다: {type(self.technical_indicators)}")
+            return
+        
+        ma_indicators = {}
+        chart_length = len(candlestic_data)
+        
+        for key in ['MA5', 'MA10', 'MA20']:
+            if key in self.technical_indicators and self.technical_indicators[key] is not None:
+                full_ma_data = self.technical_indicators[key]
+                ma_length = len(full_ma_data)
+                
+                if ma_length >= chart_length:
+                    # 데이터가 충분한 경우: 차트 표시 범위에 맞게 슬라이스
+                    sliced_ma_data = full_ma_data[-chart_length:]
+                else:
+                    # 데이터가 부족한 경우: 앞쪽에 NaN 추가하여 길이 맞춤
+                    nan_padding = np.full(chart_length - ma_length, np.nan)
+                    sliced_ma_data = np.concatenate([nan_padding, full_ma_data])
+                
+                ma_indicators[key] = sliced_ma_data
+        
+        if ma_indicators:
+            self.minute_chart_widget.add_moving_averages(candlestic_data, ma_indicators, "minute")
+            self.logger.debug(f"✅ 분봉 차트 이동평균선 표시 완료: {list(ma_indicators.keys())}")
+        else:
+            self.logger.warning("⚠️ 이동평균선 데이터를 찾을 수 없습니다")
+    
+    def optimized_update_charts(self): # 증분 업데이트 로직
+        """최적화된 차트 업데이트 (타이머에서 호출)"""
+        if not self.current_code:
+            # self.logger.debug("⚠️ 차트 업데이트 건너뜀: 선택된 종목 없음")
+            return
+
+        try:
+            current_time = time.time()
+            
+            # 업데이트 간격 제한 (성능 최적화)
+            if current_time - self.last_update_time < self.update_interval:
+                return
+                
+            # 1. 캐시에서 최신 데이터 가져오기
+            if hasattr(self.parent_window, 'chart_cache') and self.parent_window.chart_cache:
+                cache_data = self.parent_window.chart_cache.get_cached_data(self.current_code)
+                if cache_data:
+                    tic_data = cache_data.get('tic_data')
+                    min_data = cache_data.get('min_data')
+
+                    # 2. 데이터 변경 여부 확인 및 증분 업데이트
+                    tic_updated = self._is_data_updated(tic_data, self.last_drawn_tic_datapoint)
+                    min_updated = self._is_data_updated(min_data, self.last_drawn_min_datapoint)
+
+                    if tic_updated or min_updated:
+                        self.last_update_time = current_time # type: ignore
+                        # 변경된 데이터로 차트 다시 그리기
+                        self.optimized_plot_charts(tic_data=tic_data, min_data=min_data)
+                        # 마지막으로 그린 데이터 포인트 업데이트
+                        self.last_drawn_tic_datapoint = self._get_last_datapoint(tic_data)
+                        self.last_drawn_min_datapoint = self._get_last_datapoint(min_data)
+                    
+        except Exception as ex:
+            self.logger.error(f"❌ 최적화된 차트 업데이트 실패: {ex}")
+
+    def _is_data_updated(self, new_data, last_drawn_datapoint):
+        """데이터가 업데이트되었는지 확인"""
+        new_last_datapoint = self._get_last_datapoint(new_data)
+
+        if not new_last_datapoint:
+            return False
+        
+        if last_drawn_datapoint is None:
+            return True # 처음 그리는 경우
+        
+        # 시간 비교
+        new_time = new_last_datapoint.get('time')
+        old_time = last_drawn_datapoint.get('time')
+        if new_time > old_time:
+            return True # 새로운 캔들 추가
+        
+        # 시간이 같으면 내용 비교 (마지막 캔들 업데이트)
+        if new_time == old_time:
+            if (new_last_datapoint.get('close') != last_drawn_datapoint.get('close') or
+                new_last_datapoint.get('high') != last_drawn_datapoint.get('high') or
+                new_last_datapoint.get('low') != last_drawn_datapoint.get('low')):
+                return True
+        
+        return False
+
+    def _get_last_datapoint(self, data):
+        """데이터의 마지막 데이터 포인트를 딕셔너리로 반환"""
+        if not data or 'time' not in data or not data['time']:
+            return None
+        
+        last_index = -1
+        last_datapoint = {}
+        for key, values in data.items():
+            if isinstance(values, list) and len(values) > 0:
+                last_datapoint[key] = values[last_index]
+        
+        # 시간을 datetime 객체로 변환
+        if 'time' in last_datapoint and isinstance(last_datapoint['time'], str):
+            try:
+                last_datapoint['time'] = datetime.strptime(last_datapoint['time'], '%Y-%m-%d %H:%M:%S')
+            except (ValueError, TypeError):
+                return None # 시간 파싱 실패 시
+        
+        return last_datapoint if 'time' in last_datapoint else None
+
+    def clear_charts(self):
+        """모든 차트 초기화"""
+        try:
+            # self.current_code = None  <-- 이 줄을 제거하여 종목 코드 유지
+            self.last_drawn_tic_datapoint = None
+            self.last_drawn_min_datapoint = None
+            
+            if hasattr(self, 'tic_chart_widget'):
+                self.tic_chart_widget.clear_chart()
+                
+            if hasattr(self, 'minute_chart_widget'):
+                self.minute_chart_widget.clear_chart()
+                
+            self.logger.debug("✅ 실시간 차트 위젯 초기화 완료")
+        except Exception as ex:
+            self.logger.error(f"❌ 차트 초기화 실패: {ex}")
+
+
+
+
+    def _add_buy_price_line(self, chart_widget):
+        """차트에 매입단가 선 추가"""
+        try:
+            # 현재 종목이 보유 중인지 확인
+            if not self.current_code:
+                return
+
+            buy_price = 0
             is_held = False
             
-            # 부모 윈도우를 통해 보유 정보 확인
+            # 1. 부모 윈도우의 trader를 통해 보유 정보 확인
             if hasattr(self.parent_window, 'trader') and self.parent_window.trader:
                 portfolio = self.parent_window.trader.get_portfolio_status()
                 if self.current_code in portfolio['holdings']:
                     is_held = True
                     buy_price = portfolio['buy_prices'].get(self.current_code, 0)
+                    # self.logger.debug(f"🔍 [Trader] 보유 확인: {self.current_code}, 매입가: {buy_price}")
+
+            # 2. Fallback: LoginHandler의 balance_data 직접 확인 (Trader 동기화 지연 대비)
+            if not is_held and hasattr(self.parent_window, 'login_handler'):
+                lh = self.parent_window.login_handler
+                if hasattr(lh, 'websocket_client') and lh.websocket_client:
+                    bd = getattr(lh.websocket_client, 'balance_data', {})
+                    if self.current_code in bd:
+                        is_held = True
+                        buy_price = bd[self.current_code].get('average_price', 0)
+                        self.logger.debug(f"🔍 [Fallback] 웹소켓 데이터에서 보유 확인: {self.current_code}, 매입가: {buy_price}")
             
             # 보유 중이고 매입가가 유효하면 선 그리기
             if is_held and buy_price > 0:
                 # 기존 매입단가 선 제거 (InfiniteLine 타입 찾아서 제거)
+                # 주의: 다른 용도의 InfiniteLine이 있다면 태그를 확인해야 함
                 for item in chart_widget.plotItem.items[:]:
                     if isinstance(item, pg.InfiniteLine):
-                        chart_widget.removeItem(item)
+                        # 매입단가 선인지 확인 (태그 또는 라벨)
+                        if getattr(item, 'is_buy_price_line', False) or (item.label and "매입가" in item.label.text):
+                            chart_widget.removeItem(item)
+                        # 태그가 없는 경우도 일단 제거 (이전 버전 호환성)
+                        elif not hasattr(item, 'is_buy_price_line'):
+                             chart_widget.removeItem(item)
                 
                 # 매입단가 선 추가
                 # 잘 보이는 마젠타색 점선으로 변경 (두께 2)
                 pen = pg.mkPen(color=(255, 0, 255), width=2, style=Qt.PenStyle.DashLine) 
-                chart_widget.add_infinite_line(
+                line = chart_widget.add_infinite_line(
                     pos=buy_price, 
                     angle=0, 
                     pen=pen, 
                     label=f"매입가: {buy_price:,.0f}", 
                     labelOpts={'position': 0.1, 'color': (255, 0, 255), 'movable': True, 'fill': (255, 255, 255, 200)}
                 )
-                self.logger.debug(f"✅ {chart_widget.plotItem.titleLabel.text} 매입단가 선 표시: {buy_price:,.0f}원")
+                
+                if line:
+                    line.is_buy_price_line = True  # 식별 태그 추가
+                    
+                    # Y축 범위 조정 (매입가가 화면 밖이면 포함하도록)
+                    vb = chart_widget.plotItem.getViewBox()
+                    if vb:
+                        min_y, max_y = vb.viewRange()[1]
+                        
+                        # 매입가가 범위 밖이거나 너무 경계에 있는 경우 조정
+                        if buy_price < min_y or buy_price > max_y:
+                            padding = (max_y - min_y) * 0.2  # 20% 여백
+                            new_min = min(min_y, buy_price - padding)
+                            new_max = max(max_y, buy_price + padding)
+                            
+                            chart_widget.setYRange(new_min, new_max)
+                            self.logger.debug(f"🔍 Y축 범위 조정: {min_y:.0f}~{max_y:.0f} -> {new_min:.0f}~{new_max:.0f} (매입가 {buy_price:.0f} 포함)")
+                    
+                    self.logger.debug(f"✅ {chart_widget.plotItem.titleLabel.text} 매입단가 선 표시: {buy_price:,.0f}원")
+                else:
+                    self.logger.error(f"❌ 매입단가 선 객체 생성 실패")
             else:
                 # 보유 중이 아니면 기존 선 제거
                 for item in chart_widget.plotItem.items[:]:
                     if isinstance(item, pg.InfiniteLine):
-                        chart_widget.removeItem(item)
+                        if getattr(item, 'is_buy_price_line', False) or (item.label and "매입가" in item.label.text):
+                            chart_widget.removeItem(item)
+                        elif not hasattr(item, 'is_buy_price_line'):
+                             chart_widget.removeItem(item)
 
         except Exception as ex:
-            self.logger.error(f"❌ 매입단가 선 표시 실패: {ex}")
+            self.logger.error(f"❌ 매입단가 선 표시 실패: {ex}", exc_info=True)

@@ -110,6 +110,17 @@ class KiwoomStrategy(QObject):
                     self._pending_order_log_codes.add(code)
                 return
             
+            # 일시적 차단 목록 확인 (주문가능수량 0 등으로 인한 무한 루프 방지)
+            if hasattr(self, '_temp_blocked_codes') and code in self._temp_blocked_codes:
+                blocked_until = self._temp_blocked_codes[code]
+                if datetime.now().timestamp() < blocked_until:
+                    # 차단 기간 중에는 평가 건너뜀 (로그 생략하여 노이즈 감소)
+                    return
+                else:
+                    # 차단 기간 만료 시 목록에서 제거
+                    del self._temp_blocked_codes[code]
+                    self.logger.debug(f"🔓 [{code}] 전략 평가 일시 차단 해제")
+            
             # 매수 신호 평가
             buy_signals = await self.get_buy_signals(code, market_data, effective_strategy_name)
             if buy_signals:
@@ -149,8 +160,8 @@ class KiwoomStrategy(QObject):
                     if not ws_has_stock:
                         self.logger.debug(f"ℹ️ [{code}] 보유 종목 아님 - 매도 평가 건너뜀")
             
-            # 급등주 전략일 경우 모멘텀 상실 체크 (보유 종목이 아닐 때만)
-            if effective_strategy_name == "급등주" and code not in portfolio['holdings']:
+            # 급등주 전략일 경우 모멘텀 상실 체크 (보유 여부 상관없이 체크)
+            if effective_strategy_name == "급등주":
                 await self.check_momentum_loss(code, market_data)
                     
         except Exception as ex:
@@ -159,6 +170,10 @@ class KiwoomStrategy(QObject):
     async def check_momentum_loss(self, code, market_data):
         """급등주 모멘텀 상실 여부 확인 및 처리"""
         try:
+            # 이미 블랙리스트에 있다면 중단 (중복 처리 방지)
+            if self.trader.is_blacklisted(code):
+                return
+
             # 1. 고점 대비 하락률 체크
             # 현재가
             current_price = market_data.get('current_price', 0)
@@ -409,7 +424,7 @@ class KiwoomStrategy(QObject):
                             self.logger.warning(f"⚠️ [{code}] 매수 수량 계산 결과 0주 (예수금 부족): 배정금액 {amount_per_stock:,.0f}원 / 현재가 {current_price:,}원")
                             quantity = 1 # 최소 1주는 매수 시도
                         
-                        self.logger.info(f"💰 매수 수량 계산: {quantity}주 (예수금 {available_cash:,.0f}원 / 남은슬롯 {remaining_slots}개 = 종목당 {amount_per_stock:,.0f}원 / 현재가 {current_price:,}원)")
+                        self.logger.debug(f"💰 매수 수량 계산: {quantity}주 (예수금 {available_cash:,.0f}원 / 남은슬롯 {remaining_slots}개 = 종목당 {amount_per_stock:,.0f}원 / 현재가 {current_price:,}원)")
 
                     except Exception as qty_ex:
                         self.logger.error(f"매수 수량 계산 중 오류: {qty_ex}", exc_info=True)
@@ -475,9 +490,9 @@ class KiwoomStrategy(QObject):
                 # 보유 정보 불완전 로그 제거 (너무 빈번함)
                 return signals
 
-            # 매수 후 최소 보유 시간(Grace Period) 설정 (예: 60초)
-            min_hold_seconds = 60 
-            if buy_time:
+            # 매수 후 최소 보유 시간(Grace Period) 확인
+            min_hold_seconds = getattr(self.trader, 'min_hold_seconds', 0)
+            if min_hold_seconds > 0 and buy_time:
                 time_since_buy = (datetime.now() - buy_time).total_seconds()
                 if time_since_buy < min_hold_seconds:
                     if is_first_sell_check: # type: ignore
@@ -717,9 +732,17 @@ class KiwoomStrategy(QObject):
                 except Exception as ws_check_ex:
                     self.logger.debug(f"주문 전 주문가능수량 체크 중 오류 ({code}): {ws_check_ex}", exc_info=True)
                 
-                # 주문가능수량이 0주 이하면 주문 스킵
+                # 주문가능수량이 0주 이하면 주문 스킵 및 일시적 전략 평가 중단
                 if actual_order_available_qty <= 0:
-                    self.logger.warning(f"⚠️ [{code}] 주문가능수량 0주 - 주문 스킵 (다른 주문 처리 중)")
+                    self.logger.warning(f"⚠️ [{code}] 주문가능수량 0주 - 주문 스킵 (이미 매도 주문 진행 중으로 추정)")
+                    
+                    # 무한 루프 방지를 위해 일시적으로 전략 평가 대상에서 제외 (10초간)
+                    if not hasattr(self, '_temp_blocked_codes'):
+                        self._temp_blocked_codes = {}
+                    
+                    # 현재 시간 + 10초
+                    self._temp_blocked_codes[code] = datetime.now().timestamp() + 10
+                    self.logger.debug(f"⏳ [{code}] 10초간 전략 평가 일시 중단 (주문가능수량 0)")
                     continue
                 
                 # 실제 주문 가능한 수량으로 제한

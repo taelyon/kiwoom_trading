@@ -126,6 +126,9 @@ class KiwoomTrader(QObject):
             self.commission_rate = float(commission_rate_str.split(';')[0].strip())
             self.tax_rate = float(tax_rate_str.split(';')[0].strip())
 
+            # 매수 후 최소 보유 시간 (초)
+            self.min_hold_seconds = config.getint('TRADING', 'min_hold_seconds', fallback=0)
+
             
             # 데이터 저장 설정
             self.data_saving_interval = config.getint('DATA_SAVING', 'interval_seconds', fallback=60)
@@ -422,6 +425,12 @@ class KiwoomTrader(QObject):
                             new_count = self.parent.boughtBox.count()
                             self.logger.info(f"✅ 보유종목 리스트에서 제거: {code} (전량 매도, 남은 종목 {new_count}개)")
                             break
+                
+                # 전량 매도 완료 후, 블랙리스트에 있는 종목이라면 모니터링에서도 제거 (예: 급등주 모멘텀 상실)
+                if is_full_sell and self.is_blacklisted(code):
+                    if self.parent and hasattr(self.parent, 'monitoring_manager'):
+                        await self.parent.monitoring_manager.remove_stock_from_monitoring(code)
+                        self.logger.info(f"🗑️ [{code}] 전량 매도 완료 및 블랙리스트 종목 모니터링 제외")
                 elif not is_full_sell:
                     self.logger.debug(f"ℹ️ {code} 부분 매도 (보유: {remaining_qty}주, 매도: {quantity}주)")
                 
@@ -598,7 +607,6 @@ class KiwoomTrader(QObject):
                             old_price = self.buy_prices[code]
                             if abs(old_price - average_price) > 0: # 차이가 있으면 업데이트
                                 self.buy_prices[code] = average_price
-                                self.logger.info(f"🔄 [{code}] 매입단가 보정 (체결가 반영): {old_price:,.0f}원 -> {average_price:,.0f}원")
                 else:
                     # 수량이 0인 경우 (전량 매도 완료) holdings에서 제거
                     if code in self.holdings:

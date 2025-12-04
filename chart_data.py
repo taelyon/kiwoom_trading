@@ -37,7 +37,11 @@ class ChartDataCache(QObject):
             
             # QTimer 객체를 즉시 생성
             self.update_timer = QTimer(self)
+            self.update_timer.timeout.connect(self.update_all_charts)
+            
             self.save_timer = QTimer(self)
+            self.save_timer.timeout.connect(self._trigger_async_save_to_database)
+            
             self.queue_timer = QTimer(self)
             self.logger.debug("🔍 타이머 객체 즉시 생성 완료")
             
