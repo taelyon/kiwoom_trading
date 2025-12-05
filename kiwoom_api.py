@@ -724,7 +724,26 @@ class KiwoomWebSocketClient:
                         # REST API를 호출하여 전체 실현손익을 조회하고 알림을 보내는 비동기 작업을 시작합니다.
                         if hasattr(self.parent, 'login_handler') and self.parent.login_handler.kiwoom_client:
                             prev_balance_info = self.balance_data.get(stock_code, {})
+                            
+                            # [수정] 분할 체결 시 잔고가 줄어든 상태에서 알림이 가면 수량이 적게 표시됨
+                            # trader.sell_order_details에서 최초 주문 수량을 찾아 사용
                             sold_qty = prev_balance_info.get('quantity', 0)
+                            
+                            try:
+                                if hasattr(self.parent, 'trader') and self.parent.trader:
+                                    # sell_order_details에서 해당 종목의 주문 정보 찾기 (역순으로 탐색하여 최신 주문 확인)
+                                    found_order = False
+                                    for ord_no, details in sorted(self.parent.trader.sell_order_details.items(), key=lambda x: x[0], reverse=True):
+                                        if details.get('code') == stock_code:
+                                            total_qty = details.get('total_qty', 0)
+                                            if total_qty > sold_qty:
+                                                sold_qty = total_qty
+                                                self.logger.info(f"📋 [알림보정] 분할 체결 감지: 잔고({prev_balance_info.get('quantity')}) 대신 주문수량({sold_qty}) 사용")
+                                                found_order = True
+                                            break
+                            except Exception as qty_fix_ex:
+                                self.logger.warning(f"알림 수량 보정 중 오류 (무시): {qty_fix_ex}")
+
                             
                             # 당일총매도손익 및 손익률 로깅 (950, 8019 필드)
                             daily_total_sell_profit_str = values.get('950', '0')

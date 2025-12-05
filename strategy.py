@@ -622,37 +622,43 @@ class KiwoomStrategy(QObject):
 
                 order_available_qty = 0
                 try:
-                    if hasattr(self.parent, 'login_handler') and self.parent.login_handler and hasattr(self.parent.login_handler, 'kiwoom_client'):
-                        balance_result = await self.parent.login_handler.kiwoom_client.get_acnt_balance()
-                        if balance_result:
-                            api_holdings = balance_result.get('stk_acnt_evlt_prst', balance_result.get('output1', []))
-                            for stock in api_holdings:
-                                raw_code = stock.get('stk_cd', stock.get('pdno', ''))
-                                stock_code = self.parent.data_manager.normalize_stock_code(raw_code)
-                                if stock_code == code:
-                                    # 부분 익절인 경우, 보유 수량의 절반을 계산
-                                    total_holding_qty = self.parent.data_manager.safe_int(stock.get('hldg_qty', 0))
-                                    if partial_sell_ratio and 0 < partial_sell_ratio < 1:
-                                        # 부분 익절 수량 계산 (소수점 버림)
-                                        order_available_qty = int(total_holding_qty * partial_sell_ratio)
-                                        self.logger.info(f"📡 부분 익절 수량 계산: 보유수량 {total_holding_qty}주 * {partial_sell_ratio} = {order_available_qty}주")
-                                    else:
-                                        # 전량 매도
-                                        order_available_qty = self.parent.data_manager.safe_int(stock.get('rmnd_qty', 0))
-                                        self.logger.info(f"전량 매도 수량 조회 (REST API): {code} 주문가능수량 {order_available_qty}주")
-                                    break
-                    # REST API 조회 실패 시 웹소켓 데이터로 대체
+                    # 1. 웹소켓 실시간 잔고 데이터 우선 사용 (속도 빠름, API 제한 없음)
+                    if (hasattr(self.parent, 'login_handler') and self.parent.login_handler and hasattr(self.parent.login_handler, 'websocket_client')):
+                        ws_balance_data = self.parent.login_handler.websocket_client.balance_data
+                        if ws_balance_data and code in ws_balance_data:
+                            # 주문가능수량 사용
+                            order_available_qty = ws_balance_data[code].get('order_available_qty', 0)
+                            
+                            # 만약 주문가능수량이 0이면 보유수량 사용 (가끔 주문가능수량이 갱신 안 될 때 대비)
+                            if order_available_qty <= 0:
+                                order_available_qty = ws_balance_data[code].get('quantity', 0)
+
+                            if partial_sell_ratio and 0 < partial_sell_ratio < 1:
+                                total_holding_qty = ws_balance_data[code].get('quantity', 0)
+                                order_available_qty = int(total_holding_qty * partial_sell_ratio)
+                                self.logger.info(f"💰 부분 익절 수량 계산 (웹소켓): 보유수량 {total_holding_qty}주 * {partial_sell_ratio} = {order_available_qty}주")
+                            else:
+                                self.logger.info(f"⚡ 전량 매도 수량 조회 (웹소켓): {code} 주문가능수량 {order_available_qty}주")
+
+                    # 2. 웹소켓 데이터가 없거나 이상할 경우 REST API 사용 (Fallback)
                     if order_available_qty <= 0:
-                         if (hasattr(self.parent, 'login_handler') and self.parent.login_handler and hasattr(self.parent.login_handler, 'websocket_client')): # type: ignore
-                            ws_balance_data = self.parent.login_handler.websocket_client.balance_data
-                            if ws_balance_data and code in ws_balance_data:
-                                order_available_qty = ws_balance_data[code].get('order_available_qty', 0)
-                                if partial_sell_ratio and 0 < partial_sell_ratio < 1:
-                                    total_holding_qty = ws_balance_data[code].get('quantity', 0)
-                                    order_available_qty = int(total_holding_qty * partial_sell_ratio)
-                                    self.logger.info(f"💰 부분 익절 수량 계산 (웹소켓 Fallback): 보유수량 {total_holding_qty}주 * {partial_sell_ratio} = {order_available_qty}주")
-                                else:
-                                    self.logger.info(f"전량 매도 수량 조회 (웹소켓 Fallback): {code} 주문가능수량 {order_available_qty}주")
+                        if hasattr(self.parent, 'login_handler') and self.parent.login_handler and hasattr(self.parent.login_handler, 'kiwoom_client'):
+                            self.logger.debug(f"⚠️ 웹소켓 잔고 없음, REST API로 재확인 시도: {code}")
+                            balance_result = await self.parent.login_handler.kiwoom_client.get_acnt_balance()
+                            if balance_result:
+                                api_holdings = balance_result.get('stk_acnt_evlt_prst', balance_result.get('output1', []))
+                                for stock in api_holdings:
+                                    raw_code = stock.get('stk_cd', stock.get('pdno', ''))
+                                    stock_code = self.parent.data_manager.normalize_stock_code(raw_code)
+                                    if stock_code == code:
+                                        total_holding_qty = self.parent.data_manager.safe_int(stock.get('hldg_qty', 0))
+                                        if partial_sell_ratio and 0 < partial_sell_ratio < 1:
+                                            order_available_qty = int(total_holding_qty * partial_sell_ratio)
+                                            self.logger.info(f"📡 부분 익절 수량 계산 (API): 보유수량 {total_holding_qty}주 * {partial_sell_ratio} = {order_available_qty}주")
+                                        else:
+                                            order_available_qty = self.parent.data_manager.safe_int(stock.get('rmnd_qty', 0))
+                                            self.logger.info(f"📡 전량 매도 수량 조회 (API): {code} 주문가능수량 {order_available_qty}주")
+                                        break
 
                 except Exception as qty_check_ex:
                     self.logger.error(f"주문가능수량 확인 중 오류 ({code}): {qty_check_ex}", exc_info=True)
