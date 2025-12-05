@@ -733,14 +733,35 @@ class KiwoomWebSocketClient:
                                 if hasattr(self.parent, 'trader') and self.parent.trader:
                                     # sell_order_details에서 해당 종목의 주문 정보 찾기 (역순으로 탐색하여 최신 주문 확인)
                                     found_order = False
-                                    for ord_no, details in sorted(self.parent.trader.sell_order_details.items(), key=lambda x: x[0], reverse=True):
+                                    # 주문번호를 정수로 변환하여 정렬 (문자열 정렬 시 "10" < "2" 문제 방지)
+                                    sorted_orders = sorted(
+                                        self.parent.trader.sell_order_details.items(), 
+                                        key=lambda x: int(x[0]) if x[0].isdigit() else 0, 
+                                        reverse=True
+                                    )
+                                    
+                                    for ord_no, details in sorted_orders:
                                         if details.get('code') == stock_code:
                                             total_qty = details.get('total_qty', 0)
-                                            if total_qty > sold_qty:
+                                            # 주문 수량이 현재 잔고보다 크거나 같으면 해당 주문으로 간주
+                                            if total_qty >= sold_qty:
                                                 sold_qty = total_qty
-                                                self.logger.info(f"📋 [알림보정] 분할 체결 감지: 잔고({prev_balance_info.get('quantity')}) 대신 주문수량({sold_qty}) 사용")
+                                                self.logger.info(f"📋 [알림보정] 분할 체결 감지: 잔고 대신 주문수량({sold_qty}) 사용 (주문번호: {ord_no})")
                                                 found_order = True
-                                            break
+                                                break
+                                    
+                                    # [추가] 주문번호가 아직 없는 경우(REST 응답 전), 임시 기록 확인
+                                    if not found_order:
+                                        temp_log = self.parent.trader.temp_sell_logs.get(stock_code)
+                                        if temp_log:
+                                            # 5초 이내의 기록만 유효
+                                            time_diff = (datetime.now() - temp_log['timestamp']).total_seconds()
+                                            if time_diff < 5:
+                                                temp_qty = temp_log['quantity']
+                                                if temp_qty >= sold_qty:
+                                                    sold_qty = temp_qty
+                                                    self.logger.info(f"📋 [알림보정] 임시 매도 기록 사용: {sold_qty}주 (REST 응답 지연)")
+
                             except Exception as qty_fix_ex:
                                 self.logger.warning(f"알림 수량 보정 중 오류 (무시): {qty_fix_ex}")
 

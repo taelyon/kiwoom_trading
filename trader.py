@@ -47,6 +47,9 @@ class KiwoomTrader(QObject):
         # 주문 번호별 매도 정보 추적 (부분 매도 완료 알림용)
         self.sell_order_details = {}  # {order_no: {'code': str, 'total_qty': int, 'filled_qty': int}}
 
+        # [추가] 임시 매도 요청 기록 (주문번호 발급 전 웹소켓 수신 대비)
+        self.temp_sell_logs = {} # {code: {'quantity': qty, 'timestamp': datetime}}
+
         # 매수 주문 진행 중인 종목 추적 (중복 매수 방지)
         self.pending_buy_orders = set()
         
@@ -340,6 +343,12 @@ class KiwoomTrader(QObject):
             if quantity <= 0: # type: ignore
                 self.logger.warning(f"⚠️ 매도 주문 수량이 0 이하이므로 주문을 실행하지 않습니다: {code}, 수량: {quantity}")
                 return False
+
+            # [추가] 주문 요청 정보를 임시 저장 (웹소켓이 REST 응답보다 빠를 경우 대비)
+            self.temp_sell_logs[code] = {
+                'quantity': quantity,
+                'timestamp': datetime.now()
+            }
 
             # 키움 REST API를 통한 매도 주문
             
