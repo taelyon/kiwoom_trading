@@ -56,6 +56,49 @@ class KiwoomStrategy(QObject):
             
         except Exception as ex:
             self.logger.error(f"전략 설정 로드 실패: {ex}", exc_info=True)
+
+    def _log_indicator_values(self, code, condition, safe_locals):
+        """조건식에 사용된 지표 값 로그 출력"""
+        try:
+            import re
+            
+            # 조건식에서 변수명 추출 (알파벳, 숫자, 언더스코어로 구성된 단어)
+            # 함수 호출 등은 제외하기 위해 간단한 단어 매칭 사용
+            tokens = re.findall(r'[a-zA-Z_][a-zA-Z0-9_]*', condition)
+            
+            # safe_locals에 있는 키만 필터링 (builtins 제외)
+            used_vars = set(tokens) & set(safe_locals.keys())
+            if '__builtins__' in used_vars:
+                used_vars.remove('__builtins__')
+            
+            # 주요 지표 값 로그 출력
+            log_messages = []
+            for var_name in sorted(used_vars):
+                value = safe_locals[var_name]
+                
+                # numpy array나 list인 경우 마지막 값(현재 값) 출력
+                if hasattr(value, '__len__') and not isinstance(value, str):
+                     if len(value) > 0:
+                        try:
+                            last_val = value[-1]
+                            if isinstance(last_val, (int, float)):
+                                log_messages.append(f"{var_name}[-1]={last_val:.2f}")
+                            else:
+                                log_messages.append(f"{var_name}[-1]={last_val}")
+                        except:
+                            log_messages.append(f"{var_name}={value}")
+                     else:
+                        log_messages.append(f"{var_name}=[]")
+                elif isinstance(value, (int, float)):
+                    log_messages.append(f"{var_name}={value:.2f}")
+                else:
+                    log_messages.append(f"{var_name}={value}")
+            
+            if log_messages:
+                self.logger.info(f"📊 [{code}] 조건 지표 값: {', '.join(log_messages)}")
+                
+        except Exception as e:
+            self.logger.warning(f"지표 값 로깅 중 오류: {e}")
     
     async def evaluate_strategy(self, code, market_data):
         """전략 평가 및 실행 (비동기)"""
@@ -403,6 +446,9 @@ class KiwoomStrategy(QObject):
                 if condition_met and matched_strategy:
                     self.logger.info(f"📈 매수 신호 발생: {code} - {matched_strategy.get('name', '')}")
                     
+                    # [추가] 지표 값 로그 출력
+                    self._log_indicator_values(code, matched_strategy.get('content', ''), safe_locals)
+                    
                     # 매수 수량 계산: (예수금 / (최대보유종목수 - 현재보유종목수)) / 현재가
                     try:
                         # 1. 투자가능 현금 조회 (캐시 사용)
@@ -688,6 +734,9 @@ class KiwoomStrategy(QObject):
                 self.logger.info(f"📉 매도 신호 발생: {code} - {strategy_display_name}")
                 self.logger.debug(f"💰 매입가={buy_price:,}원, 현재가={current_price:,}원, 수익률={profit_rate:.2f}%")
                 self.logger.debug(f"📊 보유수량={quantity:,}주, 주문가능수량={order_available_qty:,}주, 매도수량={order_available_qty:,}주")
+                
+                # [추가] 지표 값 로그 출력
+                self._log_indicator_values(code, matched_strategy.get('content', ''), safe_locals)
                 
                 signals.append({
                     'strategy': matched_strategy.get('name', strategy_name),
