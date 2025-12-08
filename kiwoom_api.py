@@ -916,18 +916,33 @@ class KiwoomWebSocketClient:
                 self.logger.debug(f"  ⚠️ 거부사유: {reject_reason}")
                 # 거부 시 '주문 진행 중' 상태 해제
                 if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'trader'):
+                    # pending_sell_orders에서 제거
                     if stock_code in self.parent.trader.pending_sell_orders:
                         self.parent.trader.pending_sell_orders.discard(stock_code)
                         self.logger.debug(f"🔓 [{stock_code}] 매도 주문 거부로 인해 진행 중 상태 해제")
+                    
+                    # sell_order_details에서 제거 (주문 추적 중단)
+                    if order_no in self.parent.trader.sell_order_details:
+                        del self.parent.trader.sell_order_details[order_no]
+                        self.logger.debug(f"🗑️ [{stock_code}] 매도 주문 거부로 인해 추적 제거 (주문번호: {order_no})")
+
                     if hasattr(self.parent.trader, 'pending_buy_orders') and stock_code in self.parent.trader.pending_buy_orders:
                         self.parent.trader.pending_buy_orders.discard(stock_code)
                         self.logger.debug(f"🔓 [{stock_code}] 매수 주문 거부로 인해 진행 중 상태 해제")
+
             elif order_status == '취소':
                 # 취소 시 '주문 진행 중' 상태 해제
                 if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'trader'):
+                    # pending_sell_orders에서 제거
                     if stock_code in self.parent.trader.pending_sell_orders:
                         self.parent.trader.pending_sell_orders.discard(stock_code)
                         self.logger.debug(f"🔓 [{stock_code}] 매도 주문 취소로 인해 진행 중 상태 해제")
+                    
+                    # sell_order_details에서 제거 (주문 추적 중단)
+                    if order_no in self.parent.trader.sell_order_details:
+                        del self.parent.trader.sell_order_details[order_no]
+                        self.logger.debug(f"🗑️ [{stock_code}] 매도 주문 취소로 인해 추적 제거 (주문번호: {order_no})")
+
                     if hasattr(self.parent.trader, 'pending_buy_orders') and stock_code in self.parent.trader.pending_buy_orders:
                         self.parent.trader.pending_buy_orders.discard(stock_code)
                         self.logger.debug(f"🔓 [{stock_code}] 매수 주문 취소로 인해 진행 중 상태 해제")
@@ -1614,6 +1629,12 @@ class KiwoomWebSocketClient:
                 if action_type == 'I':  # INSERT (편입) # type: ignore
                     self.logger.info(f"📈 조건검색 실시간 편입: {stock_code} ({condition_name}, seq: {condition_seq})")
                     
+                    # [추가] 조건검색 재편입 시 차단 목록에서 제거
+                    if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'trader') and self.parent.trader:
+                        if stock_code in self.parent.trader.condition_excluded_stocks:
+                            self.parent.trader.condition_excluded_stocks.discard(stock_code)
+                            self.logger.debug(f"✅ [{stock_code}] 조건검색 재편입으로 매수 차단 해제")
+
                     # 블랙리스트 확인
                     if hasattr(self.parent, 'trader') and self.parent.trader and self.parent.trader.is_blacklisted(stock_code):
                         self.logger.debug(f"🚫 [{stock_code}] 블랙리스트에 포함된 종목이므로 조건검색 편입을 무시합니다.")
@@ -1639,6 +1660,11 @@ class KiwoomWebSocketClient:
                         portfolio = self.parent.trader.get_portfolio_status()
                         if stock_code in portfolio.get('holdings', {}):
                             is_holding = True
+                        
+                        # [추가] 조건검색 이탈 시 차단 목록에 추가 (보유 여부와 무관하게 추가하여 추가 매수 방지)
+                        if stock_code not in self.parent.trader.condition_excluded_stocks:
+                            self.parent.trader.condition_excluded_stocks.add(stock_code)
+                            self.logger.debug(f"🚫 [{stock_code}] 조건검색 이탈로 매수 차단 목록에 추가")
                     
                     # 보유 중인 종목은 모니터링에서 제거하지 않음
                     if is_holding:

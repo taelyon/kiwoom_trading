@@ -106,8 +106,25 @@ class KiwoomStrategy(QObject):
                     self._pending_order_log_codes = set()
                 
                 if code not in self._pending_order_log_codes:
-                    self.logger.debug(f"⏳ [{code}] 매도 주문 진행 중이므로 전략 평가를 건너뜁니다.")
+                    self.logger.debug(f"⏳ [{code}] 매도 주문 API 요청 중이므로 전략 평가를 건너뜁니다.")
                     self._pending_order_log_codes.add(code)
+                return
+
+            # [추가] 이미 매도 주문이 체결 대기 중인 경우 전략 평가 건너뛰기 (중복 매도 방지)
+            # sell_order_details에 해당 종목의 주문이 있다면 아직 체결되지 않은 상태
+            active_sell_orders = [ord_no for ord_no, details in self.trader.sell_order_details.items() if details.get('code') == code]
+            if active_sell_orders:
+                if not hasattr(self, '_active_order_log_codes'):
+                    self._active_order_log_codes = set()
+                
+                # 로그 중복 방지 (5초에 한 번만 출력하거나 상태 변경 시 출력)
+                current_time = datetime.now().timestamp()
+                last_log_time = getattr(self, f'_last_log_time_{code}', 0)
+                
+                if current_time - last_log_time > 5:
+                    self.logger.warning(f"⏳ [{code}] 매도 체결 대기 중인 주문이 있어 전략 평가를 건너뜁니다. (주문번호: {active_sell_orders})")
+                    setattr(self, f'_last_log_time_{code}', current_time)
+                
                 return
             
             # 일시적 차단 목록 확인 (주문가능수량 0 등으로 인한 무한 루프 방지)

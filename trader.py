@@ -68,6 +68,10 @@ class KiwoomTrader(QObject):
 
         # 당일 매수 금지 종목 (추적손절 등으로 매도된 종목)
         self.daily_blacklist = set()
+        
+        # [추가] 조건검색 이탈 종목 (재진입 전까지 매수 금지)
+        self.condition_excluded_stocks = set()
+        
         self.load_blacklist()  # 파일에서 블랙리스트 복원
         
         # 설정 로드
@@ -1055,6 +1059,19 @@ class AutoTrader(QObject):
             if is_first_debug:
                 self.logger.debug(f"🔍 [{code}] 매매 판단 시작")
                 self._analyze_debug_codes.add(code)
+            
+            # [추가] 조건검색 이탈 종목 체크
+            if hasattr(self.parent, 'trader') and code in self.parent.trader.condition_excluded_stocks:
+                # 보유 중인 종목이 아니라면 매수 금지 (매도는 허용해야 함 -> evaluate_strategy 내부에서 처리하거나 보유 여부 확인)
+                # 하지만 analyze_and_execute_trading은 주로 매수 진입을 위한 것이므로 여기서 차단해도 됨.
+                # 단, 매도 로직(보유 중인 경우)은 실행되어야 함.
+                
+                # 보유 여부 확인
+                is_holding = code in self.parent.trader.holdings
+                if not is_holding:
+                    if is_first_debug:
+                        self.logger.debug(f"🚫 [{code}] 조건검색 이탈 종목이므로 매수 진입 제한")
+                    return False
             
             # chart_cache에서 데이터 가져오기
             if not hasattr(self.parent, 'chart_cache') or not self.parent.chart_cache:

@@ -342,50 +342,68 @@ def prepare_sell_strategy_locals(code, tic_chart_data, min_chart_data, buy_price
     """매도 전략 평가를 위한 로컬 변수 생성"""
     logger = logging.getLogger(__name__)
     try:
-        if tic_chart_data.empty:
-            return {}
-        
-        # 기본 지표 추출
-        tic_indicators = KiwoomIndicatorExtractor.extract_chart_indicators(tic_chart_data)
-        min_indicators = KiwoomIndicatorExtractor.extract_chart_indicators(min_chart_data)
-        additional = KiwoomIndicatorExtractor.calculate_additional_indicators(tic_indicators, tic_chart_data)
-        
-        # 로컬 변수 딕셔너리 생성
+        # 로컬 변수 딕셔너리 초기화
         locals_dict = {}
-        locals_dict.update(additional)
-
-        # 틱 데이터 기반 지표에 'tic_' 접두사 추가
-        for key, value in tic_indicators.items():
-            if isinstance(value, np.ndarray):
-                locals_dict[f'tic_{key}'] = value
-
-        # 분봉 데이터 기반 지표에 'min3_' 접두사 추가
-        for key, value in min_indicators.items():
-            if isinstance(value, np.ndarray):
-                locals_dict[f'min3_{key}'] = value
         
-        # current_price를 tic_close의 마지막 값으로 정의
-        if current_price is None:
-            current_price = 0
+        # 1. 차트 지표 추출 (데이터가 있는 경우에만)
+        if not tic_chart_data.empty:
+            # 기본 지표 추출
+            tic_indicators = KiwoomIndicatorExtractor.extract_chart_indicators(tic_chart_data)
+            min_indicators = KiwoomIndicatorExtractor.extract_chart_indicators(min_chart_data)
+            additional = KiwoomIndicatorExtractor.calculate_additional_indicators(tic_indicators, tic_chart_data)
+            
+            locals_dict.update(additional)
+
+            # 틱 데이터 기반 지표에 'tic_' 접두사 추가
+            for key, value in tic_indicators.items():
+                if isinstance(value, np.ndarray):
+                    locals_dict[f'tic_{key}'] = value
+
+            # 분봉 데이터 기반 지표에 'min3_' 접두사 추가
+            for key, value in min_indicators.items():
+                if isinstance(value, np.ndarray):
+                    locals_dict[f'min3_{key}'] = value
+            
+            # 기존 데이터프레임 컬럼 추가 (백테스팅 호환성)
+            for col in tic_chart_data.columns:
+                if col.startswith('tic_') or col.startswith('min3_'):
+                    locals_dict[col] = tic_chart_data[col].values
+                    # 대문자 버전 추가
+                    if col.startswith('tic_'):
+                        upper_key = 'tic_' + col[4:].upper()
+                        if upper_key != col:
+                            locals_dict[upper_key] = tic_chart_data[col].values
+                    elif col.startswith('min3_'):
+                        upper_key = 'min3_' + col[5:].upper()
+                        if upper_key != col:
+                            locals_dict[upper_key] = tic_chart_data[col].values
+
+        # 2. 현재가 설정
+        if current_price is None or current_price == 0:
             if 'tic_close' in locals_dict and len(locals_dict['tic_close']) > 0:
                 current_price = locals_dict['tic_close'][-1]
                 logger.debug(f"[{code}] 매도 평가용 현재가 설정: {current_price} (tic_close[-1])")
+            else:
+                current_price = 0 # 현재가 없음
 
-        # 매매 관련 변수
+        # 3. 매매 관련 기본 변수 설정 (차트 데이터 유무와 무관하게 항상 설정)
         locals_dict['code'] = code
         locals_dict['buy_price'] = buy_price
         locals_dict['buy_time'] = buy_time
         locals_dict['current_price'] = current_price
         
         # 수익률 계산
-        # 수수료와 세금을 반영한 실질 수익률 계산
         if buy_price > 0:
             buy_cost_per_share = buy_price * (1 + commission_rate)
-            sell_revenue_per_share = current_price * (1 - commission_rate - tax_rate)
-            net_profit_per_share = sell_revenue_per_share - buy_cost_per_share
-            locals_dict['current_profit_pct'] = (net_profit_per_share / buy_cost_per_share) * 100 if buy_cost_per_share > 0 else 0
+            # 현재가가 0이면 수익률 계산 불가 (또는 -100% 처리)
+            if current_price > 0:
+                sell_revenue_per_share = current_price * (1 - commission_rate - tax_rate)
+                net_profit_per_share = sell_revenue_per_share - buy_cost_per_share
+                locals_dict['current_profit_pct'] = (net_profit_per_share / buy_cost_per_share) * 100
+            else:
+                locals_dict['current_profit_pct'] = 0.0
         else:
-            locals_dict['current_profit_pct'] = 0
+            locals_dict['current_profit_pct'] = 0.0
         
         # 보유 시간 계산
         if buy_time:
@@ -396,12 +414,10 @@ def prepare_sell_strategy_locals(code, tic_chart_data, min_chart_data, buy_price
             locals_dict['hold_minutes'] = 0
             locals_dict['hold_hours'] = 0
 
-        # 매수 후 경과된 봉(bar) 개수 계산
+        # 매수 후 경과된 봉 개수 계산 (차트 데이터 필요)
         if buy_time and not tic_chart_data.empty and 'time' in tic_chart_data.columns:
             try:
-                # 'time' 컬럼을 datetime 객체로 변환
                 tic_times = pd.to_datetime(tic_chart_data['time'])
-                # 매수 시간 이후의 봉 개수 계산
                 locals_dict['bars_since_entry'] = (tic_times > buy_time).sum()
             except Exception as e:
                 logger.debug(f"[{code}] bars_since_entry 계산 실패: {e}")
@@ -413,32 +429,22 @@ def prepare_sell_strategy_locals(code, tic_chart_data, min_chart_data, buy_price
         if portfolio_info:
             locals_dict.update(portfolio_info)
             
-        # 기존 데이터프레임에 있는 'tic_', 'min3_' 접두사 컬럼들도 로컬 변수에 추가 (백테스팅 호환성)
-        # DB에서 로드된 데이터는 이미 계산된 지표를 포함할 수 있음
-        for col in tic_chart_data.columns:
-            if col.startswith('tic_') or col.startswith('min3_'):
-                locals_dict[col] = tic_chart_data[col].values
-                
-                # 대소문자 호환성을 위해 대문자 버전도 추가 (예: min3_ma20 -> min3_MA20)
-                # 접두사(tic_, min3_)는 소문자 유지, 나머지 지표명은 대문자로 변환
-                if col.startswith('tic_'):
-                    upper_key = 'tic_' + col[4:].upper()
-                    if upper_key != col:
-                        locals_dict[upper_key] = tic_chart_data[col].values
-                elif col.startswith('min3_'):
-                    upper_key = 'min3_' + col[5:].upper()
-                    if upper_key != col:
-                        locals_dict[upper_key] = tic_chart_data[col].values
-
-            # 최고가 추적
-            highest_price = portfolio_info.get('highest_prices', {}).get(code, current_price)
-            locals_dict['highest_price'] = highest_price
+        # 최고가 추적 (들여쓰기 수정됨)
+        highest_price = 0
+        if portfolio_info:
+            highest_price = portfolio_info.get('highest_prices', {}).get(code, 0)
+        
+        # 현재가가 더 높으면 최고가 갱신 (메모리상에서만, 실제 업데이트는 외부에서 처리)
+        if current_price > highest_price:
+            highest_price = current_price
             
-            # 최고점 대비 하락률
-            if highest_price > 0:
-                locals_dict['from_peak_pct'] = (current_price - highest_price) / highest_price * 100
-            else:
-                locals_dict['from_peak_pct'] = 0
+        locals_dict['highest_price'] = highest_price
+        
+        # 최고점 대비 하락률
+        if highest_price > 0:
+            locals_dict['from_peak_pct'] = (current_price - highest_price) / highest_price * 100
+        else:
+            locals_dict['from_peak_pct'] = 0.0
         
         # 시간 관련 변수
         current_hour = datetime.now().hour
