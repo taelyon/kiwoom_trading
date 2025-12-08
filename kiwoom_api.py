@@ -1666,9 +1666,19 @@ class KiwoomWebSocketClient:
                             self.parent.trader.condition_excluded_stocks.add(stock_code)
                             self.logger.debug(f"🚫 [{stock_code}] 조건검색 이탈로 매수 차단 목록에 추가")
                     
+                    
                     # 보유 중인 종목은 모니터링에서 제거하지 않음
                     if is_holding:
                         self.logger.debug(f"✅ 보유 종목이므로 모니터링 유지: {stock_code}")
+                        
+                        # [추가] 조건검색 이탈 시 즉시 매도 실행 (전략: 조건이탈매도)
+                        self.logger.warning(f"📉 조건검색 이탈 감지: {stock_code} (보유 중) -> 즉시 전량 매도 실행")
+                        if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'trader') and self.parent.trader:
+                            # 보유 수량 확인
+                            qty = portfolio['holdings'][stock_code].get('quantity', 0)
+                            if qty > 0:
+                                # 비동기로 매도 주문 실행
+                                asyncio.create_task(self.parent.trader.place_sell_order(stock_code, qty, 0, '조건이탈매도'))
                     else:
                         # 보유하지 않은 종목만 모니터링에서 제거
                         if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'monitoring_manager'):

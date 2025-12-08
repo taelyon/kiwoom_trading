@@ -553,14 +553,14 @@ class KiwoomStrategy(QObject):
                 # 보유 정보 불완전 로그 제거 (너무 빈번함)
                 return signals
 
-            # 매수 후 최소 보유 시간(Grace Period) 확인
-            min_hold_seconds = getattr(self.trader, 'min_hold_seconds', 0)
-            if min_hold_seconds > 0 and buy_time:
-                time_since_buy = (datetime.now() - buy_time).total_seconds()
-                if time_since_buy < min_hold_seconds:
-                    if is_first_sell_check: # type: ignore
-                        self.logger.debug(f"⏳ [{code}] 매수 후 {time_since_buy:.1f}초 경과. 매도 평가 유예 중 (최소 {min_hold_seconds}초)")
-                    return signals # 유예 시간 동안 매도 신호 생성 안 함
+            # 매수 후 최소 보유 시간(Grace Period) 확인 - 제거 (초단타 대응: 즉시 매도 가능하도록 변경)
+            # min_hold_seconds = getattr(self.trader, 'min_hold_seconds', 0)
+            # if min_hold_seconds > 0 and buy_time:
+            #     time_since_buy = (datetime.now() - buy_time).total_seconds()
+            #     if time_since_buy < min_hold_seconds:
+            #         if is_first_sell_check: # type: ignore
+            #             self.logger.debug(f"⏳ [{code}] 매수 후 {time_since_buy:.1f}초 경과. 매도 평가 유예 중 (최소 {min_hold_seconds}초)")
+            #         return signals # 유예 시간 동안 매도 신호 생성 안 함
 
             
             # 최고가 실시간 업데이트

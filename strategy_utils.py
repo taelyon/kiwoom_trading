@@ -331,6 +331,9 @@ def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_
                 if len(volume_series) >= 10:
                     # 최근 10개 틱의 평균 거래량
                     locals_dict['tic_avg_volume_10'] = volume_series.tail(10).mean()
+                if len(volume_series) >= 5:
+                    # 최근 5개 틱의 평균 거래량 (순간 체결량 포착용)
+                    locals_dict['tic_avg_volume_5'] = volume_series.tail(5).mean()
 
         return locals_dict
         
