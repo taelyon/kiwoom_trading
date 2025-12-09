@@ -16,13 +16,14 @@ class AsyncDatabaseManager:
         self.logger = logging.getLogger(self.__class__.__name__)
         self.db_path = db_path
         self.indicator_list = [
-            'MA5', 'MA10', 'MA20', 'MA50', 'MA60', 'MA120', 'RSI', 'MACD', 'MACD_SIGNAL', 'MACD_HIST',
-            'BB_UPPER', 'BB_MIDDLE', 'BB_LOWER', 'STOCH_K', 'STOCH_D', 'WILLIAMS_R', 'ROC', 'OBV', 'OBV_MA20', 'ATR'
+            'MA5', 'MA10', 'MA20', 'MA60', 'MA120', 
+            'RSI', 'RSI_SIGNAL',
+            'VELOCITY', 'ORDER_BOOK_IMBALANCE', 'RELATIVE_POSITION', 'LAST_TIC_CNT'
         ]
         # 3분봉 저장 대상 지표 (DB 스키마 및 저장 시 사용)
         self.min_target_indicators = [
-            'MA5', 'MA10', 'MA20', 'MA50', 'MA60', 'MA120', 
-            'RSI', 'MACD', 'MACD_SIGNAL', 'MACD_HIST',
+            'MA5', 'MA10', 'MA20', 'MA60', 'MA120', 
+            'RSI',
             'RELATIVE_POSITION'
         ]
         self._conn = None
@@ -65,7 +66,6 @@ class AsyncDatabaseManager:
                     # 통합 주식 데이터 테이블 동적 생성
                     # 기본 OHLCV 컬럼
                     base_columns = """
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
                         code TEXT NOT NULL,
                         datetime TEXT NOT NULL,
                         -- 틱봉 기본 데이터
@@ -74,22 +74,15 @@ class AsyncDatabaseManager:
                         tic_low REAL,
                         tic_close REAL,
                         tic_volume INTEGER,
-                        tic_strength REAL,
-                        tic_last_tic_cnt REAL
+                        tic_strength REAL
                     """
                     
-                    # 틱봉 기술적 지표 (중복 제거 및 정렬)
+                    # 틱봉 기술적 지표 (최적화됨)
                     tic_indicators = [
-                        'MA5', 'MA10', 'MA20', 'MA50', 'MA60', 'MA120',  # 이동평균
-                        'RSI', 'RSI_SIGNAL',  # RSI
-                        'MACD', 'MACD_SIGNAL', 'MACD_HIST',  # MACD
-                        'BB_UPPER', 'BB_MIDDLE', 'BB_LOWER', 'BB_BANDWIDTH', 'BB_POSITION',  # 볼린저 밴드
-                        'STOCH_K', 'STOCH_D',  # 스토캐스틱 (중복 제거: stochk, stochd 제외)
-                        'WILLIAMS_R',  # 윌리엄스 %R
-                        'ROC',  # 변화율
-                        'OBV', 'OBV_MA20',  # OBV
-                        'ATR',  # ATR
-                        'VWAP'  # VWAP
+                        'MA5', 'MA10', 'MA20', 'MA60', 'MA120',
+                        'RSI', 'RSI_SIGNAL',
+                        'LAST_TIC_CNT',
+                        'VELOCITY', 'ORDER_BOOK_IMBALANCE'
                     ]
                     tic_indicator_cols = ", ".join([f"tic_{col.lower()} REAL" for col in tic_indicators])
                     
@@ -105,7 +98,7 @@ class AsyncDatabaseManager:
                             {min_indicator_cols},
                             -- 메타데이터
                             created_at TEXT,
-                            UNIQUE(code, datetime)
+                            PRIMARY KEY (code, datetime)
                         )
                     '''
                     await cursor.execute(create_table_sql)
@@ -160,15 +153,17 @@ class AsyncDatabaseManager:
                 min_indicators = [key for key in min_data.keys() if key not in basic_keys]
                 
                 # 허용된 지표 목록 (대소문자 구분 없이)
+                # 허용된 지표 목록 (최적화됨: 미사용 지표 제거)
                 allowed_indicators = {
-                    'MA5', 'MA10', 'MA20', 'MA50', 'MA60', 'MA120',
+                    'MA5', 'MA10', 'MA20', 'MA60', 'MA120',
                     'RSI', 'RSI_SIGNAL',
-                    'MACD', 'MACD_SIGNAL', 'MACD_HIST',
-                    'BB_UPPER', 'BB_MIDDLE', 'BB_LOWER', 'BB_BANDWIDTH', 'BB_POSITION',
-                    'STOCH_K', 'STOCH_D',  # 정규화된 이름만 허용
-                    'WILLIAMS_R', 'ROC', 'OBV', 'OBV_MA20', 'ATR', 'VWAP',
                     'LAST_TIC_CNT',
-                    'VELOCITY', 'ORDER_BOOK_IMBALANCE', 'RELATIVE_POSITION'
+                    'VELOCITY', 'ORDER_BOOK_IMBALANCE', 'RELATIVE_POSITION',
+                    # 필요시 주석 해제하여 사용
+                    # 'MACD', 'MACD_SIGNAL', 'MACD_HIST',
+                    # 'BB_UPPER', 'BB_MIDDLE', 'BB_LOWER', 'BB_BANDWIDTH', 'BB_POSITION',
+                    # 'STOCH_K', 'STOCH_D',
+                    # 'WILLIAMS_R', 'ROC', 'OBV', 'OBV_MA20', 'ATR', 'VWAP',
                 }
                 
                 # 지표 이름 정규화 및 필터링

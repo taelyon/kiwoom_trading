@@ -45,6 +45,7 @@ class ChartDataCache(QObject):
             self.save_timer.timeout.connect(self._trigger_async_save_to_database)
             
             self.queue_timer = QTimer(self)
+            self.queue_timer.timeout.connect(self._process_api_queue)
             self.logger.debug("🔍 타이머 객체 즉시 생성 완료")
             
             self.logger.debug("📊 차트 데이터 캐시 초기화 완료")
@@ -833,11 +834,16 @@ class ChartDataCache(QObject):
                         except Exception as e:
                             logging.error(f"분봉 데이터 DataFrame 변환 오류: {e}")
 
-                    # extract_chart_indicators를 사용하여 모든 지표 계산
-                    tic_indicators = strategy_utils.KiwoomIndicatorExtractor.extract_chart_indicators(tic_df)
+                    # 틱봉 지표 계산 최적화 (필요한 것만)
+                    tic_allowed = [
+                        'MA5', 'MA10', 'MA20', 'MA60', 'MA120', 
+                        'RSI', 'RSI_SIGNAL', 
+                        'VELOCITY', 'ORDER_BOOK_IMBALANCE'
+                    ]
+                    tic_indicators = strategy_utils.KiwoomIndicatorExtractor.extract_chart_indicators(tic_df, allowed_indicators=tic_allowed)
                     
-                    # 3분봉 데이터는 MA, RSI, MACD, RELATIVE_POSITION 계산
-                    min_allowed = ['MA5', 'MA10', 'MA20', 'MA50', 'MA60', 'MA120', 'RSI', 'MACD', 'MACD_SIGNAL', 'MACD_HIST', 'RELATIVE_POSITION']
+                    # 3분봉 데이터는 MA, RSI, RELATIVE_POSITION 계산 (MACD 등제거)
+                    min_allowed = ['MA5', 'MA10', 'MA20', 'MA60', 'MA120', 'RSI', 'RELATIVE_POSITION']
                     min_indicators = strategy_utils.KiwoomIndicatorExtractor.extract_chart_indicators(min_df, allowed_indicators=min_allowed)
 
                     # 계산된 지표를 DataFrame에 다시 병합
@@ -995,100 +1001,71 @@ class ChartDataCache(QObject):
             
             indicators = {}
             
-            # 차트 유형별 이동평균선 계산
+            # 지표 계산 결과를 담을 딕셔너리
+            indicators = {}
+
+            # 허용된 지표 정의 (화이트리스트)
             if chart_type == "tic":
-                # 틱 차트: MA5, MA20, MA60, MA120
-                if len(close_array) >= 5:
-                    indicators['MA5'] = talib.SMA(close_array, timeperiod=5)
-                if len(close_array) >= 20:
-                    indicators['MA20'] = talib.SMA(close_array, timeperiod=20)
-                if len(close_array) >= 60:
-                    indicators['MA60'] = talib.SMA(close_array, timeperiod=60)
-                if len(close_array) >= 120:
-                    indicators['MA120'] = talib.SMA(close_array, timeperiod=120)
+                allowed_set = {
+                    'MA5', 'MA10', 'MA20', 'MA60', 'MA120',
+                    'RSI', 'RSI_SIGNAL'
+                }
             elif chart_type == "minute":
-                # 3분봉 차트: MA5, MA10, MA20
-                if len(close_array) >= 5:
-                    indicators['MA5'] = talib.SMA(close_array, timeperiod=5)
-                if len(close_array) >= 10:
-                    indicators['MA10'] = talib.SMA(close_array, timeperiod=10)
-                if len(close_array) >= 20:
-                    indicators['MA20'] = talib.SMA(close_array, timeperiod=20)
+                allowed_set = {
+                    'MA5', 'MA10', 'MA20', 'MA60', 'MA120',
+                    'RSI', 'RELATIVE_POSITION'
+                }
             else:
-                # 기본값: 모든 이동평균선 계산 (기존 로직)
-                if len(close_array) >= 5:
-                    indicators['MA5'] = talib.SMA(close_array, timeperiod=5)
-                if len(close_array) >= 10:
-                    indicators['MA10'] = talib.SMA(close_array, timeperiod=10)
-                if len(close_array) >= 20:
-                    indicators['MA20'] = talib.SMA(close_array, timeperiod=20)
-                if len(close_array) >= 50:
-                    indicators['MA50'] = talib.SMA(close_array, timeperiod=50)
-                if len(close_array) >= 60:
-                    indicators['MA60'] = talib.SMA(close_array, timeperiod=60)
-                if len(close_array) >= 120:
-                    indicators['MA120'] = talib.SMA(close_array, timeperiod=120)
+                allowed_set = {'MA5', 'MA20', 'MA60', 'RSI'}
+
+            # 이동평균선
+            for period in [5, 10, 20, 50, 60, 120]:
+                ma_key = f'MA{period}'
+                if ma_key in allowed_set and len(close_array) >= period:
+                    indicators[ma_key] = talib.SMA(close_array, timeperiod=period)
+            
+            # RSI
+            if 'RSI' in allowed_set and len(close_array) >= 15:
+                # RSI 계산 (기본 14일)
+                indicators['RSI'] = talib.RSI(close_array, timeperiod=14)
                 
-            # RSI 계산
-            if chart_type != "minute" or True: # RSI는 3분봉에도 포함
-                if len(close_array) >= 14:
-                    indicators['RSI'] = talib.RSI(close_array, timeperiod=14)
+                # RSI Signal (RSI의 9일 이동평균)
+                if 'RSI_SIGNAL' in allowed_set:
+                    chart_len = len(indicators['RSI'])
+                    if chart_len >= 9:
+                        # 전체 길이에 대해 SMA 계산 (NaN은 전파됨)
+                        indicators['RSI_SIGNAL'] = talib.SMA(indicators['RSI'], timeperiod=9)
+
+            # MACD (허용된 경우만)
+            if 'MACD' in allowed_set and len(close_array) >= 26:
+                macd, macd_signal, macd_hist = talib.MACD(close_array)
+                indicators['MACD'] = macd
+                indicators['MACD_SIGNAL'] = macd_signal
+                indicators['MACD_HIST'] = macd_hist
                 
-            # MACD 계산
-            if chart_type != "minute" or True: # MACD는 3분봉에도 포함
-                if len(close_array) >= 26:
-                    macd, macd_signal, macd_hist = talib.MACD(close_array)
-                    indicators['MACD'] = macd
-                    indicators['MACD_SIGNAL'] = macd_signal
-                    indicators['MACD_HIST'] = macd_hist
+            # 볼린저 밴드 (허용된 경우만)
+            if 'BB_UPPER' in allowed_set and len(close_array) >= 20:
+                bb_upper, bb_middle, bb_lower = talib.BBANDS(close_array, timeperiod=20)
+                indicators['BB_UPPER'] = bb_upper
+                indicators['BB_MIDDLE'] = bb_middle
+                indicators['BB_LOWER'] = bb_lower
                 
-            # 볼린저 밴드 (3분봉 제외)
-            if chart_type != "minute":
-                if len(close_array) >= 20:
-                    bb_upper, bb_middle, bb_lower = talib.BBANDS(close_array, timeperiod=20)
-                    indicators['BB_UPPER'] = bb_upper
-                    indicators['BB_MIDDLE'] = bb_middle
-                    indicators['BB_LOWER'] = bb_lower
-                
-            # 스토캐스틱 (3분봉 제외)
-            if chart_type != "minute":
-                if len(high_array) >= 14 and len(low_array) >= 14:
-                    slowk, slowd = talib.STOCH(high_array, low_array, close_array)
-                    indicators['STOCH_K'] = slowk
-                    indicators['STOCH_D'] = slowd
-                
-            # Williams %R (3분봉 제외)
-            if chart_type != "minute":
-                if len(high_array) >= 14 and len(low_array) >= 14:
-                    williams_r = talib.WILLR(high_array, low_array, close_array, timeperiod=14)
-                    indicators['WILLIAMS_R'] = williams_r
-                
-            # ROC (Rate of Change) (3분봉 제외)
-            if chart_type != "minute":
-                if len(close_array) >= 10:
-                    roc = talib.ROC(close_array, timeperiod=10)
-                    indicators['ROC'] = roc
-                
-            # OBV (On Balance Volume) (3분봉 제외)
-            if chart_type != "minute":
-                if len(close_array) >= 1 and len(volume_array) >= 1:
-                    obv = talib.OBV(close_array, volume_array)
-                    indicators['OBV'] = obv
-                    
-                    # OBV의 20일 이동평균
-                    if len(obv) >= 20:
-                        obv_ma20 = talib.SMA(obv, timeperiod=20)
-                        indicators['OBV_MA20'] = obv_ma20
-                
-            # ATR (Average True Range) (3분봉 제외)
-            if chart_type != "minute":
-                if len(high_array) >= 14 and len(low_array) >= 14:
-                    atr = talib.ATR(high_array, low_array, close_array, timeperiod=14)
-                    indicators['ATR'] = atr
-                
+            # 스토캐스틱 (허용된 경우만)
+            if 'STOCH_K' in allowed_set and len(high_array) >= 14:
+                slowk, slowd = talib.STOCH(high_array, low_array, close_array)
+                indicators['STOCH_K'] = slowk
+                indicators['STOCH_D'] = slowd
+
+            # 이격도 (RELATIVE_POSITION)
+            if 'RELATIVE_POSITION' in allowed_set and 'MA20' in indicators:
+                ma20 = indicators['MA20']
+                with np.errstate(divide='ignore', invalid='ignore'):
+                    rel_pos = (close_array - ma20) / ma20
+                indicators['RELATIVE_POSITION'] = rel_pos
+
             # 데이터에 지표 직접 추가
             for key, value in indicators.items():
-                data[key] = value
+                data[key] = value.tolist()
             
             return data
             

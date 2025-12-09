@@ -793,10 +793,10 @@ async def main():
     window.show()
     
     # ChartDataCache의 타이머들을 메인 스레드에서 초기화 및 시작
+    # ChartDataCache의 타이머들은 __init__에서 이미 연결되었으므로 여기서 다시 연결하면 중복 실행됨
     if window.chart_cache:
-        window.chart_cache.update_timer.timeout.connect(window.chart_cache.update_all_charts)
-        # save_timer는 ChartDataCache.__init__에서 이미 연결됨 (중복 연결 방지)
-        window.chart_cache.queue_timer.timeout.connect(window.chart_cache._process_api_queue)
+        # window.chart_cache.update_timer.timeout.connect(window.chart_cache.update_all_charts) # 중복 연결 제거
+        # window.chart_cache.queue_timer.timeout.connect(window.chart_cache._process_api_queue) # 중복 연결 제거
         
         window.chart_cache.save_timer.start(60000)  # 1분마다 DB 저장
         window.chart_cache.queue_timer.start(2000)  # 2초마다 큐 처리 시작
