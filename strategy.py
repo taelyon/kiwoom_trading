@@ -507,7 +507,7 @@ class KiwoomStrategy(QObject):
                     })
                 
                 return signals
-            
+
         except Exception as ex:
             self.logger.error(f"매수 신호 생성 실패 ({code}): {ex}", exc_info=True)
             traceback.print_exc()
