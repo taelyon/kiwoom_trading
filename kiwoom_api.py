@@ -1437,7 +1437,7 @@ class KiwoomWebSocketClient:
             
             # 필수 키가 없으면 초기화
             required_keys = ['time', 'open', 'high', 'low', 'close', 'volume', 'strength', 'buy_volume', 'sell_volume', 
-                             'tick_velocity', 'order_book_imbalance']
+                             'TICK_VELOCITY', 'ORDER_BOOK_IMBALANCE']
             current_len = len(tic_data.get('close', []))
             for key in required_keys:
                 if key not in tic_data:
@@ -1512,8 +1512,8 @@ class KiwoomWebSocketClient:
                 else:
                     tic_data['strength'].append(100.0 if cur_buy_vol > 0 else 0.0) # 매도0 매수>0 이면 100(강세), 둘다0이면 0
                 # ML 학습용 데이터 저장
-                tic_data['tick_velocity'].append(tick_velocity)
-                tic_data['order_book_imbalance'].append(order_book_imbalance)
+                tic_data['TICK_VELOCITY'].append(tick_velocity)
+                tic_data['ORDER_BOOK_IMBALANCE'].append(order_book_imbalance)
 
                 tic_data['last_tic_cnt'] = 1
                 self.logger.info(f"🎯 첫 번째 60틱봉 생성: {stock_code}, 가격={current_price}, 순간체결강도 시작")
@@ -1536,6 +1536,27 @@ class KiwoomWebSocketClient:
                 tic_data['volume'][last_index] += volume
                 
                 # 매수/매도 거래량 누적 (순간 체결강도용)
+                cur_buy_vol = volume if is_buy else 0
+                cur_sell_vol = volume if not is_buy else 0
+                tic_data['buy_volume'][last_index] += cur_buy_vol
+                tic_data['sell_volume'][last_index] += cur_sell_vol
+                
+                # 강도 재계산
+                total_buy = tic_data['buy_volume'][last_index]
+                total_sell = tic_data['sell_volume'][last_index]
+                if total_sell > 0:
+                    tic_data['strength'][last_index] = (total_buy / total_sell) * 100
+                else:
+                    tic_data['strength'][last_index] = 100.0 if total_buy > 0 else 0.0
+
+                # ML 학습용 데이터 업데이트 (최신값으로 덮어쓰기)
+                if 'TICK_VELOCITY' in tic_data:
+                    tic_data['TICK_VELOCITY'][last_index] = tick_velocity
+                if 'ORDER_BOOK_IMBALANCE' in tic_data:
+                    tic_data['ORDER_BOOK_IMBALANCE'][last_index] = order_book_imbalance
+
+                tic_data['last_tic_cnt'] += 1
+                
         except Exception as e:
             self.logger.error(f"틱 차트 실시간 데이터 추가 실패: {e}", exc_info=True)
     
