@@ -152,6 +152,15 @@ class KiwoomIndicatorExtractor:
             if is_target('MA60') and 'MA60' not in indicators:
                 indicators['MA60'] = talib.SMA(close, timeperiod=60) if len(close) >= 60 else np.full(len(close), np.nan)
 
+            # 상대적 이격도 (Relative Position): (현재가 - 20이평선) / 20이평선
+            if is_target('RELATIVE_POSITION') and 'MA20' in indicators:
+                ma20 = indicators['MA20']
+                # 0으로 나누기 방지
+                safe_ma20 = np.where(ma20 == 0, np.nan, ma20)
+                indicators['RELATIVE_POSITION'] = (close - safe_ma20) / safe_ma20
+            elif is_target('RELATIVE_POSITION'):
+                indicators['RELATIVE_POSITION'] = np.full(len(close), np.nan)
+
             # RSI
             if is_target('RSI') and 'RSI' not in indicators:
                 indicators['RSI'] = talib.RSI(close, timeperiod=14) if len(close) >= 14 else np.full(len(close), np.nan)
@@ -270,7 +279,7 @@ class KiwoomIndicatorExtractor:
             return {}
 
 # ==================== 전략 평가용 로컬 변수 빌더 ====================
-def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_info=None):
+def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_info=None, realtime_metrics=None):
     """매수 전략 평가를 위한 로컬 변수 생성"""
     logger = logging.getLogger(__name__)
     try:
@@ -300,6 +309,16 @@ def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_
         # 포트폴리오 정보 추가
         if portfolio_info:
             locals_dict.update(portfolio_info)
+        
+        # 실시간 메트릭(Tick Velocity 등) 추가
+        if realtime_metrics:
+            locals_dict.update(realtime_metrics)
+            # 대문자 호환성 (TICK_VELOCITY)
+            if 'tick_velocity' in realtime_metrics:
+                locals_dict['TICK_VELOCITY'] = realtime_metrics['tick_velocity']
+            # 대문자 호환성 (ORDER_BOOK_IMBALANCE)
+            if 'order_book_imbalance' in realtime_metrics:
+                locals_dict['ORDER_BOOK_IMBALANCE'] = realtime_metrics['order_book_imbalance']
         
         # 기존 데이터프레임에 있는 'tic_', 'min3_' 접두사 컬럼들도 로컬 변수에 추가 (백테스팅 호환성)
         # DB에서 로드된 데이터는 이미 계산된 지표를 포함할 수 있음
@@ -341,7 +360,7 @@ def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_
         logger.error(f"백테스팅 매수 로컬 변수 생성 실패 ({code}): {ex}", exc_info=True)
         return {}
 
-def prepare_sell_strategy_locals(code, tic_chart_data, min_chart_data, buy_price, buy_time, portfolio_info=None, current_price=None, commission_rate=0.00015, tax_rate=0.0018):
+def prepare_sell_strategy_locals(code, tic_chart_data, min_chart_data, buy_price, buy_time, portfolio_info=None, current_price=None, commission_rate=0.00015, tax_rate=0.0018, realtime_metrics=None):
     """매도 전략 평가를 위한 로컬 변수 생성"""
     logger = logging.getLogger(__name__)
     try:
@@ -431,6 +450,16 @@ def prepare_sell_strategy_locals(code, tic_chart_data, min_chart_data, buy_price
         # 포트폴리오 정보 추가
         if portfolio_info:
             locals_dict.update(portfolio_info)
+            
+        # 실시간 메트릭(Tick Velocity 등) 추가
+        if realtime_metrics:
+            locals_dict.update(realtime_metrics)
+            # 대문자 호환성 (TICK_VELOCITY)
+            if 'tick_velocity' in realtime_metrics:
+                locals_dict['TICK_VELOCITY'] = realtime_metrics['tick_velocity']
+            # 대문자 호환성 (ORDER_BOOK_IMBALANCE)
+            if 'order_book_imbalance' in realtime_metrics:
+                locals_dict['ORDER_BOOK_IMBALANCE'] = realtime_metrics['order_book_imbalance']
             
         # 최고가 추적 (들여쓰기 수정됨)
         highest_price = 0

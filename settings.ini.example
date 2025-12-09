@@ -1,9 +1,9 @@
 [급등주]
-buy_stg_1 = {"name": "추세", "content": "tic_MA5[-1] > tic_MA20[-1] and tic_MA20[-1] > tic_MA60[-1] and tic_close[-1] > min3_MA20[-1] and min3_MA5[-1] > min3_MA20[-1] and min3_MACD_HIST[-1] > 0 and min3_MA5[-1] > min3_MA5[-2] and tic_volume[-1] > tic_avg_volume_10 * 2 and tic_RSI[-1] > 50"}
-sell_stg_1 = {"name": "이익실현", "content": "current_profit_pct > 1.5"}
-sell_stg_2 = {"name": "추적손절", "content": "from_peak_pct <= -1.0"}
-sell_stg_3 = {"name": "칼손절", "content": "current_profit_pct < -1.5"}
-sell_stg_4 = {"name": "추세이탈", "content": "tic_MA5[-1] < tic_MA20[-1]"}
+buy_stg_1 = {"name": "실시간_모멘텀_진입", "content": "TICK_VELOCITY < 1000 and tic_strength[-1] > 150 and ORDER_BOOK_IMBALANCE > -0.6 and min3_RELATIVE_POSITION < 0.03"}
+sell_stg_1 = {"name": "목표익절", "content": "current_profit_pct > 3.0"}
+sell_stg_2 = {"name": "트레일링스탑", "content": "from_peak_pct < -1.5"}
+sell_stg_3 = {"name": "과열조기청산", "content": "min3_RELATIVE_POSITION > 0.06"}
+sell_stg_4 = {"name": "손절매", "content": "current_profit_pct < -2.0"}
 
 [STRATEGIES]
 stg_integrated = 통합전략

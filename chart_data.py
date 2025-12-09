@@ -32,6 +32,7 @@ class ChartDataCache(QObject):
             self.queue_processing = False  # 큐 처리 중 플래그
             self.queue_timer = None  # 큐 처리 타이머
             self.active_chart_tasks = {} # 활성 차트 데이터 수집 asyncio 태스크 관리
+            self.realtime_tick_times = {} # {code: deque(maxlen=10)} - 틱 생성 속도 계산용
             self.pending_stocks = {}  # 큐에 대기 중인 종목 정보 (코드: 이름)
             self.logger.debug("🔍 API 요청 큐 시스템 초기화 완료")
             
@@ -1151,7 +1152,27 @@ class ChartDataCache(QObject):
             self.parent.login_handler.websocket_client._update_tic_chart_with_realtime(stock_code, cached_data, realtime_data)
             self.parent.login_handler.websocket_client._update_minute_chart_with_realtime(stock_code, cached_data, realtime_data)
 
-            # 차트 캐시 업데이트
+            # 틱 생성 속도(Tick Velocity) 계산
+            # 정의: 직전 10개의 틱이 체결되는 데 걸린 시간 (밀리초 단위)
+            current_ms = time.time() * 1000
+            if stock_code not in self.realtime_tick_times:
+                self.realtime_tick_times[stock_code] = deque(maxlen=10)
+            
+            self.realtime_tick_times[stock_code].append(current_ms)
+            
+            tick_velocity = 999999.0 # 기본값 (데이터 부족 시 매우 느림으로 간주)
+            if len(self.realtime_tick_times[stock_code]) >= 10:
+                # 가장 최근 시간 - 10번째 전 시간
+                # deque는 [oldest, ..., newest] 순서
+                time_diff = self.realtime_tick_times[stock_code][-1] - self.realtime_tick_times[stock_code][0]
+                tick_velocity = float(time_diff)
+            
+            # 실시간 메트릭 저장
+            if 'realtime_metrics' not in cached_data:
+                cached_data['realtime_metrics'] = {}
+            cached_data['realtime_metrics']['tick_velocity'] = tick_velocity
+            
+            # 차트 캐시 업데이트 (메트릭 포함)
             chart_cache.cache[stock_code] = cached_data
 
             # 실시간 기술적 지표 계산 (비동기, ThreadPoolExecutor 사용)
@@ -1183,5 +1204,48 @@ class ChartDataCache(QObject):
 
         except Exception as e:
             self.logger.error(f"실시간 차트 데이터 추가 실패: {e}", exc_info=True)
+
+    async def add_realtime_order_book_data_async(self, stock_code, order_book_data):
+        """실시간 호가 데이터를 처리하고 메트릭을 업데이트"""
+        try:
+            # MyWindow의 chart_cache에 접근
+            if not hasattr(self, 'parent') or not self.parent:
+                return
+
+            chart_cache = self.parent.chart_cache
+            
+            # 차트 캐시에서 기존 데이터 가져오기
+            cached_data = chart_cache.get_cached_data(stock_code)
+            
+            if not cached_data or not isinstance(cached_data, dict):
+                # 호가 데이터만으로는 차트를 생성하지 않으므로 캐시가 없으면 스킵
+                return
+                
+            total_sell_hoga = order_book_data.get('total_sell_hoga', 0)
+            total_buy_hoga = order_book_data.get('total_buy_hoga', 0)
+            
+            # 호가 불균형 계산 (Order Book Imbalance)
+            # (매수 잔량 - 매도 잔량) / (매수 잔량 + 매도 잔량)
+            if total_buy_hoga + total_sell_hoga > 0:
+                imbalance = (total_buy_hoga - total_sell_hoga) / (total_buy_hoga + total_sell_hoga)
+            else:
+                imbalance = 0.0
+                
+            # 실시간 메트릭 저장
+            if 'realtime_metrics' not in cached_data:
+                cached_data['realtime_metrics'] = {}
+            
+            cached_data['realtime_metrics']['order_book_imbalance'] = imbalance
+            cached_data['realtime_metrics']['total_sell_hoga'] = total_sell_hoga
+            cached_data['realtime_metrics']['total_buy_hoga'] = total_buy_hoga
+            
+            # 차트 캐시 업데이트
+            chart_cache.cache[stock_code] = cached_data
+            
+             # 데이터 업데이트 시그널 발생 (필요 시)
+            # self.data_updated.emit(stock_code) # 호가 변경만으로 차트를 다시 그릴 필요가 없다면 주석 처리
+            
+        except Exception as e:
+            self.logger.error(f"실시간 호가 데이터 처리 실패: {e}", exc_info=True)
 
 

@@ -333,6 +333,7 @@ class KiwoomStrategy(QObject):
                 # 차트 데이터 가져오기 (틱/분봉) - chart_cache에서 직접 가져오기
                 tic_chart_data = pd.DataFrame()
                 min_chart_data = pd.DataFrame()
+                realtime_metrics = {}
                 if hasattr(self.parent, 'chart_cache') and self.parent.chart_cache:
                     cache_data = self.parent.chart_cache.get_cached_data(code)
                     if cache_data:
@@ -340,6 +341,7 @@ class KiwoomStrategy(QObject):
                         min_data = cache_data.get('min_data', {})
                         previous_close = cache_data.get('previous_close', 0)
                         current_open = cache_data.get('current_open', 0)
+                        realtime_metrics = cache_data.get('realtime_metrics', {})
 
                         if tic_data and len(tic_data.get('close', [])) > 0:
                             try:
@@ -434,7 +436,7 @@ class KiwoomStrategy(QObject):
                 
                 # strategy_utils를 사용하여 매수 전략 평가
                 safe_locals = strategy_utils.prepare_buy_strategy_locals(
-                    code, tic_chart_data, min_chart_data, portfolio
+                    code, tic_chart_data, min_chart_data, portfolio, realtime_metrics=realtime_metrics
                 )
                 condition_met, matched_strategy = strategy_utils.evaluate_strategies(
                     buy_strategies, safe_locals, code, "매수"
@@ -582,6 +584,7 @@ class KiwoomStrategy(QObject):
             # 차트 데이터 가져오기 (틱/분봉)
             tic_chart_data = pd.DataFrame()
             min_chart_data = pd.DataFrame()
+            realtime_metrics = {}
             if hasattr(self.parent, 'chart_cache') and self.parent.chart_cache:
                 cache_data = self.parent.chart_cache.get_cached_data(code)
                 if cache_data:
@@ -589,6 +592,7 @@ class KiwoomStrategy(QObject):
                     min_data = cache_data.get('min_data', {})
                     previous_close = cache_data.get('previous_close', 0)
                     current_open = cache_data.get('current_open', 0)
+                    realtime_metrics = cache_data.get('realtime_metrics', {})
                     if tic_data:
                         try:
                             tic_chart_data = pd.DataFrame(tic_data).dropna().reset_index(drop=True)
@@ -672,7 +676,8 @@ class KiwoomStrategy(QObject):
                 code, tic_chart_data, min_chart_data, buy_price, buy_time, portfolio, 
                 current_price=current_price,
                 commission_rate=self.trader.commission_rate, 
-                tax_rate=self.trader.tax_rate
+                tax_rate=self.trader.tax_rate,
+                realtime_metrics=realtime_metrics
             )
             condition_met, matched_strategy = strategy_utils.evaluate_strategies(
                 sell_strategies, safe_locals, code, "매도"

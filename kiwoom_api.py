@@ -335,6 +335,12 @@ class KiwoomWebSocketClient:
                                     except Exception as execution_err:
                                         self.logger.error(f"체결 데이터 처리 실패: {execution_err}", exc_info=True)
                                         
+                                elif data_type == '0D':  # 주식호가잔량 (Order Book)
+                                    try:
+                                        asyncio.create_task(self.process_order_book_data_async(data_item))
+                                    except Exception as order_book_err:
+                                        self.logger.error(f"호가 데이터 처리 실패: {order_book_err}", exc_info=True)
+                                        
                                 elif data_type == '0s':  # 시장 상태
                                     try:
                                         self.process_market_status_data(data_item)
@@ -446,7 +452,7 @@ class KiwoomWebSocketClient:
                 'refresh': '1',  # 기존등록유지여부
                 'data': [{  # 실시간 등록 리스트
                     'item': codes,  # 실시간 등록 요소
-                    'type': ['0B'],  # 실시간 항목 (주식체결)
+                    'type': ['0B', '0D'],  # 실시간 항목 (주식체결, 주식호가잔량)
                 }]
             }
             await self.send_message(subscribe_data)
@@ -468,7 +474,7 @@ class KiwoomWebSocketClient:
                 'grp_no': '4',  # 그룹번호 (체결 전용)
                 'data': [{  # 실시간 등록 해제 리스트
                     'item': codes,  # 실시간 등록 해제 요소
-                    'type': ['0B'],  # 실시간 항목 (주식체결)
+                    'type': ['0B', '0D'],  # 실시간 항목 (주식체결, 주식호가잔량)
                 }]
             }
             await self.send_message(unsubscribe_data)
@@ -1135,12 +1141,36 @@ class KiwoomWebSocketClient:
                         except (ValueError, AttributeError):
                             strength = 0.0                       
                         
+                        # 매수/매도 판별 (순간 체결강도 계산용)
+                        ask_price_raw = values.get('27', '0')
+                        bid_price_raw = values.get('28', '0')
+                        
+                        try:
+                            ask_price = abs(int(ask_price_raw.replace(',', '')))
+                            bid_price = abs(int(bid_price_raw.replace(',', '')))
+                        except:
+                            ask_price = 0
+                            bid_price = 0
+                        
+                        is_buy = True
+                        if ask_price > 0 and bid_price > 0:
+                            if current_price >= ask_price:
+                                is_buy = True
+                            elif current_price <= bid_price:
+                                is_buy = False
+                            else:
+                                if abs(current_price - ask_price) < abs(current_price - bid_price):
+                                    is_buy = True
+                                else:
+                                    is_buy = False
+
                         # 체결 데이터를 딕셔너리로 생성
                         execution_info = {
                             'execution_time': execution_time, # type: ignore
                             'current_price': current_price,
                             'volume': volume,
                             'strength': strength,
+                            'is_buy': is_buy
                         }
                         
                         # 보유 종목이면 balance_data의 현재가 업데이트
@@ -1203,12 +1233,36 @@ class KiwoomWebSocketClient:
                         except (ValueError, AttributeError):
                             strength = 0.0                       
                         
+                        # 매수/매도 판별 (순간 체결강도 계산용)
+                        ask_price_raw = values.get('27', '0')
+                        bid_price_raw = values.get('28', '0')
+                        
+                        try:
+                            ask_price = abs(int(ask_price_raw.replace(',', '')))
+                            bid_price = abs(int(bid_price_raw.replace(',', '')))
+                        except:
+                            ask_price = 0
+                            bid_price = 0
+                        
+                        is_buy = True
+                        if ask_price > 0 and bid_price > 0:
+                            if current_price >= ask_price:
+                                is_buy = True
+                            elif current_price <= bid_price:
+                                is_buy = False
+                            else:
+                                if abs(current_price - ask_price) < abs(current_price - bid_price):
+                                    is_buy = True
+                                else:
+                                    is_buy = False
+
                         # 체결 데이터를 딕셔너리로 생성
                         execution_info = {
                             'execution_time': execution_time, # type: ignore
                             'current_price': current_price,
                             'volume': volume,
                             'strength': strength,
+                            'is_buy': is_buy
                         }
                         
                         # 보유 종목이면 balance_data의 현재가 업데이트
@@ -1346,7 +1400,7 @@ class KiwoomWebSocketClient:
                 return
             
             # 필수 키가 없으면 초기화
-            required_keys = ['time', 'open', 'high', 'low', 'close', 'volume', 'strength']
+            required_keys = ['time', 'open', 'high', 'low', 'close', 'volume', 'strength', 'buy_volume', 'sell_volume']
             for key in required_keys:
                 if key not in tic_data:
                     tic_data[key] = []
@@ -1372,7 +1426,8 @@ class KiwoomWebSocketClient:
             # 틱 데이터에 실시간 데이터 추가 (음수 값 보정)
             current_price = abs(realtime_data.get('current_price', 0))  # 음수면 양수로 전환
             volume = abs(realtime_data.get('volume', 0))  # 음수면 양수로 전환
-            strength = abs(realtime_data.get('strength', 0))  # 음수면 양수로 전환
+            strength_cumulative = abs(realtime_data.get('strength', 0))  # 누적 체결강도
+            is_buy = realtime_data.get('is_buy', True) # 매수/매도 플래그
             
             # API 조회의 마지막 틱 개수 확인
             last_tic_cnt = tic_data.get('last_tic_cnt', 0)
@@ -1396,9 +1451,22 @@ class KiwoomWebSocketClient:
                 tic_data['low'].append(current_price)
                 tic_data['close'].append(current_price)
                 tic_data['volume'].append(volume)
-                tic_data['strength'].append(strength)
+                
+                # 순간 체결강도 초기화
+                cur_buy_vol = volume if is_buy else 0
+                cur_sell_vol = volume if not is_buy else 0
+                tic_data['buy_volume'].append(cur_buy_vol)
+                tic_data['sell_volume'].append(cur_sell_vol)
+                
+                # 초기 체결강도는 100으로 시작하거나 첫 틱 기준 계산
+                # 매수면 무한대(또는 큰수), 매도면 0이나, 안전하게 100 또는 비율 계산
+                if cur_sell_vol > 0:
+                    tic_data['strength'].append((cur_buy_vol / cur_sell_vol) * 100)
+                else:
+                    tic_data['strength'].append(100.0 if cur_buy_vol > 0 else 0.0) # 매도0 매수>0 이면 100(강세), 둘다0이면 0
+
                 tic_data['last_tic_cnt'] = 1
-                self.logger.info(f"🎯 첫 번째 60틱봉 생성: {stock_code}, 가격={current_price}")
+                self.logger.info(f"🎯 첫 번째 60틱봉 생성: {stock_code}, 가격={current_price}, 순간체결강도 시작")
             elif last_tic_cnt < 60:
                 # 60틱 미만이면 기존 봉 업데이트
                 last_index = -1
@@ -1417,8 +1485,21 @@ class KiwoomWebSocketClient:
                 # 거래량 누적
                 tic_data['volume'][last_index] += volume
                 
-                # 체결강도를 실시간 체결강도로 업데이트
-                tic_data['strength'][last_index] = strength
+                # 매수/매도 거래량 누적 (순간 체결강도용)
+                if is_buy:
+                    tic_data['buy_volume'][last_index] += volume
+                else:
+                    tic_data['sell_volume'][last_index] += volume
+                    
+                # 순간 체결강도 재계산 (현재 봉 기준)
+                cur_buy_vol = tic_data['buy_volume'][last_index]
+                cur_sell_vol = tic_data['sell_volume'][last_index]
+                
+                if cur_sell_vol > 0:
+                    tic_data['strength'][last_index] = (cur_buy_vol / cur_sell_vol) * 100
+                else:
+                     # 매도량이 0인 경우
+                    tic_data['strength'][last_index] = 999.0 if cur_buy_vol > 0 else 0.0
 
                 # 마지막 틱 개수 증가
                 tic_data['last_tic_cnt'] = last_tic_cnt + 1                
@@ -1430,7 +1511,19 @@ class KiwoomWebSocketClient:
                 tic_data['low'].append(current_price)
                 tic_data['close'].append(current_price)
                 tic_data['volume'].append(volume)
-                tic_data['strength'].append(strength)
+                
+                # 새 봉의 순간 체결강도 계산 시작
+                cur_buy_vol = volume if is_buy else 0
+                cur_sell_vol = volume if not is_buy else 0
+                
+                tic_data['buy_volume'].append(cur_buy_vol)
+                tic_data['sell_volume'].append(cur_sell_vol)
+                
+                if cur_sell_vol > 0:
+                    tic_data['strength'].append((cur_buy_vol / cur_sell_vol) * 100)
+                else:
+                    tic_data['strength'].append(100.0 if cur_buy_vol > 0 else 0.0)
+
                 # 틱 카운트를 1로 리셋 (새 봉의 첫 번째 틱)
                 tic_data['last_tic_cnt'] = 1
             
