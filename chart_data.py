@@ -809,8 +809,29 @@ class ChartDataCache(QObject):
 
                 # DataFrame으로 변환하여 지표 계산
                 try:
-                    tic_df = pd.DataFrame(original_tic_data) if original_tic_data else pd.DataFrame()
-                    min_df = pd.DataFrame(original_min_data) if original_min_data else pd.DataFrame()
+                    # 틱 데이터 DataFrame 변환 (길이 불일치 방지)
+                    tic_df = pd.DataFrame()
+                    if original_tic_data:
+                        try:
+                            valid_lists = [v for v in original_tic_data.values() if isinstance(v, list) and len(v) > 0]
+                            if valid_lists:
+                                min_len = min(len(v) for v in valid_lists)
+                                trimmed_data = {k: v[:min_len] for k, v in original_tic_data.items() if isinstance(v, list)}
+                                tic_df = pd.DataFrame(trimmed_data)
+                        except Exception as e:
+                            logging.error(f"틱 데이터 DataFrame 변환 오류: {e}")
+
+                    # 분봉 데이터 DataFrame 변환 (길이 불일치 방지)
+                    min_df = pd.DataFrame()
+                    if original_min_data:
+                        try:
+                            valid_lists = [v for v in original_min_data.values() if isinstance(v, list) and len(v) > 0]
+                            if valid_lists:
+                                min_len = min(len(v) for v in valid_lists)
+                                trimmed_data = {k: v[:min_len] for k, v in original_min_data.items() if isinstance(v, list)}
+                                min_df = pd.DataFrame(trimmed_data)
+                        except Exception as e:
+                            logging.error(f"분봉 데이터 DataFrame 변환 오류: {e}")
 
                     # extract_chart_indicators를 사용하여 모든 지표 계산
                     tic_indicators = strategy_utils.KiwoomIndicatorExtractor.extract_chart_indicators(tic_df)

@@ -832,6 +832,7 @@ class StrategyManager:
     def _load_strategy_list(self, combo_widget, key_prefix, strategy_type):
         """전략 목록을 콤보박스에 로드"""
         try:
+            combo_widget.blockSignals(True)  # 시그널 차단
             combo_widget.clear()
             
             config = configparser.RawConfigParser()
@@ -889,6 +890,8 @@ class StrategyManager:
             
         except Exception as ex:
             self.logger.error(f"전략 목록 로드 실패 ({strategy_type}): {ex}")
+        finally:
+            combo_widget.blockSignals(False)  # 시그널 복구
     
     def save_current_strategy(self):
         """현재 선택된 투자전략을 settings.ini에 저장"""
@@ -1080,6 +1083,8 @@ class StrategyManager:
         """매수 전략 변경 이벤트 핸들러"""
         try:
             strategy_name = self.parent.trading_tab.comboBuyStg.currentText()
+            if not strategy_name:  # 빈 전략 이름 무시
+                return
             self.logger.debug(f"매수 전략 변경: {strategy_name}")
             
             # 매수 전략 내용을 텍스트 위젯에 표시
@@ -1092,6 +1097,8 @@ class StrategyManager:
         """매도 전략 변경 이벤트 핸들러"""
         try:
             strategy_name = self.parent.trading_tab.comboSellStg.currentText()
+            if not strategy_name:  # 빈 전략 이름 무시
+                return
             self.logger.debug(f"매도 전략 변경: {strategy_name}")
             
             # 매도 전략 내용을 텍스트 위젯에 표시

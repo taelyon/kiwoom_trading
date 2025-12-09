@@ -345,7 +345,10 @@ class KiwoomStrategy(QObject):
 
                         if tic_data and len(tic_data.get('close', [])) > 0:
                             try:
-                                tic_chart_data = pd.DataFrame(tic_data).dropna().reset_index(drop=True)
+                                # DataFrame 생성 시 모든 배열 길이가 동일해야 함. 가장 짧은 길이로 맞춤
+                                min_len = min(len(v) for k, v in tic_data.items() if isinstance(v, list))
+                                trimmed_tic_data = {k: v[:min_len] for k, v in tic_data.items() if isinstance(v, list)}
+                                tic_chart_data = pd.DataFrame(trimmed_tic_data).dropna().reset_index(drop=True)
                             except Exception as ex:
                                 if is_first_check:
                                     self.logger.warning(f"차트 데이터 변환 실패 ({code}): {ex}", exc_info=True)
@@ -595,7 +598,10 @@ class KiwoomStrategy(QObject):
                     realtime_metrics = cache_data.get('realtime_metrics', {})
                     if tic_data:
                         try:
-                            tic_chart_data = pd.DataFrame(tic_data).dropna().reset_index(drop=True)
+                            # DataFrame 생성 시 모든 배열 길이가 동일해야 함.
+                            min_len = min(len(v) for k, v in tic_data.items() if isinstance(v, list))
+                            trimmed_tic_data = {k: v[:min_len] for k, v in tic_data.items() if isinstance(v, list)}
+                            tic_chart_data = pd.DataFrame(trimmed_tic_data).dropna().reset_index(drop=True)
                         except Exception:
                             tic_chart_data = pd.DataFrame()
                     if min_data:
