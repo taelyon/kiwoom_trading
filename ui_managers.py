@@ -2438,8 +2438,8 @@ class MLManager:
             self.logger.info("⏰ 점심시간 도래: AI 모델 중간 학습(Light Update)을 시작합니다.")
             self.start_training()
             
-        # 2. 장 마감 후 학습 (15:40)
-        if current_time_str == '15:40':
+        # 2. 장 마감 후 학습 (15:30)
+        if current_time_str == '15:30':
             self.logger.info("⏰ 장 마감: AI 모델 정밀 학습(Deep Training)을 시작합니다.")
             self.start_training()
             

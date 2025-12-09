@@ -4,7 +4,8 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 import os
-from PyQt6.QtCore import QThread, pyqtSignal
+import sys
+from PyQt6.QtCore import QThread, pyqtSignal, QCoreApplication
 
 # LightGBM 라이브러리 임포트 시도
 try:
@@ -69,10 +70,12 @@ class MLTrainingWorker(QThread):
                 SELECT 
                     code, datetime,
                     tic_close, tic_volume, tic_strength, 
-                    tic_tick_velocity, tic_order_book_imbalance, min3_relative_position
+                    tic_velocity, 
+                    tic_order_book_imbalance, 
+                    min3_relative_position
                 FROM stock_data 
-                WHERE tic_tick_velocity IS NOT NULL 
-                  AND tic_tick_velocity != 0
+                WHERE tic_velocity IS NOT NULL 
+                  AND tic_velocity != 0
                 ORDER BY code, datetime
             """
             
@@ -96,12 +99,21 @@ class MLTrainingWorker(QThread):
             # 이미 RELATIVE_POSITION(이격도), STRENGTH(체결강도) 등은 비율임.
             # 추가적으로 필요한 것들 변환
             
+            # 순간 거래량 폭발력 (Instant Volume Spike)
+            # (현재 60틱 거래량) / (직전 10개 봉 평균 거래량)
+            # 1. 직전 10개 봉의 평균 구하기 (shift(1) 후 rolling(10_mean))
+            df['prev_10_vol_avg'] = df.groupby('code')['tic_volume'].shift(1).rolling(10).mean()
+            
+            # 2. Spike 계산 (0으로 나누기 방지)
+            df['tic_volume_spike'] = np.where(df['prev_10_vol_avg'] > 0, df['tic_volume'] / df['prev_10_vol_avg'], 0)
+            
             # Feature 목록 정의
             features = [
                 'tic_strength', 
-                'tic_tick_velocity', 
+                'tic_velocity', 
                 'tic_order_book_imbalance', 
-                'min3_relative_position'
+                'min3_relative_position',
+                'tic_volume_spike'
             ]
             
             # 결측치 제거
@@ -156,3 +168,26 @@ class MLTrainingWorker(QThread):
         finally:
             if conn:
                 conn.close()
+
+if __name__ == "__main__":
+    # 단독 실행 모드
+    print("🚀 [Standalone] ML 학습 프로세스 시작...")
+    
+    app = QCoreApplication(sys.argv)
+    worker = MLTrainingWorker()
+    
+    # 시그널 연결
+    def on_progress(msg):
+        print(msg)
+        
+    def on_finished(success, msg):
+        print(f"\n결과: {'✅ 성공' if success else '❌ 실패'}")
+        print(f"메시지: {msg}")
+        app.quit()
+        
+    worker.progress_signal.connect(on_progress)
+    worker.finished_signal.connect(on_finished)
+    
+    worker.start()
+    
+    sys.exit(app.exec())

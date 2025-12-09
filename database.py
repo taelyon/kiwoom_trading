@@ -22,7 +22,8 @@ class AsyncDatabaseManager:
         # 3분봉 저장 대상 지표 (DB 스키마 및 저장 시 사용)
         self.min_target_indicators = [
             'MA5', 'MA10', 'MA20', 'MA50', 'MA60', 'MA120', 
-            'RSI', 'MACD', 'MACD_SIGNAL', 'MACD_HIST'
+            'RSI', 'MACD', 'MACD_SIGNAL', 'MACD_HIST',
+            'RELATIVE_POSITION'
         ]
         self._conn = None
         self._db_lock = asyncio.Lock()
@@ -167,7 +168,7 @@ class AsyncDatabaseManager:
                     'STOCH_K', 'STOCH_D',  # 정규화된 이름만 허용
                     'WILLIAMS_R', 'ROC', 'OBV', 'OBV_MA20', 'ATR', 'VWAP',
                     'LAST_TIC_CNT',
-                    'TICK_VELOCITY', 'ORDER_BOOK_IMBALANCE', 'RELATIVE_POSITION'
+                    'VELOCITY', 'ORDER_BOOK_IMBALANCE', 'RELATIVE_POSITION'
                 }
                 
                 # 지표 이름 정규화 및 필터링
@@ -186,7 +187,7 @@ class AsyncDatabaseManager:
                 normalized_min = [normalize_indicator(ind) for ind in min_indicators]
                 
                 # 허용된 지표만 선택
-                filtered_tic = [ind for ind in normalized_tic if ind in allowed_indicators]
+                filtered_tic = [ind for ind in normalized_tic if ind in allowed_indicators and ind != 'RELATIVE_POSITION']
                 filtered_min = [ind for ind in normalized_min if ind in allowed_indicators]
                 
                 # 모든 지표 통합 (중복 제거)
@@ -196,24 +197,31 @@ class AsyncDatabaseManager:
                 logging.debug(f"📊 {code}: 감지된 기술적 지표 - 틱봉: {filtered_tic}, 분봉: {filtered_min}, 통합: {all_indicators}")
                 
                 # 테이블 스키마 동적 업데이트
-                await self._ensure_table_schema(cursor, all_indicators)
+                # 분봉 지표 목록 생성 (min_target_indicators에 포함된 것만)
+                valid_min_indicators = [col for col in all_indicators if col in self.min_target_indicators]
+                await self._ensure_table_schema(cursor, filtered_tic, valid_min_indicators)
 
                 # 3분봉용 저장할 지표 필터링 (self.min_target_indicators 사용)
                 # min_target_indicators = [...] # 삭제됨
                 
                 # 동적으로 컬럼명과 플레이스홀더 생성
-                tic_indicator_cols = ", ".join([f"tic_{col.lower()}" for col in all_indicators])
-                # min_indicator_cols는 min_target_indicators에 있는 것만 생성 (all_indicators에 포함되어 있어야 함)
-                min_indicator_cols = ", ".join([f"min3_{col.lower()}" for col in all_indicators if col in self.min_target_indicators])
+                # tic_ 컬럼은 filtered_tic에 있는 것만 생성
+                filtered_tic.sort()
+                tic_indicator_cols = ", ".join([f"tic_{col.lower()}" for col in filtered_tic])
+                
+                # min_ 컬럼은 min_target_indicators에 있고 all_indicators(현재 데이터에 존재하는 지표)에 포함된 것만 생성
+                # 여기서는 filtered_min을 사용하는 것이 더 정확할 수 있으나, 기존 로직(min_target 확인) 유지
+                valid_min_indicators = [col for col in all_indicators if col in self.min_target_indicators]
+                min_indicator_cols = ", ".join([f"min3_{col.lower()}" for col in valid_min_indicators])
                 
                 columns = (
                     "code, datetime, tic_open, tic_high, tic_low, tic_close, tic_volume, tic_strength, "
                     f"{tic_indicator_cols}, {min_indicator_cols}, created_at"
                 )
                 
-                # min_indicator_cols에 포함된 컬럼 개수 계산
-                min_col_count = len([col for col in all_indicators if col in self.min_target_indicators])
-                placeholders = ", ".join(["?"] * (9 + len(all_indicators) + min_col_count))
+                # 플레이스홀더 개수 계산
+                # 9개 기본 컬럼 + tic 지표 개수 + min 지표 개수
+                placeholders = ", ".join(["?"] * (9 + len(filtered_tic) + len(valid_min_indicators)))
 
                 sql = f"INSERT OR REPLACE INTO stock_data ({columns}) VALUES ({placeholders})"
                 
@@ -239,7 +247,7 @@ class AsyncDatabaseManager:
                     ]
 
                     # 틱봉 기술적 지표 값 추가
-                    for indicator in all_indicators:
+                    for indicator in filtered_tic:
                         try:
                             # 정규화된 이름과 원본 이름 모두 시도
                             indicator_data = None
@@ -290,8 +298,8 @@ class AsyncDatabaseManager:
                             values.append(None)
 
                     # 분봉 기술적 지표 값 추가
-                    for indicator in all_indicators:
-                        if indicator in self.min_target_indicators:
+                    for indicator in valid_min_indicators:
+                        if True: # indicator in self.min_target_indicators 조건은 valid_min_indicators 생성 시 이미 체크됨
                             try:
                                 # 정규화된 이름과 원본 이름 모두 시도
                                 indicator_data = None
@@ -353,7 +361,7 @@ class AsyncDatabaseManager:
         except Exception as ex:
             self.logger.error(f"통합 주식 데이터 저장 실패 ({code}): {ex}", exc_info=True)
     
-    async def _ensure_table_schema(self, cursor, indicators):
+    async def _ensure_table_schema(self, cursor, tic_indicators, min_indicators):
         """테이블 스키마에 필요한 컬럼들이 있는지 확인하고 없으면 추가"""
         try:
             # 허용되지 않는 deprecated 컬럼 이름
@@ -365,21 +373,25 @@ class AsyncDatabaseManager:
             
             # 새로 추가할 컬럼들 확인
             new_columns = []
-            for indicator in indicators:
-                # deprecated 지표는 건너뛰기
+            
+            # 1. 틱봉 지표 컬럼 확인
+            for indicator in tic_indicators:
                 if indicator in deprecated_indicators or indicator.upper() in deprecated_indicators:
-                    self.logger.debug(f"⚠️ Deprecated 지표 무시: {indicator}")
                     continue
                 
                 tic_col = f"tic_{indicator.lower()}"
-                min_col = f"min3_{indicator.lower()}"
-                
                 if tic_col not in existing_columns:
                     new_columns.append(tic_col)
+                    
+            # 2. 분봉 지표 컬럼 확인
+            for indicator in min_indicators:
+                if indicator in deprecated_indicators or indicator.upper() in deprecated_indicators:
+                    continue
                 
                 # 3분봉 컬럼은 min_target_indicators에 포함된 경우에만 추가
                 if indicator in self.min_target_indicators:
-                    if min_col not in existing_columns: # min_ -> min3_
+                    min_col = f"min3_{indicator.lower()}"
+                    if min_col not in existing_columns:
                         new_columns.append(min_col)
             
             # 새 컬럼들 추가

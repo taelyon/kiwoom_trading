@@ -1,10 +1,3 @@
-[급등주]
-buy_stg_1 = {"name": "실시간_모멘텀_진입", "content": "TICK_VELOCITY < 1000 and tic_strength[-1] > 150 and ORDER_BOOK_IMBALANCE > -0.6 and min3_RELATIVE_POSITION < 0.03"}
-sell_stg_1 = {"name": "목표익절", "content": "current_profit_pct > 3.0"}
-sell_stg_2 = {"name": "트레일링스탑", "content": "from_peak_pct < -1.5"}
-sell_stg_3 = {"name": "과열조기청산", "content": "min3_RELATIVE_POSITION > 0.06"}
-sell_stg_4 = {"name": "손절매", "content": "current_profit_pct < -2.0"}
-
 [STRATEGIES]
 stg_integrated = 통합전략
 stg_1 = 급등주
@@ -16,6 +9,7 @@ target_buy_count = 5
 evaluation_interval = 1
 commission_rate = 0.0035
 tax_rate = 0.0015
+min_hold_seconds = 10
 
 [DATA_SAVING]
 interval_seconds = 60
@@ -36,4 +30,11 @@ webhook =
 
 [SETTINGS]
 last_strategy = 급등주
+
+[급등주]
+buy_stg_1 = {"name": "실시간_모멘텀_진입", "content": "tic_velocity[-1] < 1000 and tic_strength[-1] > 150 and tic_order_book_imbalance[-1] > -0.6 and min3_relative_position[-1] < 0.03 and AI_SCORE > 0.8"}
+sell_stg_1 = {"name": "목표익절", "content": "current_profit_pct > 3.0"}
+sell_stg_2 = {"name": "트레일링스탑", "content": "from_peak_pct < -1.5"}
+sell_stg_3 = {"name": "과열조기청산", "content": "min3_relative_position[-1] > 0.06"}
+sell_stg_4 = {"name": "손절매", "content": "current_profit_pct < -2.0"}
 

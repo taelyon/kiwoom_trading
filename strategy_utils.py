@@ -331,21 +331,33 @@ def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_
         
         # 실시간 메트릭(Tick Velocity 등) 추가
         # 실시간 메트릭(Tick Velocity 등) 추가
-        if realtime_metrics:
-            locals_dict.update(realtime_metrics)
-            # 대문자 호환성 (TICK_VELOCITY)
-            if 'tick_velocity' in realtime_metrics:
-                locals_dict['TICK_VELOCITY'] = realtime_metrics['tick_velocity']
-            else:
-                 locals_dict['TICK_VELOCITY'] = 999999.0
-            # 대문자 호환성 (ORDER_BOOK_IMBALANCE)
-            if 'order_book_imbalance' in realtime_metrics:
-                locals_dict['ORDER_BOOK_IMBALANCE'] = realtime_metrics['order_book_imbalance']
-            else:
-                locals_dict['ORDER_BOOK_IMBALANCE'] = 0.0
+        # TICK_VELOCITY (배열 보장 및 Alias 설정)
+        tv_array = None
+        if not tic_chart_data.empty and 'TICK_VELOCITY' in tic_chart_data.columns:
+            tv_array = tic_chart_data['TICK_VELOCITY'].values
+        elif realtime_metrics and 'tick_velocity' in realtime_metrics:
+            tv_array = np.array([realtime_metrics['tick_velocity']])
         else:
-             locals_dict['TICK_VELOCITY'] = 999999.0
-             locals_dict['ORDER_BOOK_IMBALANCE'] = 0.0
+            tv_array = np.array([999999.0])
+        
+        locals_dict['TICK_VELOCITY'] = tv_array
+        locals_dict['tic_velocity'] = tv_array
+
+        # ORDER_BOOK_IMBALANCE (배열 보장 및 Alias 설정)
+        obi_array = None
+        if not tic_chart_data.empty and 'ORDER_BOOK_IMBALANCE' in tic_chart_data.columns:
+            obi_array = tic_chart_data['ORDER_BOOK_IMBALANCE'].values
+        elif realtime_metrics and 'order_book_imbalance' in realtime_metrics:
+            obi_array = np.array([realtime_metrics['order_book_imbalance']])
+        else:
+            obi_array = np.array([0.0])
+            
+        locals_dict['ORDER_BOOK_IMBALANCE'] = obi_array
+        locals_dict['tic_order_book_imbalance'] = obi_array
+        
+        # min3_RELATIVE_POSITION -> min3_relative_position 매핑 (이미 배열임)
+        if 'min3_RELATIVE_POSITION' in locals_dict:
+            locals_dict['min3_relative_position'] = locals_dict['min3_RELATIVE_POSITION']
         
         # 기존 데이터프레임에 있는 'tic_', 'min3_' 접두사 컬럼들도 로컬 변수에 추가 (백테스팅 호환성)
         # DB에서 로드된 데이터는 이미 계산된 지표를 포함할 수 있음
@@ -374,9 +386,22 @@ def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_
             if len(volume_series) > 0:
                 locals_dict['avg_volume'] = volume_series.mean()
                 locals_dict['volume_ratio'] = volume_series.iloc[-1] / locals_dict['avg_volume'] if locals_dict['avg_volume'] > 0 else 1
+                
+                # 최근 10개 틱의 평균 거래량 (현재 포함)
                 if len(volume_series) >= 10:
-                    # 최근 10개 틱의 평균 거래량
                     locals_dict['tic_avg_volume_10'] = volume_series.tail(10).mean()
+                    
+                # 순간 거래량 폭발력 (Instant Volume Spike)
+                # (현재 틱 거래량) / (직전 10개 봉 평균 거래량)
+                if len(volume_series) >= 11:
+                    prev_10_avg = volume_series.iloc[-11:-1].mean()
+                    if prev_10_avg > 0:
+                        locals_dict['tic_volume_spike'] = volume_series.iloc[-1] / prev_10_avg
+                    else:
+                        locals_dict['tic_volume_spike'] = 0.0
+                else:
+                    locals_dict['tic_volume_spike'] = 0.0
+
                 if len(volume_series) >= 5:
                     # 최근 5개 틱의 평균 거래량 (순간 체결량 포착용)
                     locals_dict['tic_avg_volume_5'] = volume_series.tail(5).mean()
@@ -389,12 +414,23 @@ def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_
                 # 입력 벡터 준비 (학습 때와 동일한 순서여야 함: strength, velocity, imbalance, relative_pos)
                 # 데이터가 없으면 기본값 0 처리
                 feature_strength = locals_dict.get('tic_strength', [0])[-1] if isinstance(locals_dict.get('tic_strength'), (list, np.ndarray)) else 0
-                feature_velocity = locals_dict.get('TICK_VELOCITY', 999999.0)
-                feature_imbalance = locals_dict.get('ORDER_BOOK_IMBALANCE', 0.0)
-                feature_relative = locals_dict.get('min3_RELATIVE_POSITION', [0])[-1] if isinstance(locals_dict.get('min3_RELATIVE_POSITION'), (list, np.ndarray)) else 0
+                
+                # TICK_VELOCITY (배열 보장됨)
+                tv_val = locals_dict.get('tic_velocity')
+                feature_velocity = tv_val[-1] if isinstance(tv_val, (list, np.ndarray)) and len(tv_val) > 0 else 999999.0
+
+                # ORDER_BOOK_IMBALANCE (배열 보장됨)
+                obi_val = locals_dict.get('tic_order_book_imbalance')
+                feature_imbalance = obi_val[-1] if isinstance(obi_val, (list, np.ndarray)) and len(obi_val) > 0 else 0.0
+
+                feature_relative = locals_dict.get('min3_relative_position', [0])[-1] if isinstance(locals_dict.get('min3_relative_position'), (list, np.ndarray)) else 0
+                
+                # Volume Spike (스칼라 값)
+                feature_spike = locals_dict.get('tic_volume_spike', 0.0)
                 
                 # 차원 맞추기 (2D Array)
-                input_vector = np.array([[feature_strength, feature_velocity, feature_imbalance, feature_relative]])
+                # 모델 학습 시 사용된 피처 순서와 정확히 일치해야 함: strength, velocity, imbalance, relative_pos, volume_spike
+                input_vector = np.array([[feature_strength, feature_velocity, feature_imbalance, feature_relative, feature_spike]])
                 
                 # 추론 실행
                 ai_score = LGBM_MODEL.predict(input_vector)[0]
@@ -504,21 +540,33 @@ def prepare_sell_strategy_locals(code, tic_chart_data, min_chart_data, buy_price
         if portfolio_info:
             locals_dict.update(portfolio_info)
             
-        if realtime_metrics:
-            locals_dict.update(realtime_metrics)
-            # 대문자 호환성 (TICK_VELOCITY)
-            if 'tick_velocity' in realtime_metrics:
-                locals_dict['TICK_VELOCITY'] = realtime_metrics['tick_velocity']
-            else:
-                 locals_dict['TICK_VELOCITY'] = 999999.0
-            # 대문자 호환성 (ORDER_BOOK_IMBALANCE)
-            if 'order_book_imbalance' in realtime_metrics:
-                locals_dict['ORDER_BOOK_IMBALANCE'] = realtime_metrics['order_book_imbalance']
-            else:
-                locals_dict['ORDER_BOOK_IMBALANCE'] = 0.0
+        # TICK_VELOCITY (배열 보장 및 Alias 설정)
+        tv_array = None
+        if not tic_chart_data.empty and 'TICK_VELOCITY' in tic_chart_data.columns:
+            tv_array = tic_chart_data['TICK_VELOCITY'].values
+        elif realtime_metrics and 'tick_velocity' in realtime_metrics:
+            tv_array = np.array([realtime_metrics['tick_velocity']])
         else:
-             locals_dict['TICK_VELOCITY'] = 999999.0
-             locals_dict['ORDER_BOOK_IMBALANCE'] = 0.0
+            tv_array = np.array([999999.0])
+        
+        locals_dict['TICK_VELOCITY'] = tv_array
+        locals_dict['tic_velocity'] = tv_array
+
+        # ORDER_BOOK_IMBALANCE (배열 보장 및 Alias 설정)
+        obi_array = None
+        if not tic_chart_data.empty and 'ORDER_BOOK_IMBALANCE' in tic_chart_data.columns:
+            obi_array = tic_chart_data['ORDER_BOOK_IMBALANCE'].values
+        elif realtime_metrics and 'order_book_imbalance' in realtime_metrics:
+            obi_array = np.array([realtime_metrics['order_book_imbalance']])
+        else:
+            obi_array = np.array([0.0])
+            
+        locals_dict['ORDER_BOOK_IMBALANCE'] = obi_array
+        locals_dict['tic_order_book_imbalance'] = obi_array
+            
+        # min3_RELATIVE_POSITION -> min3_relative_position 매핑
+        if 'min3_RELATIVE_POSITION' in locals_dict:
+            locals_dict['min3_relative_position'] = locals_dict['min3_RELATIVE_POSITION']
             
         # 최고가 추적 (들여쓰기 수정됨)
         highest_price = 0

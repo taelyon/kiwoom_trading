@@ -836,8 +836,8 @@ class ChartDataCache(QObject):
                     # extract_chart_indicators를 사용하여 모든 지표 계산
                     tic_indicators = strategy_utils.KiwoomIndicatorExtractor.extract_chart_indicators(tic_df)
                     
-                    # 3분봉 데이터는 MA, RSI, MACD만 계산
-                    min_allowed = ['MA5', 'MA10', 'MA20', 'MA50', 'MA60', 'MA120', 'RSI', 'MACD', 'MACD_SIGNAL', 'MACD_HIST']
+                    # 3분봉 데이터는 MA, RSI, MACD, RELATIVE_POSITION 계산
+                    min_allowed = ['MA5', 'MA10', 'MA20', 'MA50', 'MA60', 'MA120', 'RSI', 'MACD', 'MACD_SIGNAL', 'MACD_HIST', 'RELATIVE_POSITION']
                     min_indicators = strategy_utils.KiwoomIndicatorExtractor.extract_chart_indicators(min_df, allowed_indicators=min_allowed)
 
                     # 계산된 지표를 DataFrame에 다시 병합
@@ -1170,10 +1170,6 @@ class ChartDataCache(QObject):
                 self.logger.debug(f"⚠️ 차트 데이터 추가 건너뜀: {stock_code} (데이터 없음 또는 잘못된 타입)")
                 return
 
-            # 실시간 데이터를 틱/분봉 데이터에 추가
-            self.parent.login_handler.websocket_client._update_tic_chart_with_realtime(stock_code, cached_data, realtime_data)
-            self.parent.login_handler.websocket_client._update_minute_chart_with_realtime(stock_code, cached_data, realtime_data)
-
             # 틱 생성 속도(Tick Velocity) 계산
             # 정의: 직전 10개의 틱이 체결되는 데 걸린 시간 (밀리초 단위)
             current_ms = time.time() * 1000
@@ -1196,6 +1192,10 @@ class ChartDataCache(QObject):
             
             # 차트 캐시 업데이트 (메트릭 포함)
             chart_cache.cache[stock_code] = cached_data
+
+            # 실시간 데이터를 틱/분봉 데이터에 추가
+            self.parent.login_handler.websocket_client._update_tic_chart_with_realtime(stock_code, cached_data, realtime_data)
+            self.parent.login_handler.websocket_client._update_minute_chart_with_realtime(stock_code, cached_data, realtime_data)
 
             # 실시간 기술적 지표 계산 (비동기, ThreadPoolExecutor 사용)
             loop = asyncio.get_running_loop()

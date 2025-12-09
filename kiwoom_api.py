@@ -1489,9 +1489,9 @@ class KiwoomWebSocketClient:
             except (ValueError, TypeError):
                 last_tic_cnt = 0
             
-            # 기존 봉이 없는 경우 (초기 상태)
-            if len(tic_data.get('close', [])) == 0:
-                # 첫 봉 생성
+            # 기존 봉이 없는 경우 (초기 상태) 또는 60틱이 찬 경우 (새 봉 생성)
+            if len(tic_data.get('close', [])) == 0 or last_tic_cnt >= 60:
+                # 새 봉 생성
                 tic_data['time'].append(dt) # type: ignore
                 tic_data['open'].append(current_price)
                 tic_data['high'].append(current_price)
@@ -1505,19 +1505,24 @@ class KiwoomWebSocketClient:
                 tic_data['buy_volume'].append(cur_buy_vol)
                 tic_data['sell_volume'].append(cur_sell_vol)
                 
-                # 초기 체결강도는 100으로 시작하거나 첫 틱 기준 계산
-                # 매수면 무한대(또는 큰수), 매도면 0이나, 안전하게 100 또는 비율 계산
+                # 체결강도 계산
                 if cur_sell_vol > 0:
                     tic_data['strength'].append((cur_buy_vol / cur_sell_vol) * 100)
                 else:
-                    tic_data['strength'].append(100.0 if cur_buy_vol > 0 else 0.0) # 매도0 매수>0 이면 100(강세), 둘다0이면 0
+                    tic_data['strength'].append(100.0 if cur_buy_vol > 0 else 0.0)
+                
                 # ML 학습용 데이터 저장
                 tic_data['TICK_VELOCITY'].append(tick_velocity)
                 tic_data['ORDER_BOOK_IMBALANCE'].append(order_book_imbalance)
 
                 tic_data['last_tic_cnt'] = 1
-                self.logger.info(f"🎯 첫 번째 60틱봉 생성: {stock_code}, 가격={current_price}, 순간체결강도 시작")
-            elif last_tic_cnt < 60:
+                
+                if len(tic_data.get('close', [])) == 1:
+                    self.logger.info(f"🎯 첫 번째 60틱봉 생성: {stock_code}, 가격={current_price}, 순간체결강도 시작")
+                else:
+                    self.logger.debug(f"🎼 새로운 60틱봉 생성: {stock_code}")
+
+            else:
                 # 60틱 미만이면 기존 봉 업데이트
                 last_index = -1
                 
@@ -1555,7 +1560,8 @@ class KiwoomWebSocketClient:
                 if 'ORDER_BOOK_IMBALANCE' in tic_data:
                     tic_data['ORDER_BOOK_IMBALANCE'][last_index] = order_book_imbalance
 
-                tic_data['last_tic_cnt'] += 1
+                # TypeError 방지를 위해 명시적 할당 사용
+                tic_data['last_tic_cnt'] = last_tic_cnt + 1
                 
         except Exception as e:
             self.logger.error(f"틱 차트 실시간 데이터 추가 실패: {e}", exc_info=True)

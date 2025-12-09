@@ -44,7 +44,11 @@
 | **ATR** | Average True Range | 변동성 지표 (14) |
 | **WILLIAMS_R** | 윌리엄스 %R | (14) |
 | **ROC** | Rate of Change (등락률) | (12) |
-| **strength** | 체결강도 | |
+| **strength** | 체결강도 (매수량/매도량 * 100) | |
+| **tic_velocity** | 틱 생성 속도 (작을수록 빠름) | **`[-1]` 필수** |
+| **tic_order_book_imbalance** | 호가 불균형 (-1.0 ~ 1.0) | **`[-1]` 필수** |
+| **min3_relative_position** | 20선 이격도 (3분봉) | **`[-1]` 필수** |
+| **AI_SCORE** | AI 모델 예측 점수 (0.0 ~ 1.0) | **단일 값** (인덱싱 X) |
 
 ### 기본 가격/거래량 데이터
 | 변수명 | 설명 |
