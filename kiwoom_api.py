@@ -1436,14 +1436,21 @@ class KiwoomWebSocketClient:
                 return
             
             # 필수 키가 없으면 초기화
-            required_keys = ['time', 'open', 'high', 'low', 'close', 'volume', 'strength', 'buy_volume', 'sell_volume']
+            required_keys = ['time', 'open', 'high', 'low', 'close', 'volume', 'strength', 'buy_volume', 'sell_volume', 
+                             'tick_velocity', 'order_book_imbalance']
             current_len = len(tic_data.get('close', []))
             for key in required_keys:
                 if key not in tic_data:
                     tic_data[key] = []
                 # 기존 데이터 길이와 맞추기 (특히 buy_volume, sell_volume이 나중에 추가된 경우)
                 if len(tic_data[key]) < current_len:
-                    tic_data[key].extend([0] * (current_len - len(tic_data[key])))
+                    # 숫자형 데이터는 0으로 채우기
+                    tic_data[key].extend([0.0] * (current_len - len(tic_data[key])))
+
+            # 실시간 지표 가져오기
+            realtime_metrics = cached_data.get('realtime_metrics', {})
+            tick_velocity = realtime_metrics.get('tick_velocity', 0.0)
+            order_book_imbalance = realtime_metrics.get('order_book_imbalance', 0.0)
             
             # 실시간 데이터에서 시간 파싱
             execution_time = realtime_data.get('execution_time', '')
@@ -1504,6 +1511,9 @@ class KiwoomWebSocketClient:
                     tic_data['strength'].append((cur_buy_vol / cur_sell_vol) * 100)
                 else:
                     tic_data['strength'].append(100.0 if cur_buy_vol > 0 else 0.0) # 매도0 매수>0 이면 100(강세), 둘다0이면 0
+                # ML 학습용 데이터 저장
+                tic_data['tick_velocity'].append(tick_velocity)
+                tic_data['order_book_imbalance'].append(order_book_imbalance)
 
                 tic_data['last_tic_cnt'] = 1
                 self.logger.info(f"🎯 첫 번째 60틱봉 생성: {stock_code}, 가격={current_price}, 순간체결강도 시작")
@@ -1526,53 +1536,6 @@ class KiwoomWebSocketClient:
                 tic_data['volume'][last_index] += volume
                 
                 # 매수/매도 거래량 누적 (순간 체결강도용)
-                if is_buy:
-                    tic_data['buy_volume'][last_index] += volume
-                else:
-                    tic_data['sell_volume'][last_index] += volume
-                    
-                # 순간 체결강도 재계산 (현재 봉 기준)
-                cur_buy_vol = tic_data['buy_volume'][last_index]
-                cur_sell_vol = tic_data['sell_volume'][last_index]
-                
-                if cur_sell_vol > 0:
-                    tic_data['strength'][last_index] = (cur_buy_vol / cur_sell_vol) * 100
-                else:
-                     # 매도량이 0인 경우
-                    tic_data['strength'][last_index] = 999.0 if cur_buy_vol > 0 else 0.0
-
-                # 마지막 틱 개수 증가
-                tic_data['last_tic_cnt'] = last_tic_cnt + 1                
-            else: # last_tic_cnt >= 60
-                # 60틱이 되면 새로운 봉 생성
-                tic_data['time'].append(dt)
-                tic_data['open'].append(current_price)
-                tic_data['high'].append(current_price)
-                tic_data['low'].append(current_price)
-                tic_data['close'].append(current_price)
-                tic_data['volume'].append(volume)
-                
-                # 새 봉의 순간 체결강도 계산 시작
-                cur_buy_vol = volume if is_buy else 0
-                cur_sell_vol = volume if not is_buy else 0
-                
-                tic_data['buy_volume'].append(cur_buy_vol)
-                tic_data['sell_volume'].append(cur_sell_vol)
-                
-                if cur_sell_vol > 0:
-                    tic_data['strength'].append((cur_buy_vol / cur_sell_vol) * 100)
-                else:
-                    tic_data['strength'].append(100.0 if cur_buy_vol > 0 else 0.0)
-
-                # 틱 카운트를 1로 리셋 (새 봉의 첫 번째 틱)
-                tic_data['last_tic_cnt'] = 1
-            
-            # 최대 데이터 수 제한 (300개)
-            max_data = 300
-            for key in ['time', 'open', 'high', 'low', 'close', 'volume', 'strength']:
-                if key in tic_data and len(tic_data[key]) > max_data:
-                    tic_data[key] = tic_data[key][-max_data:]
-                        
         except Exception as e:
             self.logger.error(f"틱 차트 실시간 데이터 추가 실패: {e}", exc_info=True)
     

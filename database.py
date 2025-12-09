@@ -166,7 +166,8 @@ class AsyncDatabaseManager:
                     'BB_UPPER', 'BB_MIDDLE', 'BB_LOWER', 'BB_BANDWIDTH', 'BB_POSITION',
                     'STOCH_K', 'STOCH_D',  # 정규화된 이름만 허용
                     'WILLIAMS_R', 'ROC', 'OBV', 'OBV_MA20', 'ATR', 'VWAP',
-                    'LAST_TIC_CNT'
+                    'LAST_TIC_CNT',
+                    'TICK_VELOCITY', 'ORDER_BOOK_IMBALANCE', 'RELATIVE_POSITION'
                 }
                 
                 # 지표 이름 정규화 및 필터링

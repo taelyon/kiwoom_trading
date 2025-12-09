@@ -13,6 +13,18 @@ from typing import Dict, List, Optional, Any
 import numpy as np
 import pandas as pd
 import talib
+import os
+
+# LightGBM 로드 (전역 변수로 1회만 로드)
+LGBM_MODEL = None
+try:
+    import lightgbm as lgb
+    if os.path.exists('lgbm_model.txt'):
+        LGBM_MODEL = lgb.Booster(model_file='lgbm_model.txt')
+        logging.getLogger(__name__).info("🤖전략 평가용 LightGBM 모델 로드 완료 (lgbm_model.txt)")
+except Exception as e:
+    logging.getLogger(__name__).warning(f"⚠️ LightGBM 모델 로드 실패 또는 미설치: {e}")
+
 
 # ==================== 전략 평가용 안전한 globals ====================
 STRATEGY_SAFE_GLOBALS = {
@@ -64,6 +76,13 @@ def evaluate_strategies(strategies, safe_locals, code="", strategy_type="", is_b
                 
             result = eval(condition, STRATEGY_SAFE_GLOBALS, safe_locals)
             
+            # 결과가 배열인 경우 마지막 값(최신)을 사용
+            if isinstance(result, (np.ndarray, list, pd.Series)):
+                if len(result) > 0:
+                    result = result[-1]
+                else:
+                    result = False
+
             if is_sell_debug:
                 logger.debug(f"🔍 [{code}] 평가 결과: {result}")
                 
@@ -311,14 +330,22 @@ def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_
             locals_dict.update(portfolio_info)
         
         # 실시간 메트릭(Tick Velocity 등) 추가
+        # 실시간 메트릭(Tick Velocity 등) 추가
         if realtime_metrics:
             locals_dict.update(realtime_metrics)
             # 대문자 호환성 (TICK_VELOCITY)
             if 'tick_velocity' in realtime_metrics:
                 locals_dict['TICK_VELOCITY'] = realtime_metrics['tick_velocity']
+            else:
+                 locals_dict['TICK_VELOCITY'] = 999999.0
             # 대문자 호환성 (ORDER_BOOK_IMBALANCE)
             if 'order_book_imbalance' in realtime_metrics:
                 locals_dict['ORDER_BOOK_IMBALANCE'] = realtime_metrics['order_book_imbalance']
+            else:
+                locals_dict['ORDER_BOOK_IMBALANCE'] = 0.0
+        else:
+             locals_dict['TICK_VELOCITY'] = 999999.0
+             locals_dict['ORDER_BOOK_IMBALANCE'] = 0.0
         
         # 기존 데이터프레임에 있는 'tic_', 'min3_' 접두사 컬럼들도 로컬 변수에 추가 (백테스팅 호환성)
         # DB에서 로드된 데이터는 이미 계산된 지표를 포함할 수 있음
@@ -353,6 +380,32 @@ def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_
                 if len(volume_series) >= 5:
                     # 최근 5개 틱의 평균 거래량 (순간 체결량 포착용)
                     locals_dict['tic_avg_volume_5'] = volume_series.tail(5).mean()
+
+        # ==========================================================
+        # AI 실시간 추론 (LightGBM Inference)
+        # ==========================================================
+        if LGBM_MODEL and 'TICK_VELOCITY' in locals_dict:
+            try:
+                # 입력 벡터 준비 (학습 때와 동일한 순서여야 함: strength, velocity, imbalance, relative_pos)
+                # 데이터가 없으면 기본값 0 처리
+                feature_strength = locals_dict.get('tic_strength', [0])[-1] if isinstance(locals_dict.get('tic_strength'), (list, np.ndarray)) else 0
+                feature_velocity = locals_dict.get('TICK_VELOCITY', 999999.0)
+                feature_imbalance = locals_dict.get('ORDER_BOOK_IMBALANCE', 0.0)
+                feature_relative = locals_dict.get('min3_RELATIVE_POSITION', [0])[-1] if isinstance(locals_dict.get('min3_RELATIVE_POSITION'), (list, np.ndarray)) else 0
+                
+                # 차원 맞추기 (2D Array)
+                input_vector = np.array([[feature_strength, feature_velocity, feature_imbalance, feature_relative]])
+                
+                # 추론 실행
+                ai_score = LGBM_MODEL.predict(input_vector)[0]
+                locals_dict['AI_SCORE'] = float(ai_score)
+                # logger.debug(f"🤖 AI 추론: {code} Score={ai_score:.4f}")
+                
+            except Exception as ai_ex:
+                # logger.error(f"AI 추론 실패: {ai_ex}")
+                locals_dict['AI_SCORE'] = 0.0
+        else:
+            locals_dict['AI_SCORE'] = 0.0
 
         return locals_dict
         
@@ -451,15 +504,21 @@ def prepare_sell_strategy_locals(code, tic_chart_data, min_chart_data, buy_price
         if portfolio_info:
             locals_dict.update(portfolio_info)
             
-        # 실시간 메트릭(Tick Velocity 등) 추가
         if realtime_metrics:
             locals_dict.update(realtime_metrics)
             # 대문자 호환성 (TICK_VELOCITY)
             if 'tick_velocity' in realtime_metrics:
                 locals_dict['TICK_VELOCITY'] = realtime_metrics['tick_velocity']
+            else:
+                 locals_dict['TICK_VELOCITY'] = 999999.0
             # 대문자 호환성 (ORDER_BOOK_IMBALANCE)
             if 'order_book_imbalance' in realtime_metrics:
                 locals_dict['ORDER_BOOK_IMBALANCE'] = realtime_metrics['order_book_imbalance']
+            else:
+                locals_dict['ORDER_BOOK_IMBALANCE'] = 0.0
+        else:
+             locals_dict['TICK_VELOCITY'] = 999999.0
+             locals_dict['ORDER_BOOK_IMBALANCE'] = 0.0
             
         # 최고가 추적 (들여쓰기 수정됨)
         highest_price = 0
