@@ -1386,6 +1386,42 @@ class KiwoomWebSocketClient:
         except Exception as e:
             self.logger.error(f"보유 종목 현재가 업데이트 실패 ({stock_code}): {e}", exc_info=True)
     
+    async def process_order_book_data_async(self, data_item):
+        """실시간 주식 호가 잔량 데이터 처리 (type='0D') - 비동기"""
+        try:
+            if 'item' in data_item and 'values' in data_item:
+                raw_code = data_item['item']
+                stock_code = self.parent.data_manager.normalize_stock_code(raw_code) if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'data_manager') else raw_code
+                values = data_item['values']
+                
+                if stock_code and values:
+                    # 매도/매수 총잔량 추출
+                    total_sell_hoga_raw = values.get('121', '0')
+                    total_buy_hoga_raw = values.get('125', '0')
+                    
+                    try:
+                        total_sell_hoga = int(total_sell_hoga_raw.replace(',', '').replace('+', '').replace('-', ''))
+                    except:
+                        total_sell_hoga = 0
+                        
+                    try:
+                        total_buy_hoga = int(total_buy_hoga_raw.replace(',', '').replace('+', '').replace('-', ''))
+                    except:
+                        total_buy_hoga = 0
+                        
+                    order_book_info = {
+                        'total_sell_hoga': total_sell_hoga,
+                        'total_buy_hoga': total_buy_hoga,
+                        'timestamp': datetime.now()
+                    }
+                    
+                    # ChartDataCache에 실시간 호가 데이터 처리 위임
+                    if hasattr(self.parent, 'chart_cache') and self.parent.chart_cache:
+                        await self.parent.chart_cache.add_realtime_order_book_data_async(stock_code, order_book_info)
+                        
+        except Exception as e:
+            self.logger.error(f"실시간 호가 데이터 처리 실패: {e}", exc_info=True)
+
     def _update_tic_chart_with_realtime(self, stock_code, cached_data, realtime_data):
         """틱 차트에 실시간 데이터 추가 (30틱 = 1봉) - 통합된 함수"""
         try:
@@ -1401,9 +1437,13 @@ class KiwoomWebSocketClient:
             
             # 필수 키가 없으면 초기화
             required_keys = ['time', 'open', 'high', 'low', 'close', 'volume', 'strength', 'buy_volume', 'sell_volume']
+            current_len = len(tic_data.get('close', []))
             for key in required_keys:
                 if key not in tic_data:
                     tic_data[key] = []
+                # 기존 데이터 길이와 맞추기 (특히 buy_volume, sell_volume이 나중에 추가된 경우)
+                if len(tic_data[key]) < current_len:
+                    tic_data[key].extend([0] * (current_len - len(tic_data[key])))
             
             # 실시간 데이터에서 시간 파싱
             execution_time = realtime_data.get('execution_time', '')
