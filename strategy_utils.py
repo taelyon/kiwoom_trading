@@ -151,13 +151,44 @@ class KiwoomIndicatorExtractor:
             cached_indicator_keys = [
                 'MA5', 'MA10', 'MA20', 'MA60', 'RSI', 'MACD', 'MACD_SIGNAL', 'MACD_HIST',
                 'STOCHK', 'STOCHD', 'WILLIAMS_R', 'ROC', 'OBV', 'OBV_MA20',
-                'BB_UPPER', 'BB_MIDDLE', 'BB_LOWER', 'ATR'
+                'BB_UPPER', 'BB_MIDDLE', 'BB_LOWER', 'ATR',
+                'TICK_VELOCITY', 'ORDER_BOOK_IMBALANCE', 'LAST_TIC_CNT'
             ]
             for key in cached_indicator_keys:
                 if is_target(key) and key in chart_data.columns:
-                    indicator_values = chart_data[key].values
-                    if len(indicator_values) > 0 and not np.all(np.isnan(indicator_values)):
-                        indicators[key] = indicator_values
+                    indicators[key] = chart_data[key].values
+                    if len(indicators[key]) > 0 and not np.all(np.isnan(indicators[key])):
+                        indicators[key] = chart_data[key].values
+
+            # Alias handling for VELOCITY -> TICK_VELOCITY
+            if is_target('VELOCITY') and 'TICK_VELOCITY' in chart_data.columns and 'VELOCITY' not in indicators:
+                 indicators['VELOCITY'] = chart_data['TICK_VELOCITY'].values
+
+            # 틱봉 전용 지표 백필 (Backfill)
+            # TICK_VELOCITY, LAST_TIC_CNT
+            if is_target('LAST_TIC_CNT') and ('LAST_TIC_CNT' not in indicators or np.all(indicators['LAST_TIC_CNT'] == 0)):
+                 # 과거 데이터는 모두 완성된 봉이므로 60으로 설정 (60틱 차트 가정)
+                 indicators['LAST_TIC_CNT'] = np.full(len(close), 60, dtype=int)
+            
+            if is_target('TICK_VELOCITY') and ('TICK_VELOCITY' not in indicators or np.all(indicators['TICK_VELOCITY'] == 0)):
+                 # 시간 데이터가 있는지 확인
+                 if 'time' in chart_data.columns:
+                     try:
+                            # 문자열 -> datetime 변환
+                         # chart_data['time']이 이미 datetime 객체일 수도 있고 문자열일 수도 있음
+                         times = chart_data['time']
+                         if len(times) > 0:
+                            if isinstance(times.iloc[0], str):
+                                pd_times = pd.to_datetime(times, format='%Y%m%d%H%M%S', errors='coerce')
+                            else:
+                                pd_times = pd.to_datetime(times)
+                            
+                            # Series의 경우 .dt 접근자 사용이 올바름
+                            diffs = pd_times.diff().dt.total_seconds() * 1000
+                            velocities = (diffs / 6.0).fillna(0).values
+                            indicators['TICK_VELOCITY'] = velocities
+                     except Exception as ex:
+                         KiwoomIndicatorExtractor.logger.debug(f"TICK_VELOCITY 백필 실패: {ex}")
 
             # 2. 캐시에 없는 지표만 재계산
 

@@ -378,25 +378,27 @@ class ChartDataCache(QObject):
             self.logger.debug(f"📊 모니터링 종목 제거: {code}")
     
     def update_monitoring_stocks(self, codes):
-        """모니터링 종목 리스트 업데이트"""
+        """모니터링 종목 리스트 업데이트 (캐시 동기화)"""
         try:
-            self.logger.debug(f"🔧 모니터링 종목 리스트 업데이트 시작")
-            self.logger.debug(f"새로운 종목 리스트: {codes}")
-            
             current_codes = set(self.cache.keys())
             new_codes = set(codes)
             
-            self.logger.debug(f"현재 캐시된 종목: {list(current_codes)}")
-            self.logger.debug(f"새로운 종목: {list(new_codes)}")
+            to_add = new_codes - current_codes
+            to_remove = current_codes - new_codes
+            
+            # 변경사항이 없으면 조용히 리턴
+            if not to_add and not to_remove:
+                return
+
+            self.logger.debug(f"🔧 모니터링 종목 리스트 동기화 시작")
+            self.logger.debug(f"현재 캐시: {len(current_codes)}개, 목표: {len(new_codes)}개")
             
             # 추가할 종목 (순차적으로 처리)
-            to_add = new_codes - current_codes
             if to_add:
                 self.logger.debug(f"추가할 종목: {list(to_add)}")
                 self._add_monitoring_stocks_sequentially(list(to_add))
             
             # 제거할 종목
-            to_remove = current_codes - new_codes
             if to_remove:
                 self.logger.debug(f"제거할 종목: {list(to_remove)}")
                 for code in to_remove:
@@ -404,9 +406,9 @@ class ChartDataCache(QObject):
             
             # 모니터링 종목 변경 로그
             if new_codes:
-                logging.debug(f"✅ 모니터링 종목 변경 완료: {list(new_codes)}")
+                logging.debug(f"✅ 모니터링 종목 동기화 완료: {len(new_codes)}개 유지")
             else:
-                logging.warning("⚠️ 모니터링 종목이 없습니다")
+                logging.warning("⚠️ 모니터링 종목이 없습니다 (전체 제거됨)")
                 
         except Exception as ex:
             self.logger.error(f"❌ 모니터링 종목 리스트 업데이트 실패: {ex}", exc_info=True)
@@ -488,6 +490,10 @@ class ChartDataCache(QObject):
             
             # UI의 모니터링 리스트 박스에서 직접 종목 코드를 가져옴
             monitoring_codes = self.parent.monitoring_manager.get_monitoring_stock_codes()
+            
+            # [중요] 캐시와 모니터링 리스트 동기화 (좀비 데이터 제거)
+            self.update_monitoring_stocks(monitoring_codes)
+            
             logging.debug(f"🔧 전체 차트 데이터 업데이트 시작 - 모니터링 종목: {monitoring_codes}")
             
             if not monitoring_codes:
@@ -838,7 +844,7 @@ class ChartDataCache(QObject):
                     tic_allowed = [
                         'MA5', 'MA10', 'MA20', 'MA60', 'MA120', 
                         'RSI', 'RSI_SIGNAL', 
-                        'VELOCITY', 'ORDER_BOOK_IMBALANCE'
+                        'VELOCITY', 'ORDER_BOOK_IMBALANCE', 'LAST_TIC_CNT'
                     ]
                     tic_indicators = strategy_utils.KiwoomIndicatorExtractor.extract_chart_indicators(tic_df, allowed_indicators=tic_allowed)
                     
@@ -1063,9 +1069,69 @@ class ChartDataCache(QObject):
                     rel_pos = (close_array - ma20) / ma20
                 indicators['RELATIVE_POSITION'] = rel_pos
 
+            # ==========================================
+            # 틱 차트 전용 지표 백필 (Backfill) & 병합
+            # ==========================================
+            if chart_type == "tic":
+                try:
+                    # 1. TICK_VELOCITY (10틱당 소요 시간 ms)
+                    # 계산 (백필용)
+                    time_list = data.get('time', [])
+                    calculated_velocities = np.zeros(min_len)
+                    
+                    if len(time_list) >= min_len:
+                        time_subset = time_list[:min_len]
+                        pd_times = pd.to_datetime(time_subset, format='%Y%m%d%H%M%S', errors='coerce')
+                        # DatetimeIndex.diff() returns TimedeltaIndex which has total_seconds() directly (no .dt accessor)
+                        diffs = pd_times.diff().total_seconds() * 1000
+                        calculated_velocities = (diffs / 6.0).fillna(0).to_numpy()
+
+                    # 병합: 기존 데이터가 있으면 유지 (0이 아닌 값), 없으면 백필값 사용
+                    existing_velocity = np.array(data.get('TICK_VELOCITY', []), dtype=float)
+                    
+                    if len(existing_velocity) >= min_len:
+                        # 길이 맞추기
+                        existing_velocity = existing_velocity[:min_len]
+                        # 기존 값이 0이면 계산값 사용, 아니면 기존값 유지
+                        # 단, 계산값이 0인 경우(첫번째 봉 등)는 0 유지
+                        final_vel = np.where(existing_velocity == 0, calculated_velocities, existing_velocity)
+                        indicators['TICK_VELOCITY'] = final_vel
+                    else:
+                        # 기존 데이터가 없거나 짧으면 계산값 전적 사용
+                        indicators['TICK_VELOCITY'] = calculated_velocities
+
+
+                    # 2. LAST_TIC_CNT (틱 카운트)
+                    existing_cnt = np.array(data.get('LAST_TIC_CNT', []), dtype=float)
+                    backfill_cnt = np.full(min_len, 60, dtype=int)
+                    
+                    if len(existing_cnt) >= min_len:
+                        existing_cnt = existing_cnt[:min_len]
+                        # 0이면 60(백필), 아니면 기존값
+                        final_cnt = np.where(existing_cnt == 0, backfill_cnt, existing_cnt)
+                        indicators['LAST_TIC_CNT'] = final_cnt
+                    else:
+                        indicators['LAST_TIC_CNT'] = backfill_cnt
+
+                    # 3. ORDER_BOOK_IMBALANCE (호가 불균형)
+                    # 기존 데이터가 있으면 길이만 맞추고(필수 아님), 없으면 0으로 초기화
+                    # 덮어쓰지 않음 (indicators에 넣지 않으면 원본 유지됨... 단, 길이 맞추기를 위해 넣음)
+                    existing_obi = np.array(data.get('ORDER_BOOK_IMBALANCE', []), dtype=float)
+                    if len(existing_obi) >= min_len:
+                         indicators['ORDER_BOOK_IMBALANCE'] = existing_obi[:min_len]
+                    else:
+                         # 없으면 0으로 생성
+                         indicators['ORDER_BOOK_IMBALANCE'] = np.zeros(min_len, dtype=float)
+
+                except Exception as vel_ex:
+                    logging.debug(f"틱 지표 백필/병합 실패: {vel_ex}")
+
             # 데이터에 지표 직접 추가
             for key, value in indicators.items():
-                data[key] = value.tolist()
+                if isinstance(value, np.ndarray):
+                    data[key] = value.tolist()
+                else:
+                    data[key] = value
             
             return data
             

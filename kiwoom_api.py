@@ -51,6 +51,40 @@ class KiwoomWebSocketClient:
     async def connect(self):
         """웹소켓 연결 (키움증권 예시코드 기반)"""
         try:
+            # 토큰 유효성 사전 검사 (KiwoomRestClient 활용)
+            if self.parent and hasattr(self.parent, 'login_handler') and hasattr(self.parent.login_handler, 'kiwoom_client'):
+                kiwoom_client = self.parent.login_handler.kiwoom_client
+                if kiwoom_client:
+                    # 토큰 만료 시간이 지났거나 임박(1분 이내)했는지 확인
+                    # [주의] is_token_expired 메서드가 KiwoomRestClient에 구현되어 있어야 함
+                    # 만약 메서드가 없다면, access_token_expired 속성을 직접 비교 (fallback)
+                    is_expired = False
+                    if hasattr(kiwoom_client, 'is_token_expired'):
+                        is_expired = kiwoom_client.is_token_expired()
+                    elif hasattr(kiwoom_client, 'access_token_expired'):
+                         try:
+                            # access_token_expired가 datetime 객체이거나 문자열일 수 있음
+                            expired_time = kiwoom_client.access_token_expired
+                            if isinstance(expired_time, str):
+                                # 문자열 포맷에 맞게 파싱 필요 (예: '2025-12-10 12:51:37')
+                                # 포맷이 다양할 수 있으므로 간단히 문자열만 확인하거나, datetime으로 변환 시도
+                                expired_time = datetime.strptime(expired_time, '%Y-%m-%d %H:%M:%S')
+                            
+                            if isinstance(expired_time, datetime):
+                                if datetime.now() >= expired_time - timedelta(minutes=1):
+                                    is_expired = True
+                         except Exception as ex:
+                             self.logger.warning(f"토큰 만료 시간 확인 실패 (fallback): {ex}")
+
+                    if is_expired:
+                        self.logger.info("🔄 웹소켓 연결 전 토큰 만료 감지 - 토큰 갱신 시도")
+                        if await kiwoom_client.get_access_token():
+                            self.token = kiwoom_client.access_token
+                            self.logger.info("✅ 토큰 갱신 완료")
+                        else:
+                            self.logger.error("❌ 토큰 갱신 실패 - 연결 중단")
+                            return False
+
             mode_text = "모의투자" if self.is_mock else "실제투자" # type: ignore
             logging.debug(f"🔧 웹소켓 연결 시작... ({mode_text})")
             
@@ -1437,7 +1471,7 @@ class KiwoomWebSocketClient:
             
             # 필수 키가 없으면 초기화
             required_keys = ['time', 'open', 'high', 'low', 'close', 'volume', 'strength', 'buy_volume', 'sell_volume', 
-                             'TICK_VELOCITY', 'ORDER_BOOK_IMBALANCE']
+                             'TICK_VELOCITY', 'ORDER_BOOK_IMBALANCE', 'LAST_TIC_CNT']
             current_len = len(tic_data.get('close', []))
             for key in required_keys:
                 if key not in tic_data:
@@ -1477,11 +1511,11 @@ class KiwoomWebSocketClient:
             is_buy = realtime_data.get('is_buy', True) # 매수/매도 플래그
             
             # API 조회의 마지막 틱 개수 확인
-            last_tic_cnt = tic_data.get('last_tic_cnt', 0)
-            
-            # last_tic_cnt 타입 검증 및 변환
-            if isinstance(last_tic_cnt, list) and len(last_tic_cnt) > 0:
-                last_tic_cnt = last_tic_cnt[0]
+            # LAST_TIC_CNT 리스트의 마지막 값을 가져오거나 없으면 0
+            if 'LAST_TIC_CNT' in tic_data and len(tic_data['LAST_TIC_CNT']) > 0:
+                last_tic_cnt = tic_data['LAST_TIC_CNT'][-1]
+            else:
+                last_tic_cnt = 0
             
             # 정수로 변환 시도
             try:
@@ -1514,8 +1548,7 @@ class KiwoomWebSocketClient:
                 # ML 학습용 데이터 저장
                 tic_data['TICK_VELOCITY'].append(tick_velocity)
                 tic_data['ORDER_BOOK_IMBALANCE'].append(order_book_imbalance)
-
-                tic_data['last_tic_cnt'] = 1
+                tic_data['LAST_TIC_CNT'].append(1)
                 
                 if len(tic_data.get('close', [])) == 1:
                     self.logger.info(f"🎯 첫 번째 60틱봉 생성: {stock_code}, 가격={current_price}, 순간체결강도 시작")
@@ -1560,8 +1593,8 @@ class KiwoomWebSocketClient:
                 if 'ORDER_BOOK_IMBALANCE' in tic_data:
                     tic_data['ORDER_BOOK_IMBALANCE'][last_index] = order_book_imbalance
 
-                # TypeError 방지를 위해 명시적 할당 사용
-                tic_data['last_tic_cnt'] = last_tic_cnt + 1
+                if 'LAST_TIC_CNT' in tic_data:
+                     tic_data['LAST_TIC_CNT'][last_index] = last_tic_cnt + 1
                 
         except Exception as e:
             self.logger.error(f"틱 차트 실시간 데이터 추가 실패: {e}", exc_info=True)

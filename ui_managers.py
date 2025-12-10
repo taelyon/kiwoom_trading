@@ -209,6 +209,31 @@ class LoginHandler(QObject):
         try:
             client = KiwoomRestClient('settings.ini')
             if await client.connect():
+                # 연결 직후 토큰 유효성 검사 및 갱신
+                # [주의] is_token_expired 메서드가 KiwoomRestClient에 구현되어 있어야 함
+                is_expired = False
+                if hasattr(client, 'is_token_expired'):
+                    is_expired = client.is_token_expired()
+                elif hasattr(client, 'access_token_expired'):
+                     try:
+                        expired_time = client.access_token_expired
+                        if isinstance(expired_time, str):
+                            expired_time = datetime.strptime(expired_time, '%Y-%m-%d %H:%M:%S')
+                        
+                        if isinstance(expired_time, datetime):
+                            if datetime.now() >= expired_time - timedelta(minutes=1):
+                                is_expired = True
+                     except Exception:
+                         pass
+
+                if is_expired:
+                    self.logger.info("KIwoomRestClient 연결 직후 토큰 만료 감지 - 즉시 갱신 시도")
+                    if await client.get_access_token():
+                        self.logger.info("✅ 초기 토큰 갱신 성공")
+                    else:
+                        self.logger.error("❌ 초기 토큰 갱신 실패")
+                        return None
+                
                 # REST API 클라이언트 초기화 로그 제거
                 return client
             else:
@@ -2470,9 +2495,6 @@ class MLManager:
     def _on_progress(self, msg):
         """학습 진행 상황 로그 출력"""
         self.logger.info(f"{msg}")
-        # UI 터미널에도 출력
-        if hasattr(self.parent, 'trading_tab') and hasattr(self.parent.trading_tab, 'terminalOutput'):
-             self.parent.trading_tab.terminalOutput.append(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")
 
     def _on_finished(self, success, msg):
         """학습 완료 처리"""

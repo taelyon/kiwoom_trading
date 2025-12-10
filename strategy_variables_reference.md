@@ -23,21 +23,24 @@
 ## 3. 사용 가능한 기술적 지표 (Technical Indicators)
 모든 지표는 `tic_` 또는 `min3_` 접두사와 함께 사용해야 합니다. (예: `tic_MA5`, `min3_RSI`)
 
-| 지표 변수명 | 설명 | 비고 |
+| 지표 변수명 | 설명 | 계산식 / 비고 |
 | :--- | :--- | :--- |
-| **MA5**, **MA10**, **MA20**, **MA60** | 이동평균선 (5, 10, 20, 60일/틱) | 단순이동평균 (SMA) |
-| **RSI** | 상대강도지수 (14기간) | |
-| **RSI_SIGNAL** | RSI의 시그널선 (9기간 SMA) | |
-| **tic_velocity** | 틱 생성 속도 (작을수록 빠름), ms단위 | **`[-1]` 필수** |
-| **tic_order_book_imbalance** | 호가 불균형 (-1.0 ~ 1.0) | **`[-1]` 필수** |
-| **min3_relative_position** | 20선 이격도 (3분봉) | **`[-1]` 필수** |
-| **tic_volume_spike** | 순간 거래량 폭발력 (현재/직전10평균) | **단일 값** (스칼라) |
-| **AI_SCORE** | AI 모델 예측 점수 (0.0 ~ 1.0) | **단일 값** (인덱싱 X) |
-| **strength** | 체결강도 (매수량/매도량 * 100) | |
-
-<!-- 아래 지표들은 현재 최적화를 위해 비활성화됨(필요시 코드 주석 해제)
-MACD, BB(볼린저), STOCH, VWAP, OBV, ATR, ROC 등
--->
+| **MA5**, **MA10**, **MA20**, **MA60**, **MA120** | 단순 이동평균 | `talib.SMA(close, period)` |
+| **RSI** | 상대강도지수 (14기간) | `talib.RSI(close, 14)` |
+| **RSI_SIGNAL** | RSI의 시그널선 | `talib.SMA(RSI, 9)` |
+| **MACD** | MACD선 | `talib.MACD(close, 12, 26, 9)` (Fast 12, Slow 26, Signal 9) |
+| **MACD_SIGNAL** | MACD 시그널선 | `MACD`의 9기간 SMA |
+| **MACD_HIST** | MACD 히스토그램 | `MACD - MACD_SIGNAL` |
+| **STOCH_K** | 스토캐스틱 Slow %K | `talib.STOCH(high, low, close, 5, 3, 0, 3, 0)`의 SlowK |
+| **STOCH_D** | 스토캐스틱 Slow %D | `talib.STOCH`의 SlowD |
+| **BB_UPPER**, **BB_MIDDLE**, **BB_LOWER** | 볼린저 밴드 | `talib.BBANDS(close, 20, 2)` (기간 20, 승수 2) |
+| **RELATIVE_POSITION** | 이격도 (20선 기준) | `(close - MA20) / MA20` |
+| **tic_velocity** | 틱 생성 속도 (ms) | `최신시간 - 10틱전시간` (값이 작을수록 빠름), **`[-1]` 필수** |
+| **tic_order_book_imbalance** | 호가 불균형 (-1.0 ~ 1.0) | `(매수총잔량-매도총잔량)/(매수총잔량+매도총잔량)`, **`[-1]` 필수** |
+| **LAST_TIC_CNT** | 현재 봉의 누적 틱 수 | 60틱 봉이 완성되기 전까지 누적된 틱 개수, **`[-1]` 필수** |
+| **strength** | 체결강도 (%) | `(매수체결량/매도체결량) * 100` |
+| **tic_volume_spike** | 순간 거래량 급증 | `현재볼륨 / (최근 10틱 평균볼륨)`, **단일 값** |
+| **AI_SCORE** | AI 모델 예측 점수 | 0.0 ~ 1.0, **단일 값** |
 
 ### 기본 가격/거래량 데이터
 | 변수명 | 설명 |
