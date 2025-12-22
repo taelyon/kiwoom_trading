@@ -241,6 +241,12 @@ class ChartDataCache(QObject):
             
             # 캐시에 데이터 저장
             if code not in self.cache:
+                # pending_stocks에 없으면(즉, 명시적으로 추가 요청된 상태가 아니면) 좀비 데이터로 간주하고 무시
+                # 단, 이미 cache에 있는 경우는 업데이트이므로 통과
+                if code not in self.pending_stocks:
+                    self.logger.debug(f"🚫 {code}: 제거된 종목의 데이터 수신됨 - 캐시 저장 및 UI 추가 건너뜁니다.")
+                    return
+
                 self.cache[code] = {
                     'tic_data': None,
                     'min_data': None,
@@ -372,10 +378,8 @@ class ChartDataCache(QObject):
             self.logger.error(f"❌ API 큐 처리 실패: {ex}")
 
     def remove_monitoring_stock(self, code):
-        """모니터링 종목 제거"""
-        if code in self.cache:
-            del self.cache[code]
-            self.logger.debug(f"📊 모니터링 종목 제거: {code}")
+        """모니터링 종목 제거 - 전체 정리 로직 위임"""
+        self.remove_stock(code)
     
     def update_monitoring_stocks(self, codes):
         """모니터링 종목 리스트 업데이트 (캐시 동기화)"""
@@ -541,6 +545,11 @@ class ChartDataCache(QObject):
             if code in self.cache:
                 del self.cache[code]
                 self.logger.debug(f"🗑️ ChartDataCache: {code} 캐시 데이터 제거됨")
+            
+            # pending_stocks에서 제거 (중요: 재수신 방지)
+            if code in self.pending_stocks:
+                del self.pending_stocks[code]
+                self.logger.debug(f"🗑️ ChartDataCache: {code} 대기 목록(pending_stocks)에서 제거됨")
             
             # API 큐에서 제거
             if code in self.api_request_queue:

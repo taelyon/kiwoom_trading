@@ -416,7 +416,7 @@ class MyWindow(QWidget):
         # 1. 웹소켓 연결 해제
         if self.login_handler and hasattr(self.login_handler, 'websocket_client') and self.login_handler.websocket_client:
             self.logger.info("🔌 웹소켓 연결 해제를 시도합니다...")
-            await self.login_handler.websocket_client.disconnect()
+            await self.login_handler.websocket_client.stop()
 
         # 2. REST 클라이언트 연결 해제
         if self.login_handler and self.login_handler.kiwoom_client:

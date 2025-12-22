@@ -446,10 +446,11 @@ class KiwoomTrader(QObject):
                             break
                 
                 # 전량 매도 완료 후, 블랙리스트에 있는 종목이라면 모니터링에서도 제거 (예: 급등주 모멘텀 상실)
-                if is_full_sell and self.is_blacklisted(code):
+                # 전량 매도 완료 후, 블랙리스트에 있거나 조건검색에서 이탈한 종목이라면 모니터링에서도 제거
+                if is_full_sell and (self.is_blacklisted(code) or code in self.condition_excluded_stocks):
                     if self.parent and hasattr(self.parent, 'monitoring_manager'):
                         await self.parent.monitoring_manager.remove_stock_from_monitoring(code)
-                        self.logger.info(f"🗑️ [{code}] 전량 매도 완료 및 블랙리스트 종목 모니터링 제외")
+                        self.logger.info(f"🗑️ [{code}] 전량 매도 완료 - 모니터링 제외 (블랙리스트 또는 조건이탈)")
                 elif not is_full_sell:
                     self.logger.debug(f"ℹ️ {code} 부분 매도 (보유: {remaining_qty}주, 매도: {quantity}주)")
                 

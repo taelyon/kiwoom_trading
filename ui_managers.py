@@ -302,9 +302,9 @@ class LoginHandler(QObject):
             if is_connected:
                 # --- 연결 해제 로직 ---
                 self.logger.info("🔌 API 연결 해제를 시도합니다...")
-                # 웹소켓 종료
+                # 웹소켓 종료 (명시적 중지 요청)
                 if hasattr(self, 'websocket_client') and self.websocket_client:
-                    await self.websocket_client.disconnect()
+                    await self.websocket_client.stop()
                 # REST 클라이언트 연결 해제
                 await self.kiwoom_client.disconnect()
                 
