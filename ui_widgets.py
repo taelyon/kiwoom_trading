@@ -242,7 +242,7 @@ class TradingTabWidget(QWidget):
         # ===== 이벤트 연결 =====
         self.tradingModeCombo.currentIndexChanged.connect(parent.trading_manager.trading_mode_changed)
         self.buycountButton.clicked.connect(parent.trading_manager.buycount_setting)
-        self.addStockButton.clicked.connect(parent.trading_manager.add_stock_to_list)
+        self.addStockButton.clicked.connect(lambda: _safe_create_task(parent.trading_manager.add_stock_to_list()))
 
         # 비동기 슬롯 연결
         self.connectButton.clicked.connect(lambda: _safe_create_task(parent.login_handler._handle_connection_toggle_async()))
