@@ -2389,11 +2389,25 @@ class KiwoomRestClient:
         """HTTP 클라이언트 초기화 (비동기)"""
         if self.client is None:
             headers = self._default_headers.copy()
+            # 타임아웃을 60초로 대폭 증가 및 연결 제한 완화
             self.client = httpx.AsyncClient(
                 headers=headers,
-                timeout=httpx.Timeout(10.0),
-                limits=httpx.Limits(max_keepalive_connections=10, max_connections=20)
+                timeout=httpx.Timeout(60.0, connect=30.0, read=60.0, write=60.0, pool=60.0),
+                limits=httpx.Limits(max_keepalive_connections=20, max_connections=40, keepalive_expiry=30.0)
             )
+
+    async def _reset_client(self):
+        """HTTP 클라이언트 강제 재설정 (오류 복구용)"""
+        try:
+            if self.client:
+                await self.client.aclose()
+        except:
+            pass
+        self.client = None
+        await self._ensure_client()
+        if self.access_token:
+             self.client.headers['Authorization'] = f'Bearer {self.access_token}'
+        self.logger.warning("♻️ HTTP 클라이언트가 재설정되었습니다 (연결 풀 초기화)")
     
     async def connect(self) -> bool:
         """키움 REST API 연결 (비동기)"""
@@ -2759,7 +2773,21 @@ class KiwoomRestClient:
             self.logger.debug(f"틱 차트 API 호출: {code}, 틱범위: {tic_scope}, 연속조회: {cont_yn}")
             
             # HTTP POST 요청
-            response = await self.client.post(url, headers=headers, json=data, timeout=10.0)
+            # 재시도 로직 적용
+            max_retries = 2
+            for attempt in range(max_retries + 1):
+                try:
+                    response = await self.client.post(url, headers=headers, json=data, timeout=60.0)
+                    break 
+                except (httpx.ReadTimeout, httpx.ConnectTimeout, httpx.ReadError) as timeout_err:
+                     if attempt < max_retries:
+                         self.logger.warning(f"틱 차트 조회 타임아웃/오류 ({attempt+1}/{max_retries}), 재시도 중... {code}")
+                         await asyncio.sleep(1) # 잠시 대기
+                         # 마지막 카운트 전에 클라이언트 리셋 시도
+                         if attempt == max_retries - 1:
+                             await self._reset_client()
+                     else:
+                         raise timeout_err
             
             # 응답 상태 코드 확인
             if response.status_code == 200:
@@ -2783,7 +2811,13 @@ class KiwoomRestClient:
                 except:
                     self.logger.error(f"응답 내용: {response.text}", exc_info=True)
                 return {}
-                
+        
+        except httpx.ReadTimeout:
+            self.logger.warning(f"틱 차트 데이터 조회 타임아웃 (60초 초과): {code}")
+            return {}
+        except httpx.ConnectTimeout:
+            self.logger.warning(f"틱 차트 데이터 조회 연결 타임아웃: {code}")
+            return {}
         except Exception as e:
             self.logger.error(f"틱 차트 데이터 조회 중 오류: {e}", exc_info=True)
             return {}
@@ -2819,7 +2853,20 @@ class KiwoomRestClient:
                 'api-id': 'ka10080'
             }
             
-            response = await self.client.post(url, headers=headers, json=data, timeout=10.0)
+            # 재시도 로직 적용
+            max_retries = 2
+            for attempt in range(max_retries + 1):
+                try:
+                    response = await self.client.post(url, headers=headers, json=data, timeout=60.0)
+                    break
+                except (httpx.ReadTimeout, httpx.ConnectTimeout, httpx.ReadError) as timeout_err:
+                     if attempt < max_retries:
+                         self.logger.warning(f"분봉 차트 조회 타임아웃/오류 ({attempt+1}/{max_retries}), 재시도 중... {code}")
+                         await asyncio.sleep(1)
+                         if attempt == max_retries - 1:
+                             await self._reset_client()
+                     else:
+                         raise timeout_err
             
             if response.status_code == 200:
                 response_data = response.json()
@@ -2827,7 +2874,13 @@ class KiwoomRestClient:
             else:
                 self.logger.error(f"분봉 차트 데이터 조회 실패: {response.status_code}", exc_info=True)
                 return {}
-                
+        
+        except httpx.ReadTimeout:
+            self.logger.warning(f"분봉 차트 데이터 조회 타임아웃 (60초 초과): {code}")
+            return {}
+        except httpx.ConnectTimeout:
+            self.logger.warning(f"분봉 차트 데이터 조회 연결 타임아웃: {code}")
+            return {}
         except Exception as e:
             self.logger.error(f"분봉 차트 데이터 조회 중 오류: {e}", exc_info=True)
             return {}
@@ -2860,7 +2913,7 @@ class KiwoomRestClient:
             }
             
             # POST 요청 (키움 API 문서에 따라 POST 사용)
-            response = await self.client.post(url, headers=headers, json=params, timeout=10.0)
+            response = await self.client.post(url, headers=headers, json=params, timeout=30.0)
             
             if response.status_code == 200:
                 data = response.json()
