@@ -1,4 +1,5 @@
 import logging
+from utils import create_fire_and_forget_task
 import asyncio
 import ast
 import json
@@ -297,7 +298,7 @@ class StrategyManager:
                 if strategy_name in condition_names:
                     # 조건검색식 선택 시 바로 실행 (비동기)
                     try:
-                        asyncio.create_task(self.parent.condition_search_manager.handle_condition_search())
+                        create_fire_and_forget_task(self.parent.condition_search_manager.handle_condition_search())
                     except RuntimeError:
                         self.logger.warning("⚠️ 이벤트 루프가 없어 조건검색을 실행할 수 없습니다")
             
@@ -306,7 +307,7 @@ class StrategyManager:
                 if hasattr(self.parent, 'condition_search_list') and self.parent.condition_search_list:
                     self.logger.debug("🔍 통합 전략 실행: 모든 조건검색식 적용 (ConditionSearchManager)")
                     try:
-                        asyncio.create_task(self.parent.condition_search_manager.handle_integrated_condition_search())
+                        create_fire_and_forget_task(self.parent.condition_search_manager.handle_integrated_condition_search())
                     except RuntimeError:
                         logging.warning("⚠️ 이벤트 루프가 없어 통합 전략을 실행할 수 없습니다")
             

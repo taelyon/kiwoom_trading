@@ -13,6 +13,22 @@ from PyQt6.QtCore import QObject, pyqtSignal
 
 IS_WINDOWS = sys.platform.startswith('win')
 
+# 글로벌 비동기 Task GC 소멸 방지용 Tracker
+_global_background_tasks = set()
+
+def create_fire_and_forget_task(coro):
+    """
+    Task GC 소멸을 방지하는 안전한 fire-and-forget 비동기 작업 생성
+    """
+    try:
+        task = asyncio.create_task(coro)
+        _global_background_tasks.add(task)
+        task.add_done_callback(_global_background_tasks.discard)
+        return task
+    except RuntimeError:
+        logging.getLogger('utils').warning("⚠️ 이벤트 루프가 없어 비동기 작업을 실행할 수 없습니다")
+        return None
+
 def adapt_datetime_iso(val):
     """datetime을 ISO 형식 문자열로 변환"""
     return val.isoformat()
@@ -216,8 +232,8 @@ class ApiLimitManager:
     """API 제한 관리 클래스 (개선된 버전)"""
     logger = logging.getLogger(__qualname__)
     
-    # API 요청 간격 관리 (초 단위)
-    _last_request_time = {}
+    # API 요청을 위한 다음 예약 시간 (Race condition 방지)
+    _next_request_time = {}
     _request_intervals = {
         'tic_chart': 1.5,    # 틱 차트: 1.5초 간격 (429 에러 방지)
         'order': 0.5,         # 주문: 0.5초 간격
@@ -244,26 +260,30 @@ class ApiLimitManager:
     
     @classmethod
     async def check_api_limit_and_wait_async(cls, operation_name="API 요청", rqtype=0, request_type=None):
-        """API 제한 확인 및 대기 (비동기 버전)"""
+        """API 제한 확인 및 대기 (개선된 병목 제어 버전)"""
         try:
             # 요청 타입별 간격 설정
             if request_type is None:
                 request_type = cls._get_request_type(operation_name)
             interval = cls._request_intervals.get(request_type, cls._request_intervals['default'])
             
-            # 마지막 요청 시간 확인
             current_time = time.time()
-            last_time = cls._last_request_time.get(request_type, 0)
+            # 이 요청 타입의 다음 사용 가능 시간 확인
+            next_time = cls._next_request_time.get(request_type, current_time)
             
-            # 필요한 대기 시간 계산
-            elapsed_time = current_time - last_time
-            if elapsed_time < interval:
-                wait_time = interval - elapsed_time
-                # 비동기 대기 (qasync 환경에서 안전)
+            # 다음 사용 가능 시간이 과거라면 현재 시간으로 갱신
+            if next_time < current_time:
+                next_time = current_time
+                
+            # 대기 시간 계산
+            wait_time = next_time - current_time
+            
+            # 다음 요청을 위해 예약 시간 슬롯을 확보 (Interval 추가)
+            cls._next_request_time[request_type] = next_time + interval
+            
+            if wait_time > 0:
                 await asyncio.sleep(wait_time)
             
-            # 요청 시간 업데이트
-            cls._last_request_time[request_type] = time.time()
             return True
             
         except Exception as ex:

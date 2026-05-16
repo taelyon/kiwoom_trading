@@ -7,7 +7,6 @@ UI 매니저 모듈 (호환성 re-export)
 - monitoring_manager.py: MonitoringManager (종목 모니터링)
 - strategy_manager.py: StrategyManager (전략 설정)
 - trading_manager.py: TradingManager (매매 관리)
-- backtest_manager.py: BacktestWorker, BacktestManager (백테스트)
 - account_manager.py: AccountManager (계좌 관리)
 - condition_manager.py: ConditionSearchManager (조건검색)
 - ml_manager.py: MLManager (머신러닝)
@@ -20,7 +19,6 @@ from data_manager import DataManager
 from monitoring_manager import MonitoringManager
 from strategy_manager import StrategyManager
 from trading_manager import TradingManager
-from backtest_manager import BacktestWorker, BacktestManager
 from account_manager import AccountManager
 from condition_manager import ConditionSearchManager
 from ml_manager import MLManager
@@ -31,8 +29,6 @@ __all__ = [
     'MonitoringManager',
     'StrategyManager',
     'TradingManager',
-    'BacktestWorker',
-    'BacktestManager',
     'AccountManager',
     'ConditionSearchManager',
     'MLManager',

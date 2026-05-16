@@ -1,4 +1,5 @@
 import logging
+from utils import create_fire_and_forget_task
 import asyncio
 
 from config_manager import EnvConfigParser
@@ -87,7 +88,7 @@ class ConditionSearchManager:
                                 # stg_changed를 직접 호출하여 로직 일원화
                                 await self.parent.strategy_manager.stg_changed()
 
-                            asyncio.create_task(delayed_condition_search())
+                            create_fire_and_forget_task(delayed_condition_search())
                             self.logger.debug("🔍 저장된 조건검색식 자동 실행 예약 (1초 후)")
                             self.logger.debug("📋 조건검색식이 자동으로 실행되어 모니터링 종목에 추가됩니다")
                             return True # 함수를 종료하여 불필요한 폴백 로직 방지
@@ -128,7 +129,7 @@ class ConditionSearchManager:
                             async def delayed_search():
                                 await asyncio.sleep(1.5)
                                 await self.parent.condition_search_manager.handle_condition_search()
-                            asyncio.create_task(delayed_search())
+                            create_fire_and_forget_task(delayed_search())
                             self.logger.debug(f"🔍 저장된 조건검색식 자동 실행 예약 (1.5초 후)")
                             return True # 함수 종료
                 else:

@@ -10,7 +10,7 @@ from PyQt6.QtCore import QObject, pyqtSignal, QTimer
 from qasync import asyncSlot
 
 from database import AsyncDatabaseManager
-from utils import ApiLimitManager
+from utils import ApiLimitManager, create_fire_and_forget_task
 
 # ==================== 키움 트레이더 클래스 ====================
 class KiwoomTrader(QObject):
@@ -276,7 +276,7 @@ class KiwoomTrader(QObject):
                     # qasync 환경에서 안전하게 태스크 생성
                     try:
                         asyncio.get_running_loop()  # 루프 확인
-                        asyncio.create_task(self.db_manager.save_trade_record(code, current_time, "buy", quantity, price, strategy))
+                        create_fire_and_forget_task(self.db_manager.save_trade_record(code, current_time, "buy", quantity, price, strategy))
                     except RuntimeError:
                         self.logger.warning("⚠️ 이벤트 루프가 없어 매수 기록 저장을 건너뜁니다")
                     
@@ -373,7 +373,7 @@ class KiwoomTrader(QObject):
                 # qasync 환경에서 안전하게 태스크 생성
                 try:
                     asyncio.get_running_loop()  # 루프 확인
-                    asyncio.create_task(self.db_manager.save_trade_record(code, current_time, "sell", quantity, sell_price, strategy))
+                    create_fire_and_forget_task(self.db_manager.save_trade_record(code, current_time, "sell", quantity, sell_price, strategy))
                 except RuntimeError:
                     self.logger.warning("⚠️ 이벤트 루프가 없어 매도 기록 저장을 건너뜁니다")
                 

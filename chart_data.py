@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import talib
 from PyQt6.QtCore import QObject, pyqtSignal, QTimer
-from utils import ApiLimitManager
+from utils import ApiLimitManager, create_fire_and_forget_task
 import strategy_utils
 
 class ChartDataCache(QObject):
@@ -285,7 +285,7 @@ class ChartDataCache(QObject):
                     # 존재하지 않을 때만 추가
                     if not already_exists:
                         # UI와 실시간 구독만 처리하도록 MonitoringManager 호출
-                        asyncio.create_task(self.parent.monitoring_manager.add_stock_to_monitoring(code, stock_name))
+                        create_fire_and_forget_task(self.parent.monitoring_manager.add_stock_to_monitoring(code, stock_name))
                         self.logger.debug(f"✅ 모니터링 리스트박스에 추가 완료: {code} - {stock_name}")
                 
                 # pending_stocks에서 제거
@@ -759,7 +759,7 @@ class ChartDataCache(QObject):
             try:
                 loop = asyncio.get_running_loop()
                 # 이미 실행 중인 이벤트 루프가 있으면 태스크로 실행
-                asyncio.create_task(self.save_to_database())
+                create_fire_and_forget_task(self.save_to_database())
                 logging.debug("✅ DB 저장을 비동기 태스크로 시작")
                 return
             except RuntimeError:

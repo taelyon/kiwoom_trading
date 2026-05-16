@@ -199,10 +199,16 @@ class TradingTabWidget(QWidget):
         self.sellstgInputWidget.setPlaceholderText("매도전략의 내용을 입력하세요...")
         self.sellstgInputWidget.setFixedHeight(63)
 
+        # 생성된 태스크가 가비지 컬렉터에 의해 소멸되는 것을 방지하기 위한 저장소
+        if not hasattr(self, '_background_tasks'):
+            self._background_tasks = set()
+
         # 비동기 슬롯을 안전하게 생성하기 위한 헬퍼 함수
         def _safe_create_task(coro):
             try:
-                asyncio.create_task(coro)
+                task = asyncio.create_task(coro)
+                self._background_tasks.add(task)
+                task.add_done_callback(self._background_tasks.discard)
             except RuntimeError:
                 self.logger.warning("⚠️ 이벤트 루프가 없어 비동기 작업을 실행할 수 없습니다")
 
@@ -269,170 +275,6 @@ class TradingTabWidget(QWidget):
         self.saveSellStgButton.clicked.connect(parent.strategy_manager.save_sellstrategy)
 
 
-class BacktestTabWidget(QWidget):
-    """백테스팅 탭 위젯"""
-    def __init__(self, parent: 'MyWindow'):
-        super().__init__(parent)
-        self.parent_window = parent
-        self.logger = logging.getLogger(self.__class__.__name__)
-        self.init_ui()
-
-    def init_ui(self):
-        """백테스팅 탭 UI 초기화"""
-        parent = self.parent_window
-        layout = QVBoxLayout()
-        
-        # ===== 설정 영역 =====
-        settings_group = QGroupBox("백테스팅 설정")
-        settings_layout = QHBoxLayout()
-        
-        # 좌측 그룹: 기간 설정
-        period_group = QWidget()
-        period_layout = QHBoxLayout()
-        period_layout.setContentsMargins(0, 0, 0, 0)
-        
-        # 시작일 (기본값: 1개월 전)
-        period_layout.addWidget(QLabel("시작일:"))
-        self.bt_start_date = QLineEdit()
-        self.bt_start_date.setPlaceholderText("YYYYMMDD")
-        self.bt_start_date.setFixedWidth(120)
-        
-        # 종료일 (기본값: 오늘)
-        period_layout.addWidget(QLabel("종료일:"))
-        self.bt_end_date = QLineEdit()
-        self.bt_end_date.setPlaceholderText("YYYYMMDD")
-        self.bt_end_date.setFixedWidth(120)
-
-        # 기본값 설정 (1개월)
-        today = QDate.currentDate()
-        one_month_ago = today.addMonths(-1)
-        self.bt_start_date.setText(one_month_ago.toString("yyyyMMdd"))
-        self.bt_end_date.setText(today.toString("yyyyMMdd"))
-        
-        period_layout.addWidget(self.bt_start_date)
-        period_layout.addWidget(self.bt_end_date)
-        
-        # DB 기간 불러오기 버튼
-        self.bt_load_period_button = QPushButton("DB 기간 불러오기")
-        self.bt_load_period_button.setFixedWidth(150)
-        self.bt_load_period_button.clicked.connect(parent.backtest_manager.load_db_period)
-        period_layout.addWidget(self.bt_load_period_button)
-        
-        period_group.setLayout(period_layout)
-        settings_layout.addWidget(period_group)
-        
-        # 중간 스트레치
-        settings_layout.addStretch(1)
-        
-        # 초기 자금
-        settings_layout.addWidget(QLabel("초기 자금:"))
-        self.bt_initial_cash = QLineEdit("10000000")
-        self.bt_initial_cash.setFixedWidth(120)
-        settings_layout.addWidget(self.bt_initial_cash)
-        settings_layout.addStretch(1)
-        
-        # 대상 종목 선택
-        settings_layout.addWidget(QLabel("대상 종목:"))
-        self.bt_stock_combo = QComboBox()
-        self.bt_stock_combo.setFixedWidth(120)
-        self.bt_stock_combo.addItem("전체 종목")
-        settings_layout.addWidget(self.bt_stock_combo)
-        settings_layout.addStretch(1)
-        
-        # 전략 선택
-        settings_layout.addWidget(QLabel("투자 전략:"))
-        self.bt_strategy_combo = QComboBox()
-        self.bt_strategy_combo.setFixedWidth(120)
-        settings_layout.addWidget(self.bt_strategy_combo)
-        settings_layout.addStretch(1)
-        
-        # 실행 버튼
-        self.bt_run_button = QPushButton("백테스팅 실행")
-        self.bt_run_button.setFixedWidth(120)
-        self.bt_run_button.clicked.connect(parent.backtest_manager.run_backtest)
-        settings_layout.addWidget(self.bt_run_button)
-        
-        settings_group.setLayout(settings_layout)
-        layout.addWidget(settings_group)
-        
-        # ===== 결과 영역 (탭 구조) =====
-        results_tab_widget = QTabWidget()
-        
-        # 탭 1: 전체 결과
-        overall_tab = QWidget()
-        overall_layout = QHBoxLayout()
-        
-        # 왼쪽: 결과 요약
-        left_widget = QWidget()
-        left_layout = QVBoxLayout()
-        
-        left_layout.addWidget(QLabel("백테스팅 결과:"))
-        self.bt_results_text = QTextEdit()
-        self.bt_results_text.setReadOnly(True)
-        self.bt_results_text.setMaximumWidth(450)
-        left_layout.addWidget(self.bt_results_text)
-        
-        left_widget.setLayout(left_layout)
-        
-        # 오른쪽: 차트
-        right_widget = QWidget()
-        right_layout = QVBoxLayout()
-        
-        right_widget.setLayout(right_layout)
-        
-        # 차트 표시용 위젯 추가 (PyQtGraph)
-        self.bt_chart_widget = pg.PlotWidget()
-        self.bt_chart_widget.setBackground('w')
-        self.bt_chart_widget.setTitle("백테스팅 결과 차트")
-        self.bt_chart_widget.showGrid(x=True, y=True)
-        self.bt_chart_widget.addLegend()
-        right_layout.addWidget(self.bt_chart_widget)
-        
-        overall_layout.addWidget(left_widget, 1)
-        overall_layout.addWidget(right_widget, 2)
-        overall_tab.setLayout(overall_layout)
-        
-        # 탭 2: 일별 성과
-        daily_tab = QWidget()
-        daily_layout = QHBoxLayout()
-        
-        # 왼쪽: 일별 성과 테이블
-        daily_left_widget = QWidget()
-        daily_left_layout = QVBoxLayout()
-        
-        daily_left_layout.addWidget(QLabel("일별 성과 내역:"))
-        self.bt_daily_table = QTableWidget()
-        self.bt_daily_table.setColumnCount(8)
-        self.bt_daily_table.setHorizontalHeaderLabels([
-            "날짜", "일손익", "수익률(%)", "거래수", "승", "패", "누적손익", "포트폴리오"
-        ])
-        self.bt_daily_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.bt_daily_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.bt_daily_table.setMaximumWidth(600)
-        daily_left_layout.addWidget(self.bt_daily_table)
-        
-        daily_left_widget.setLayout(daily_left_layout)
-        
-        # 오른쪽: 일별 차트
-        daily_right_widget = QWidget()
-        daily_right_layout = QVBoxLayout()
-        
-        daily_right_widget.setLayout(daily_right_layout)
-        
-        daily_layout.addWidget(daily_left_widget, 1)
-        daily_layout.addWidget(daily_right_widget, 2)
-        daily_tab.setLayout(daily_layout)
-        
-        # 탭 추가
-        results_tab_widget.addTab(overall_tab, "전체 성과")
-        results_tab_widget.addTab(daily_tab, "일별 성과")
-        
-        layout.addWidget(results_tab_widget)
-        
-        self.setLayout(layout)
-
-
-# ==================== PyQtGraph CandlesticItem 클래스 ====================
 class CandlesticItem(pg.GraphicsObject):
     """PyQtGraph용 캔들스틱 아이템"""
     def __init__(self, data):

@@ -291,7 +291,7 @@ class KiwoomRestClient:
             }
             
             # 재시도 로직 추가
-            max_retries = 3
+            max_retries = self.config.getint('API', 'max_retries', fallback=3)
             for attempt in range(max_retries):
                 try:
                     response = await self.client.post(url, headers=headers, json=auth_data, timeout=10.0)
@@ -567,7 +567,7 @@ class KiwoomRestClient:
             
             # HTTP POST 요청
             # 재시도 로직 적용
-            max_retries = 2
+            max_retries = self.config.getint('API', 'max_retries', fallback=2)
             for attempt in range(max_retries + 1):
                 try:
                     response = await self.client.post(url, headers=headers, json=data, timeout=60.0)
@@ -647,7 +647,7 @@ class KiwoomRestClient:
             }
             
             # 재시도 로직 적용
-            max_retries = 2
+            max_retries = self.config.getint('API', 'max_retries', fallback=2)
             for attempt in range(max_retries + 1):
                 try:
                     response = await self.client.post(url, headers=headers, json=data, timeout=60.0)

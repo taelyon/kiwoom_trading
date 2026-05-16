@@ -21,15 +21,16 @@ from PyQt6.QtWidgets import QApplication, QMainWindow, QMessageBox, QListWidgetI
 from PyQt6.QtCore import QTimer, pyqtSignal, Qt
 from PyQt6.QtGui import QColor
 
-from utils import setup_logging, _prevent_system_sleep
+from utils import setup_logging, _prevent_system_sleep, create_fire_and_forget_task
 from database import AsyncDatabaseManager
 from trader import KiwoomTrader, AutoTrader
 from strategy import KiwoomStrategy
 from kiwoom_api import KiwoomRestClient, KiwoomWebSocketClient
 
 from ui_managers import (LoginHandler, DataManager, MonitoringManager, StrategyManager, 
-                         TradingManager, BacktestManager, AccountManager, ConditionSearchManager, MLManager)
-from ui_widgets import TradingTabWidget, BacktestTabWidget
+                         TradingManager, AccountManager, ConditionSearchManager, MLManager)
+from ui_widgets import TradingTabWidget
+from settings_ui import SettingsTabWidget
 from chart_data import ChartDataCache
 
 class MyWindow(QWidget):
@@ -65,7 +66,6 @@ class MyWindow(QWidget):
         self.monitoring_manager = MonitoringManager(self)
         self.strategy_manager = StrategyManager(self)
         self.trading_manager = TradingManager(self)
-        self.backtest_manager = BacktestManager(self)
         self.account_manager = AccountManager(self)
         self.condition_search_manager = ConditionSearchManager(self)
         self.ml_manager = MLManager(self)
@@ -84,7 +84,7 @@ class MyWindow(QWidget):
         self.login_handler.connection_status_changed.connect(self.update_connection_ui)
 
         # 자동 연결 시도 (qasync 방식)
-        asyncio.create_task(self.attempt_auto_connect())
+        create_fire_and_forget_task(self.attempt_auto_connect())
 
     def show_message_box(self, title, message):
         """메시지 박스를 표시하는 슬롯"""
@@ -342,15 +342,11 @@ class MyWindow(QWidget):
             self.trading_tab = TradingTabWidget(self)
             self.tab_widget.addTab(self.trading_tab, "실시간 매매")
             
-            # 탭 2: 백테스팅
-            self.backtest_tab = BacktestTabWidget(self)
-            self.tab_widget.addTab(self.backtest_tab, "백테스팅")
-
+            # 탭 2: 환경 설정 (.env 관리)
+            self.settings_tab = SettingsTabWidget(self)
+            self.tab_widget.addTab(self.settings_tab, "환경 설정")
             # TradingTabWidget이 생성된 후 전략 콤보박스 로드
             self.strategy_manager.load_strategy_combos()
-            
-            # BacktestTabWidget이 생성된 후 백테스팅 전략 콤보박스 로드
-            self.backtest_manager.load_backtest_strategies()
             
             # 메인 레이아웃
             main_layout = QVBoxLayout()
@@ -556,7 +552,6 @@ class MyWindow(QWidget):
                 self.logger.error(f"❌ 계좌 잔고조회 실행 실패: {balance_ex}", exc_info=True)
             
             # 8. 백테스팅 탭의 DB 기간 로드
-            self.backtest_manager.load_db_period()
             self.logger.debug("✅ 백테스팅 탭 DB 기간 로드 완료")
 
             # 8. 대기 중인 API 큐 처리 (트레이더 객체 생성 후)

@@ -81,38 +81,15 @@ class LoginHandler(QObject):
             self.logger.error(f"설정 로드 폴백 실패: {ex}", exc_info=True)
     
     async def save_settings(self):
-        """설정 저장 (비동기 I/O)"""
+        """설정 저장 (비동기 환경에서 동기 메서드 호출)"""
         try:
-            # 설정 저장 전, 파일의 최신 내용을 다시 읽어와 동기화
-            settings_path = get_resource_path('.env')
-            self.logger.debug("설정 저장을 위해 .env 파일 다시 로드")
-            
-            # 거래 모드 설정 저장
-            is_simulation = (self.parent.trading_tab.tradingModeCombo.currentIndex() == 0) # type: ignore
-            self.config.set('KIWOOM_API', 'simulation', str(is_simulation))
-            
-            # 자동 연결 설정 저장
-            self.config.set('LOGIN', 'autoconnect', str(self.parent.trading_tab.autoConnectCheckBox.isChecked()))
-            
-            # 현재 선택된 투자전략 저장
-            current_strategy = self.parent.trading_tab.comboStg.currentText()
-            if current_strategy:
-                self.config.set('SETTINGS', 'last_strategy', current_strategy)
-
-            # 비동기 파일 쓰기
-            config_string = self._config_to_string()
-            async with aiofiles.open(settings_path, 'w', encoding='utf-8') as f:
-                await f.write(config_string)
-                
+            self.save_settings_sync()
         except Exception as ex:
             self.logger.error(f"설정 저장 실패: {ex}", exc_info=True)
-            # 동기 방식으로 폴백
-            self.save_settings_sync()
     
     def save_settings_sync(self):
-        """설정 저장 (동기 I/O)"""
+        """설정 저장"""
         try:
-            settings_path = get_resource_path('.env')
             # 거래 모드 설정 저장
             is_simulation = (self.parent.trading_tab.tradingModeCombo.currentIndex() == 0) # type: ignore
             self.config.set('KIWOOM_API', 'simulation', str(is_simulation))
@@ -125,17 +102,11 @@ class LoginHandler(QObject):
             if current_strategy:
                 self.config.set('SETTINGS', 'last_strategy', current_strategy)
 
-            # 동기 파일 쓰기
-            with open(settings_path, 'w', encoding='utf-8') as configfile:
-                self.config.write(configfile)
+            # 안전하게 저장 (코멘트 보존)
+            self.config.save()
+            self.logger.debug("✅ 설정 내용이 .env에 저장되었습니다.")
         except Exception as ex:
-            self.logger.error(f"설정 저장 폴백 실패: {ex}", exc_info=True)
-    
-    def _config_to_string(self):
-        """ConfigParser를 문자열로 변환"""
-        string_io = io.StringIO()
-        self.config.write(string_io)
-        return string_io.getvalue()
+            self.logger.error(f"설정 저장 중 오류 발생: {ex}", exc_info=True)
     
     async def start_websocket_client(self):
         """웹소켓 클라이언트 시작 (qasync 방식)"""

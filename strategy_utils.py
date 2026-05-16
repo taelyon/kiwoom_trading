@@ -40,7 +40,7 @@ STRATEGY_SAFE_GLOBALS = {
 }
 
 # ==================== 전략 평가 공통 함수 ====================
-def evaluate_strategies(strategies, safe_locals, code="", strategy_type="", is_backtest=False):
+def evaluate_strategies(strategies, safe_locals, code="", strategy_type=""):
     """
     전략 조건들을 평가하고 일치하는 첫 번째 전략을 반환
     
@@ -49,7 +49,6 @@ def evaluate_strategies(strategies, safe_locals, code="", strategy_type="", is_b
         safe_locals: 평가에 사용할 로컬 변수 딕셔너리
         code: 종목 코드 (로깅용)
         strategy_type: 전략 타입 ("매수", "매도" 등, 로깅용)
-        is_backtest: 백테스팅 모드 여부 (상세 디버그 로그 출력용)
     
     Returns:
         (bool, dict or None): (조건 충족 여부, 충족된 전략 또는 None)
@@ -57,7 +56,7 @@ def evaluate_strategies(strategies, safe_locals, code="", strategy_type="", is_b
     logger = logging.getLogger(__name__)
 
     # 백테스팅 중이고, 매도 전략이며, current_profit_pct가 손절 기준 근처인 경우에만 상세 디버그
-    is_sell_debug = (is_backtest and strategy_type == "매도" and
+    is_sell_debug = (strategy_type == "매도" and
                     'current_profit_pct' in safe_locals and 
                     safe_locals.get('current_profit_pct', 0) < -0.6)
     

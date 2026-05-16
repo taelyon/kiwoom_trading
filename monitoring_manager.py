@@ -1,4 +1,5 @@
 import logging
+from utils import create_fire_and_forget_task
 import asyncio
 import threading
 
@@ -40,7 +41,7 @@ class MonitoringManager:
                     # qasync 환경에서 안전하게 태스크 생성
                     try:
                         asyncio.get_running_loop()  # 루프 확인
-                        asyncio.create_task(ws_client.subscribe_stock_execution_data([code], 'monitoring'))
+                        create_fire_and_forget_task(ws_client.subscribe_stock_execution_data([code], 'monitoring'))
                         self.logger.debug(f"📡 실시간 체결 데이터 구독: {code}")
                     except RuntimeError:
                         # 이벤트 루프가 없으면 무시 (정상적인 상황일 수 있음)
@@ -131,7 +132,7 @@ class MonitoringManager:
                     # qasync 환경에서 안전하게 태스크 생성
                     try:
                         asyncio.get_running_loop()  # 루프 확인
-                        asyncio.create_task(ws_client.unsubscribe_stock_execution_data([code]))
+                        create_fire_and_forget_task(ws_client.unsubscribe_stock_execution_data([code]))
                         self.logger.debug(f"📡 실시간 구독 해제: {code}")
                     except RuntimeError:
                         self.logger.warning("⚠️ 이벤트 루프가 없어 구독 해제를 건너뜁니다")
@@ -286,7 +287,7 @@ class MonitoringManager:
                     # qasync 환경에서 안전하게 태스크 생성
                     try:
                         asyncio.get_running_loop()  # 루프 확인
-                        asyncio.create_task(websocket_client.subscribe_stock_execution_data([code], 'monitoring'))
+                        create_fire_and_forget_task(websocket_client.subscribe_stock_execution_data([code], 'monitoring'))
                         self.logger.debug(f"📡 모니터링 종목 실시간 체결(0B) 구독 요청: {code}")
                     except RuntimeError:
                         self.logger.warning("⚠️ 이벤트 루프가 없어 구독을 건너뜁니다")
@@ -308,7 +309,7 @@ class MonitoringManager:
                     # qasync 환경에서 안전하게 태스크 생성
                     try:
                         asyncio.get_running_loop()  # 루프 확인
-                        asyncio.create_task(websocket_client.unsubscribe_stock_execution_data([code]))
+                        create_fire_and_forget_task(websocket_client.unsubscribe_stock_execution_data([code]))
                         self.logger.debug(f"📡 실시간 체결 데이터 구독 해제: {code}")
                     except RuntimeError:
                         self.logger.warning("⚠️ 이벤트 루프가 없어 구독 해제를 건너뜁니다")

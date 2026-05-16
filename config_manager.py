@@ -6,13 +6,13 @@ from dotenv import load_dotenv, set_key, find_dotenv
 # 프로젝트에서 관리하는 .env 키 접두사 목록
 _MANAGED_PREFIXES = (
     'STRATEGIES_', 'BUYCOUNT_', 'TRADING_', 'DATA_SAVING_', 'CHART_',
-    'KIWOOM_API_', 'LOGIN_', 'SLACK_', 'SETTINGS_', 'STRATEGY_',
+    'KIWOOM_API_', 'LOGIN_', 'SLACK_', 'SETTINGS_', 'STRATEGY_', 'API_',
 )
 
 # 표준 섹션 이름 (대문자)
 _STANDARD_SECTIONS = frozenset([
     'STRATEGIES', 'BUYCOUNT', 'TRADING', 'DATA_SAVING', 'CHART',
-    'KIWOOM_API', 'LOGIN', 'SLACK', 'SETTINGS',
+    'KIWOOM_API', 'LOGIN', 'SLACK', 'SETTINGS', 'API',
 ])
 
 
@@ -126,15 +126,36 @@ class EnvConfigParser:
         os.environ[key] = str_val
         self._data[key] = str_val
 
+    def items(self, section):
+        """특정 섹션의 (키, 값) 튜플 리스트 반환"""
+        if section.upper() in _STANDARD_SECTIONS:
+            prefix = f"{section.upper()}_"
+        else:
+            prefix = f"STRATEGY_{section}_"
+            
+        result = []
+        for k, v in self._data.items():
+            if k.startswith(prefix):
+                result.append((k[len(prefix):].lower(), v))
+        return result
+
+    def __getitem__(self, section):
+        """config['SECTION'] 형태로 접근할 때 해당 섹션의 딕셔너리 반환"""
+        return dict(self.items(section))
+
+    def save(self):
+        """현재 변경된 설정을 .env 파일에 안전하게 저장 (코멘트 및 미관리 키 보존)"""
+        for k, v in self._data.items():
+            if any(k.startswith(p) for p in _MANAGED_PREFIXES):
+                set_key(self.env_path, k, v)
+
     def write(self, fp):
-        """파일 객체에 쓰고, .env 파일에도 영구 저장 (관리 대상 키만)"""
+        """파일 객체에 설정 내용을 쓰기 (ConfigParser 호환용, 가급적 save() 사용 권장)"""
         lines = []
         for k in sorted(self._data.keys()):
-            # 프로젝트 관리 대상 키만 저장 (시스템 환경변수 제외)
             if any(k.startswith(p) for p in _MANAGED_PREFIXES):
                 v = self._data[k]
                 lines.append(f"{k}={v}\n")
-                set_key(self.env_path, k, v)
         
         content = "".join(lines)
         if hasattr(fp, 'write'):

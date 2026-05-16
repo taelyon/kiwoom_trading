@@ -13,7 +13,7 @@ import websockets
 import time
 from PyQt6.QtCore import QTimer
 
-from utils import ApiLimitManager, safe_float_conversion
+from utils import ApiLimitManager, safe_float_conversion, create_fire_and_forget_task
 
 # ==================== 키움 웹소켓 클라이언트 ====================
 
@@ -377,13 +377,13 @@ class KiwoomWebSocketClient:
                                 elif data_type == '0B':  # 주식체결
                                     try:
                                         # 비동기로 처리하여 기술적 지표 계산이 UI를 블로킹하지 않도록 함
-                                        asyncio.create_task(self.process_stock_execution_data_async(data_item))
+                                        create_fire_and_forget_task(self.process_stock_execution_data_async(data_item))
                                     except Exception as execution_err:
                                         self.logger.error(f"체결 데이터 처리 실패: {execution_err}", exc_info=True)
                                         
                                 elif data_type == '0D':  # 주식호가잔량 (Order Book)
                                     try:
-                                        asyncio.create_task(self.process_order_book_data_async(data_item))
+                                        create_fire_and_forget_task(self.process_order_book_data_async(data_item))
                                     except Exception as order_book_err:
                                         self.logger.error(f"호가 데이터 처리 실패: {order_book_err}", exc_info=True)
                                         
@@ -827,7 +827,7 @@ class KiwoomWebSocketClient:
                                 self.logger.info(f"  당일총매도손익: {daily_total_sell_profit:+,}원 ({daily_total_sell_profit_rate:+.2f}%)")
 
                             # 전체 실현손익 조회 및 슬랙 알림 전송을 위한 비동기 태스크 생성
-                            asyncio.create_task(self._send_total_profit_notification_on_sell(
+                            create_fire_and_forget_task(self._send_total_profit_notification_on_sell(
                                 prev_balance_info,
                                 sold_qty,
                                 daily_total_sell_profit,
@@ -1846,11 +1846,11 @@ class KiwoomWebSocketClient:
                             qty = portfolio['holdings'][stock_code].get('quantity', 0)
                             if qty > 0:
                                 # 비동기로 매도 주문 실행
-                                asyncio.create_task(self.parent.trader.place_sell_order(stock_code, qty, 0, '조건이탈매도'))
+                                create_fire_and_forget_task(self.parent.trader.place_sell_order(stock_code, qty, 0, '조건이탈매도'))
                     else:
                         # 보유하지 않은 종목만 모니터링에서 제거
                         if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'monitoring_manager'):
-                            asyncio.create_task(self.parent.monitoring_manager.remove_stock_from_monitoring(stock_code))
+                            create_fire_and_forget_task(self.parent.monitoring_manager.remove_stock_from_monitoring(stock_code))
 
                 else:
                     self.logger.warning(f"⚠️ 알 수 없는 조건검색 액션 타입: {stock_code} - 액션: {action_type}") # type: ignore
@@ -1913,7 +1913,7 @@ class KiwoomWebSocketClient:
             elif market_operation == '8':
                 self.logger.info("⏹️ 장마감 시간이 되었습니다. 거래가 종료됩니다.")
                 # 장마감 시 장시작시간 구독 해제
-                asyncio.create_task(self.unsubscribe_market_status())
+                create_fire_and_forget_task(self.unsubscribe_market_status())
             elif market_operation == '4':
                 self.logger.info("⏸️ 장종료 예상지수종료 시간입니다.")
             elif market_operation == '8':
@@ -2053,7 +2053,7 @@ class KiwoomWebSocketClient:
                                 await self.parent.start_condition_realtime(condition_seq)
                                 self.logger.info(f"✅ 첫 번째 조건검색 자동 실행 완료: {condition_name} (seq: {condition_seq})")
                             
-                            asyncio.create_task(auto_execute_first_condition())
+                            create_fire_and_forget_task(auto_execute_first_condition())
                             self.logger.info(f"🔍 첫 번째 조건검색 자동 실행 예약 (2초 후): {condition_name}")
                     
                 except Exception as add_ex:
