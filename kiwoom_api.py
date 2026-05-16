@@ -8,6 +8,7 @@ import threading
 from threading import Lock
 from datetime import datetime, timedelta, time as dt_time
 import configparser
+from config_manager import EnvConfigParser
 from typing import Dict, List, Optional, Any
 
 import httpx
@@ -2219,7 +2220,7 @@ class KiwoomWebSocketClient:
 class KiwoomRestClient:
     """키움 REST API 클라이언트 클래스"""
     
-    def __init__(self, config_file='settings.ini'):
+    def __init__(self, config_file='.env'):
         # 로깅 설정을 먼저 초기화
         logging.basicConfig(level=logging.INFO)
         self.logger = logging.getLogger(self.__class__.__name__)
@@ -2277,9 +2278,9 @@ class KiwoomRestClient:
         
     def load_config(self):
         """설정 파일 로드"""
-        self.config = configparser.RawConfigParser()
+        self.config = EnvConfigParser()
         try:
-            self.config.read(self.config_file, encoding='utf-8')
+            self.config.read(self.config_file)
             self.logger.info(f"설정 파일 로드 완료: {self.config_file}")
         except Exception as e:
             self.logger.error(f"설정 파일 로드 실패: {e}", exc_info=True)

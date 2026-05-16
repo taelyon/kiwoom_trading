@@ -2,7 +2,8 @@ backup/
 *.log
 temp/
 __pycache__/
-settings.ini
+.env
+*.bak
 dist/
 build/
 .venv/

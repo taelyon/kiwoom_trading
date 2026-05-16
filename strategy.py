@@ -1,6 +1,7 @@
 import logging
 import asyncio
 import configparser
+from config_manager import EnvConfigParser
 import json
 import traceback
 import pandas as pd
@@ -36,8 +37,8 @@ class KiwoomStrategy(QObject):
     def load_strategy_config(self):
         """전략 설정 로드"""
         try:
-            config = configparser.RawConfigParser()
-            config.read('settings.ini', encoding='utf-8')
+            config = EnvConfigParser()
+            config.read('.env')
             
             # 현재 전략 로드
             self.current_strategy = config.get('SETTINGS', 'last_strategy', fallback='통합 전략')

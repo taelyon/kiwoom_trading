@@ -4,6 +4,7 @@
 """
 # 표준 라이브러리
 import configparser
+from config_manager import EnvConfigParser
 import copy
 import json
 import logging
@@ -31,21 +32,20 @@ from strategy_utils import (
 class KiwoomBacktester:
     """키움 REST API 기반 백테스팅 엔진"""
     
-    def __init__(self, db_path, config_file='settings.ini', initial_cash=10000000):
+    def __init__(self, db_path, config_file='.env', initial_cash=10000000):
         self.logger = logging.getLogger(self.__class__.__name__)
         self.db_path = db_path
         self.config_file = config_file
         self.initial_cash = initial_cash
         
-        # settings.ini 로드
-        self.config = configparser.RawConfigParser()
+        # .env 로드
+        self.config = EnvConfigParser()
         if config_file:
             try:
                 # 수수료/세금 설정 로드
-                self.config.read(config_file, encoding='utf-8')
+                self.config.read(config_file)
                 self.commission_rate = self.config.getfloat('TRADING', 'commission_rate', fallback=0.00015)
                 self.tax_rate = self.config.getfloat('TRADING', 'tax_rate', fallback=0.0018)
-                self.config.read(config_file, encoding='utf-8')
             except Exception as ex:
                 self.logger.error(f"설정 파일 로드 실패: {ex}")
         
@@ -987,7 +987,7 @@ def main():
         logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
         
         # 백테스터 생성
-        backtester = KiwoomBacktester('stock_data.db', 'settings.ini', 10000000)
+        backtester = KiwoomBacktester('stock_data.db', '.env', 10000000)
         
         # 사용 가능한 데이터 확인
         available_data = backtester.check_available_data()

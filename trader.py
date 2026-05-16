@@ -2,6 +2,7 @@ import logging
 import asyncio
 import concurrent.futures
 import configparser
+from config_manager import EnvConfigParser
 import time
 import json
 import os
@@ -119,8 +120,8 @@ class KiwoomTrader(QObject):
     def load_settings(self):
         """설정 로드"""
         try:
-            config = configparser.RawConfigParser()
-            config.read('settings.ini', encoding='utf-8')
+            config = EnvConfigParser()
+            config.read('.env')
             
             # 매매 설정
             self.evaluation_interval = config.getint('TRADING', 'evaluation_interval', fallback=1)

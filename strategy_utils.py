@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 import talib
 import os
+from config_manager import EnvConfigParser
 
 # LightGBM 로드 (전역 변수로 1회만 로드)
 LGBM_MODEL = None
@@ -628,13 +629,12 @@ def prepare_sell_strategy_locals(code, tic_chart_data, min_chart_data, buy_price
         return {}
 
 # ==================== 설정 파일에서 전략 로드 ====================
-def load_strategies_from_config(config_file='settings.ini'):
+def load_strategies_from_config(config_file='.env'):
     """설정 파일에서 전략 로드"""
     logger = logging.getLogger(__name__)
     try:
-        import configparser
-        config = configparser.RawConfigParser()
-        config.read(config_file, encoding='utf-8')
+        config = EnvConfigParser()
+        config.read(config_file)
         
         strategies = {}
         

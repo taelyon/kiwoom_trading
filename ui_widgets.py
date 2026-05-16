@@ -4,6 +4,7 @@ import time
 import traceback
 from datetime import datetime, time as dt_time
 import configparser
+from config_manager import EnvConfigParser
 import numpy as np
 import pyqtgraph as pg
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
@@ -71,10 +72,10 @@ class TradingTabWidget(QWidget):
         buycountLabel = QLabel("최대투자 종목수:")
         buycountLayout.addWidget(buycountLabel)
         
-        # settings.ini에서 저장된 값 읽어오기
+        # .env에서 저장된 값 읽어오기
         try:
-            config = configparser.RawConfigParser()
-            config.read('settings.ini', encoding='utf-8')
+            config = EnvConfigParser()
+            config.read('.env')
             saved_buycount = config.getint('BUYCOUNT', 'target_buy_count') if config.has_option('BUYCOUNT', 'target_buy_count') else 3
         except:
             saved_buycount = 3

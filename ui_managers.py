@@ -1,6 +1,7 @@
 import logging
 import asyncio
 import configparser
+from config_manager import EnvConfigParser
 import json
 import os
 import ast
@@ -28,14 +29,14 @@ class LoginHandler(QObject):
         super().__init__()
         self.logger = logging.getLogger(self.__class__.__name__)
         self.parent = parent_window
-        self.config = configparser.RawConfigParser()
+        self.config = EnvConfigParser()
         self.kiwoom_client = None
     
     def get_target_buy_count(self):
         """settings.ini에서 최대투자 종목수 읽기"""
         try:
-            config = configparser.RawConfigParser()
-            config.read('settings.ini', encoding='utf-8')
+            config = EnvConfigParser()
+            config.read('.env')
             if config.has_option('BUYCOUNT', 'target_buy_count'):
                 return config.getint('BUYCOUNT', 'target_buy_count')
             else:
@@ -90,7 +91,7 @@ class LoginHandler(QObject):
     def load_settings_sync(self):
         """설정 로드 (동기 I/O)"""
         try:
-            self.config.read('settings.ini', encoding='utf-8')
+            self.config.read('.env')
             if self.config.has_option('KIWOOM_API', 'simulation'): # type: ignore
                 is_simulation = self.config.getboolean('KIWOOM_API', 'simulation')
                 self.parent.trading_tab.tradingModeCombo.setCurrentIndex(0 if is_simulation else 1)
@@ -103,9 +104,9 @@ class LoginHandler(QObject):
         """설정 저장 (비동기 I/O)"""
         try:
             # 설정 저장 전, 파일의 최신 내용을 다시 읽어와 동기화
-            settings_path = get_resource_path('settings.ini')
-            self.config.read(settings_path, encoding='utf-8')
-            self.logger.debug("설정 저장을 위해 settings.ini 파일 다시 로드")
+            settings_path = get_resource_path('.env')
+            self.config.read(settings_path)
+            self.logger.debug("설정 저장을 위해 .env 파일 다시 로드")
             
             # 거래 모드 설정 저장
             is_simulation = (self.parent.trading_tab.tradingModeCombo.currentIndex() == 0) # type: ignore
@@ -132,7 +133,7 @@ class LoginHandler(QObject):
     def save_settings_sync(self):
         """설정 저장 (동기 I/O)"""
         try:
-            settings_path = get_resource_path('settings.ini')
+            settings_path = get_resource_path('.env')
             # 거래 모드 설정 저장
             is_simulation = (self.parent.trading_tab.tradingModeCombo.currentIndex() == 0) # type: ignore
             self.config.set('KIWOOM_API', 'simulation', str(is_simulation))
@@ -207,7 +208,7 @@ class LoginHandler(QObject):
     async def init_kiwoom_client(self):
         """키움 REST API 클라이언트 초기화 (비동기)"""
         try:
-            client = KiwoomRestClient('settings.ini')
+            client = KiwoomRestClient('.env')
             if await client.connect():
                 # 연결 직후 토큰 유효성 검사 및 갱신
                 # [주의] is_token_expired 메서드가 KiwoomRestClient에 구현되어 있어야 함
@@ -285,7 +286,7 @@ class LoginHandler(QObject):
                     
                 
             else:
-                self.logger.error("키움 REST API 연결 실패! settings.ini 파일의 appkey와 appsecret을 확인해주세요.")
+                self.logger.error("키움 REST API 연결 실패! .env 파일의 appkey와 appsecret을 확인해주세요.")
                 self.parent.update_connection_ui(is_connected=False)
                 
         except Exception as ex:
@@ -803,10 +804,10 @@ class StrategyManager:
         self.parent = parent
     
     def load_strategy_combos(self):
-        """전략 콤보박스에 settings.ini 값 로드"""
+        """.env 값 로드"""
         try:
-            config = configparser.RawConfigParser()
-            config.read('settings.ini', encoding='utf-8')
+            config = EnvConfigParser()
+            config.read('.env')
             
             # 시그널을 잠시 끊어 중복 로드를 방지
             self.parent.trading_tab.comboStg.blockSignals(True)
@@ -861,8 +862,8 @@ class StrategyManager:
             combo_widget.blockSignals(True)  # 시그널 차단
             combo_widget.clear()
             
-            config = configparser.RawConfigParser()
-            config.read('settings.ini', encoding='utf-8')
+            config = EnvConfigParser()
+            config.read('.env')
             
             # 현재 선택된 투자전략 가져오기
             current_strategy = self.parent.trading_tab.comboStg.currentText()
@@ -896,7 +897,7 @@ class StrategyManager:
             else:
                 # 해당 전략 섹션 확인
                 if not config.has_section(current_strategy):
-                    self.logger.warning(f"settings.ini에 [{current_strategy}] 섹션이 없습니다")
+                    self.logger.warning(f".env에 [{current_strategy}] 섹션이 없습니다")
                     return
                 
                 # 전략 목록 추출
@@ -920,22 +921,22 @@ class StrategyManager:
             combo_widget.blockSignals(False)  # 시그널 복구
     
     def save_current_strategy(self):
-        """현재 선택된 투자전략을 settings.ini에 저장"""
+        """현재 선택된 투자전략을 .env에 저장"""
         try:
             current_strategy = self.parent.trading_tab.comboStg.currentText()
             if not current_strategy:
                 self.logger.debug("저장할 투자전략이 없습니다")
                 return
             
-            config = configparser.RawConfigParser()
-            config.read('settings.ini', encoding='utf-8')
+            config = EnvConfigParser()
+            config.read('.env')
             
             # [Strategy] 섹션 대신 [SETTINGS].last_strategy에 통합 저장
             if not config.has_section('SETTINGS'):
                 config.add_section('SETTINGS')
             config.set('SETTINGS', 'last_strategy', current_strategy)
             
-            with open('settings.ini', 'w', encoding='utf-8') as f:
+            with open('.env', 'w', encoding='utf-8') as f:
                 config.write(f)
             
             self.logger.debug(f"✅ 현재 투자전략 저장(SETTINGS.last_strategy): {current_strategy}")
@@ -962,8 +963,8 @@ class StrategyManager:
     def load_strategy_content(self, strategy_name, strategy_type):
         """전략 내용을 텍스트 위젯에 로드"""
         try:
-            config = configparser.RawConfigParser()
-            config.read('settings.ini', encoding='utf-8')
+            config = EnvConfigParser()
+            config.read('.env')
             
             current_strategy = self.parent.trading_tab.comboStg.currentText()
 
@@ -1073,7 +1074,7 @@ class StrategyManager:
             await self._clear_monitoring_list()
             await asyncio.sleep(1.0)  # 0.5초 대기
 
-            # 현재 선택된 전략을 settings.ini에 저장
+            # 현재 선택된 전략을 .env에 저장
             self.save_current_strategy()
             
             # 투자전략 변경 시 매수/매도 전략 목록을 항상 새로고침합니다.
@@ -1148,9 +1149,9 @@ class StrategyManager:
             current_strategy_name = combo_widget.currentText()
             key_from_combobox = combo_widget.currentData()
 
-            # settings.ini 파일 업데이트
-            config = configparser.RawConfigParser()
-            config.read('settings.ini', encoding='utf-8')
+            # .env 파일 업데이트
+            config = EnvConfigParser()
+            config.read('.env')
 
             target_section = current_strategy
             target_key = key_from_combobox
@@ -1185,7 +1186,7 @@ class StrategyManager:
                 return
 
             # 파일 저장
-            with open('settings.ini', 'w', encoding='utf-8') as configfile:
+            with open('.env', 'w', encoding='utf-8') as configfile:
                 config.write(configfile)
 
             self.logger.debug(f"{strategy_type} 전략 '{current_strategy_name}'이 저장되었습니다.")
@@ -1205,14 +1206,14 @@ class StrategyManager:
             current_strategy_name = combo_widget.currentText()
             key_from_combobox = combo_widget.currentData()
 
-            config = configparser.RawConfigParser()
-            config.read('settings.ini', encoding='utf-8')
+            config = EnvConfigParser()
+            config.read('.env')
 
             strategy_data = eval(config.get(current_strategy_name, key_from_combobox))
             strategy_data['content'] = strategy_text
             config.set(current_strategy_name, key_from_combobox, str(strategy_data))
 
-            with open('settings.ini', 'w', encoding='utf-8') as configfile:
+            with open('.env', 'w', encoding='utf-8') as configfile:
                 config.write(configfile)
         except Exception as ex:
             self.logger.error(f"{strategy_type} 전략 저장 실패 (레거시): {ex}")
@@ -1241,8 +1242,8 @@ class TradingManager(QObject):
     def get_target_buy_count(self):
         """settings.ini에서 최대투자 종목수 읽기"""
         try:
-            config = configparser.RawConfigParser()
-            config.read('settings.ini', encoding='utf-8')
+            config = EnvConfigParser()
+            config.read('.env')
             if config.has_option('BUYCOUNT', 'target_buy_count'):
                 return config.getint('BUYCOUNT', 'target_buy_count')
             else:
@@ -1256,9 +1257,9 @@ class TradingManager(QObject):
         try:
             buycount = int(self.parent.trading_tab.buycountEdit.text())
             if buycount > 0:
-                # settings.ini 파일에 저장
-                config = configparser.RawConfigParser()
-                config.read('settings.ini', encoding='utf-8')
+                # .env 파일에 저장
+                config = EnvConfigParser()
+                config.read('.env')
                 
                 # BUYCOUNT 섹션이 없으면 생성
                 if not config.has_section('BUYCOUNT'):
@@ -1268,7 +1269,7 @@ class TradingManager(QObject):
                 config.set('BUYCOUNT', 'target_buy_count', str(buycount))
                 
                 # 파일에 저장
-                with open('settings.ini', 'w', encoding='utf-8') as configfile:
+                with open('.env', 'w', encoding='utf-8') as configfile:
                     config.write(configfile)
                 
                 # 메모리에도 저장 (하위 호환성)
@@ -1756,8 +1757,8 @@ class BacktestManager:
             self.parent.backtest_tab.bt_strategy_combo.clear()
             
             # 설정 파일에서 전략 로드
-            config = configparser.RawConfigParser()
-            config.read('settings.ini', encoding='utf-8')
+            config = EnvConfigParser()
+            config.read('.env')
             
             strategies = []
             if config.has_section('STRATEGIES'):
@@ -2296,9 +2297,9 @@ class ConditionSearchManager:
 
         try:
             
-            # settings.ini에서 저장된 전략 확인
-            config = configparser.RawConfigParser()
-            config.read('settings.ini', encoding='utf-8')
+            # .env에서 저장된 전략 확인
+            config = EnvConfigParser()
+            config.read('.env')
             
             if config.has_option('SETTINGS', 'last_strategy'):
                 last_strategy = config.get('SETTINGS', 'last_strategy')
