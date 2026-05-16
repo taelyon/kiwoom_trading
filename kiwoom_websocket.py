@@ -316,6 +316,16 @@ class KiwoomWebSocketClient:
                             self.logger.debug("🔔 시장 상태 모니터링 시작")
                         except Exception as market_sub_err:
                             self.logger.error(f"시장 상태 구독 실패: {market_sub_err}", exc_info=True)
+                            
+                        # [추가] 오토 리커넥트 상태 동기화: 끊어지기 전 모니터링 중이던 종목 자동 재구독
+                        try:
+                            if hasattr(self.parent, 'monitoring_manager') and self.parent.monitoring_manager:
+                                monitoring_codes = self.parent.monitoring_manager.extract_monitoring_stock_codes_enhanced()
+                                if monitoring_codes:
+                                    self.logger.info(f"🔄 웹소켓 복구 상태 동기화: 모니터링 종목 {len(monitoring_codes)}개 실시간 체결 재구독")
+                                    await self.subscribe_stock_execution_data(monitoring_codes, 'monitoring')
+                        except Exception as sync_err:
+                            self.logger.error(f"모니터링 종목 재구독 실패: {sync_err}", exc_info=True)
 
                 # 메시지 유형이 PING일 경우 수신값 그대로 송신 (키움증권 예시코드 기반)
                 if response.get('trnm') == 'PING':

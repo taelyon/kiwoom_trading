@@ -978,6 +978,30 @@ class AutoTrader(QObject):
                     self.logger.debug("🔍 자동매매 실행 중 - 모니터링 종목 없음")
                 self._last_status_log_time = current_time
             
+            # --- 글로벌 계좌 서킷 브레이커 로직 ---
+            ws_client = getattr(self.parent.login_handler, 'websocket_client', None)
+            if ws_client and hasattr(ws_client, 'balance_data') and len(ws_client.balance_data) > 0:
+                total_purchase = sum(data.get('purchase_amount', 0) for data in ws_client.balance_data.values())
+                total_profit = sum(data.get('profit_loss', 0) for data in ws_client.balance_data.values())
+                
+                if total_purchase > 0:
+                    global_profit_rate = (total_profit / total_purchase) * 100
+                    circuit_breaker_pct = self.trader.client.config.getfloat('TRADING', 'global_stoploss_pct', fallback=-5.0)
+                    
+                    if global_profit_rate <= circuit_breaker_pct:
+                        if not getattr(self, 'circuit_breaker_triggered', False):
+                            self.circuit_breaker_triggered = True
+                            self.logger.critical(f"🚨 [서킷 브레이커 발동] 계좌 총 수익률이 {global_profit_rate:.2f}%로 제한선({circuit_breaker_pct}%) 돌파!")
+                            self.logger.critical("🚨 모든 신규 매수를 중단하고 안전 모드(Safe Mode)로 전환합니다.")
+                            
+                            # 알림 발송 (비동기 Fire & Forget)
+                            if hasattr(self.parent, 'monitoring_manager') and hasattr(self.parent.monitoring_manager, 'send_slack_message_async'):
+                                from utils import create_fire_and_forget_task
+                                create_fire_and_forget_task(self.parent.monitoring_manager.send_slack_message_async(
+                                    f"🚨 *[긴급 서킷 브레이커 발동]*\n계좌 총 수익률이 제한선({circuit_breaker_pct}%) 이하인 {global_profit_rate:.2f}%로 떨어져 신규 매수를 전면 중단합니다."
+                                ))
+            # ------------------------------------
+
             # 15:15 자동 청산 이후에는 매매 중지
             if self.auto_liquidation_executed:
                 # 청산 완료 후 매매 중지 (로그는 execute_auto_liquidation_async에서 출력됨)

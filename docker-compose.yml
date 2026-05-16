@@ -1,18 +1,22 @@
-version: '1.0'
+version: '3.8'
 
 services:
-  kiwoom-trader:
-    image: python:3.13-slim          # 가벼운 파이썬 이미지
-    container_name: kiwoom-trader
+  kiwoom-bot:
+    build: .
+    container_name: kiwoom_trading_bot
     restart: unless-stopped
-    working_dir: /app
-    env_file:
-      - .env
+    ports:
+      # 외부접속포트:내부포트 (NAS에서 접속할 때 IP:8080 으로 접속)
+      - "8080:8080"
     volumes:
-      - ./:/app                    # 코드와 파일 동기화
-      - ./data:/app/data           # 데이터 보존
-    command: >
-      sh -c "pip install --no-cache-dir -r requirements.txt && 
-             python main.py"
-    # 또는 백그라운드로 계속 실행하려면:
-    # command: tail -f /dev/null   # 테스트용 (나중에 python 실행으로 변경)
+      # 로컬 디렉토리를 컨테이너에 매핑 (설정이나 DB 파일 영구 보존)
+      # 왼쪽(로컬경로) : 오른쪽(컨테이너경로)
+      - ./.env:/app/.env
+      - ./stock_data.db:/app/stock_data.db
+      - ./kiwoom_token.json:/app/kiwoom_token.json
+      # 필요 시 로그 폴더 마운트
+      # - ./logs:/app/logs
+    environment:
+      # 해상도 설정 (기본: 1920x1080x24)
+      - RESOLUTION=1920x1080x24
+      - TZ=Asia/Seoul

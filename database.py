@@ -39,7 +39,11 @@ class AsyncDatabaseManager:
                 # 연결이 없거나 닫혀있으면 새로 연결
                 if self._conn is None:
                     self._conn = await aiosqlite.connect(self.db_path, timeout=30.0, isolation_level=None)
-                    self.logger.debug(f"✅ 데이터베이스 연결 생성 완료: {self.db_path}")
+                    
+                    # SQLite 성능 및 동시성 향상을 위한 WAL 모드 활성화
+                    await self._conn.execute("PRAGMA journal_mode=WAL;")
+                    await self._conn.execute("PRAGMA synchronous=NORMAL;")
+                    self.logger.debug(f"✅ 데이터베이스 연결 생성 완료 (WAL 모드): {self.db_path}")
 
                 async with self._db_lock:
                     cursor = await self._conn.cursor()
