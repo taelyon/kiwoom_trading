@@ -1,0 +1,18 @@
+version: '1.0'
+
+services:
+  kiwoom-trader:
+    image: python:3.13-slim          # 가벼운 파이썬 이미지
+    container_name: kiwoom-trader
+    restart: unless-stopped
+    working_dir: /app
+    env_file:
+      - .env
+    volumes:
+      - ./:/app                    # 코드와 파일 동기화
+      - ./data:/app/data           # 데이터 보존
+    command: >
+      sh -c "pip install --no-cache-dir -r requirements.txt && 
+             python main.py"
+    # 또는 백그라운드로 계속 실행하려면:
+    # command: tail -f /dev/null   # 테스트용 (나중에 python 실행으로 변경)
