@@ -3,10 +3,38 @@ import io
 import logging
 from dotenv import load_dotenv, set_key, find_dotenv
 
+# 프로젝트에서 관리하는 .env 키 접두사 목록
+_MANAGED_PREFIXES = (
+    'STRATEGIES_', 'BUYCOUNT_', 'TRADING_', 'DATA_SAVING_', 'CHART_',
+    'KIWOOM_API_', 'LOGIN_', 'SLACK_', 'SETTINGS_', 'STRATEGY_',
+)
+
+# 표준 섹션 이름 (대문자)
+_STANDARD_SECTIONS = frozenset([
+    'STRATEGIES', 'BUYCOUNT', 'TRADING', 'DATA_SAVING', 'CHART',
+    'KIWOOM_API', 'LOGIN', 'SLACK', 'SETTINGS',
+])
+
+
 class EnvConfigParser:
     """ConfigParser와 호환되는 .env 기반 설정 관리자 (Shim 클래스)"""
     
+    # 싱글톤 인스턴스
+    _instance = None
+    
+    def __new__(cls):
+        """싱글톤 패턴: 항상 동일한 인스턴스를 반환하여 .env 파싱 I/O를 최소화"""
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._initialized = False
+        return cls._instance
+    
     def __init__(self):
+        # 이미 초기화된 경우 건너뛰기
+        if self._initialized:
+            return
+        self._initialized = True
+        
         self.logger = logging.getLogger(self.__class__.__name__)
         self.env_path = find_dotenv() or '.env'
         if not os.path.exists(self.env_path):
@@ -18,11 +46,11 @@ class EnvConfigParser:
         self._sync_from_env()
 
     def _sync_from_env(self):
-        """환경 변수에서 캐시로 데이터 동기화"""
-        # os.environ의 모든 값을 가져오되, .env에서 로드된 것과 유사한 패턴만 필터링할 수도 있으나
-        # 여기선 단순히 전체를 관리 대상으로 둠
+        """환경 변수에서 캐시로 데이터 동기화 (관리 대상 키만)"""
         for k, v in os.environ.items():
-            self._data[k] = v
+            # 프로젝트 관리 대상 키만 캐시에 포함
+            if any(k.startswith(p) for p in _MANAGED_PREFIXES):
+                self._data[k] = v
 
     def read(self, filenames, encoding='utf-8'):
         """filenames 인자는 무시하고 .env 파일을 로드"""
@@ -33,7 +61,7 @@ class EnvConfigParser:
     def _get_key(self, section, option):
         """섹션과 옵션을 조합하여 .env 키 생성"""
         # 전략 섹션(한글) 대응을 위해 prefix 조정
-        if section.upper() in ['STRATEGIES', 'BUYCOUNT', 'TRADING', 'DATA_SAVING', 'CHART', 'KIWOOM_API', 'LOGIN', 'SLACK', 'SETTINGS']:
+        if section.upper() in _STANDARD_SECTIONS:
             return f"{section.upper()}_{option.upper()}"
         else:
             # 개별 전략 섹션 (예: [급등주])
@@ -56,7 +84,7 @@ class EnvConfigParser:
         if val is None: return fallback
         try:
             return int(val)
-        except:
+        except (ValueError, TypeError):
             return fallback
 
     def getfloat(self, section, option, fallback=0.0):
@@ -64,13 +92,15 @@ class EnvConfigParser:
         if val is None: return fallback
         try:
             return float(val)
-        except:
+        except (ValueError, TypeError):
             return fallback
 
     def has_section(self, section):
-        prefix = f"{section.upper()}_" if section.upper() != section else f"STRATEGY_{section}_"
-        # 간단하게 체크
-        return any(k.startswith(prefix) or k.startswith(f"{section.upper()}_") for k in self._data)
+        if section.upper() in _STANDARD_SECTIONS:
+            prefix = f"{section.upper()}_"
+        else:
+            prefix = f"STRATEGY_{section}_"
+        return any(k.startswith(prefix) for k in self._data)
 
     def has_option(self, section, option):
         key = self._get_key(section, option)
@@ -78,9 +108,7 @@ class EnvConfigParser:
 
     def options(self, section):
         """특정 섹션에 속하는 옵션 목록 반환"""
-        # 섹션별 접두사 정의
-        standard_sections = ['STRATEGIES', 'BUYCOUNT', 'TRADING', 'DATA_SAVING', 'CHART', 'KIWOOM_API', 'LOGIN', 'SLACK', 'SETTINGS']
-        if section.upper() in standard_sections:
+        if section.upper() in _STANDARD_SECTIONS:
             prefix = f"{section.upper()}_"
         else:
             prefix = f"STRATEGY_{section}_"
@@ -99,15 +127,13 @@ class EnvConfigParser:
         self._data[key] = str_val
 
     def write(self, fp):
-        """파일 객체에 쓰고, .env 파일에도 영구 저장"""
+        """파일 객체에 쓰고, .env 파일에도 영구 저장 (관리 대상 키만)"""
         lines = []
-        # 가독성을 위해 정렬하여 저장
         for k in sorted(self._data.keys()):
-            # 시스템 환경변수 전체를 쓰지 않고, 관리 대상(접두사가 있는 것들)만 필터링 시도
-            if '_' in k:
+            # 프로젝트 관리 대상 키만 저장 (시스템 환경변수 제외)
+            if any(k.startswith(p) for p in _MANAGED_PREFIXES):
                 v = self._data[k]
                 lines.append(f"{k}={v}\n")
-                # .env 파일에 즉시 반영
                 set_key(self.env_path, k, v)
         
         content = "".join(lines)
@@ -117,3 +143,14 @@ class EnvConfigParser:
     def add_section(self, section):
         """ConfigParser 호환용 (실제 .env에선 섹션 구분이 없으므로 무시)"""
         pass
+
+    def reload(self):
+        """강제로 .env를 다시 로드 (설정이 외부에서 변경된 경우)"""
+        load_dotenv(self.env_path, override=True)
+        self._data.clear()
+        self._sync_from_env()
+
+
+def get_config():
+    """싱글톤 EnvConfigParser 인스턴스를 반환하는 편의 함수"""
+    return EnvConfigParser()

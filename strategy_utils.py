@@ -634,7 +634,6 @@ def load_strategies_from_config(config_file='.env'):
     logger = logging.getLogger(__name__)
     try:
         config = EnvConfigParser()
-        config.read(config_file)
         
         strategies = {}
         

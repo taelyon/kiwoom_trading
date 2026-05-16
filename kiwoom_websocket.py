@@ -126,7 +126,7 @@ class KiwoomWebSocketClient:
             while not self.message_queue.empty():
                 try:
                     self.message_queue.get_nowait()
-                except:
+                except Exception:
                     break
             
             # 데이터 초기화
@@ -1194,7 +1194,7 @@ class KiwoomWebSocketClient:
                         try:
                             ask_price = abs(int(ask_price_raw.replace(',', '')))
                             bid_price = abs(int(bid_price_raw.replace(',', '')))
-                        except:
+                        except Exception:
                             ask_price = 0
                             bid_price = 0
                         
@@ -1286,7 +1286,7 @@ class KiwoomWebSocketClient:
                         try:
                             ask_price = abs(int(ask_price_raw.replace(',', '')))
                             bid_price = abs(int(bid_price_raw.replace(',', '')))
-                        except:
+                        except Exception:
                             ask_price = 0
                             bid_price = 0
                         
@@ -1447,12 +1447,12 @@ class KiwoomWebSocketClient:
                     
                     try:
                         total_sell_hoga = int(total_sell_hoga_raw.replace(',', '').replace('+', '').replace('-', ''))
-                    except:
+                    except Exception:
                         total_sell_hoga = 0
                         
                     try:
                         total_buy_hoga = int(total_buy_hoga_raw.replace(',', '').replace('+', '').replace('-', ''))
-                    except:
+                    except Exception:
                         total_buy_hoga = 0
                         
                     order_book_info = {
@@ -1513,7 +1513,7 @@ class KiwoomWebSocketClient:
                     dt = datetime.strptime(execution_time, '%Y%m%d%H%M%S')
                 else:
                     dt = datetime.now()
-            except:
+            except Exception:
                 dt = datetime.now()
             
             # 틱 데이터에 실시간 데이터 추가 (음수 값 보정)
@@ -1645,7 +1645,7 @@ class KiwoomWebSocketClient:
                     dt = datetime.strptime(execution_time, '%Y%m%d%H%M%S')
                 else:
                     dt = datetime.now()
-            except:
+            except Exception:
                 dt = datetime.now()
             
             # 3분 단위로 시간 정규화

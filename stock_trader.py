@@ -67,7 +67,6 @@ class MyWindow(QWidget):
         self.trading_manager = TradingManager(self)
         self.backtest_manager = BacktestManager(self)
         self.account_manager = AccountManager(self)
-        self.account_manager = AccountManager(self)
         self.condition_search_manager = ConditionSearchManager(self)
         self.ml_manager = MLManager(self)
         

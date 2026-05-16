@@ -3,7 +3,6 @@ import asyncio
 import time
 import traceback
 from datetime import datetime, time as dt_time
-import configparser
 from config_manager import EnvConfigParser
 import numpy as np
 import pyqtgraph as pg
@@ -75,9 +74,8 @@ class TradingTabWidget(QWidget):
         # .env에서 저장된 값 읽어오기
         try:
             config = EnvConfigParser()
-            config.read('.env')
             saved_buycount = config.getint('BUYCOUNT', 'target_buy_count') if config.has_option('BUYCOUNT', 'target_buy_count') else 3
-        except:
+        except Exception:
             saved_buycount = 3
         
         self.buycountEdit = QLineEdit(str(saved_buycount))
@@ -947,7 +945,7 @@ class PyQtGraphWidget(pg.PlotWidget):
                     # PlotItem에서 제거 시도 (setParentItem으로 추가된 경우)
                     try:
                         self.plotItem.removeItem(self.legend_item)
-                    except:
+                    except Exception:
                         pass
                 
                 self.legend_item = None

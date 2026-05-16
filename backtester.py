@@ -3,7 +3,6 @@
 크레온 플러스 API를 키움 REST API로 전면 리팩토링
 """
 # 표준 라이브러리
-import configparser
 from config_manager import EnvConfigParser
 import copy
 import json
@@ -666,7 +665,7 @@ class KiwoomBacktester:
                 # 안전하게 범례 다시 추가 시도 (try-except)
                 try:
                     pw.addLegend()
-                except:
+                except Exception:
                     pass
             else:
                 # QApplication 인스턴스가 없으면 생성 (스크립트 단독 실행 시 필요)
@@ -741,7 +740,7 @@ class KiwoomBacktester:
             # 기존 연결 해제 후 다시 연결 (중복 연결 방지)
             try:
                 pw.getViewBox().sigResized.disconnect(update_view)
-            except:
+            except Exception:
                 pass
             pw.getViewBox().sigResized.connect(update_view)
             

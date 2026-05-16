@@ -5,7 +5,6 @@ import os
 import traceback
 from threading import Lock
 from datetime import datetime, timedelta, time as dt_time
-import configparser
 from config_manager import EnvConfigParser
 from typing import Dict, List, Optional, Any
 
@@ -82,12 +81,7 @@ class KiwoomRestClient:
             self.logger.info(f"설정 파일 로드 완료: {self.config_file}")
         except Exception as e:
             self.logger.error(f"설정 파일 로드 실패: {e}", exc_info=True)
-            # 기본 설정
-            self.config = configparser.RawConfigParser()
-            self.config.add_section('LOGIN')
-            self.config.set('LOGIN', 'username', '')
-            self.config.set('LOGIN', 'password', '')
-            self.config.set('LOGIN', 'certpassword', '')
+            # EnvConfigParser는 싱글톤이므로 기본값으로 폴백
     
     def save_token(self):
         """토큰을 파일에 저장"""
@@ -200,7 +194,7 @@ class KiwoomRestClient:
         try:
             if self.client:
                 await self.client.aclose()
-        except:
+        except Exception:
             pass
         self.client = None
         await self._ensure_client()
@@ -607,7 +601,7 @@ class KiwoomRestClient:
                 try:
                     error_data = response.json()
                     self.logger.error(f"오류 상세: {error_data}", exc_info=True)
-                except:
+                except Exception:
                     self.logger.error(f"응답 내용: {response.text}", exc_info=True)
                 return {}
         

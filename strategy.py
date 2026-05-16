@@ -1,6 +1,5 @@
 import logging
 import asyncio
-import configparser
 from config_manager import EnvConfigParser
 import json
 import traceback
@@ -38,7 +37,6 @@ class KiwoomStrategy(QObject):
         """전략 설정 로드"""
         try:
             config = EnvConfigParser()
-            config.read('.env')
             
             # 현재 전략 로드
             self.current_strategy = config.get('SETTINGS', 'last_strategy', fallback='통합 전략')
@@ -86,7 +84,7 @@ class KiwoomStrategy(QObject):
                                 log_messages.append(f"{var_name}[-1]={last_val:.2f}")
                             else:
                                 log_messages.append(f"{var_name}[-1]={last_val}")
-                        except:
+                        except Exception:
                             log_messages.append(f"{var_name}={value}")
                      else:
                         log_messages.append(f"{var_name}=[]")
@@ -583,7 +581,7 @@ class KiwoomStrategy(QObject):
                 # 포트폴리오 딕셔너리에 업데이트된 최고가 반영
                 portfolio['highest_prices'] = self.trader.highest_prices.copy() # type: ignore
             
-            # 하드코딩된 이동 손절 로직을 제거하고 settings.ini의 전략 평가로 통합합니다.
+            # 하드코딩된 이동 손절 로직을 제거하고 .env의 전략 평가로 통합합니다.
 
             # 차트 데이터 가져오기 (틱/분봉)
             tic_chart_data = pd.DataFrame()
