@@ -15,7 +15,7 @@ services:
       - ./stock_data.db:/app/stock_data.db
       - ./kiwoom_token.json:/app/kiwoom_token.json
       # 필요 시 로그 폴더 마운트
-      # - ./logs:/app/logs
+      - ./logs:/app/logs
     environment:
       # 해상도 설정 (기본: 1920x1080x24)
       - RESOLUTION=1920x1080x24
