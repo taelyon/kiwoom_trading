@@ -18,6 +18,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fluxbox \
     novnc \
     websockify \
+    libegl1 \
     libgl1 \
     libglx-mesa0 \
     libglib2.0-0 \
@@ -33,7 +34,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libfontconfig1 \
     libdbus-1-3 \
     tzdata \
+    build-essential \
+    wget \
+    fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/*
+
+# TA-Lib C 라이브러리 다운로드 및 컴파일
+RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz && \
+    tar -xzf ta-lib-0.4.0-src.tar.gz && \
+    cd ta-lib && \
+    ./configure --prefix=/usr && \
+    make && \
+    make install && \
+    cd .. && \
+    rm -rf ta-lib-0.4.0-src.tar.gz ta-lib
 
 # 작업 디렉토리 생성
 WORKDIR /app

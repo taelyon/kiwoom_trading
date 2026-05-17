@@ -144,10 +144,40 @@ class EnvConfigParser:
         return dict(self.items(section))
 
     def save(self):
-        """현재 변경된 설정을 .env 파일에 안전하게 저장 (코멘트 및 미관리 키 보존)"""
-        for k, v in self._data.items():
-            if any(k.startswith(p) for p in _MANAGED_PREFIXES):
-                set_key(self.env_path, k, v)
+        """현재 변경된 설정을 .env 파일에 안전하게 저장 (코멘트 보존, Docker mount 안전)"""
+        try:
+            with open(self.env_path, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+            
+            updated_keys = set()
+            new_lines = []
+            
+            for line in lines:
+                stripped = line.strip()
+                if not stripped or stripped.startswith('#'):
+                    new_lines.append(line)
+                    continue
+                    
+                if '=' in stripped:
+                    k = stripped.split('=', 1)[0].strip()
+                    if k in self._data and any(k.startswith(p) for p in _MANAGED_PREFIXES):
+                        new_lines.append(f"{k}={self._data[k]}\n")
+                        updated_keys.add(k)
+                    else:
+                        new_lines.append(line)
+                else:
+                    new_lines.append(line)
+            
+            for k, v in self._data.items():
+                if any(k.startswith(p) for p in _MANAGED_PREFIXES) and k not in updated_keys:
+                    new_lines.append(f"{k}={v}\n")
+                    
+            # os.replace 대신 동일 파일 핸들에 직접 덮어쓰기 (Docker Volume 에러 방지)
+            with open(self.env_path, 'w', encoding='utf-8') as f:
+                f.writelines(new_lines)
+                
+        except Exception as e:
+            self.logger.error(f"설정 파일 덮어쓰기 실패: {e}")
 
     def write(self, fp):
         """파일 객체에 설정 내용을 쓰기 (ConfigParser 호환용, 가급적 save() 사용 권장)"""
