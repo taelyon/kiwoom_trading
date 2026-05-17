@@ -17,7 +17,7 @@ FLUXBOX_PID=$!
 sleep 1
 
 # VNC 서버 시작 (로컬 전용, 비밀번호 없음)
-x11vnc -display $DISPLAY -nopw -listen localhost -xkb -ncache 10 -ncache_cr -forever &
+x11vnc -display $DISPLAY -nopw -listen localhost -xkb -forever &
 VNC_PID=$!
 sleep 2
 
