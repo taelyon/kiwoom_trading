@@ -1,0 +1,16 @@
+.venv/
+.git/
+.agent/
+build/
+dist/
+backup/
+__pycache__/
+*.spec
+*.ico
+*.db.bak
+*.db-wal
+*.db-shm
+logs/
+data/
+.env
+kiwoom_token.json

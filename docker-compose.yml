@@ -5,14 +5,21 @@ services:
     build: .
     container_name: kiwoom_trading_bot
     restart: unless-stopped
+    stop_grace_period: 30s
     ports:
       # 외부접속포트:내부포트 (NAS에서 접속할 때 IP:8080 으로 접속)
       - "8080:8080"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080')"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     volumes:
       # 로컬 디렉토리를 컨테이너에 매핑 (설정이나 DB 파일 영구 보존)
       # 왼쪽(로컬경로) : 오른쪽(컨테이너경로)
       - ./.env:/app/.env
-      - ./stock_data.db:/app/stock_data.db
+      - ./data:/app/data
       - ./kiwoom_token.json:/app/kiwoom_token.json
       # 필요 시 로그 폴더 마운트
       - ./logs:/app/logs

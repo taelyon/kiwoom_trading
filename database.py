@@ -12,7 +12,7 @@ import sqlite3
 class AsyncDatabaseManager:
     """비동기 데이터베이스 관리 클래스 (I/O 바운드 작업)"""
     
-    def __init__(self, db_path="stock_data.db"):
+    def __init__(self, db_path="data/stock_data.db"):
         self.logger = logging.getLogger(self.__class__.__name__)
         self.db_path = db_path
         self.indicator_list = [

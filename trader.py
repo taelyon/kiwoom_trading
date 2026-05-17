@@ -995,9 +995,9 @@ class AutoTrader(QObject):
                             self.logger.critical("🚨 모든 신규 매수를 중단하고 안전 모드(Safe Mode)로 전환합니다.")
                             
                             # 알림 발송 (비동기 Fire & Forget)
-                            if hasattr(self.parent, 'monitoring_manager') and hasattr(self.parent.monitoring_manager, 'send_slack_message_async'):
+                            if hasattr(self.trader, 'client') and self.trader.client:
                                 from utils import create_fire_and_forget_task
-                                create_fire_and_forget_task(self.parent.monitoring_manager.send_slack_message_async(
+                                create_fire_and_forget_task(self.trader.client.send_slack_message(
                                     f"🚨 *[긴급 서킷 브레이커 발동]*\n계좌 총 수익률이 제한선({circuit_breaker_pct}%) 이하인 {global_profit_rate:.2f}%로 떨어져 신규 매수를 전면 중단합니다."
                                 ))
             # ------------------------------------

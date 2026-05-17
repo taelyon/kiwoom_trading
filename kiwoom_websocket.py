@@ -1042,7 +1042,17 @@ class KiwoomWebSocketClient:
                     # 매수 체결 완료 로그 표시
                     self.logger.info(f"💰 매수 체결 완료: {stock_name}({stock_code})")
                     
+                    # 슬랙 매수 알림 전송
                     if hasattr(self, 'parent') and self.parent:
+                        kiwoom_client = getattr(self.parent.login_handler, 'kiwoom_client', None)
+                        if kiwoom_client:
+                            from utils import create_fire_and_forget_task
+                            create_fire_and_forget_task(kiwoom_client.send_slack_buy_notification(
+                                stock_code=stock_code,
+                                stock_name=stock_name,
+                                exec_qty=exec_qty_int,
+                                exec_price=exec_price_float
+                            ))
                         QTimer.singleShot(0, lambda code=stock_code, name=stock_name: self._add_stock_to_ui(code, name))
                 
                 # 매도 체결 완료 → 보유종목 리스트에서 제거 (람다 클로저 문제 방지)

@@ -1125,6 +1125,63 @@ class KiwoomRestClient:
             self.logger.error(f"주문 내역 조회 중 오류: {e}", exc_info=True)
             return []    
 
+    async def send_slack_message(self, text: str) -> None:
+        """일반 텍스트 메시지를 슬랙으로 전송"""
+        try:
+            if self.config.has_section('SLACK'):
+                slack_webhook_url = self.config.get('SLACK', 'webhook', fallback=None)
+            else:
+                slack_webhook_url = self.config.get('slack', 'webhook', fallback=None)
+
+            if not slack_webhook_url:
+                self.logger.debug("Slack 웹훅 URL이 설정되지 않아 메시지를 보내지 않습니다.")
+                return
+
+            message = {"text": text}
+            async with httpx.AsyncClient() as client:
+                await client.post(slack_webhook_url, json=message)
+            self.logger.debug("🔔 슬랙 메시지 전송 완료")
+        except Exception as e:
+            self.logger.error(f"Slack 메시지 전송 실패: {e}", exc_info=True)
+
+    async def send_slack_buy_notification(self, stock_code: str, stock_name: str, exec_qty: int, exec_price: float) -> None:
+        """매수 체결 시 슬랙 알림 전송"""
+        try:
+            if self.config.has_section('SLACK'):
+                slack_webhook_url = self.config.get('SLACK', 'webhook', fallback=None)
+            else:
+                slack_webhook_url = self.config.get('slack', 'webhook', fallback=None)
+
+            if not slack_webhook_url:
+                self.logger.debug("Slack 웹훅 URL이 설정되지 않아 알림을 보내지 않습니다.")
+                return
+
+            total_buy_price = exec_qty * exec_price
+            title = f"🔵 매수 체결 완료: {stock_name}({stock_code})"
+            
+            message = {
+                "text": title,
+                "attachments": [
+                    {
+                        "color": "#007bff", # 파란색
+                        "fallback": f"매수 체결: {stock_name} {exec_qty}주 체결",
+                        "fields": [
+                            {"title": "매수 수량", "value": f"{exec_qty}주", "short": True},
+                            {"title": "체결 단가", "value": f"{exec_price:,.0f}원", "short": True},
+                            {"title": "총 매입 금액", "value": f"{total_buy_price:,.0f}원", "short": False}
+                        ],
+                        "footer": "Kiwoom Auto Trader",
+                        "ts": int(time.time())
+                    }
+                ]
+            }
+
+            async with httpx.AsyncClient() as client:
+                await client.post(slack_webhook_url, json=message)
+            self.logger.debug(f"🔔 슬랙 매수 알림 전송 완료: {title}")
+        except Exception as e:
+            self.logger.error(f"Slack 매수 알림 전송 실패: {e}", exc_info=True)
+
     async def send_slack_sell_notification(self, prev_balance_info: dict, sold_qty: int, daily_total_sell_profit: float, daily_total_sell_profit_rate: float) -> None:
         """매도 체결 시 슬랙 알림 전송"""
         try:

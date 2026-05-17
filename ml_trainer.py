@@ -24,7 +24,7 @@ class MLTrainingWorker(QThread):
     # 시그널: 진행상황 메시지
     progress_signal = pyqtSignal(str)
 
-    def __init__(self, db_path='stock_data.db', model_output_path='lgbm_model.txt'):
+    def __init__(self, db_path='data/stock_data.db', model_output_path='lgbm_model.txt'):
         super().__init__()
         self.db_path = db_path
         self.model_output_path = model_output_path

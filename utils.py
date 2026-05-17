@@ -155,30 +155,37 @@ def setup_logging():
         if not os.path.exists(log_dir):
             os.makedirs(log_dir)
         
-        # 로그 파일명 (날짜별)
-        log_filename = f"{log_dir}/kiwoom_trader_{datetime.now().strftime('%Y%m%d')}.log"
+        # 로그 파일명 설정 (TimedRotatingFileHandler가 날짜를 알아서 붙임)
+        log_filename = f"{log_dir}/kiwoom_trader.log"
         
         # 로그 포맷
         log_format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         formatter = logging.Formatter(log_format)
         
-        # root 로거 설정 (DEBUG 레벨로 설정하여 모든 로그 받기)
+        # 환경변수에 따른 로그 레벨 설정 (운영 환경은 INFO, 로컬 개발은 DEBUG)
+        is_docker = os.environ.get('RUNTIME_ENV') == 'docker'
+        log_level = logging.INFO if is_docker else logging.DEBUG
+        
+        # root 로거 설정
         root_logger = logging.getLogger()
-        root_logger.setLevel(logging.DEBUG)
+        root_logger.setLevel(log_level)
         
         # 기존 핸들러 제거
         for handler in root_logger.handlers[:]:
             root_logger.removeHandler(handler)
         
-        # 파일 핸들러 (DEBUG 레벨 - 모든 로그 저장)
-        file_handler = logging.FileHandler(log_filename, encoding='utf-8')
-        file_handler.setLevel(logging.DEBUG)
+        # 파일 핸들러 (최근 7일치만 보관)
+        from logging.handlers import TimedRotatingFileHandler
+        file_handler = TimedRotatingFileHandler(
+            log_filename, when='midnight', interval=1, backupCount=7, encoding='utf-8'
+        )
+        file_handler.setLevel(log_level)
         file_handler.setFormatter(formatter)
         root_logger.addHandler(file_handler)
         
-        # 콘솔/터미널 핸들러 (DEBUG 레벨 - 개발 시 상세 로그 확인용)
+        # 콘솔/터미널 핸들러
         console_handler = logging.StreamHandler()
-        console_handler.setLevel(logging.DEBUG)
+        console_handler.setLevel(log_level)
         console_handler.setFormatter(formatter)
         root_logger.addHandler(console_handler)
         
