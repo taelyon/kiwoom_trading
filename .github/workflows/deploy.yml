@@ -16,7 +16,7 @@ jobs:
       - name: Create Deployment Package (Tarball)
         run: |
           # 불필요한 가상환경, 데이터베이스, 로그, 로컬 설정 파일 등을 제외하고 압축합니다.
-          tar -czvf /tmp/deploy.tar.gz \
+          tar -czvf deploy.tar.gz \
             --exclude='.git' \
             --exclude='.github' \
             --exclude='.venv' \
@@ -27,37 +27,36 @@ jobs:
             --exclude='blacklist.json' \
             --exclude='*.db*' \
             --exclude='*.bak' \
-            --exclude='__pycache__' \
-            --exclude='.pytest_cache' \
             .
-          mv /tmp/deploy.tar.gz .
 
       - name: Copy Tarball to NAS via SCP
-        uses: appleboy/scp-action@master
+        uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.NAS_HOST }}
           username: ${{ secrets.NAS_USER }}
           key: ${{ secrets.NAS_SSH_KEY }}
           port: ${{ secrets.NAS_PORT }}
           source: "deploy.tar.gz"
-          target: ${{ secrets.NAS_PROJECT_PATH }}
+          target: ${{ secrets.NAS_PROJECT_PATH }} # 예: /volume1/docker/kiwoom_trading
           rm: false
-          timeout: "20m"  # 타임아웃 추가
-          debug: true  # 디버깅 활성화
 
       - name: Execute Deployment Commands via SSH
-        uses: appleboy/ssh-action@master
+        uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.NAS_HOST }}
           username: ${{ secrets.NAS_USER }}
           key: ${{ secrets.NAS_SSH_KEY }}
           port: ${{ secrets.NAS_PORT }}
-          timeout: "20m"  # 타임아웃 추가
-          command_timeout: "10m"
           script: |
+            # 1. 프로젝트 폴더로 이동
             cd ${{ secrets.NAS_PROJECT_PATH }}
+            
+            # 2. 업로드된 압축 파일 풀기 및 정리
             tar -xzvf deploy.tar.gz
             rm deploy.tar.gz
+            
+            # 3. Docker 컨테이너 재빌드 및 재구동
+            # (주석: SSH 계정이 docker 그룹에 속해 있다면 sudo를 제외해도 작동합니다)
             sudo docker-compose down --remove-orphans
             sudo docker system prune -f
             sudo docker-compose up -d --force-recreate --build
