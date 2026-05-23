@@ -3,7 +3,7 @@ name: Deploy to Synology NAS
 on:
   push:
     branches:
-      - main  # 배포를 트리거할 브랜치 지정d
+      - main  # 배포를 트리거할 브랜치 지정
 
 jobs:
   deploy:
