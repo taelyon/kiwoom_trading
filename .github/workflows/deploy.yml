@@ -16,8 +16,7 @@ jobs:
       - name: Create Deployment Package (Tarball)
         run: |
           # 불필요한 가상환경, 데이터베이스, 로그, 로컬 설정 파일 등을 제외하고 압축합니다.
-          tar -czvf deploy.tar.gz \
-            --exclude='deploy.tar.gz' \
+          tar -czvf /tmp/deploy.tar.gz \
             --exclude='.git' \
             --exclude='.github' \
             --exclude='.venv' \
@@ -28,7 +27,10 @@ jobs:
             --exclude='blacklist.json' \
             --exclude='*.db*' \
             --exclude='*.bak' \
+            --exclude='__pycache__' \
+            --exclude='.pytest_cache' \
             .
+          mv /tmp/deploy.tar.gz .
 
       - name: Copy Tarball to NAS via SCP
         uses: appleboy/scp-action@master
