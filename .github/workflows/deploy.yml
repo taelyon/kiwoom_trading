@@ -42,6 +42,7 @@ jobs:
           source: "deploy.tar.gz"
           target: ${{ secrets.NAS_PROJECT_PATH }} # 예: /volume1/docker/kiwoom_trading
           rm: false
+          proxy_strict_host_key_checking: false
 
       - name: Execute Deployment Commands via SSH
         uses: appleboy/ssh-action@master
@@ -50,6 +51,7 @@ jobs:
           username: ${{ secrets.NAS_USER }}
           key: ${{ secrets.NAS_SSH_KEY }}
           port: ${{ secrets.NAS_PORT }}
+          strict_host_key_checking: false
           script: |
             # 1. 프로젝트 폴더로 이동
             cd ${{ secrets.NAS_PROJECT_PATH }}
