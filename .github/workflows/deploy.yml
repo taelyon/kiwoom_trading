@@ -27,7 +27,8 @@ jobs:
             --exclude='blacklist.json' \
             --exclude='*.db*' \
             --exclude='*.bak' \
-            .
+            --exclude='deploy.tar.gz' \
+            --ignore-failed-read \.
 
       - name: Copy Tarball to NAS via SCP
         uses: appleboy/scp-action@v0.1.7
