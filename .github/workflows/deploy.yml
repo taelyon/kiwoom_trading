@@ -17,6 +17,7 @@ jobs:
         run: |
           # 불필요한 가상환경, 데이터베이스, 로그, 로컬 설정 파일 등을 제외하고 압축합니다.
           tar -czvf deploy.tar.gz \
+            --exclude='deploy.tar.gz' \
             --exclude='.git' \
             --exclude='.github' \
             --exclude='.venv' \
