@@ -141,6 +141,13 @@ class AccountManager:
                 if deposit_data and 'entr' in deposit_data:
                     entr_amount = self.parent.data_manager.safe_int(deposit_data.get('entr', 0))
                     self.logger.info(f"예수금: {entr_amount:,}원")
+                    
+                    # 웹 대시보드 및 트레이더에서 실시간 파악할 수 있도록 캐시 및 balance_data 업데이트
+                    if hasattr(self.parent, 'trader') and self.parent.trader:
+                        self.parent.trader._cash_cache = entr_amount
+                        if not hasattr(self.parent.trader, 'balance_data') or self.parent.trader.balance_data is None:
+                            self.parent.trader.balance_data = {}
+                        self.parent.trader.balance_data['available_cash'] = entr_amount
             except Exception as deposit_ex:
                 self.logger.error(f"❌ 예수금상세현황 조회 실패: {deposit_ex}")
 

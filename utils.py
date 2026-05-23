@@ -189,6 +189,14 @@ def setup_logging():
         console_handler.setFormatter(formatter)
         root_logger.addHandler(console_handler)
         
+        # 실시간 웹 대시보드 로깅 가로채기를 위한 커스텀 핸들러 설정 (극초기 등록)
+        try:
+            from web_dashboard import WebDashboardLogHandler
+            dashboard_handler = WebDashboardLogHandler()
+            root_logger.addHandler(dashboard_handler)
+        except Exception:
+            pass
+        
         # aiosqlite DEBUG 로그 비활성화
         aiosqlite_logger = logging.getLogger('aiosqlite')
         aiosqlite_logger.setLevel(logging.WARNING)

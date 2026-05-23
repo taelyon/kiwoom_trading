@@ -795,6 +795,14 @@ async def main():
         window.chart_cache.save_timer.start(60000)  # 1분마다 DB 저장
         window.chart_cache.queue_timer.start(2000)  # 2초마다 큐 처리 시작
         window.logger.info("✅ ChartDataCache 타이머 시작 완료 (메인 스레드)")
+        
+    # 실시간 웹 대시보드 서버 구동 (8081 포트, 백그라운드 태스크)
+    try:
+        from web_dashboard import start_web_dashboard
+        create_fire_and_forget_task(start_web_dashboard(window, host="0.0.0.0", http_port=8081, ws_port=8082))
+        window.logger.info("🌐 실시간 Web Dashboard 백그라운드 태스크 기동 완료 (Port: 8081)")
+    except Exception as dashboard_err:
+        window.logger.error(f"❌ 웹 대시보드 기동 실패: {dashboard_err}", exc_info=True)
     # qasync가 관리하는 이벤트 루프가 종료될 때까지 대기
     loop = asyncio.get_running_loop()
     await loop.create_future()

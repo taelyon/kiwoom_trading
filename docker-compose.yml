@@ -9,8 +9,10 @@ services:
     ports:
       # 외부접속포트:내부포트 (NAS에서 접속할 때 IP:8080 으로 접속)
       - "8080:8080"
+      - "8081:8081"
+      - "8082:8082"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8081/health')"]
       interval: 60s
       timeout: 10s
       retries: 3

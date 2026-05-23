@@ -67,6 +67,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libdbus-1-3 \
     tzdata \
     fonts-noto-cjk \
+    libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Builder Stage에서 컴파일된 TA-Lib C 라이브러리 파일만 쏙 빼오기
