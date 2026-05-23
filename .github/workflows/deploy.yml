@@ -40,8 +40,9 @@ jobs:
           key: ${{ secrets.NAS_SSH_KEY }}
           port: ${{ secrets.NAS_PORT }}
           source: "deploy.tar.gz"
-          target: ${{ secrets.NAS_PROJECT_PATH }} # 예: /volume1/docker/kiwoom_trading
+          target: ${{ secrets.NAS_PROJECT_PATH }}
           rm: false
+          timeout: "20m"  # 타임아웃 추가
 
       - name: Execute Deployment Commands via SSH
         uses: appleboy/ssh-action@master
@@ -50,16 +51,12 @@ jobs:
           username: ${{ secrets.NAS_USER }}
           key: ${{ secrets.NAS_SSH_KEY }}
           port: ${{ secrets.NAS_PORT }}
-          strict_host_key_checking: false
+          timeout: "20m"  # 타임아웃 추가
+          command_timeout: "10m"
           script: |
-            # 1. 프로젝트 폴더로 이동
             cd ${{ secrets.NAS_PROJECT_PATH }}
-            
-            # 2. 업로드된 압축 파일 풀기 및 정리
             tar -xzvf deploy.tar.gz
             rm deploy.tar.gz
-            
-            # 3. Docker 컨테이너 재빌드 및 재구동
             sudo docker-compose down --remove-orphans
             sudo docker system prune -f
             sudo docker-compose up -d --force-recreate --build
