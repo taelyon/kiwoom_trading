@@ -297,8 +297,14 @@ class DataManager:
             return None, None
     
     def get_stock_name_by_code(self, stock_code):
-        """종목코드로 종목명 조회 - API 호출 제거됨"""
-        # API 제한 초과 방지를 위해 종목코드만 반환
+        """종목코드로 종목명 조회 (캐시 맵 역방향 조회 적용)"""
+        try:
+            if self.stock_code_map:
+                for name, code in self.stock_code_map.items():
+                    if code == stock_code:
+                        return name
+        except Exception:
+            pass
         return f"종목{stock_code}"
     
     async def get_stock_code_by_name(self, stock_name):

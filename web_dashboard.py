@@ -1566,10 +1566,8 @@ def get_current_status_data():
         if hasattr(app, 'monitoring_manager') and app.monitoring_manager:
             for code in app.monitoring_manager.monitored_stocks:
                 name = "분석 대기"
-                # 캐시에서 종목명이 있는가 확인
-                if app.chart_cache and code in app.chart_cache.cache:
-                    # 캐시 데이터 구조에서 종목명 등을 유추하거나 기본 종목명 대입
-                    name = f"종목 {code}"
+                if hasattr(app, 'data_manager') and app.data_manager:
+                    name = app.data_manager.get_stock_name_by_code(code)
                 monitored_stocks.append({"code": code, "name": name})
 
         # 5. 자동매매 루프 활성 여부
