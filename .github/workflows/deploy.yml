@@ -5,40 +5,52 @@ on:
     branches:
       - main  # 배포를 트리거할 브랜치 지정
 
+# GHCR에 이미지를 쓸 수 있도록 패키지 권한 설정
+permissions:
+  contents: read
+  packages: write
+
 jobs:
-  deploy:
+  build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Create Deployment Package (Tarball)
-        run: |
-          # 불필요한 가상환경, 데이터베이스, 로그, 로컬 설정 파일 등을 제외하고 압축합니다.
-          tar -czvf deploy.tar.gz \
-            --exclude='.git' \
-            --exclude='.github' \
-            --exclude='.venv' \
-            --exclude='data' \
-            --exclude='logs' \
-            --exclude='.env' \
-            --exclude='kiwoom_token.json' \
-            --exclude='blacklist.json' \
-            --exclude='*.db*' \
-            --exclude='*.bak' \
-            --exclude='deploy.tar.gz' \
-            --ignore-failed-read .
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
-      - name: Copy Tarball to NAS via SCP
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry (GHCR)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and Push Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ghcr.io/taelyon/kiwoom_trading:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # docker-compose.yml 파일만 NAS에 전송하여 설정 업데이트를 동기화합니다.
+      - name: Copy docker-compose.yml to NAS via SCP
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.NAS_HOST }}
           username: ${{ secrets.NAS_USER }}
           key: ${{ secrets.NAS_SSH_KEY }}
           port: ${{ secrets.NAS_PORT }}
-          source: "deploy.tar.gz"
-          target: ${{ secrets.NAS_PROJECT_PATH }} # 예: /volume1/docker/kiwoom_trading
+          source: "docker-compose.yml"
+          target: ${{ secrets.NAS_PROJECT_PATH }}
           rm: false
 
       - name: Execute Deployment Commands via SSH
@@ -52,12 +64,12 @@ jobs:
             # 1. 프로젝트 폴더로 이동
             cd ${{ secrets.NAS_PROJECT_PATH }}
             
-            # 2. 업로드된 압축 파일 풀기 및 정리
-            tar -xzvf deploy.tar.gz
-            rm deploy.tar.gz
+            # 2. GHCR에서 최신 이미지 가져오기
+            # (주석: 최초 1회 NAS SSH에 접속해 docker login ghcr.io -u taelyon을 해야 함)
+            sudo /usr/local/bin/docker-compose pull
             
-            # 3. Docker 컨테이너 재빌드 및 재구동
-            # (주석: SSH 계정이 docker 그룹에 속해 있다면 sudo를 제외해도 작동합니다)
-            sudo /usr/local/bin/docker-compose down --remove-orphans
-            sudo /usr/local/bin/docker system prune -f
-            sudo /usr/local/bin/docker-compose up -d --force-recreate --build
+            # 3. 컨테이너 재구동
+            sudo /usr/local/bin/docker-compose up -d --force-recreate
+            
+            # 4. 사용하지 않는 예전 이미지 정리
+            sudo /usr/local/bin/docker image prune -f

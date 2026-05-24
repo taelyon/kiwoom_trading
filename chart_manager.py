@@ -7,62 +7,89 @@ from datetime import datetime, timedelta
 import numpy as np
 import pandas as pd
 import talib
-from PyQt6.QtCore import QObject, pyqtSignal, QTimer
-from utils import ApiLimitManager, create_fire_and_forget_task
+from utils import ApiLimitManager, create_fire_and_forget_task, CallbackSignal
 import strategy_utils
 
-class ChartDataCache(QObject):
-    """모니터링 종목 차트 데이터 메모리 캐시 클래스"""
-    
-    # 시그널 정의
-    data_updated = pyqtSignal(str)  # 특정 종목 데이터 업데이트
-    cache_cleared = pyqtSignal()    # 캐시 전체 정리
+class ChartDataCache:
+    """모니터링 종목 차트 데이터 메모리 캐시 클래지 (Pure Python)"""
     
     def __init__(self, trader, parent):
         try:
             self.logger = logging.getLogger(self.__class__.__name__)
-            super().__init__(parent)            
             self.trader = trader            
-            self.parent = parent  # MyWindow 객체 저장
+            self.parent = parent  # TradingApp 객체 저장
             self.cache = {}  # {종목코드: {'tic_data': {}, 'min_data': {}, 'last_update': datetime}}
             self.api_request_count = 0  # API 요청 카운터
             self.last_api_request_time = 0  # 마지막 API 요청 시간
             
+            # 시그널 정의 (콜백 기반)
+            self.data_updated = CallbackSignal()
+            self.cache_cleared = CallbackSignal()
+            
             # API 요청 큐 시스템
             self.api_request_queue = []  # API 요청 큐
             self.queue_processing = False  # 큐 처리 중 플래그
-            self.queue_timer = None  # 큐 처리 타이머
             self.active_chart_tasks = {} # 활성 차트 데이터 수집 asyncio 태스크 관리
             self.realtime_tick_times = {} # {code: deque(maxlen=10)} - 틱 생성 속도 계산용
             self.pending_stocks = {}  # 큐에 대기 중인 종목 정보 (코드: 이름)
             self.logger.debug("🔍 API 요청 큐 시스템 초기화 완료")
             
-            # QTimer 객체를 즉시 생성
-            self.update_timer = QTimer(self)
-            self.update_timer.timeout.connect(self.update_all_charts)
-            
-            self.save_timer = QTimer(self)
-            self.save_timer.timeout.connect(self._trigger_async_save_to_database)
-            
-            self.queue_timer = QTimer(self)
-            self.queue_timer.timeout.connect(self._process_api_queue)
-            self.logger.debug("🔍 타이머 객체 즉시 생성 완료")
+            # asyncio 백그라운드 태스크 정의 (QTimer 대체)
+            self.update_task = create_fire_and_forget_task(self._update_loop())
+            self.save_task = create_fire_and_forget_task(self._save_loop())
+            self.queue_task = create_fire_and_forget_task(self._queue_loop())
+            self.logger.debug("🔍 백그라운드 비동기 루프 태스크 시작 완료")
             
             self.logger.debug("📊 차트 데이터 캐시 초기화 완료")
         except Exception as ex:
             self.logger.error(f"❌ ChartDataCache 초기화 실패: {ex}", exc_info=True)
             raise ex
 
+    async def _update_loop(self):
+        """차트 데이터 주기적 업데이트 루프 (기존 update_timer 대체)"""
+        while True:
+            try:
+                # 차트 업데이트 주기는 chartdata_update_interval 사용 (기본 10초)
+                chartdata_update_interval = getattr(self.trader, 'chartdata_update_interval', 10)
+                await asyncio.sleep(chartdata_update_interval)
+                self.update_all_charts()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.logger.error(f"❌ 차트 업데이트 루프 오류: {e}")
+
+    async def _save_loop(self):
+        """DB 저장 주기적 루프 (기존 save_timer 대체)"""
+        while True:
+            try:
+                await asyncio.sleep(60)  # 60초 간격
+                await self.save_to_database()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.logger.error(f"❌ DB 저장 루프 오류: {e}")
+
+    async def _queue_loop(self):
+        """API 요청 큐 처리 루프 (기존 queue_timer/queue_processing 대체)"""
+        while True:
+            try:
+                await asyncio.sleep(1)  # 1초 간격
+                self._process_api_queue()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.logger.error(f"❌ API 큐 루프 오류: {e}")
+
     def stop(self):
-        """모든 타이머 중지 및 리소스 정리"""
+        """모든 비동기 태스크 중지 및 리소스 정리"""
         try:
-            if self.update_timer.isActive():
-                self.update_timer.stop()
-            if self.save_timer.isActive():
-                self.save_timer.stop()
-            if self.queue_timer.isActive():
-                self.queue_timer.stop()
-            self.logger.info("⏹️ ChartDataCache 타이머 중지 완료")
+            if hasattr(self, 'update_task') and self.update_task:
+                self.update_task.cancel()
+            if hasattr(self, 'save_task') and self.save_task:
+                self.save_task.cancel()
+            if hasattr(self, 'queue_task') and self.queue_task:
+                self.queue_task.cancel()
+            self.logger.info("⏹️ ChartDataCache 백그라운드 루프 중지 완료")
         except Exception as ex:
             self.logger.error(f"❌ ChartDataCache 중지 실패: {ex}")
     
@@ -174,15 +201,14 @@ class ChartDataCache(QObject):
             except Exception as calc_ex:
                 self.logger.error(f"기술적 지표 계산 중 오류: {calc_ex}")
             
-            # 메인 스레드에서 콜백 실행
-            QTimer.singleShot(0, lambda: self._on_chart_data_ready(code, tic_data, min_data))
+            # 콜백 즉시 호출 (CLI 환경)
+            self._on_chart_data_ready(code, tic_data, min_data)
         except asyncio.CancelledError:
             self.logger.debug(f"데이터 수집 작업 취소됨: {code}")
-            # 작업이 취소되었을 때는 오류 로그를 남기지 않고 조용히 종료
             
         except Exception as e:
             self.logger.error(f"차트 데이터 수집 실패 ({code}): {e}")
-            QTimer.singleShot(0, lambda: self._on_chart_data_error(code, str(e)))
+            self._on_chart_data_error(code, str(e))
         finally:
             # 태스크 완료 처리
             if code in self.active_chart_tasks:
@@ -268,25 +294,20 @@ class ChartDataCache(QObject):
             # 데이터 업데이트 시그널 발생
             self.data_updated.emit(code)
             
-            # API 큐에서 처리된 종목을 모니터링 리스트박스에 추가
+            # API 큐에서 처리된 종목을 모니터링 리스트에 추가
             if code in self.pending_stocks:
                 stock_name = self.pending_stocks[code]
                 if hasattr(self, 'parent') and self.parent:
                     # 이미 모니터링에 존재하는지 확인 (중복 추가 방지)
                     already_exists = False
-                    for i in range(self.parent.trading_tab.monitoringBox.count()):
-                        item_text = self.parent.trading_tab.monitoringBox.item(i).text()
-                        # 종목코드 추출                        
-                        if item_text == code:
-                            already_exists = True
-                            self.logger.debug(f"ℹ️ 이미 모니터링에 존재하여 추가 건너뜀: {code} - {stock_name}")
-                            break
+                    if hasattr(self.parent, 'monitoring_manager'):
+                        already_exists = code in self.parent.monitoring_manager.monitored_stocks
                     
                     # 존재하지 않을 때만 추가
                     if not already_exists:
                         # UI와 실시간 구독만 처리하도록 MonitoringManager 호출
                         create_fire_and_forget_task(self.parent.monitoring_manager.add_stock_to_monitoring(code, stock_name))
-                        self.logger.debug(f"✅ 모니터링 리스트박스에 추가 완료: {code} - {stock_name}")
+                        self.logger.debug(f"✅ 모니터링에 추가 완료: {code} - {stock_name}")
                 
                 # pending_stocks에서 제거
                 del self.pending_stocks[code]
@@ -322,15 +343,8 @@ class ChartDataCache(QObject):
                 
                 # 종목코드만 저장 (API 호출 제거)
                 self.pending_stocks[code] = f"종목{code}"
-                
-                # update_timer 시작 (첫 번째 종목이 추가될 때)
-                if hasattr(self, 'update_timer') and self.update_timer:
-                    if not self.update_timer.isActive():
-                        # 차트 업데이트 주기는 chartdata_update_interval 사용 (기본 10초)
-                        chartdata_update_interval = getattr(self.trader, 'chartdata_update_interval', 10)
-                        update_interval = chartdata_update_interval * 1000  # 초 -> 밀리초 변환
-                        self.update_timer.start(update_interval)
-                        self.logger.debug(f"✅ update_timer 시작: 첫 번째 모니터링 종목 추가 (차트 데이터 업데이트: {update_interval//1000}초 간격)")
+                # 루프에서 주기적으로 수집하므로 타이머 별도 시작은 불필요. 로그만 기록
+                self.logger.debug(f"✅ 새 모니터링 종목 추가에 따른 API 대기열 인입 처리: {code}")
                 
                 # API 요청 큐에 추가
                 self._add_to_api_queue(code)
@@ -418,17 +432,8 @@ class ChartDataCache(QObject):
             self.logger.error(f"❌ 모니터링 종목 리스트 업데이트 실패: {ex}", exc_info=True)
     
     def _start_queue_processing(self):
-        """API 큐 처리 시작"""
-        try:
-            if self.queue_timer:
-                return  # 이미 처리 중
-            
-            self.queue_timer = QTimer()
-            self.queue_timer.timeout.connect(self._process_api_queue)
-            self.queue_timer.start(3000)  # 3초 간격으로 처리
-            
-        except Exception as ex:
-            self.logger.error(f"❌ 큐 처리 시작 실패: {ex}")
+        """API 큐 처리 시작 (호환성용 유지)"""
+        pass
     
     def _add_monitoring_stocks_sequentially(self, codes):
         """모니터링 종목을 큐에 추가 (API 제한 고려)"""
@@ -519,12 +524,10 @@ class ChartDataCache(QObject):
         """종목을 API 큐에 추가 (차트 데이터 수집 후 모니터링에 추가)"""
         try:
             # 이미 모니터링에 존재하는지 확인
-            if hasattr(self, 'parent') and self.parent and hasattr(self.parent.trading_tab, 'monitoringBox'):
-                for i in range(self.parent.trading_tab.monitoringBox.count()):
-                    existing_code = self.parent.trading_tab.monitoringBox.item(i).text()
-                    if existing_code == code:
-                        self.logger.debug(f"종목이 이미 모니터링에 존재합니다: {code}")
-                        return False
+            if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'monitoring_manager'):
+                if code in self.parent.monitoring_manager.monitored_stocks:
+                    self.logger.debug(f"종목이 이미 모니터링에 존재합니다: {code}")
+                    return False
             
             # API 큐에 추가 (중복 제거)
             if code not in self.api_request_queue:
@@ -642,8 +645,7 @@ class ChartDataCache(QObject):
                 if attempt > 0:
                     wait_time = 2 ** attempt  # 지수 백오프: 2초, 4초, 8초
                     logging.debug(f"⏳ API 제한 대기 중... ({wait_time}초 후 재시도 {attempt + 1}/{max_retries})")
-                    # QTimer를 사용한 비동기 대기 (UI 블로킹 방지)
-                    QTimer.singleShot(int(wait_time * 1000), lambda: None)
+                    time.sleep(wait_time)
                 
                 logging.debug(f"🔧 API 틱 데이터 조회 시작: {code} (시도 {attempt + 1}/{max_retries})")
                 # 동기 메서드에서 비동기 호출을 위해 run_until_complete 사용
@@ -701,8 +703,7 @@ class ChartDataCache(QObject):
                 if attempt > 0:
                     wait_time = 2 ** attempt  # 지수 백오프: 2초, 4초, 8초
                     logging.debug(f"⏳ API 제한 대기 중... ({wait_time}초 후 재시도 {attempt + 1}/{max_retries})")
-                    # QTimer를 사용한 비동기 대기 (UI 블로킹 방지)
-                    QTimer.singleShot(int(wait_time * 1000), lambda: None)
+                    time.sleep(wait_time)
                 
                 logging.debug(f"🔧 API 분봉 데이터 조회 시작: {code} (시도 {attempt + 1}/{max_retries})")
                 # 동기 메서드에서 비동기 호출을 위해 run_until_complete 사용
@@ -753,39 +754,10 @@ class ChartDataCache(QObject):
         return None
     
     def _trigger_async_save_to_database(self):
-        """비동기 데이터베이스 저장 트리거"""
+        """비동기 데이터베이스 저장 트리거 (비동기 태스크 시작)"""
         try:
-            # qasync 환경에서 메인 이벤트 루프 사용 시도
-            try:
-                loop = asyncio.get_running_loop()
-                # 이미 실행 중인 이벤트 루프가 있으면 태스크로 실행
-                create_fire_and_forget_task(self.save_to_database())
-                logging.debug("✅ DB 저장을 비동기 태스크로 시작")
-                return
-            except RuntimeError:
-                # 실행 중인 이벤트 루프가 없음 - ThreadPoolExecutor로 처리
-                logging.debug("⚠️ 실행 중인 이벤트 루프가 없어 ThreadPoolExecutor 사용")
-                pass
-            
-            def run_async_save():
-                try:
-                    # 새로운 이벤트 루프 생성
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    try:
-                        # 비동기 저장 실행
-                        return loop.run_until_complete(self.save_to_database())
-                    finally:
-                        loop.close()
-                except Exception as e:
-                    logging.error(f"비동기 데이터베이스 저장 실행 오류: {e}")
-                    return None
-            
-            # 별도 스레드에서 비동기 저장 실행
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(run_async_save)
-                future.result(timeout=30)  # 30초 타임아웃
-                
+            create_fire_and_forget_task(self.save_to_database())
+            logging.debug("✅ DB 저장을 비동기 태스크로 시작")
         except Exception as ex:
             logging.error(f"비동기 데이터베이스 저장 트리거 실패: {ex}")
 
@@ -936,52 +908,39 @@ class ChartDataCache(QObject):
     def start(self):
         """캐시 업데이트 및 저장 타이머 시작"""
         try:
-            # update_timer는 모니터링 종목 수에 따라 동적으로 간격이 조절되므로 여기서 시작하지 않음
+            # 모니터링 종목 수에 따라 동적으로 업데이트 주기 조절
             self.update_chart_update_interval()
-
-            if self.save_timer and not self.save_timer.isActive():
-                self.save_timer.start(60000)
-            self.logger.debug("✅ ChartDataCache 타이머 시작")
+            self.logger.debug("✅ ChartDataCache 백그라운드 스케줄러 동적 설정 완료")
         except Exception as ex:
-            self.logger.error(f"❌ ChartDataCache 타이머 시작 실패: {ex}", exc_info=True)
+            self.logger.error(f"❌ ChartDataCache 시작 실패: {ex}", exc_info=True)
 
 
     def stop(self):
         """캐시 정리"""
         try:
-            if self.update_timer:
-                self.update_timer.stop()
-            if self.save_timer:
-                self.save_timer.stop()
+            # 태스크 중지는 stop()에서 처리하므로 캐시만 비움
             self.cache.clear()
             logging.debug("📊 차트 데이터 캐시 정리 완료")
         except Exception as ex:
             logging.error(f"❌ 차트 데이터 캐시 정리 실패: {ex}", exc_info=True)
 
     def update_chart_update_interval(self):
-        """모니터링 종목 수에 따라 차트 업데이트 주기를 동적으로 조절합니다."""
+        """모니터링 종목 수에 따라 차트 업데이트 주기를 동적으로 조절합니다. (Pure Python)"""
         try:
-            if not self.update_timer:
-                return
-
             monitoring_codes = self.parent.monitoring_manager.get_monitoring_stock_codes()
             num_stocks = len(monitoring_codes)
 
             if num_stocks > 0:
                 # 종목당 3초 간격으로 설정
                 new_interval_seconds = num_stocks * 3
-                new_interval_ms = new_interval_seconds * 1000
-
-                # 현재 타이머 간격과 다를 경우에만 업데이트
-                if self.update_timer.interval() != new_interval_ms or not self.update_timer.isActive():
-                    self.update_timer.setInterval(new_interval_ms)
-                    if not self.update_timer.isActive(): self.update_timer.start()
-                    self.logger.debug(f"🔄 차트 업데이트 주기 변경: {num_stocks}개 종목 * 3초 = {new_interval_seconds}초")
+                if hasattr(self.trader, 'chartdata_update_interval'):
+                    if self.trader.chartdata_update_interval != new_interval_seconds:
+                        self.trader.chartdata_update_interval = new_interval_seconds
+                        self.logger.debug(f"🔄 차트 업데이트 주기 변경: {num_stocks}개 종목 * 3초 = {new_interval_seconds}초")
             else:
-                # 모니터링 종목이 없으면 타이머 중지
-                if self.update_timer.isActive():
-                    self.update_timer.stop()
-                    self.logger.debug("⏹️ 모니터링 종목이 없어 차트 업데이트 타이머를 중지합니다.")
+                # 종목이 없으면 기본 10초로 유지
+                if hasattr(self.trader, 'chartdata_update_interval'):
+                    self.trader.chartdata_update_interval = 10
         except Exception as ex:
             self.logger.error(f"❌ 차트 업데이트 주기 조절 실패: {ex}", exc_info=True)
     

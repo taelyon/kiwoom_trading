@@ -7,9 +7,7 @@ import asyncio
 import sqlite3
 from datetime import datetime
 
-# PyQt6 관련
-from PyQt6.QtWidgets import QTextEdit
-from PyQt6.QtCore import QObject, pyqtSignal
+# PyQt6 제거됨 (Headless CLI 최적화)
 
 IS_WINDOWS = sys.platform.startswith('win')
 
@@ -97,55 +95,7 @@ def safe_float_conversion(value, default=0.0):
         # float 변환 실패 로그 제거 (너무 빈번함)
         return default
 
-class LogSignaler(QObject):
-    """로그 메시지 전달을 위한 시그널러"""
-    log_signal = pyqtSignal(str)
-
-class QTextEditLogger(logging.Handler):
-    """QTextEdit에 로그를 출력하는 핸들러 (스레드 안전 - 시그널 사용)"""
-    
-    def __init__(self, text_widget):
-        super().__init__()
-        self.text_widget = text_widget
-        self.signaler = LogSignaler()
-        self.signaler.log_signal.connect(self.append_log)
-        
-    def append_log(self, msg):
-        """메인 스레드에서 실행되는 로그 추가 메서드"""
-        try:
-            if not self.text_widget:
-                return
-                
-            # 위젯 유효성 검사 (삭제된 객체 접근 방지)
-            try:
-                # isVisible 호출로 C++ 객체 존재 여부 간접 확인
-                if not hasattr(self.text_widget, 'isVisible'):
-                    return
-                self.text_widget.isVisible()
-            except RuntimeError:
-                return
-
-            if hasattr(self.text_widget, 'append'):
-                self.text_widget.append(msg)
-                
-                # 스크롤 처리
-                try:
-                    if hasattr(self.text_widget, 'verticalScrollBar'):
-                        scrollbar = self.text_widget.verticalScrollBar()
-                        if scrollbar and scrollbar.isVisible():
-                            scrollbar.setValue(scrollbar.maximum())
-                except Exception:
-                    pass
-        except Exception:
-            pass
-            
-    def emit(self, record):
-        try:
-            msg = self.format(record)
-            # 시그널 발생 (스레드 안전)
-            self.signaler.log_signal.emit(msg)
-        except Exception:
-            pass
+# LogSignaler 및 QTextEditLogger 제거됨 (Headless CLI 최적화)
 
 def setup_logging():
     """로그 설정"""
@@ -205,9 +155,10 @@ def setup_logging():
         qasync_logger = logging.getLogger('qasync')
         qasync_logger.setLevel(logging.WARNING)
         
-        # websockets.client DEBUG 로그 비활성화
-        websockets_logger = logging.getLogger('websockets.client')
-        websockets_logger.setLevel(logging.WARNING)
+        # websockets DEBUG 로그 비활성화
+        logging.getLogger('websockets').setLevel(logging.WARNING)
+        logging.getLogger('websockets.client').setLevel(logging.WARNING)
+        logging.getLogger('websockets.server').setLevel(logging.WARNING)
         
         # urllib3.connectionpool DEBUG 로그 비활성화
         urllib3_logger = logging.getLogger('urllib3.connectionpool')
@@ -225,20 +176,7 @@ def setup_logging():
         httpcore_conn_logger = logging.getLogger('httpcore.connection')
         httpcore_conn_logger.setLevel(logging.WARNING)
 
-        # UI 로그 핸들러 추가 (INFO 레벨)
-        # MyWindow 인스턴스가 생성된 후에 호출되어야 함
-        # 주의: setup_logging은 MyWindow 생성 전에 호출될 수 있으므로,
-        # MyWindow 생성 후 별도로 핸들러를 추가하는 로직이 필요할 수 있음.
-        # 여기서는 일단 생략하고 main에서 처리하거나, global 변수 접근을 조심해야 함.
-        # 원본 코드에서는 globals()['main_window']를 참조했음.
-        if 'main_window' in sys.modules.get('__main__', {}).__dict__ and sys.modules['__main__'].main_window:
-             # UI 로그창 전용 포맷터
-            ui_log_format = '%(asctime)s - %(message)s'
-            ui_formatter = logging.Formatter(ui_log_format, datefmt='%H:%M:%S')
-            text_edit_logger = QTextEditLogger(sys.modules['__main__'].main_window.trading_tab.terminalOutput)
-            text_edit_logger.setLevel(logging.INFO)
-            text_edit_logger.setFormatter(ui_formatter)
-            root_logger.addHandler(text_edit_logger)
+        # QTextEditLogger 제거됨 (Headless CLI 최적화)
                 
     except Exception as ex:
         print(f"로깅 설정 실패: {ex}")
@@ -304,3 +242,26 @@ class ApiLimitManager:
         except Exception as ex:
             cls.logger.error(f"API 제한 확인 중 오류: {ex}")
             return False
+
+class CallbackSignal:
+    """PyQt6 pyqtSignal을 대체하기 위한 콜백 기반 시그널 클래스 (공통 유틸)"""
+    def __init__(self):
+        self.callbacks = []
+        
+    def connect(self, callback):
+        if callback not in self.callbacks:
+            self.callbacks.append(callback)
+        
+    def disconnect(self, callback=None):
+        if callback is None:
+            self.callbacks.clear()
+        elif callback in self.callbacks:
+            self.callbacks.remove(callback)
+            
+    def emit(self, *args, **kwargs):
+        for callback in self.callbacks:
+            try:
+                callback(*args, **kwargs)
+            except Exception:
+                pass
+

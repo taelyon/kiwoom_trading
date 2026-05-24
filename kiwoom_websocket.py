@@ -11,7 +11,7 @@ from typing import Dict, List, Optional, Any
 
 import websockets
 import time
-from PyQt6.QtCore import QTimer
+# PyQt6 QTimer 제거됨 (Headless CLI 최적화)
 
 from utils import ApiLimitManager, safe_float_conversion, create_fire_and_forget_task
 
@@ -344,7 +344,7 @@ class KiwoomWebSocketClient:
                             self.logger.warning(f"⚠️ 조건검색 목록조회 응답이 딕셔너리가 아닙니다: {type(response)}")
                             continue
                         
-                        self.process_condition_search_list_response(response)
+                        await self.process_condition_search_list_response(response)
                     except Exception as condition_err:
                         self.logger.error(f"조건검색 목록조회 응답 처리 실패: {condition_err}", exc_info=True)
                         
@@ -776,9 +776,9 @@ class KiwoomWebSocketClient:
                     # 매수 주문 체결 시에만 UI에 추가 (매도 후 재추가 방지)
                     # 매수 체결은 process_order_execution_data에서 처리하므로, 여기서는 중복 추가를 방지합니다.
                     if stock_code in self.parent.trader.pending_buy_orders:
-                        # UI에 종목 추가 (메인 스레드에서 실행)
+                        # 종목 추가 처리
                         if hasattr(self, 'parent') and self.parent:
-                            QTimer.singleShot(0, lambda code=stock_code, name=stock_name: self._add_stock_to_ui(code, name))
+                            self._add_stock_to_ui(stock_code, stock_name)
                 else:
                     # 수량이 0인 경우 → 매도 체결 완료
                     if stock_code in self.balance_data:                       
@@ -880,13 +880,13 @@ class KiwoomWebSocketClient:
                         
                         # [수정] 전량 매도 시 투자현황표 즉시 업데이트 (잔고 삭제 반영)
                         if hasattr(self.parent, 'update_stock_table'):
-                            QTimer.singleShot(0, self.parent.update_stock_table)
+                            self.parent.update_stock_table()
             else:
-                # 실시간 잔고 데이터 수신 시, UI 테이블 업데이트 트리거
+                # 실시간 잔고 데이터 수신 시, 테이블 업데이트 트리거
                 current_time = time.time()
                 if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'update_stock_table'):
                     if current_time - self._last_table_update_time >= self._table_update_interval:
-                        QTimer.singleShot(0, self.parent.update_stock_table)
+                        self.parent.update_stock_table()
                         self._last_table_update_time = current_time
                 self.logger.warning(f"실시간 잔고 데이터 구조 오류: stock_code={stock_code}, values={values}")
                 
@@ -1053,7 +1053,7 @@ class KiwoomWebSocketClient:
                                 exec_qty=exec_qty_int,
                                 exec_price=exec_price_float
                             ))
-                        QTimer.singleShot(0, lambda code=stock_code, name=stock_name: self._add_stock_to_ui(code, name))
+                        self._add_stock_to_ui(stock_code, stock_name)
                 
                 # 매도 체결 완료 → 보유종목 리스트에서 제거 (람다 클로저 문제 방지)
                 elif buy_sell_flag == '1': # '1'은 매도를 의미
@@ -1073,9 +1073,9 @@ class KiwoomWebSocketClient:
                         if prev_balance_info:
                             pass # 슬랙 알림 로직을 process_balance_data로 이동
 
-                    # UI 업데이트 (보유종목 리스트 및 투자현황표)
+                    # 상태 업데이트 및 알림
                     if hasattr(self, 'parent') and self.parent:
-                        QTimer.singleShot(0, lambda code=stock_code: self._remove_stock_from_ui(code))
+                        self._remove_stock_from_ui(stock_code)
 
                     # 최고가 정보도 제거 (UI 업데이트 후)
                     if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'objtrader'):
@@ -1088,87 +1088,37 @@ class KiwoomWebSocketClient:
             
     
     def _add_stock_to_ui(self, stock_code, stock_name):
-        """UI에 종목 추가 (메인 스레드에서 실행)"""
+        """종목 상태 변경 시 내부 데이터 동기화 및 알림 (기존 _add_stock_to_ui 대체)"""
         try:
             if not hasattr(self, 'parent') or not self.parent:
                 return
             
             # 1. 모니터링 리스트에 추가
-            monitoring_exists = False # type: ignore
-            for i in range(self.parent.trading_tab.monitoringBox.count()):
-                item_text = self.parent.trading_tab.monitoringBox.item(i).text()
-                # 종목코드 추출 (종목명 유무와 관계없이)                
-                if item_text == stock_code:
-                    monitoring_exists = True
-                    break
+            if hasattr(self.parent, 'monitoring_manager'):
+                if stock_code not in self.parent.monitoring_manager.monitored_stocks:
+                    create_fire_and_forget_task(self.parent.monitoring_manager.add_stock_to_monitoring(stock_code, None))
+                    self.logger.debug(f"✅ 모니터링에 추가: {stock_code} ({stock_name})")
             
-            if not monitoring_exists:
-                self.parent.monitoring_manager.add_stock_to_monitoring(stock_code, None)
-                self.logger.debug(f"✅ 모니터링 리스트에 추가: {stock_code} ({stock_name})")
-            
-            # 2. 보유종목 리스트에 추가
-            holding_exists = False
-            for i in range(self.parent.trading_tab.boughtBox.count()):
-                item_text = self.parent.trading_tab.boughtBox.item(i).text()
-                # 종목코드 추출 (종목명 유무와 관계없이)                
-                if item_text == stock_code:
-                    holding_exists = True
-                    break
-            
-            if not holding_exists:
-                self.parent.trading_tab.boughtBox.addItem(stock_code)
-                self.logger.debug(f"✅ 보유종목 리스트에 추가: {stock_code} ({stock_name})")
-            
-            # 3. 투자 현황표 업데이트
+            # 2. 투자 현황표 업데이트 트리거 (웹 전송용)
             if hasattr(self.parent, 'update_stock_table'):
-                # 디버그 로그: 투자 현황표 업데이트 전 balance_data 상태
-                if hasattr(self, 'balance_data'):
-                    self.logger.debug(f"🔍 투자 현황표 업데이트 전 WebSocket balance_data: {list(self.balance_data.keys())} ({len(self.balance_data)}개 종목)") # type: ignore
                 self.parent.update_stock_table()
                 
         except Exception as e:
-            self.logger.error(f"UI 종목 추가 실패 ({stock_code}): {e}", exc_info=True)
+            self.logger.error(f"종목 추가 처리 실패 ({stock_code}): {e}", exc_info=True)
             
     
     def _remove_stock_from_ui(self, stock_code):
-        """UI에서 종목 제거 (메인 스레드에서 실행)"""
+        """종목 매도 완료 시 내부 상태 정리 및 알림 (기존 _remove_stock_from_ui 대체)"""
         try:
             if not hasattr(self, 'parent') or not self.parent:
                 return
             
-            # 보유종목 리스트에서 제거
-            for i in range(self.parent.trading_tab.boughtBox.count()):
-                item_text = self.parent.trading_tab.boughtBox.item(i).text()
-                # 종목코드 추출 (종목명 유무와 관계없이)                
-                if item_text.split()[0] == stock_code:
-                    self.parent.trading_tab.boughtBox.takeItem(i)
-                    logging.debug(f"✅ 보유종목 리스트에서 제거: {stock_code}")
-
-                    # 모니터링 리스트에도 없는 경우에만 차트 초기화
-                    is_still_monitoring = False
-                    if hasattr(self.parent.trading_tab, 'monitoringBox'):
-                        for j in range(self.parent.trading_tab.monitoringBox.count()):
-                            monitoring_item = self.parent.trading_tab.monitoringBox.item(j)
-                            if monitoring_item and monitoring_item.text().split()[0] == stock_code:
-                                is_still_monitoring = True
-                                break
-                    
-                    if not is_still_monitoring:
-                        # 차트 위젯이 제거된 종목을 표시하고 있었다면 차트 초기화
-                        if hasattr(self.parent, 'trading_tab') and hasattr(self.parent.trading_tab, 'realtime_chart_widget'):
-                            chart_widget = self.parent.trading_tab.realtime_chart_widget
-                            if chart_widget.current_code == stock_code:
-                                self.logger.debug(f"현재 차트 종목({stock_code})이 보유 및 모니터링 목록에서 모두 제거되어 차트를 초기화합니다.")
-                                chart_widget.set_current_code(None)
-                                chart_widget.clear_charts() # 명시적으로 차트 내용 지우기
-                    break
-            
-            # 투자 현황표 업데이트
+            # 투자 현황표 업데이트 트리거 (웹 전송용)
             if hasattr(self.parent, 'update_stock_table'):
                 self.parent.update_stock_table()
                     
         except Exception as e:
-            self.logger.error(f"UI 종목 제거 실패 ({stock_code}): {e}", exc_info=True)
+            self.logger.error(f"종목 제거 처리 실패 ({stock_code}): {e}", exc_info=True)
 
     def process_stock_execution_data(self, data_item):
         """실시간 주식 데이터 처리 (type='0B' 주식체결)"""
@@ -1408,42 +1358,12 @@ class KiwoomWebSocketClient:
             if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'trading_tab'):
                 # 마지막 업데이트로부터 일정 시간(1초)이 지난 경우에만 업데이트
                 if current_time - self._last_table_update_time >= self._table_update_interval:
-                    # QTimer를 사용하여 메인 스레드에서 UI 업데이트를 예약합니다.
-                    QTimer.singleShot(0, self.parent.update_stock_table)
+                    # 테이블 업데이트를 예약합니다.
+                    if hasattr(self.parent, 'update_stock_table'):
+                        self.parent.update_stock_table()
                     self._last_table_update_time = current_time
 
-                    # 보유종목 리스트(boughtBox)도 balance_data 기준으로 동기화
-                    try:
-                        if hasattr(self.parent, 'trading_tab') and hasattr(self.parent.trading_tab, 'boughtBox'):
-                            bought_box = self.parent.trading_tab.boughtBox
-                            
-                            # 현재 리스트박스의 종목 코드들을 set으로 변환
-                            current_list_codes = set()
-                            for i in range(bought_box.count()):
-                                item = bought_box.item(i)
-                                if item:
-                                    current_list_codes.add(item.text().split()[0])
-
-                            # balance_data의 종목 코드들을 set으로 변환
-                            balance_codes = set(self.balance_data.keys())
-
-                            # 두 set을 비교하여 UI 업데이트
-                            # 추가해야 할 종목
-                            for code_to_add in balance_codes - current_list_codes:
-                                bought_box.addItem(code_to_add)
-                                self.logger.debug(f"✅ 보유종목 리스트 동기화 (추가): {code_to_add}")
-
-                            # 제거해야 할 종목
-                            for code_to_remove in current_list_codes - balance_codes:
-                                for i in range(bought_box.count()):
-                                    item = bought_box.item(i)
-                                    if item and item.text().split()[0] == code_to_remove:
-                                        bought_box.takeItem(i)
-                                        self.logger.debug(f"✅ 보유종목 리스트 동기화 (제거): {code_to_remove}")
-                                        break # 해당 아이템을 찾았으면 루프 종료
-
-                    except Exception as box_sync_ex:
-                        self.logger.error(f"보유종목 리스트 동기화 실패: {box_sync_ex}", exc_info=True)
+                    # CLI 환경이므로 UI 위젯 동기화 불필요
 
                 else:
                     # throttling에 걸린 경우, 전체 테이블 업데이트 대신 로그만 남김
@@ -1966,7 +1886,7 @@ class KiwoomWebSocketClient:
             self.logger.error(f"시장 상태 데이터 처리 실패: {e}", exc_info=True)
             
     
-    def process_condition_search_list_response(self, response):
+    async def process_condition_search_list_response(self, response):
         """조건검색 목록조회 응답 처리"""
         try:           
             # 응답 데이터 유효성 확인
@@ -2036,28 +1956,31 @@ class KiwoomWebSocketClient:
                 if hasattr(self.parent, 'is_loading_strategy'):
                     self.parent.is_loading_strategy = True
 
-                self.parent.trading_tab.comboStg.blockSignals(True)
+                has_ui = hasattr(self.parent, 'trading_tab') and hasattr(self.parent.trading_tab, 'comboStg')
+                if has_ui:
+                    self.parent.trading_tab.comboStg.blockSignals(True)
 
                 # 투자전략 콤보박스에 조건검색식 추가
                 try:
-                    # 기존 조건검색식 제거 (중복 방지)
-                    condition_names = [condition['title'] for condition in condition_search_list]
-                    for i in range(self.parent.trading_tab.comboStg.count() - 1, -1, -1):
-                        item_text = self.parent.trading_tab.comboStg.itemText(i)
-                        if item_text in condition_names:
-                            self.parent.trading_tab.comboStg.removeItem(i)
-                    
-                    # 새로운 조건검색식 추가
-                    added_count = 0
-                    for condition in condition_search_list:
-                        condition_text = condition['title']  # [조건검색] 접두사 제거
-                        self.parent.trading_tab.comboStg.addItem(condition_text)
-                        added_count += 1
-                        self.logger.info(f"✅ 조건검색식 추가 ({added_count}/{len(condition_search_list)}): {condition_text}")
+                    if has_ui:
+                        # 기존 조건검색식 제거 (중복 방지)
+                        condition_names = [condition['title'] for condition in condition_search_list]
+                        for i in range(self.parent.trading_tab.comboStg.count() - 1, -1, -1):
+                            item_text = self.parent.trading_tab.comboStg.itemText(i)
+                            if item_text in condition_names:
+                                self.parent.trading_tab.comboStg.removeItem(i)
+                        
+                        # 새로운 조건검색식 추가
+                        added_count = 0
+                        for condition in condition_search_list:
+                            condition_text = condition['title']  # [조건검색] 접두사 제거
+                            self.parent.trading_tab.comboStg.addItem(condition_text)
+                            added_count += 1
+                            self.logger.info(f"✅ 조건검색식 추가 ({added_count}/{len(condition_search_list)}): {condition_text}")
                     
                     # 저장된 조건검색식이 있는지 확인하고 자동 실행
                     self.logger.debug("🔍 저장된 조건검색식 자동 실행 확인 시작")
-                    saved_condition_executed = self.parent.condition_search_manager.check_and_auto_execute_saved_condition()
+                    saved_condition_executed = await self.parent.condition_search_manager.check_and_auto_execute_saved_condition()
                     
                     # 저장된 조건검색식이 없으면 첫 번째 조건검색 자동 실행
                     if not saved_condition_executed:
@@ -2079,7 +2002,8 @@ class KiwoomWebSocketClient:
                 except Exception as add_ex:
                     self.logger.error(f"투자전략 콤보박스에 조건검색식 추가 실패: {add_ex}", exc_info=True)
                 finally:
-                    self.parent.trading_tab.comboStg.blockSignals(False)
+                    if has_ui:
+                        self.parent.trading_tab.comboStg.blockSignals(False)
                     # UI 업데이트 후 로딩 플래그 해제
                     if hasattr(self.parent, 'is_loading_strategy'):
                         self.parent.is_loading_strategy = False

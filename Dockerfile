@@ -32,45 +32,22 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # ==========================================
 FROM python:3.12-slim
 
-# 기본 환경변수 설정 (docker 환경임을 명시하는 RUNTIME_ENV 추가)
+# 기본 환경변수 설정
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
-ENV DISPLAY=:99
-ENV RESOLUTION=1920x1080x24
 ENV RUNTIME_ENV=docker
 
 # 타임존 설정 (한국 시간)
 ENV TZ=Asia/Seoul
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
-# 필요 패키지 설치 (build-essential, wget 제외)
+# 필요 최소한의 시스템 패키지만 설치 (LightGBM 구동용 libgomp1 등)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    xvfb \
-    x11vnc \
-    fluxbox \
-    novnc \
-    websockify \
-    libegl1 \
-    libgl1 \
-    libglx-mesa0 \
-    libglib2.0-0 \
-    libxcb-xinerama0 \
-    libxcb-cursor0 \
-    libxkbcommon-x11-0 \
-    libxcb-icccm4 \
-    libxcb-image0 \
-    libxcb-keysyms1 \
-    libxcb-randr0 \
-    libxcb-render-util0 \
-    libxcb-shape0 \
-    libfontconfig1 \
-    libdbus-1-3 \
     tzdata \
-    fonts-noto-cjk \
     libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Builder Stage에서 컴파일된 TA-Lib C 라이브러리 파일만 쏙 빼오기
+# Builder Stage에서 컴파일된 TA-Lib C 라이브러리 파일만 복사
 COPY --from=builder /usr/lib/libta_lib* /usr/lib/
 
 # 작업 디렉토리 생성
@@ -87,8 +64,8 @@ RUN pip install --no-cache-dir --upgrade pip && \
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-# VNC 및 웹 UI 포트 노출
-EXPOSE 8080
+# 웹 대시보드 HTTP (8081) 및 WebSocket (8082) 포트 노출
+EXPOSE 8081 8082
 
 # 소스코드 전체 복사 (.dockerignore 적용됨)
 COPY . /app/

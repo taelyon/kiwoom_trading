@@ -2,13 +2,12 @@ version: '3.8'
 
 services:
   kiwoom-bot:
-    build: .
+    image: ghcr.io/taelyon/kiwoom_trading:latest
     container_name: kiwoom_trading_bot
     restart: unless-stopped
     stop_grace_period: 30s
     ports:
-      # 외부접속포트:내부포트 (NAS에서 접속할 때 IP:8080 으로 접속)
-      - "8080:8080"
+      # 외부접속포트:내부포트
       - "8081:8081"
       - "8082:8082"
     healthcheck:
@@ -26,6 +25,4 @@ services:
       # 필요 시 로그 폴더 마운트
       - ./logs:/app/logs
     environment:
-      # 해상도 설정 (기본: 1920x1080x24)
-      - RESOLUTION=1920x1080x24
       - TZ=Asia/Seoul

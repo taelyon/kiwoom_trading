@@ -5,7 +5,7 @@ import numpy as np
 from datetime import datetime
 import os
 import sys
-from PyQt6.QtCore import QThread, pyqtSignal, QCoreApplication
+import threading
 
 # LightGBM 라이브러리 임포트 시도
 try:
@@ -14,21 +14,27 @@ try:
 except ImportError:
     LGBM_AVAILABLE = False
 
-class MLTrainingWorker(QThread):
+from utils import CallbackSignal
+
+class MLTrainingWorker(threading.Thread):
     """
     백그라운드에서 머신러닝 모델을 학습하는 워커 스레드
-    UI 프리징(멈춤)을 방지하기 위해 QThread 상속
+    UI 프리징(멈춤)을 방지하기 위해 threading.Thread 상속
     """
-    # 시그널: (성공여부, 메시지)
-    finished_signal = pyqtSignal(bool, str)
-    # 시그널: 진행상황 메시지
-    progress_signal = pyqtSignal(str)
 
-    def __init__(self, db_path='data/stock_data.db', model_output_path='lgbm_model.txt'):
+    def __init__(self, db_path='data/stock_data.db', model_output_path='lgbm_model.txt', on_progress=None, on_finished=None):
         super().__init__()
         self.db_path = db_path
         self.model_output_path = model_output_path
         self.logger = logging.getLogger(self.__class__.__name__)
+        
+        # 콜백 기반 시그널 초기화
+        self.finished_signal = CallbackSignal()
+        if on_finished:
+            self.finished_signal.connect(on_finished)
+        self.progress_signal = CallbackSignal()
+        if on_progress:
+            self.progress_signal.connect(on_progress)
         
         # 학습 파라미터 (스캘핑용 과적합 방지 설정 적용)
         self.params = {
@@ -173,21 +179,14 @@ if __name__ == "__main__":
     # 단독 실행 모드
     print("🚀 [Standalone] ML 학습 프로세스 시작...")
     
-    app = QCoreApplication(sys.argv)
-    worker = MLTrainingWorker()
-    
-    # 시그널 연결
     def on_progress(msg):
         print(msg)
         
     def on_finished(success, msg):
         print(f"\n결과: {'✅ 성공' if success else '❌ 실패'}")
         print(f"메시지: {msg}")
-        app.quit()
         
-    worker.progress_signal.connect(on_progress)
-    worker.finished_signal.connect(on_finished)
-    
+    worker = MLTrainingWorker(on_progress=on_progress, on_finished=on_finished)
     worker.start()
-    
-    sys.exit(app.exec())
+    worker.join()
+

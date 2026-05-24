@@ -5,25 +5,24 @@ import json
 import traceback
 import pandas as pd
 from datetime import datetime
-from PyQt6.QtCore import QObject, pyqtSignal
+from utils import CallbackSignal
 
 import strategy_utils
 
 # ==================== 키움 전략 클래스 ====================
-class KiwoomStrategy(QObject):
-    """키움 REST API 기반 전략 클래스"""
-    
-    # 시그널 정의
-    signal_strategy_result = pyqtSignal(str, str, dict)  # code, action, data
-    clear_signal = pyqtSignal()
+class KiwoomStrategy:
+    """키움 REST API 기반 전략 클래스 (Pure Python)"""
     
     def __init__(self, trader, parent):
-        super().__init__()
         self.logger = logging.getLogger(self.__class__.__name__)
         self.trader = trader
         self.client = trader.client
         self.db_manager = trader.db_manager
         self.parent = parent
+
+        # 시그널 정의 (콜백 기반)
+        self.signal_strategy_result = CallbackSignal()  # code, action, data
+        self.clear_signal = CallbackSignal()
 
         # 종목별 매수 신호 생성 동시성 제어를 위한 Lock
         self._buy_signal_locks: dict[str, asyncio.Lock] = {}
