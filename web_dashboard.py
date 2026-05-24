@@ -354,13 +354,6 @@ HTML_CONTENT = """
             border-radius: 24px;
             padding: 24px;
             box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.2);
-            transition: all 0.3s ease;
-        }
-
-        .glass-card:hover {
-            transform: translateY(-2px);
-            border-color: rgba(255, 255, 255, 0.2);
-            box-shadow: 0 12px 40px 0 rgba(138, 43, 226, 0.15);
         }
 
         .card-title {
