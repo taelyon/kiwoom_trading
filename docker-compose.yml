@@ -18,7 +18,7 @@ services:
       start_period: 30s
     volumes:
       # 로컬 디렉토리를 컨테이너에 매핑 (설정이나 DB 파일 영구 보존)
-      # 왼쪽(로컬경로) : 오른쪽(컨테이너경로)
+      # 왼쪽(로컬경로) : 오른쪽(컨테이너경로)d
       - ./.env:/app/.env
       - ./data:/app/data
       - ./kiwoom_token.json:/app/kiwoom_token.json
