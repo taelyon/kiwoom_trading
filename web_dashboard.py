@@ -914,6 +914,7 @@ HTML_CONTENT = """
         let candleSeries;
         let volumeSeries;
         let currentChartCode = null;
+        let currentChartName = null; // 현재 선택된 종목의 순수 이름 백업용
         let currentChartScope = 'tic'; // 'tic' or 'minute'
         let reconnectTimer;
         let heartbeatTimer;
@@ -1336,6 +1337,7 @@ HTML_CONTENT = """
 
         function subscribeStockChart(code, name) {
             currentChartCode = code;
+            currentChartName = name; // 순수 종목 이름을 백업하여 탭 전환 시 중복 방지
             document.getElementById('chartTitle').innerText = `실시간 차트 - ${name} (${code})`;
             
             // 수동 주문 입력창에도 자동 입력
@@ -1362,9 +1364,9 @@ HTML_CONTENT = """
 
             currentChartScope = scope;
             
-            // 데이터 갱신을 위해 재구독 요청
-            if (currentChartCode) {
-                subscribeStockChart(currentChartCode, document.getElementById('chartTitle').innerText.split(' - ')[1]);
+            // 데이터 갱신을 위해 재구독 요청 (문자열 split 파싱 대신 전역 백업 변수 활용)
+            if (currentChartCode && currentChartName) {
+                subscribeStockChart(currentChartCode, currentChartName);
             }
         }
 
