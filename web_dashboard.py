@@ -1270,6 +1270,28 @@ HTML_CONTENT = """
             }
         }
 
+        // 날짜/시간 문자열(YYYY-MM-DD HH:MM:SS)을 Date 객체로 안전하게 파싱하는 헬퍼
+        function parseDateTimeString(str) {
+            if (!str) return null;
+            if (typeof str === 'number') return new Date(str * 1000);
+            
+            const parts = str.split(' ');
+            if (parts.length < 2) return null;
+            const dateParts = parts[0].split('-');
+            const timeParts = parts[1].split(':');
+            if (dateParts.length < 3 || timeParts.length < 3) return null;
+            
+            const date = new Date(
+                parseInt(dateParts[0]),
+                parseInt(dateParts[1]) - 1,
+                parseInt(dateParts[2]),
+                parseInt(timeParts[0]),
+                parseInt(timeParts[1]),
+                parseInt(timeParts[2])
+            );
+            return isNaN(date.getTime()) ? null : date;
+        }
+
         // 역사적 차트 그리기
         function renderChartHistory(data) {
             if (!candleSeries || !volumeSeries) return;
@@ -1287,18 +1309,28 @@ HTML_CONTENT = """
             const volumeData = [];
 
             history.forEach(bar => {
-                let formattedTime;
+                let formattedTime = null;
                 try {
-                    // 시간 파싱 및 Lightweight charts 규격에 맞게 변환 (유닉스 타임스탬프 초 단위 지원)
-                    const parsedDate = new Date(bar.time);
-                    if (!isNaN(parsedDate)) {
+                    // 1. 수동 파싱 시도 (가장 안전함)
+                    const parsedDate = parseDateTimeString(bar.time);
+                    if (parsedDate) {
                         formattedTime = Math.floor(parsedDate.getTime() / 1000);
-                    } else {
-                        // 날짜 형식이 아닐 경우 단순 인덱스 또는 문자열
-                        formattedTime = bar.time;
                     }
-                } catch (e) {
-                    formattedTime = bar.time;
+                } catch (e) {}
+
+                // 2. 파싱 실패 시 폴백
+                if (!formattedTime) {
+                    try {
+                        const d = new Date(bar.time);
+                        if (!isNaN(d.getTime())) {
+                            formattedTime = Math.floor(d.getTime() / 1000);
+                        }
+                    } catch (e) {}
+                }
+
+                // 3. 최종 실패 시 현재 시간 기준 폴백
+                if (!formattedTime) {
+                    formattedTime = Math.floor(Date.now() / 1000);
                 }
 
                 candleData.push({
@@ -1345,16 +1377,25 @@ HTML_CONTENT = """
             const candle = (currentChartScope === 'tic') ? data.tic_candle : data.min_candle;
             if (!candle) return;
 
-            let formattedTime;
+            let formattedTime = null;
             try {
-                const parsedDate = new Date(candle.time);
-                if (!isNaN(parsedDate)) {
+                const parsedDate = parseDateTimeString(candle.time);
+                if (parsedDate) {
                     formattedTime = Math.floor(parsedDate.getTime() / 1000);
-                } else {
-                    formattedTime = candle.time;
                 }
-            } catch(e) {
-                formattedTime = candle.time;
+            } catch(e) {}
+
+            if (!formattedTime) {
+                try {
+                    const d = new Date(candle.time);
+                    if (!isNaN(d.getTime())) {
+                        formattedTime = Math.floor(d.getTime() / 1000);
+                    }
+                } catch(e) {}
+            }
+
+            if (!formattedTime) {
+                formattedTime = Math.floor(Date.now() / 1000);
             }
 
             const tickData = {
