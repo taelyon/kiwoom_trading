@@ -63,8 +63,8 @@ HTML_CONTENT = """
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Antigravity Kiwoom-Trader Web GUI</title>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=Noto+Sans+KR:wght@300;400;700&display=swap" rel="stylesheet">
-    <!-- TradingView Lightweight Charts CDN -->
-    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+    <!-- TradingView Lightweight Charts CDN (JSDelivr로 변경하여 국내 로딩 속도 최적화) -->
+    <script src="https://cdn.jsdelivr.net/npm/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
     <style>
         :root {
             --bg-color: #080710;
@@ -877,9 +877,14 @@ HTML_CONTENT = """
             clearTimeout(reconnectTimer);
             clearInterval(heartbeatTimer);
 
+            console.log("⚡ 웹소켓 연결 시작...");
+            console.time("⏱️ 웹소켓 연결 완료 시간");
             ws = new WebSocket(wsUrl);
 
             ws.onopen = () => {
+                console.timeEnd("⏱️ 웹소켓 연결 완료 시간");
+                console.log("🔑 인증 요청 전송 중...");
+                console.time("⏱️ 인증 완료 및 화면 렌더링 시간");
                 // 첫 패킷으로 인증 요청 전송
                 ws.send(jsonStr({
                     type: "auth",
@@ -904,11 +909,17 @@ HTML_CONTENT = """
                         document.getElementById('authContainer').style.display = "none";
                         document.getElementById('dashboardContainer').style.display = "flex";
                         document.body.style.alignItems = "stretch";
+                        
+                        console.time("⏱️ 차트 초기화 시간");
                         initTradingViewChart();
+                        console.timeEnd("⏱️ 차트 초기화 시간");
+                        
+                        console.timeEnd("⏱️ 인증 완료 및 화면 렌더링 시간");
                         
                         // 초기 설정 가져오기
                         ws.send(jsonStr({ type: "get_settings" }));
                     } else {
+                        console.timeEnd("⏱️ 인증 완료 및 화면 렌더링 시간");
                         showAuthError(data.message || "인증 실패");
                         localStorage.removeItem('dashboard_password');
                         ws.close();
@@ -1161,21 +1172,28 @@ HTML_CONTENT = """
         function initTradingViewChart() {
             try {
                 if (typeof LightweightCharts === 'undefined') {
-                    console.warn("TradingView 라이브러리가 로드되지 않았습니다. 차트 기능이 비활성화됩니다.");
+                    console.warn("⚠️ TradingView 라이브러리가 로드되지 않았습니다. 차트 기능이 비활성화됩니다.");
                     return;
                 }
                 const chartDiv = document.getElementById('chartCanvas');
+                
+                // 기존 차트 객체가 존재하면 정리
+                if (chart) {
+                    try {
+                        chart.remove();
+                    } catch(e) {}
+                    chart = null;
+                }
+
+                console.log("📊 TradingView 차트 객체 생성 시작...");
                 chart = LightweightCharts.createChart(chartDiv, {
                     layout: {
-                        backgroundColor: '#0c0b1e',
+                        background: { type: 'solid', color: '#0c0b1e' },
                         textColor: '#d1d4dc',
                     },
                     grid: {
                         vertLines: { color: 'rgba(70, 130, 180, 0.1)' },
                         horzLines: { color: 'rgba(70, 130, 180, 0.1)' },
-                    },
-                    crosshair: {
-                        mode: LightweightCharts.CrosshairMode.Normal,
                     },
                     rightPriceScale: {
                         borderColor: 'rgba(197, 203, 206, 0.4)',
@@ -1195,10 +1213,14 @@ HTML_CONTENT = """
                     wickUpColor: '#ef5350',
                 });
 
+                // 볼륨 피드 추가 (스케일 마진 분리 적용)
                 volumeSeries = chart.addHistogramSeries({
-                    color: '#26a69a',
+                    color: 'rgba(38, 166, 154, 0.5)',
                     priceFormat: { type: 'volume' },
-                    priceScaleId: '', // 볼륨은 별도 스케일로 표시
+                    priceScaleId: 'volume_scale',
+                });
+
+                chart.priceScale('volume_scale').applyOptions({
                     scaleMargins: {
                         top: 0.8,
                         bottom: 0,
@@ -1209,10 +1231,14 @@ HTML_CONTENT = """
                 new ResizeObserver(entries => {
                     if (entries.length === 0 || !chart) return;
                     const { width, height } = entries[0].contentRect;
-                    chart.resize(width, height);
+                    if (width > 0 && height > 0) {
+                        chart.resize(width, height);
+                    }
                 }).observe(chartDiv);
+
+                console.log("📊 TradingView 차트 초기화 성공!");
             } catch (e) {
-                console.error("차트 라이브러리 초기화 실패:", e);
+                console.error("❌ 차트 라이브러리 초기화 실패:", e);
             }
         }
 
@@ -1620,8 +1646,18 @@ async def websocket_handler(websocket):
                     code = data.get('code')
                     if code:
                         subscribed_charts[websocket] = code
-                        # 최초 1회 역사적 데이터 추출 및 전송
+                        # 해당 웹소켓의 역사적 데이터 전송 여부 초기화
+                        if not hasattr(websocket, 'sent_chart_history'):
+                            websocket.sent_chart_history = {}
+                        websocket.sent_chart_history[code] = False
+                        
                         if app.chart_cache:
+                            # 만약 캐시에 없는 종목이거나 데이터가 유실된 경우 백그라운드 수집 즉시 요청
+                            if code not in app.chart_cache.cache or not app.chart_cache.cache[code].get('tic_data') or not app.chart_cache.cache[code].get('min_data'):
+                                if code not in app.chart_cache.active_chart_tasks:
+                                    logging.info(f"📡 대시보드 차트 요청: 캐시에 데이터가 없는 종목 {code}에 대한 비동기 수집을 시작합니다.")
+                                    app.chart_cache.update_single_chart(code)
+                                    
                             cache_data = app.chart_cache.get_chart_data(code)
                             if cache_data:
                                 tic_data = cache_data.get('tic_data', {})
@@ -1681,6 +1717,7 @@ async def websocket_handler(websocket):
                                     "tic_history": tic_history,
                                     "min_history": min_history
                                 }))
+                                websocket.sent_chart_history[code] = True
                                 logging.debug(f"📊 대시보드: {code} 역사적 차트 데이터 스트리밍 완료 (틱:{len(tic_history)}개, 분봉:{len(min_history)}개)")
 
             except Exception as inner_ex:
@@ -1701,7 +1738,7 @@ async def websocket_handler(websocket):
 
 # 차트 데이터 업데이트 통보 처리 (TradingApp 단에서 이벤트를 쏠 때 호출됨)
 def on_chart_data_updated(code):
-    """차트 캐시 갱신 시 구독 중인 웹소켓 클라이언트들에게 신규 틱/분봉 데이터를 밀어줌"""
+    """차트 캐시 갱신 시 구독 중인 웹소켓 클라이언트들에게 역사적 데이터 또는 신규 틱/분봉 데이터를 밀어줌"""
     global main_window_ref
     if not main_window_ref or not main_window_ref.chart_cache:
         return
@@ -1710,9 +1747,58 @@ def on_chart_data_updated(code):
     if not cache_data:
         return
         
+    # 역사적 데이터 및 틱 데이터 추출
     tic_data = cache_data.get('tic_data', {})
     min_data = cache_data.get('min_data', {})
     
+    # 1. 역사적 차트 데이터 가공
+    tic_history = []
+    if tic_data:
+        t_times = tic_data.get('time', [])
+        t_opens = tic_data.get('open', [])
+        t_highs = tic_data.get('high', [])
+        t_lows = tic_data.get('low', [])
+        t_closes = tic_data.get('close', [])
+        t_vols = tic_data.get('volume', [])
+        for idx in range(len(t_closes)):
+            try:
+                t_time = t_times[idx]
+                if isinstance(t_time, datetime):
+                    t_time = t_time.strftime('%Y-%m-%d %H:%M:%S')
+                tic_history.append({
+                    "time": t_time,
+                    "open": float(t_opens[idx]),
+                    "high": float(t_highs[idx]),
+                    "low": float(t_lows[idx]),
+                    "close": float(t_closes[idx]),
+                    "volume": int(t_vols[idx])
+                })
+            except Exception: pass
+            
+    min_history = []
+    if min_data:
+        m_times = min_data.get('time', [])
+        m_opens = min_data.get('open', [])
+        m_highs = min_data.get('high', [])
+        m_lows = min_data.get('low', [])
+        m_closes = min_data.get('close', [])
+        m_vols = min_data.get('volume', [])
+        for idx in range(len(m_closes)):
+            try:
+                m_time = m_times[idx]
+                if isinstance(m_time, datetime):
+                    m_time = m_time.strftime('%Y-%m-%d %H:%M:%S')
+                min_history.append({
+                    "time": m_time,
+                    "open": float(m_opens[idx]),
+                    "high": float(m_highs[idx]),
+                    "low": float(m_lows[idx]),
+                    "close": float(m_closes[idx]),
+                    "volume": int(m_vols[idx])
+                })
+            except Exception: pass
+
+    # 2. 실시간 틱 데이터 가공
     tic_candle = None
     if tic_data and len(tic_data.get('close', [])) > 0:
         t_time = tic_data.get('time', [])[-1]
@@ -1741,20 +1827,38 @@ def on_chart_data_updated(code):
             "volume": int(min_data.get('volume', [])[-1])
         }
 
-    message = json.dumps({
-        "type": "chart_tick",
-        "code": code,
-        "tic_candle": tic_candle,
-        "min_candle": min_candle
-    })
-    
     from utils import create_fire_and_forget_task
-    async def broadcast_tick():
-        targets = [ws for ws, sc_code in subscribed_charts.items() if sc_code == code]
-        if targets:
-            await asyncio.gather(*[ws.send(message) for ws in targets], return_exceptions=True)
-            
-    create_fire_and_forget_task(broadcast_tick())
+    async def send_to_subscribed_clients():
+        for ws, sc_code in list(subscribed_charts.items()):
+            if sc_code == code:
+                # 역사적 데이터를 아직 보내지 않았다면 역사적 데이터부터 전송
+                sent_history = getattr(ws, 'sent_chart_history', {})
+                if not sent_history.get(code):
+                    try:
+                        await ws.send(json.dumps({
+                            "type": "chart_history",
+                            "code": code,
+                            "tic_history": tic_history,
+                            "min_history": min_history
+                        }))
+                        if not hasattr(ws, 'sent_chart_history'):
+                            ws.sent_chart_history = {}
+                        ws.sent_chart_history[code] = True
+                    except Exception:
+                        continue
+                
+                # 실시간 틱/분봉 캔들 전송
+                try:
+                    await ws.send(json.dumps({
+                        "type": "chart_tick",
+                        "code": code,
+                        "tic_candle": tic_candle,
+                        "min_candle": min_candle
+                    }))
+                except Exception:
+                    pass
+                    
+    create_fire_and_forget_task(send_to_subscribed_clients())
 
 async def dashboard_data_broadcast_loop():
     """1초마다 실시간으로 모든 인증된 클라이언트에 봇 상태 브로드캐스트"""
