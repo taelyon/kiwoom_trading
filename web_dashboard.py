@@ -1828,6 +1828,8 @@ async def websocket_handler(websocket):
                                                 "volume": int(t_vols[idx])
                                             })
                                         except Exception: pass
+                                    # 최근 200개 캔들로 제한
+                                    tic_history = tic_history[-200:]
                                 
                                 # 분봉 차트 가공
                                 min_history = []
@@ -1850,6 +1852,11 @@ async def websocket_handler(websocket):
                                                 "volume": int(m_vols[idx])
                                             })
                                         except Exception: pass
+                                    # 최신 데이터 시점 기준 최근 6시간 데이터로 필터링
+                                    if min_history:
+                                        latest_time = min_history[-1]["time"]
+                                        limit_time = latest_time - (6 * 3600)
+                                        min_history = [bar for bar in min_history if bar["time"] >= limit_time]
                                 
                                 await websocket.send(json.dumps({
                                     "type": "chart_history",
@@ -1912,6 +1919,8 @@ def on_chart_data_updated(code):
                     "volume": int(t_vols[idx])
                 })
             except Exception: pass
+        # 최근 200개 캔들로 제한
+        tic_history = tic_history[-200:]
             
     min_history = []
     if min_data:
@@ -1933,6 +1942,11 @@ def on_chart_data_updated(code):
                     "volume": int(m_vols[idx])
                 })
             except Exception: pass
+        # 최신 데이터 시점 기준 최근 6시간 데이터로 필터링
+        if min_history:
+            latest_time = min_history[-1]["time"]
+            limit_time = latest_time - (6 * 3600)
+            min_history = [bar for bar in min_history if bar["time"] >= limit_time]
 
     # 2. 실시간 틱 데이터 가공
     tic_candle = None
