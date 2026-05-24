@@ -340,6 +340,21 @@ HTML_CONTENT = """
             transform: translateX(24px);
         }
 
+        /* 소형 스위치 (긴급 청산 락 버튼 등) */
+        .switch.switch-sm {
+            width: 40px;
+            height: 20px;
+        }
+        .switch.switch-sm .slider:before {
+            height: 14px;
+            width: 14px;
+            left: 3px;
+            bottom: 3px;
+        }
+        .switch.switch-sm input:checked + .slider:before {
+            transform: translateX(20px);
+        }
+
         /* 요약 카드 그리드 */
         .summary-grid {
             display: grid;
@@ -889,9 +904,9 @@ HTML_CONTENT = """
                                 <div style="font-size: 11px; color: var(--text-secondary);">안전핀 락 해제 후 실행 가능</div>
                             </div>
                             <div style="display:flex; align-items:center; gap:10px;">
-                                <label class="switch" style="width: 40px; height: 20px;">
+                                <label class="switch switch-sm">
                                     <input type="checkbox" onchange="toggleLiquidationPin(this.checked)">
-                                    <span class="slider" style="border-radius: 20px; before: {width: 14px; height: 14px; left: 3px; bottom: 3px;}"></span>
+                                    <span class="slider"></span>
                                 </label>
                                 <button id="btnLiquidate" class="btn-liquidate" onclick="triggerLiquidateAll()">Safe Out</button>
                             </div>
