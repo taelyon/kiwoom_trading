@@ -9,6 +9,7 @@ import threading
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 import websockets
+import math
 
 def datetime_to_timestamp(dt_val):
     """다양한 형식의 날짜/시간 값을 Unix 타임스탬프(초, 정수)로 변환 (Lightweight Charts v4 호환용)"""
@@ -936,6 +937,7 @@ HTML_CONTENT = """
         let chart;
         let candleSeries;
         let volumeSeries;
+        let maSeries = {};
         let currentChartCode = null;
         let currentChartName = null; // 현재 선택된 종목의 순수 이름 백업용
         let currentChartScope = 'tic'; // 'tic' or 'minute'
@@ -1329,6 +1331,25 @@ HTML_CONTENT = """
                     wickUpColor: '#ef5350',
                 });
 
+                // 이동평균선(MA) 시리즈 추가
+                maSeries = {};
+                const maColors = {
+                    5: '#FFD700', // Gold
+                    10: '#FF1493', // DeepPink
+                    20: '#00FFFF', // Cyan
+                    60: '#32CD32', // LimeGreen
+                    120: '#FF4500' // OrangeRed
+                };
+                [5, 10, 20, 60, 120].forEach(period => {
+                    maSeries[period] = chart.addLineSeries({
+                        color: maColors[period],
+                        lineWidth: 1,
+                        crosshairMarkerVisible: false,
+                        priceLineVisible: false,
+                        lastValueVisible: false,
+                    });
+                });
+
                 // 볼륨 피드 추가 (스케일 마진 분리 적용)
                 volumeSeries = chart.addHistogramSeries({
                     color: 'rgba(38, 166, 154, 0.5)',
@@ -1499,6 +1520,30 @@ HTML_CONTENT = """
 
             candleSeries.setData(uniqueCandles);
             volumeSeries.setData(uniqueVolumes);
+            
+            // 이동평균선 데이터 세팅
+            [5, 10, 20, 60, 120].forEach(period => {
+                if (!maSeries[period]) return;
+                const maData = [];
+                history.forEach(bar => {
+                    const formattedTime = parseDateTimeToTimestamp(bar.time);
+                    if (bar[`ma${period}`] !== null && bar[`ma${period}`] !== undefined) {
+                        maData.push({ time: formattedTime, value: bar[`ma${period}`] });
+                    }
+                });
+                maData.sort((a, b) => a.time - b.time);
+                
+                const uniqueMA = [];
+                const seenMA = new Set();
+                maData.forEach(item => {
+                    if (!seenMA.has(item.time)) {
+                        seenMA.add(item.time);
+                        uniqueMA.push(item);
+                    }
+                });
+                maSeries[period].setData(uniqueMA);
+            });
+
             chart.timeScale().fitContent();
         }
 
@@ -1528,6 +1573,13 @@ HTML_CONTENT = """
 
             candleSeries.update(tickData);
             volumeSeries.update(volData);
+            
+            // 이동평균선 틱 업데이트
+            [5, 10, 20, 60, 120].forEach(period => {
+                if (maSeries[period] && candle[`ma${period}`] !== null && candle[`ma${period}`] !== undefined) {
+                    maSeries[period].update({ time: formattedTime, value: candle[`ma${period}`] });
+                }
+            });
         }
 
     </script>
@@ -1844,17 +1896,28 @@ async def websocket_handler(websocket):
                                     t_lows = tic_data.get('low', [])
                                     t_closes = tic_data.get('close', [])
                                     t_vols = tic_data.get('volume', [])
+                                    t_ma5 = tic_data.get('MA5', [])
+                                    t_ma10 = tic_data.get('MA10', [])
+                                    t_ma20 = tic_data.get('MA20', [])
+                                    t_ma60 = tic_data.get('MA60', [])
+                                    t_ma120 = tic_data.get('MA120', [])
                                     for idx in range(len(t_closes)):
                                         try:
                                             t_time = datetime_to_timestamp(t_times[idx])
-                                            tic_history.append({
+                                            item = {
                                                 "time": t_time,
                                                 "open": float(t_opens[idx]),
                                                 "high": float(t_highs[idx]),
                                                 "low": float(t_lows[idx]),
                                                 "close": float(t_closes[idx]),
                                                 "volume": int(t_vols[idx])
-                                            })
+                                            }
+                                            if t_ma5 and not math.isnan(float(t_ma5[idx])): item["ma5"] = float(t_ma5[idx])
+                                            if t_ma10 and not math.isnan(float(t_ma10[idx])): item["ma10"] = float(t_ma10[idx])
+                                            if t_ma20 and not math.isnan(float(t_ma20[idx])): item["ma20"] = float(t_ma20[idx])
+                                            if t_ma60 and not math.isnan(float(t_ma60[idx])): item["ma60"] = float(t_ma60[idx])
+                                            if t_ma120 and not math.isnan(float(t_ma120[idx])): item["ma120"] = float(t_ma120[idx])
+                                            tic_history.append(item)
                                         except Exception: pass
                                     # 최근 200개 캔들로 제한
                                     tic_history = tic_history[-200:]
@@ -1868,17 +1931,28 @@ async def websocket_handler(websocket):
                                     m_lows = min_data.get('low', [])
                                     m_closes = min_data.get('close', [])
                                     m_vols = min_data.get('volume', [])
+                                    m_ma5 = min_data.get('MA5', [])
+                                    m_ma10 = min_data.get('MA10', [])
+                                    m_ma20 = min_data.get('MA20', [])
+                                    m_ma60 = min_data.get('MA60', [])
+                                    m_ma120 = min_data.get('MA120', [])
                                     for idx in range(len(m_closes)):
                                         try:
                                             m_time = datetime_to_timestamp(m_times[idx])
-                                            min_history.append({
+                                            item = {
                                                 "time": m_time,
                                                 "open": float(m_opens[idx]),
                                                 "high": float(m_highs[idx]),
                                                 "low": float(m_lows[idx]),
                                                 "close": float(m_closes[idx]),
                                                 "volume": int(m_vols[idx])
-                                            })
+                                            }
+                                            if m_ma5 and not math.isnan(float(m_ma5[idx])): item["ma5"] = float(m_ma5[idx])
+                                            if m_ma10 and not math.isnan(float(m_ma10[idx])): item["ma10"] = float(m_ma10[idx])
+                                            if m_ma20 and not math.isnan(float(m_ma20[idx])): item["ma20"] = float(m_ma20[idx])
+                                            if m_ma60 and not math.isnan(float(m_ma60[idx])): item["ma60"] = float(m_ma60[idx])
+                                            if m_ma120 and not math.isnan(float(m_ma120[idx])): item["ma120"] = float(m_ma120[idx])
+                                            min_history.append(item)
                                         except Exception: pass
                                     # 최신 데이터 시점 기준 최근 6시간 데이터로 필터링
                                     if min_history:
@@ -1938,17 +2012,28 @@ def on_chart_data_updated(code):
         t_lows = tic_data.get('low', [])
         t_closes = tic_data.get('close', [])
         t_vols = tic_data.get('volume', [])
+        t_ma5 = tic_data.get('MA5', [])
+        t_ma10 = tic_data.get('MA10', [])
+        t_ma20 = tic_data.get('MA20', [])
+        t_ma60 = tic_data.get('MA60', [])
+        t_ma120 = tic_data.get('MA120', [])
         for idx in range(len(t_closes)):
             try:
                 t_time = datetime_to_timestamp(t_times[idx])
-                tic_history.append({
+                item = {
                     "time": t_time,
                     "open": float(t_opens[idx]),
                     "high": float(t_highs[idx]),
                     "low": float(t_lows[idx]),
                     "close": float(t_closes[idx]),
                     "volume": int(t_vols[idx])
-                })
+                }
+                if t_ma5 and not math.isnan(float(t_ma5[idx])): item["ma5"] = float(t_ma5[idx])
+                if t_ma10 and not math.isnan(float(t_ma10[idx])): item["ma10"] = float(t_ma10[idx])
+                if t_ma20 and not math.isnan(float(t_ma20[idx])): item["ma20"] = float(t_ma20[idx])
+                if t_ma60 and not math.isnan(float(t_ma60[idx])): item["ma60"] = float(t_ma60[idx])
+                if t_ma120 and not math.isnan(float(t_ma120[idx])): item["ma120"] = float(t_ma120[idx])
+                tic_history.append(item)
             except Exception: pass
         # 최근 200개 캔들로 제한
         tic_history = tic_history[-200:]
@@ -1961,17 +2046,28 @@ def on_chart_data_updated(code):
         m_lows = min_data.get('low', [])
         m_closes = min_data.get('close', [])
         m_vols = min_data.get('volume', [])
+        m_ma5 = min_data.get('MA5', [])
+        m_ma10 = min_data.get('MA10', [])
+        m_ma20 = min_data.get('MA20', [])
+        m_ma60 = min_data.get('MA60', [])
+        m_ma120 = min_data.get('MA120', [])
         for idx in range(len(m_closes)):
             try:
                 m_time = datetime_to_timestamp(m_times[idx])
-                min_history.append({
+                item = {
                     "time": m_time,
                     "open": float(m_opens[idx]),
                     "high": float(m_highs[idx]),
                     "low": float(m_lows[idx]),
                     "close": float(m_closes[idx]),
                     "volume": int(m_vols[idx])
-                })
+                }
+                if m_ma5 and not math.isnan(float(m_ma5[idx])): item["ma5"] = float(m_ma5[idx])
+                if m_ma10 and not math.isnan(float(m_ma10[idx])): item["ma10"] = float(m_ma10[idx])
+                if m_ma20 and not math.isnan(float(m_ma20[idx])): item["ma20"] = float(m_ma20[idx])
+                if m_ma60 and not math.isnan(float(m_ma60[idx])): item["ma60"] = float(m_ma60[idx])
+                if m_ma120 and not math.isnan(float(m_ma120[idx])): item["ma120"] = float(m_ma120[idx])
+                min_history.append(item)
             except Exception: pass
         # 최신 데이터 시점 기준 최근 6시간 데이터로 필터링
         if min_history:
@@ -1991,6 +2087,11 @@ def on_chart_data_updated(code):
             "close": float(tic_data.get('close', [])[-1]),
             "volume": int(tic_data.get('volume', [])[-1])
         }
+        if 'MA5' in tic_data and tic_data['MA5'] and not math.isnan(float(tic_data['MA5'][-1])): tic_candle['ma5'] = float(tic_data['MA5'][-1])
+        if 'MA10' in tic_data and tic_data['MA10'] and not math.isnan(float(tic_data['MA10'][-1])): tic_candle['ma10'] = float(tic_data['MA10'][-1])
+        if 'MA20' in tic_data and tic_data['MA20'] and not math.isnan(float(tic_data['MA20'][-1])): tic_candle['ma20'] = float(tic_data['MA20'][-1])
+        if 'MA60' in tic_data and tic_data['MA60'] and not math.isnan(float(tic_data['MA60'][-1])): tic_candle['ma60'] = float(tic_data['MA60'][-1])
+        if 'MA120' in tic_data and tic_data['MA120'] and not math.isnan(float(tic_data['MA120'][-1])): tic_candle['ma120'] = float(tic_data['MA120'][-1])
     
     min_candle = None
     if min_data and len(min_data.get('close', [])) > 0:
@@ -2003,6 +2104,11 @@ def on_chart_data_updated(code):
             "close": float(min_data.get('close', [])[-1]),
             "volume": int(min_data.get('volume', [])[-1])
         }
+        if 'MA5' in min_data and min_data['MA5'] and not math.isnan(float(min_data['MA5'][-1])): min_candle['ma5'] = float(min_data['MA5'][-1])
+        if 'MA10' in min_data and min_data['MA10'] and not math.isnan(float(min_data['MA10'][-1])): min_candle['ma10'] = float(min_data['MA10'][-1])
+        if 'MA20' in min_data and min_data['MA20'] and not math.isnan(float(min_data['MA20'][-1])): min_candle['ma20'] = float(min_data['MA20'][-1])
+        if 'MA60' in min_data and min_data['MA60'] and not math.isnan(float(min_data['MA60'][-1])): min_candle['ma60'] = float(min_data['MA60'][-1])
+        if 'MA120' in min_data and min_data['MA120'] and not math.isnan(float(min_data['MA120'][-1])): min_candle['ma120'] = float(min_data['MA120'][-1])
 
     from utils import create_fire_and_forget_task
     async def send_to_subscribed_clients():
