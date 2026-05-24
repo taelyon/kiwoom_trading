@@ -1687,7 +1687,11 @@ HTML_CONTENT = """
                     const formattedTime = parseDateTimeToTimestamp(bar.time);
                     if (bar['macd'] !== null && bar['macd'] !== undefined) {
                         macdData.push({ time: formattedTime, value: bar['macd'] });
+                    }
+                    if (bar['macd_sig'] !== null && bar['macd_sig'] !== undefined) {
                         macdSigData.push({ time: formattedTime, value: bar['macd_sig'] });
+                    }
+                    if (bar['macd_hist'] !== null && bar['macd_hist'] !== undefined) {
                         macdHistData.push({ 
                             time: formattedTime, 
                             value: bar['macd_hist'], 
@@ -1699,15 +1703,11 @@ HTML_CONTENT = """
                 [macdData, macdSigData, macdHistData].forEach(arr => arr.sort((a, b) => a.time - b.time));
                 
                 const uniqueMacd = [], uniqueMacdSig = [], uniqueMacdHist = [];
-                const seenMacd = new Set();
-                macdData.forEach((item, i) => {
-                    if (!seenMacd.has(item.time)) {
-                        seenMacd.add(item.time);
-                        uniqueMacd.push(item);
-                        uniqueMacdSig.push(macdSigData[i]);
-                        uniqueMacdHist.push(macdHistData[i]);
-                    }
-                });
+                const seenMacd = new Set(), seenMacdSig = new Set(), seenMacdHist = new Set();
+                
+                macdData.forEach(item => { if (!seenMacd.has(item.time)) { seenMacd.add(item.time); uniqueMacd.push(item); } });
+                macdSigData.forEach(item => { if (!seenMacdSig.has(item.time)) { seenMacdSig.add(item.time); uniqueMacdSig.push(item); } });
+                macdHistData.forEach(item => { if (!seenMacdHist.has(item.time)) { seenMacdHist.add(item.time); uniqueMacdHist.push(item); } });
                 
                 macdSeries.setData(uniqueMacd);
                 macdSigSeries.setData(uniqueMacdSig);
@@ -1766,7 +1766,11 @@ HTML_CONTENT = """
             // MACD 틱 업데이트
             if (candle['macd'] !== null && candle['macd'] !== undefined) {
                 if (macdSeries) macdSeries.update({ time: formattedTime, value: candle['macd'] });
+            }
+            if (candle['macd_sig'] !== null && candle['macd_sig'] !== undefined) {
                 if (macdSigSeries) macdSigSeries.update({ time: formattedTime, value: candle['macd_sig'] });
+            }
+            if (candle['macd_hist'] !== null && candle['macd_hist'] !== undefined) {
                 if (macdHistSeries) macdHistSeries.update({
                     time: formattedTime, 
                     value: candle['macd_hist'],
