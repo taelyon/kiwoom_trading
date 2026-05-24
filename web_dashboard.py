@@ -813,6 +813,7 @@ HTML_CONTENT = """
         let currentChartCode = null;
         let currentChartScope = 'tic'; // 'tic' or 'minute'
         let reconnectTimer;
+        let heartbeatTimer;
         let currentPassword = "";
 
         // 페이지 로드 시 로컬 스토리지 확인 및 엔터 키 바인딩
@@ -866,6 +867,14 @@ HTML_CONTENT = """
                     type: "auth",
                     password: password
                 }));
+                
+                // 10초 주기 하트비트(Ping)
+                clearInterval(heartbeatTimer);
+                heartbeatTimer = setInterval(() => {
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(jsonStr({ type: "ping" }));
+                    }
+                }, 10000);
             };
 
             ws.onmessage = (event) => {
@@ -900,6 +909,7 @@ HTML_CONTENT = """
             };
 
             ws.onclose = () => {
+                clearInterval(heartbeatTimer); // 하트비트 종료
                 document.getElementById('connectionStatus').className = "status-badge disconnected";
                 document.getElementById('connectionStatus').innerHTML = '<span style="width: 8px; height: 8px; border-radius: 50%; background-color: var(--danger); box-shadow: 0 0 8px var(--danger);"></span>DISCONNECTED';
                 
@@ -1483,6 +1493,9 @@ async def websocket_handler(websocket):
                         await websocket.close()
                         return
 
+                if msg_type == 'ping':
+                    continue
+
                 if not authenticated:
                     await websocket.send(json.dumps({
                         "type": "auth_result",
@@ -1756,7 +1769,9 @@ async def start_web_dashboard(main_window, host="0.0.0.0", http_port=8081, ws_po
     async with websockets.serve(
         websocket_handler, 
         host, 
-        ws_port
+        ws_port,
+        ping_interval=None,
+        ping_timeout=None
     ):
         await asyncio.gather(
             dashboard_data_broadcast_loop(),
