@@ -94,14 +94,14 @@ class ChartDataCache:
             self.logger.error(f"❌ ChartDataCache 중지 실패: {ex}")
     
 
-    def collect_chart_data_async(self, code, max_retries=3):
+    def collect_chart_data_async(self, code, max_retries=3, force=False):
         """비동기 차트 데이터 수집 (asyncio 기반, qasync 통합)"""
         try:
             # qasync 환경에서 메인 이벤트 루프 사용 시도
             try:
                 loop = asyncio.get_running_loop()
                 # 이미 실행 중인 이벤트 루프가 있으면 태스크로 실행
-                task = asyncio.create_task(self._collect_chart_data_internal(code, max_retries))
+                task = asyncio.create_task(self._collect_chart_data_internal(code, max_retries, force))
                 self.active_chart_tasks[code] = task
                 self.logger.debug(f"✅ 차트 데이터 수집 태스크 시작: {code} (활성 태스크 수: {len(self.active_chart_tasks)})")
                 return
@@ -118,7 +118,7 @@ class ChartDataCache:
                     asyncio.set_event_loop(loop)
                     try:
                         # 비동기 데이터 수집 실행
-                        return loop.run_until_complete(self._collect_chart_data_internal(code, max_retries))
+                        return loop.run_until_complete(self._collect_chart_data_internal(code, max_retries, force))
                     finally:
                         loop.close()
                 except Exception as e:
@@ -133,10 +133,10 @@ class ChartDataCache:
         except Exception as ex:
             self.logger.error(f"❌ 비동기 차트 데이터 수집 실패: {code} - {ex}")
     
-    async def _collect_chart_data_internal(self, code, max_retries=3):
+    async def _collect_chart_data_internal(self, code, max_retries=3, force=False):
         """내부 차트 데이터 수집 (asyncio 기반)"""
-        # 수동 매매 작업이 진행 중이면 데이터 수집을 건너뜁니다.
-        if not self.queue_processing:
+        # 수동 매매 작업이 진행 중이면 데이터 수집을 건너뜁니다. (강제 업데이트 시 제외)
+        if not self.queue_processing and not force:
             self.logger.debug(f"데이터 수집 건너뜀 (큐 처리 중 아님): {code}")
             return
         if hasattr(self.parent, 'trading_lock') and self.parent.trading_lock.locked():
@@ -454,7 +454,7 @@ class ChartDataCache:
         
         logging.debug(f"✅ 총 {len(self.api_request_queue)}개 종목이 큐에 대기 중")
     
-    def update_single_chart(self, code):
+    def update_single_chart(self, code, force=False):
         """단일 종목 차트 데이터 업데이트 (비동기)"""
         try:
             logging.debug(f"🔧 차트 데이터 업데이트 시작: {code}")
@@ -473,7 +473,7 @@ class ChartDataCache:
                 return
 
             # 비동기 차트 데이터 수집 (UI 블로킹 방지)
-            self.collect_chart_data_async(code)
+            self.collect_chart_data_async(code, force=force)
             # finally 블록에서 queue_processing을 False로 설정하는 로직을 _collect_chart_data_internal로 이동
             
         except Exception as ex:

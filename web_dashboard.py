@@ -1656,7 +1656,7 @@ async def websocket_handler(websocket):
                             if code not in app.chart_cache.cache or not app.chart_cache.cache[code].get('tic_data') or not app.chart_cache.cache[code].get('min_data'):
                                 if code not in app.chart_cache.active_chart_tasks:
                                     logging.info(f"📡 대시보드 차트 요청: 캐시에 데이터가 없는 종목 {code}에 대한 비동기 수집을 시작합니다.")
-                                    app.chart_cache.update_single_chart(code)
+                                    app.chart_cache.update_single_chart(code, force=True)
                                     
                             cache_data = app.chart_cache.get_chart_data(code)
                             if cache_data:
