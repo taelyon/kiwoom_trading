@@ -760,7 +760,7 @@ HTML_CONTENT = """
         <div class="dashboard-layout">
             <!-- 좌측 메인 영역 -->
             <div class="main-column">
-                <!-- 요약 계좌 현황 (총 평가자산, 매수가능 현금, 매매 파라미터 제어) -->
+                <!-- 요약 계좌 현황 (총 평가자산, 매수가능 현금, 총 매입금액) -->
                 <div class="summary-grid">
                     <div class="glass-card">
                         <div class="card-title">총 평가자산</div>
@@ -773,28 +773,9 @@ HTML_CONTENT = """
                         <div class="card-subtext">실시간 즉시 매수 가능 한도액</div>
                     </div>
                     <div class="glass-card">
-                        <div class="card-title">매매 파라미터 제어 (.env)</div>
-                        <div class="settings-panel" style="margin-top: 8px;">
-                            <div class="order-row" style="grid-template-columns: 1fr 1fr; gap: 8px;">
-                                <div class="form-field">
-                                    <label for="cfgBuyCount" style="font-size: 11px;">최대 매수종목수 (buycount)</label>
-                                    <input type="number" id="cfgBuyCount" value="3" style="padding: 6px; font-size: 13px;">
-                                </div>
-                                <div class="form-field">
-                                    <label for="cfgStrategy" style="font-size: 11px;">대표 매매 전략</label>
-                                    <select id="cfgStrategy" style="padding: 6px; font-size: 13px;">
-                                        <option value="통합 전략">통합 전략 (추천)</option>
-                                        <option value="급등주">급등주 전략</option>
-                                        <option value="갭상승">갭상승 전략</option>
-                                    </select>
-                                </div>
-                            </div>
-                            <div class="form-field" style="margin-top: 6px;">
-                                <label for="cfgPassword" style="font-size: 11px;">콘솔 비밀번호 변경</label>
-                                <input type="password" id="cfgPassword" placeholder="현재 비밀번호 유지 시 공란" style="padding: 6px; font-size: 13px;">
-                            </div>
-                            <button class="btn-primary" onclick="saveSettings()" style="margin-top: 8px; padding: 8px; font-size: 13px; width: 100%;">설정 파라미터 적용</button>
-                        </div>
+                        <div class="card-title">총 매입금액</div>
+                        <div id="totalPurchase" class="card-value">0원</div>
+                        <div id="holdingCount" class="card-subtext">보유 종목 수: 0개</div>
                     </div>
                 </div>
 
@@ -843,6 +824,32 @@ HTML_CONTENT = """
 
             <!-- 우측 제어/설정/로그 영역 -->
             <div class="main-column">
+                <!-- 매매 환경 설정 -->
+                <div class="glass-card">
+                    <div class="section-title" style="margin-bottom:16px;">매매 파라미터 제어 (.env)</div>
+                    <div class="settings-panel">
+                        <div class="order-row">
+                            <div class="form-field">
+                                <label for="cfgBuyCount">최대 매수종목수 (buycount)</label>
+                                <input type="number" id="cfgBuyCount" value="3">
+                            </div>
+                            <div class="form-field">
+                                <label for="cfgStrategy">대표 매매 전략</label>
+                                <select id="cfgStrategy">
+                                    <option value="통합 전략">통합 전략 (추천)</option>
+                                    <option value="급등주">급등주 전략</option>
+                                    <option value="갭상승">갭상승 전략</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-field">
+                            <label for="cfgPassword">콘솔 비밀번호 변경</label>
+                            <input type="password" id="cfgPassword" placeholder="현재 비밀번호 유지 시 공란">
+                        </div>
+                        <button class="btn-primary" onclick="saveSettings()">설정 파라미터 적용</button>
+                    </div>
+                </div>
+
                 <!-- 수동 제어 패널 -->
                 <div class="glass-card">
                     <div class="section-title" style="margin-bottom:16px;">수동 주문 및 긴급 제어</div>
@@ -890,13 +897,6 @@ HTML_CONTENT = """
                             <div class="no-data">감시 중인 종목이 없습니다.</div>
                         </div>
                     </div>
-                </div>
-
-                <!-- 총 매입금액 현황 -->
-                <div class="glass-card">
-                    <div class="card-title" style="margin-bottom:16px;">총 매입금액</div>
-                    <div id="totalPurchase" class="card-value" style="font-size: 28px; font-weight: 700;">0원</div>
-                    <div id="holdingCount" class="card-subtext" style="font-size: 13px; margin-top: 8px; color: var(--text-secondary);">보유 종목 수: 0개</div>
                 </div>
             </div>
         </div>
