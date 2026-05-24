@@ -231,6 +231,8 @@ class DataManager:
         self.parent = parent
         self.stock_code_map = {}  # 종목명: 종목코드 캐시
         self._last_cache_attempt_time = 0  # 전체 캐싱 시도 시간 기록
+        self._is_caching = False  # 현재 캐싱 작업 진행 중 여부 플래그
+        self.non_existent_codes = set()  # 캐시에 존재하지 않는 것으로 판명된 특수/잘못된 코드(Negative Cache)
     
     def safe_int(self, value, default=0):
         """안전한 정수 변환"""
@@ -311,20 +313,22 @@ class DataManager:
                     if str(code).strip().zfill(6) == code_str:
                         return name
             
-            # 캐시가 없거나 갱신 쿨다운이 지난 경우 백그라운드 갱신 태스크 실행
-            now = time.time()
-            if (not self.stock_code_map or now - self._last_cache_attempt_time > 30.0):
-                self._last_cache_attempt_time = now
-                self.logger.info(f"🔍 종목코드 '{code_str}'의 캐시 부재로 전체 종목 캐시 백그라운드 갱신 요청")
-                
-                import asyncio
-                try:
-                    loop = asyncio.get_event_loop()
-                except RuntimeError:
-                    loop = None
-                
-                if loop and loop.is_running():
-                    loop.create_task(self._cache_all_stock_codes_async())
+            # 캐시에 없고, 이미 존재하지 않는 코드로 분류되지 않았으며, 현재 캐싱 작업 진행 중이 아닐 때
+            if code_str not in self.non_existent_codes and not self._is_caching:
+                now = time.time()
+                # 마지막 수집 시도 후 30초가 지났다면 백그라운드 갱신 작동
+                if (not self.stock_code_map or now - self._last_cache_attempt_time > 30.0):
+                    self._last_cache_attempt_time = now
+                    self.logger.info(f"🔍 종목코드 '{code_str}'의 캐시 부재로 전체 종목 캐시 백그라운드 갱신 요청")
+                    
+                    import asyncio
+                    try:
+                        loop = asyncio.get_event_loop()
+                    except RuntimeError:
+                        loop = None
+                    
+                    if loop and loop.is_running():
+                        loop.create_task(self._cache_all_stock_codes_async(requested_code=code_str))
                     
         except Exception as e:
             self.logger.error(f"get_stock_name_by_code 예외 발생: {e}")
@@ -378,8 +382,12 @@ class DataManager:
             self.logger.error(f"종목명 검색 실패 ({stock_name}): {ex}")
             return None
 
-    async def _cache_all_stock_codes_async(self):
+    async def _cache_all_stock_codes_async(self, requested_code=None):
         """프로그램 시작 시 전체 종목 코드를 메모리에 캐싱 (안정성 강화 버전)"""
+        if self._is_caching:
+            return
+        self._is_caching = True
+        
         try:
             if hasattr(self.parent, 'login_handler') and self.parent.login_handler.kiwoom_client:
                 kiwoom_client = self.parent.login_handler.kiwoom_client
@@ -389,7 +397,12 @@ class DataManager:
                     await kiwoom_client.check_token_validity()
                 
                 temp_map = {}
-                for market_code in ['0', '10']: # KOSPI, KOSDAQ
+                markets = ['0', '10']
+                for idx, market_code in enumerate(markets):
+                    # KOSPI와 KOSDAQ 목록 수신 간 1초 지연을 적용하여 HTTP 429 Too Many Requests 방지
+                    if idx > 0:
+                        await asyncio.sleep(1.0)
+                        
                     headers = {
                         'Content-Type': 'application/json;charset=UTF-8', 
                         'authorization': f'Bearer {kiwoom_client.access_token}', 
@@ -407,9 +420,11 @@ class DataManager:
                                 name = stock_info.get('name')
                                 code = stock_info.get('code')
                                 if name and code:
-                                    temp_map[name] = code
+                                    temp_map[name] = str(code).strip().zfill(6)
                         else:
                             self.logger.warning(f"⚠️ 종목 마스터 리스트 수신 실패 (시장코드: {market_code}, 원인: {result.get('return_msg', '알수없음')})")
+                    elif response.status_code == 429:
+                        self.logger.error(f"🚨 Too Many Requests HTTP 429 감지 (시장코드: {market_code}). 잠시 후 재시도합니다.")
                     else:
                         self.logger.warning(f"⚠️ 종목 마스터 리스트 HTTP 에러 (시장코드: {market_code}, 코드: {response.status_code})")
                 
@@ -417,10 +432,24 @@ class DataManager:
                 if temp_map:
                     self.stock_code_map = temp_map
                     self.logger.info(f"✅ 전체 종목 코드 캐싱 완료: {len(self.stock_code_map)}개 종목")
+                    
+                    # 갱신 완료 후에도 요청된 코드가 없는 경우 캐시 예외 목록(Negative Cache)에 등록
+                    if requested_code:
+                        found = False
+                        req_clean = str(requested_code).strip().zfill(6)
+                        for name, code in self.stock_code_map.items():
+                            if code == req_clean:
+                                found = True
+                                break
+                        if not found:
+                            self.non_existent_codes.add(req_clean)
+                            self.logger.info(f"🚫 종목코드 '{req_clean}'은 OpenAPI 마스터 목록에 없으므로 캐시 예외 목록(Negative Cache)에 등록합니다.")
                 else:
                     self.logger.warning("⚠️ 받아온 종목 리스트가 없어 기존 종목명 캐시를 유지합니다.")
         except Exception as ex:
             self.logger.error(f"전체 종목 코드 캐싱 실패: {ex}", exc_info=True)
+        finally:
+            self._is_caching = False
 
 
 # ==========================================
