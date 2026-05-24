@@ -10,6 +10,60 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 import websockets
 
+def datetime_to_timestamp(dt_val):
+    """다양한 형식의 날짜/시간 값을 Unix 타임스탬프(초, 정수)로 변환 (Lightweight Charts v4 호환용)"""
+    if dt_val is None:
+        return int(time.time())
+    
+    if isinstance(dt_val, (int, float)):
+        return int(dt_val)
+        
+    if isinstance(dt_val, datetime):
+        return int(dt_val.timestamp())
+        
+    dt_str = str(dt_val).strip()
+    
+    # 1. 14자리 숫자 (YYYYMMDDHHMMSS)
+    if len(dt_str) == 14 and dt_str.isdigit():
+        try:
+            dt = datetime.strptime(dt_str, '%Y%m%d%H%M%S')
+            return int(dt.timestamp())
+        except Exception:
+            pass
+            
+    # 2. ISO 8601 포맷 (YYYY-MM-DDTHH:MM:SS)
+    if 'T' in dt_str:
+        try:
+            base_str = dt_str.split('.')[0].split('+')[0]
+            dt = datetime.strptime(base_str, '%Y-%m-%dT%H:%M:%S')
+            return int(dt.timestamp())
+        except Exception:
+            pass
+            
+    # 3. 일반 날짜시간 포맷 (YYYY-MM-DD HH:MM:SS)
+    try:
+        base_str = dt_str.split('.')[0]
+        dt = datetime.strptime(base_str, '%Y-%m-%d %H:%M:%S')
+        return int(dt.timestamp())
+    except Exception:
+        pass
+
+    # 4. 날짜만 있는 포맷 (YYYY-MM-DD 또는 YYYYMMDD)
+    try:
+        if '-' in dt_str:
+            dt = datetime.strptime(dt_str, '%Y-%m-%d')
+        else:
+            dt = datetime.strptime(dt_str[:8], '%Y%m%d')
+        return int(dt.timestamp())
+    except Exception:
+        pass
+
+    try:
+        return int(float(dt_str))
+    except Exception:
+        return int(time.time())
+
+
 # 스레드 안전하게 로그를 모으는 덱(Queue)
 log_queue = collections.deque(maxlen=150)
 connected_clients = set()
@@ -1270,26 +1324,52 @@ HTML_CONTENT = """
             }
         }
 
-        // 날짜/시간 문자열(YYYY-MM-DD HH:MM:SS)을 Date 객체로 안전하게 파싱하는 헬퍼
-        function parseDateTimeString(str) {
-            if (!str) return null;
-            if (typeof str === 'number') return new Date(str * 1000);
+        // 날짜/시간 또는 타임스탬프를 초 단위 Unix 타임스탬프로 파싱하는 헬퍼
+        function parseDateTimeToTimestamp(str) {
+            if (!str) return Math.floor(Date.now() / 1000);
+            if (typeof str === 'number') return str;
             
-            const parts = str.split(' ');
-            if (parts.length < 2) return null;
-            const dateParts = parts[0].split('-');
-            const timeParts = parts[1].split(':');
-            if (dateParts.length < 3 || timeParts.length < 3) return null;
+            const num = parseInt(str, 10);
+            if (!isNaN(num) && num.toString() === str.trim()) {
+                return num;
+            }
             
-            const date = new Date(
-                parseInt(dateParts[0]),
-                parseInt(dateParts[1]) - 1,
-                parseInt(dateParts[2]),
-                parseInt(timeParts[0]),
-                parseInt(timeParts[1]),
-                parseInt(timeParts[2])
-            );
-            return isNaN(date.getTime()) ? null : date;
+            try {
+                // 키움증권 14자리 형식 (YYYYMMDDHHMMSS)
+                if (str.length === 14 && !isNaN(str)) {
+                    const y = parseInt(str.substring(0, 4));
+                    const m = parseInt(str.substring(4, 6)) - 1;
+                    const d = parseInt(str.substring(6, 8));
+                    const h = parseInt(str.substring(8, 10));
+                    const mi = parseInt(str.substring(10, 12));
+                    const s = parseInt(str.substring(12, 14));
+                    const dt = new Date(y, m, d, h, mi, s);
+                    return Math.floor(dt.getTime() / 1000);
+                }
+                
+                // YYYY-MM-DD HH:MM:SS
+                if (str.includes(' ') && str.includes('-') && str.includes(':')) {
+                    const parts = str.split(' ');
+                    const dateParts = parts[0].split('-');
+                    const timeParts = parts[1].split(':');
+                    const dt = new Date(
+                        parseInt(dateParts[0]),
+                        parseInt(dateParts[1]) - 1,
+                        parseInt(dateParts[2]),
+                        parseInt(timeParts[0]),
+                        parseInt(timeParts[1]),
+                        parseInt(timeParts[2])
+                    );
+                    if (!isNaN(dt.getTime())) return Math.floor(dt.getTime() / 1000);
+                }
+                
+                const d = new Date(str);
+                if (!isNaN(d.getTime())) {
+                    return Math.floor(d.getTime() / 1000);
+                }
+            } catch (e) {}
+            
+            return Math.floor(Date.now() / 1000);
         }
 
         // 역사적 차트 그리기
@@ -1309,29 +1389,7 @@ HTML_CONTENT = """
             const volumeData = [];
 
             history.forEach(bar => {
-                let formattedTime = null;
-                try {
-                    // 1. 수동 파싱 시도 (가장 안전함)
-                    const parsedDate = parseDateTimeString(bar.time);
-                    if (parsedDate) {
-                        formattedTime = Math.floor(parsedDate.getTime() / 1000);
-                    }
-                } catch (e) {}
-
-                // 2. 파싱 실패 시 폴백
-                if (!formattedTime) {
-                    try {
-                        const d = new Date(bar.time);
-                        if (!isNaN(d.getTime())) {
-                            formattedTime = Math.floor(d.getTime() / 1000);
-                        }
-                    } catch (e) {}
-                }
-
-                // 3. 최종 실패 시 현재 시간 기준 폴백
-                if (!formattedTime) {
-                    formattedTime = Math.floor(Date.now() / 1000);
-                }
+                const formattedTime = parseDateTimeToTimestamp(bar.time);
 
                 candleData.push({
                     time: formattedTime,
@@ -1377,26 +1435,7 @@ HTML_CONTENT = """
             const candle = (currentChartScope === 'tic') ? data.tic_candle : data.min_candle;
             if (!candle) return;
 
-            let formattedTime = null;
-            try {
-                const parsedDate = parseDateTimeString(candle.time);
-                if (parsedDate) {
-                    formattedTime = Math.floor(parsedDate.getTime() / 1000);
-                }
-            } catch(e) {}
-
-            if (!formattedTime) {
-                try {
-                    const d = new Date(candle.time);
-                    if (!isNaN(d.getTime())) {
-                        formattedTime = Math.floor(d.getTime() / 1000);
-                    }
-                } catch(e) {}
-            }
-
-            if (!formattedTime) {
-                formattedTime = Math.floor(Date.now() / 1000);
-            }
+            const formattedTime = parseDateTimeToTimestamp(candle.time);
 
             const tickData = {
                 time: formattedTime,
@@ -1715,9 +1754,7 @@ async def websocket_handler(websocket):
                                     t_vols = tic_data.get('volume', [])
                                     for idx in range(len(t_closes)):
                                         try:
-                                            t_time = t_times[idx]
-                                            if isinstance(t_time, datetime):
-                                                t_time = t_time.strftime('%Y-%m-%d %H:%M:%S')
+                                            t_time = datetime_to_timestamp(t_times[idx])
                                             tic_history.append({
                                                 "time": t_time,
                                                 "open": float(t_opens[idx]),
@@ -1739,9 +1776,7 @@ async def websocket_handler(websocket):
                                     m_vols = min_data.get('volume', [])
                                     for idx in range(len(m_closes)):
                                         try:
-                                            m_time = m_times[idx]
-                                            if isinstance(m_time, datetime):
-                                                m_time = m_time.strftime('%Y-%m-%d %H:%M:%S')
+                                            m_time = datetime_to_timestamp(m_times[idx])
                                             min_history.append({
                                                 "time": m_time,
                                                 "open": float(m_opens[idx]),
@@ -1803,9 +1838,7 @@ def on_chart_data_updated(code):
         t_vols = tic_data.get('volume', [])
         for idx in range(len(t_closes)):
             try:
-                t_time = t_times[idx]
-                if isinstance(t_time, datetime):
-                    t_time = t_time.strftime('%Y-%m-%d %H:%M:%S')
+                t_time = datetime_to_timestamp(t_times[idx])
                 tic_history.append({
                     "time": t_time,
                     "open": float(t_opens[idx]),
@@ -1826,9 +1859,7 @@ def on_chart_data_updated(code):
         m_vols = min_data.get('volume', [])
         for idx in range(len(m_closes)):
             try:
-                m_time = m_times[idx]
-                if isinstance(m_time, datetime):
-                    m_time = m_time.strftime('%Y-%m-%d %H:%M:%S')
+                m_time = datetime_to_timestamp(m_times[idx])
                 min_history.append({
                     "time": m_time,
                     "open": float(m_opens[idx]),
@@ -1842,9 +1873,7 @@ def on_chart_data_updated(code):
     # 2. 실시간 틱 데이터 가공
     tic_candle = None
     if tic_data and len(tic_data.get('close', [])) > 0:
-        t_time = tic_data.get('time', [])[-1]
-        if isinstance(t_time, datetime):
-            t_time = t_time.strftime('%Y-%m-%d %H:%M:%S')
+        t_time = datetime_to_timestamp(tic_data.get('time', [])[-1])
         tic_candle = {
             "time": t_time,
             "open": float(tic_data.get('open', [])[-1]),
@@ -1856,9 +1885,7 @@ def on_chart_data_updated(code):
     
     min_candle = None
     if min_data and len(min_data.get('close', [])) > 0:
-        m_time = min_data.get('time', [])[-1]
-        if isinstance(m_time, datetime):
-            m_time = m_time.strftime('%Y-%m-%d %H:%M:%S')
+        m_time = datetime_to_timestamp(min_data.get('time', [])[-1])
         min_candle = {
             "time": m_time,
             "open": float(min_data.get('open', [])[-1]),
