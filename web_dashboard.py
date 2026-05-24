@@ -939,6 +939,8 @@ HTML_CONTENT = """
         let volumeSeries;
         let maSeries = {};
         let envSeries = {};
+        let rsiSeries;
+        let rsiLowLineSeries;
         let currentChartCode = null;
         let currentChartName = null; // 현재 선택된 종목의 순수 이름 백업용
         let currentChartScope = 'tic'; // 'tic' or 'minute'
@@ -1316,6 +1318,10 @@ HTML_CONTENT = """
                     },
                     rightPriceScale: {
                         borderColor: 'rgba(197, 203, 206, 0.4)',
+                        scaleMargins: {
+                            top: 0.05,
+                            bottom: 0.3, // 캔들은 위 70% 차지
+                        },
                     },
                     timeScale: {
                         borderColor: 'rgba(197, 203, 206, 0.4)',
@@ -1380,8 +1386,34 @@ HTML_CONTENT = """
 
                 chart.priceScale('volume_scale').applyOptions({
                     scaleMargins: {
-                        top: 0.8,
-                        bottom: 0,
+                        top: 0.7,
+                        bottom: 0.15, // 거래량은 70~85% 영역 차지
+                    },
+                });
+
+                // RSI 피드 추가
+                rsiSeries = chart.addLineSeries({
+                    color: '#9932CC', // 보라색
+                    lineWidth: 1.5,
+                    priceScaleId: 'rsi_scale',
+                    crosshairMarkerVisible: false,
+                });
+                
+                // RSI 30 하단선
+                rsiLowLineSeries = chart.addLineSeries({
+                    color: 'rgba(255, 255, 255, 0.3)',
+                    lineWidth: 1,
+                    lineStyle: 2, // Dashed
+                    priceScaleId: 'rsi_scale',
+                    crosshairMarkerVisible: false,
+                    lastValueVisible: false,
+                    priceLineVisible: false,
+                });
+
+                chart.priceScale('rsi_scale').applyOptions({
+                    scaleMargins: {
+                        top: 0.85,
+                        bottom: 0, // RSI는 85~100% 영역 차지
                     },
                 });
 
@@ -1590,6 +1622,32 @@ HTML_CONTENT = """
                 envSeries['m5'].setData(uniqueM5);
             }
 
+            // RSI 데이터 세팅
+            if (rsiSeries && rsiLowLineSeries) {
+                const rsiData = [];
+                const rsiLowData = [];
+                history.forEach(bar => {
+                    const formattedTime = parseDateTimeToTimestamp(bar.time);
+                    if (bar['rsi21'] !== null && bar['rsi21'] !== undefined) {
+                        rsiData.push({ time: formattedTime, value: bar['rsi21'] });
+                        rsiLowData.push({ time: formattedTime, value: 30 }); // 30 라인
+                    }
+                });
+                
+                rsiData.sort((a, b) => a.time - b.time);
+                rsiLowData.sort((a, b) => a.time - b.time);
+                
+                const uniqueRsi = [];
+                const uniqueRsiLow = [];
+                const seenRsi = new Set();
+                const seenRsiLow = new Set();
+                rsiData.forEach(item => { if (!seenRsi.has(item.time)) { seenRsi.add(item.time); uniqueRsi.push(item); } });
+                rsiLowData.forEach(item => { if (!seenRsiLow.has(item.time)) { seenRsiLow.add(item.time); uniqueRsiLow.push(item); } });
+                
+                rsiSeries.setData(uniqueRsi);
+                rsiLowLineSeries.setData(uniqueRsiLow);
+            }
+
             chart.timeScale().fitContent();
         }
 
@@ -1631,6 +1689,12 @@ HTML_CONTENT = """
             if (candle['ma120'] !== null && candle['ma120'] !== undefined) {
                 if (envSeries['m3']) envSeries['m3'].update({ time: formattedTime, value: candle['ma120'] * 0.97 });
                 if (envSeries['m5']) envSeries['m5'].update({ time: formattedTime, value: candle['ma120'] * 0.95 });
+            }
+
+            // RSI 틱 업데이트
+            if (candle['rsi21'] !== null && candle['rsi21'] !== undefined) {
+                if (rsiSeries) rsiSeries.update({ time: formattedTime, value: candle['rsi21'] });
+                if (rsiLowLineSeries) rsiLowLineSeries.update({ time: formattedTime, value: 30 });
             }
         }
 
@@ -1953,6 +2017,7 @@ async def websocket_handler(websocket):
                                     t_ma20 = tic_data.get('MA20', [])
                                     t_ma60 = tic_data.get('MA60', [])
                                     t_ma120 = tic_data.get('MA120', [])
+                                    t_rsi21 = tic_data.get('RSI21', [])
                                     for idx in range(len(t_closes)):
                                         try:
                                             t_time = datetime_to_timestamp(t_times[idx])
@@ -1969,6 +2034,7 @@ async def websocket_handler(websocket):
                                             if t_ma20 and not math.isnan(float(t_ma20[idx])): item["ma20"] = float(t_ma20[idx])
                                             if t_ma60 and not math.isnan(float(t_ma60[idx])): item["ma60"] = float(t_ma60[idx])
                                             if t_ma120 and not math.isnan(float(t_ma120[idx])): item["ma120"] = float(t_ma120[idx])
+                                            if t_rsi21 and not math.isnan(float(t_rsi21[idx])): item["rsi21"] = float(t_rsi21[idx])
                                             tic_history.append(item)
                                         except Exception: pass
                                     # 최근 200개 캔들로 제한
@@ -1988,6 +2054,7 @@ async def websocket_handler(websocket):
                                     m_ma20 = min_data.get('MA20', [])
                                     m_ma60 = min_data.get('MA60', [])
                                     m_ma120 = min_data.get('MA120', [])
+                                    m_rsi21 = min_data.get('RSI21', [])
                                     for idx in range(len(m_closes)):
                                         try:
                                             m_time = datetime_to_timestamp(m_times[idx])
@@ -2004,6 +2071,7 @@ async def websocket_handler(websocket):
                                             if m_ma20 and not math.isnan(float(m_ma20[idx])): item["ma20"] = float(m_ma20[idx])
                                             if m_ma60 and not math.isnan(float(m_ma60[idx])): item["ma60"] = float(m_ma60[idx])
                                             if m_ma120 and not math.isnan(float(m_ma120[idx])): item["ma120"] = float(m_ma120[idx])
+                                            if m_rsi21 and not math.isnan(float(m_rsi21[idx])): item["rsi21"] = float(m_rsi21[idx])
                                             min_history.append(item)
                                         except Exception: pass
                                     # 최신 데이터 시점 기준 최근 6시간 데이터로 필터링
@@ -2069,6 +2137,7 @@ def on_chart_data_updated(code):
         t_ma20 = tic_data.get('MA20', [])
         t_ma60 = tic_data.get('MA60', [])
         t_ma120 = tic_data.get('MA120', [])
+        t_rsi21 = tic_data.get('RSI21', [])
         for idx in range(len(t_closes)):
             try:
                 t_time = datetime_to_timestamp(t_times[idx])
@@ -2085,6 +2154,7 @@ def on_chart_data_updated(code):
                 if t_ma20 and not math.isnan(float(t_ma20[idx])): item["ma20"] = float(t_ma20[idx])
                 if t_ma60 and not math.isnan(float(t_ma60[idx])): item["ma60"] = float(t_ma60[idx])
                 if t_ma120 and not math.isnan(float(t_ma120[idx])): item["ma120"] = float(t_ma120[idx])
+                if t_rsi21 and not math.isnan(float(t_rsi21[idx])): item["rsi21"] = float(t_rsi21[idx])
                 tic_history.append(item)
             except Exception: pass
         # 최근 200개 캔들로 제한
@@ -2103,6 +2173,7 @@ def on_chart_data_updated(code):
         m_ma20 = min_data.get('MA20', [])
         m_ma60 = min_data.get('MA60', [])
         m_ma120 = min_data.get('MA120', [])
+        m_rsi21 = min_data.get('RSI21', [])
         for idx in range(len(m_closes)):
             try:
                 m_time = datetime_to_timestamp(m_times[idx])
@@ -2119,6 +2190,7 @@ def on_chart_data_updated(code):
                 if m_ma20 and not math.isnan(float(m_ma20[idx])): item["ma20"] = float(m_ma20[idx])
                 if m_ma60 and not math.isnan(float(m_ma60[idx])): item["ma60"] = float(m_ma60[idx])
                 if m_ma120 and not math.isnan(float(m_ma120[idx])): item["ma120"] = float(m_ma120[idx])
+                if m_rsi21 and not math.isnan(float(m_rsi21[idx])): item["rsi21"] = float(m_rsi21[idx])
                 min_history.append(item)
             except Exception: pass
         # 최신 데이터 시점 기준 최근 6시간 데이터로 필터링
@@ -2144,6 +2216,7 @@ def on_chart_data_updated(code):
         if 'MA20' in tic_data and tic_data['MA20'] and not math.isnan(float(tic_data['MA20'][-1])): tic_candle['ma20'] = float(tic_data['MA20'][-1])
         if 'MA60' in tic_data and tic_data['MA60'] and not math.isnan(float(tic_data['MA60'][-1])): tic_candle['ma60'] = float(tic_data['MA60'][-1])
         if 'MA120' in tic_data and tic_data['MA120'] and not math.isnan(float(tic_data['MA120'][-1])): tic_candle['ma120'] = float(tic_data['MA120'][-1])
+        if 'RSI21' in tic_data and tic_data['RSI21'] and not math.isnan(float(tic_data['RSI21'][-1])): tic_candle['rsi21'] = float(tic_data['RSI21'][-1])
     
     min_candle = None
     if min_data and len(min_data.get('close', [])) > 0:
@@ -2161,6 +2234,7 @@ def on_chart_data_updated(code):
         if 'MA20' in min_data and min_data['MA20'] and not math.isnan(float(min_data['MA20'][-1])): min_candle['ma20'] = float(min_data['MA20'][-1])
         if 'MA60' in min_data and min_data['MA60'] and not math.isnan(float(min_data['MA60'][-1])): min_candle['ma60'] = float(min_data['MA60'][-1])
         if 'MA120' in min_data and min_data['MA120'] and not math.isnan(float(min_data['MA120'][-1])): min_candle['ma120'] = float(min_data['MA120'][-1])
+        if 'RSI21' in min_data and min_data['RSI21'] and not math.isnan(float(min_data['RSI21'][-1])): min_candle['rsi21'] = float(min_data['RSI21'][-1])
 
     from utils import create_fire_and_forget_task
     async def send_to_subscribed_clients():

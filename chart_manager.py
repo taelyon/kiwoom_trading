@@ -976,12 +976,12 @@ class ChartDataCache:
             if chart_type == "tic":
                 allowed_set = {
                     'MA5', 'MA10', 'MA20', 'MA60', 'MA120',
-                    'RSI', 'RSI_SIGNAL'
+                    'RSI', 'RSI_SIGNAL', 'RSI21'
                 }
             elif chart_type == "minute":
                 allowed_set = {
                     'MA5', 'MA10', 'MA20', 'MA60', 'MA120',
-                    'RSI', 'RELATIVE_POSITION'
+                    'RSI', 'RELATIVE_POSITION', 'RSI21'
                 }
             else:
                 allowed_set = {'MA5', 'MA20', 'MA60', 'RSI'}
@@ -1003,6 +1003,10 @@ class ChartDataCache:
                     if chart_len >= 9:
                         # 전체 길이에 대해 SMA 계산 (NaN은 전파됨)
                         indicators['RSI_SIGNAL'] = talib.SMA(indicators['RSI'], timeperiod=9)
+
+            # RSI 21 (추가 요청)
+            if 'RSI21' in allowed_set and len(close_array) >= 22:
+                indicators['RSI21'] = talib.RSI(close_array, timeperiod=21)
 
             # MACD (허용된 경우만)
             if 'MACD' in allowed_set and len(close_array) >= 26:
