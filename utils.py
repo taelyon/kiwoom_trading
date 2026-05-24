@@ -155,10 +155,10 @@ def setup_logging():
         qasync_logger = logging.getLogger('qasync')
         qasync_logger.setLevel(logging.WARNING)
         
-        # websockets DEBUG 로그 비활성화
-        logging.getLogger('websockets').setLevel(logging.WARNING)
-        logging.getLogger('websockets.client').setLevel(logging.WARNING)
-        logging.getLogger('websockets.server').setLevel(logging.WARNING)
+        # websockets 라이브러리의 노이즈성 연결/핸드셰이크 에러 로그 비활성화
+        logging.getLogger('websockets').setLevel(logging.CRITICAL)
+        logging.getLogger('websockets.client').setLevel(logging.CRITICAL)
+        logging.getLogger('websockets.server').setLevel(logging.CRITICAL)
         
         # urllib3.connectionpool DEBUG 로그 비활성화
         urllib3_logger = logging.getLogger('urllib3.connectionpool')
