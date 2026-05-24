@@ -1469,12 +1469,16 @@ HTML_CONTENT = """
 
         // 날짜/시간 또는 타임스탬프를 초 단위 Unix 타임스탬프로 파싱하는 헬퍼
         function parseDateTimeToTimestamp(str) {
-            if (!str) return Math.floor(Date.now() / 1000);
-            if (typeof str === 'number') return str;
+            // Lightweight Charts는 기본적으로 UTC 기준으로 시간을 렌더링합니다.
+            // KST(한국시간) 타임스탬프를 그대로 넣으면 9시간 차이가 발생하므로, 강제로 +9시간(32400초)을 더해 KST 시간으로 표시되게 보정합니다.
+            const KST_OFFSET = 32400;
+
+            if (!str) return Math.floor(Date.now() / 1000) + KST_OFFSET;
+            if (typeof str === 'number') return str + KST_OFFSET;
             
             const num = parseInt(str, 10);
             if (!isNaN(num) && num.toString() === str.trim()) {
-                return num;
+                return num + KST_OFFSET;
             }
             
             try {
@@ -1487,7 +1491,7 @@ HTML_CONTENT = """
                     const mi = parseInt(str.substring(10, 12));
                     const s = parseInt(str.substring(12, 14));
                     const dt = new Date(y, m, d, h, mi, s);
-                    return Math.floor(dt.getTime() / 1000);
+                    return Math.floor(dt.getTime() / 1000) + KST_OFFSET;
                 }
                 
                 // YYYY-MM-DD HH:MM:SS
@@ -1503,16 +1507,16 @@ HTML_CONTENT = """
                         parseInt(timeParts[1]),
                         parseInt(timeParts[2])
                     );
-                    if (!isNaN(dt.getTime())) return Math.floor(dt.getTime() / 1000);
+                    if (!isNaN(dt.getTime())) return Math.floor(dt.getTime() / 1000) + KST_OFFSET;
                 }
                 
                 const d = new Date(str);
                 if (!isNaN(d.getTime())) {
-                    return Math.floor(d.getTime() / 1000);
+                    return Math.floor(d.getTime() / 1000) + KST_OFFSET;
                 }
             } catch (e) {}
             
-            return Math.floor(Date.now() / 1000);
+            return Math.floor(Date.now() / 1000) + KST_OFFSET;
         }
 
         // 역사적 차트 그리기
