@@ -16,6 +16,7 @@ import logging
 import asyncio
 import ast
 import json
+import time
 from datetime import datetime, timedelta
 
 from config_manager import EnvConfigParser
@@ -229,6 +230,7 @@ class DataManager:
         self.logger = logging.getLogger(self.__class__.__name__)
         self.parent = parent
         self.stock_code_map = {}  # 종목명: 종목코드 캐시
+        self._last_cache_attempt_time = 0  # 전체 캐싱 시도 시간 기록
     
     def safe_int(self, value, default=0):
         """안전한 정수 변환"""
@@ -297,14 +299,36 @@ class DataManager:
             return None, None
     
     def get_stock_name_by_code(self, stock_code):
-        """종목코드로 종목명 조회 (캐시 맵 역방향 조회 적용)"""
+        """종목코드로 종목명 조회 (캐시 맵 역방향 조회 적용 및 자가치유 갱신 도입)"""
+        if not stock_code:
+            return "알수없음"
+        
+        code_str = str(stock_code).strip().zfill(6)
+        
         try:
             if self.stock_code_map:
                 for name, code in self.stock_code_map.items():
-                    if code == stock_code:
+                    if str(code).strip().zfill(6) == code_str:
                         return name
-        except Exception:
-            pass
+            
+            # 캐시가 없거나 갱신 쿨다운이 지난 경우 백그라운드 갱신 태스크 실행
+            now = time.time()
+            if (not self.stock_code_map or now - self._last_cache_attempt_time > 30.0):
+                self._last_cache_attempt_time = now
+                self.logger.info(f"🔍 종목코드 '{code_str}'의 캐시 부재로 전체 종목 캐시 백그라운드 갱신 요청")
+                
+                import asyncio
+                try:
+                    loop = asyncio.get_event_loop()
+                except RuntimeError:
+                    loop = None
+                
+                if loop and loop.is_running():
+                    loop.create_task(self._cache_all_stock_codes_async())
+                    
+        except Exception as e:
+            self.logger.error(f"get_stock_name_by_code 예외 발생: {e}")
+            
         return f"종목{stock_code}"
     
     async def get_stock_code_by_name(self, stock_name):

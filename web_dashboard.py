@@ -398,6 +398,7 @@ HTML_CONTENT = """
         .chart-container-box {
             position: relative;
             height: 480px;
+            max-height: 480px;
             display: flex;
             flex-direction: column;
             overflow: hidden;
