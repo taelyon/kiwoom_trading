@@ -1607,6 +1607,10 @@ class DashboardHTTPHandler(SimpleHTTPRequestHandler):
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Server", "Antigravity Dashboard Server")
+                # 브라우저 정적 캐시 무력화 헤더 추가 (CSS 변경 즉시 미반영 이슈 해결)
+                self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+                self.send_header("Pragma", "no-cache")
+                self.send_header("Expires", "0")
                 self.end_headers()
                 self.wfile.write(HTML_CONTENT.encode("utf-8"))
             elif self.path == "/health":
@@ -1667,13 +1671,21 @@ async def websocket_handler(websocket):
                                 last_id = max(last_id, log_entry.get('id', 0))
                             except Exception: pass
                         websocket.last_sent_log_id = last_id
-
+                        
+                        app = main_window_ref
                         # 로그인 직후 감시 종목들의 차트 데이터를 백그라운드에서 사전 수집(Pre-fetching)하여 캐시 완비
                         if app and hasattr(app, 'monitoring_manager') and app.monitoring_manager and app.chart_cache:
                             for m_code in app.monitoring_manager.monitored_stocks:
                                 if m_code not in app.chart_cache.cache or not app.chart_cache.cache[m_code].get('tic_data'):
                                     logging.info(f"📡 대시보드 로그인 사전 수집(Pre-fetching) 트리거: {m_code} 백그라운드 차트 조회 시작")
                                     app.chart_cache.update_single_chart(m_code, force=True)
+
+                        # 로그인 감지 시 종목 마스터 캐시 맵이 비어 있다면 즉각 비동기 충전 기동
+                        if app and hasattr(app, 'data_manager') and app.data_manager:
+                            if not app.data_manager.stock_code_map:
+                                logging.info("📡 대시보드 로그인 감지: 종목 마스터 캐시가 비어 있어 비동기 로딩을 개시합니다.")
+                                from utils import create_fire_and_forget_task
+                                create_fire_and_forget_task(app.data_manager._cache_all_stock_codes_async())
                     else:
                         logging.warning("⚠️ 대시보드 로그인 실패: 비밀번호 불일치")
                         await websocket.send(json.dumps({

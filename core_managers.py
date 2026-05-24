@@ -355,16 +355,26 @@ class DataManager:
             return None
 
     async def _cache_all_stock_codes_async(self):
-        """프로그램 시작 시 전체 종목 코드를 메모리에 캐싱"""
-        self.stock_code_map.clear()
+        """프로그램 시작 시 전체 종목 코드를 메모리에 캐싱 (안정성 강화 버전)"""
         try:
             if hasattr(self.parent, 'login_handler') and self.parent.login_handler.kiwoom_client:
                 kiwoom_client = self.parent.login_handler.kiwoom_client
+                
+                # API 호출 전 토큰 유효성 체크 및 갱신 시도
+                if hasattr(kiwoom_client, 'check_token_validity'):
+                    await kiwoom_client.check_token_validity()
+                
+                temp_map = {}
                 for market_code in ['0', '10']: # KOSPI, KOSDAQ
-                    headers = {'Content-Type': 'application/json;charset=UTF-8', 'authorization': f'Bearer {kiwoom_client.access_token}', 'api-id': 'ka10099'}
+                    headers = {
+                        'Content-Type': 'application/json;charset=UTF-8', 
+                        'authorization': f'Bearer {kiwoom_client.access_token}', 
+                        'api-id': 'ka10099'
+                    }
                     server_url = kiwoom_client.mock_url if kiwoom_client.is_mock else kiwoom_client.base_url
                     data = {'mrkt_tp': market_code}
                     url = f"{server_url}/api/dostk/stkinfo"
+                    
                     response = await kiwoom_client.client.post(url, headers=headers, json=data, timeout=30.0)
                     if response.status_code == 200:
                         result = response.json()
@@ -373,9 +383,18 @@ class DataManager:
                                 name = stock_info.get('name')
                                 code = stock_info.get('code')
                                 if name and code:
-                                    self.stock_code_map[name] = code
-
-            self.logger.info(f"✅ 전체 종목 코드 캐싱 완료: {len(self.stock_code_map)}개 종목")
+                                    temp_map[name] = code
+                        else:
+                            self.logger.warning(f"⚠️ 종목 마스터 리스트 수신 실패 (시장코드: {market_code}, 원인: {result.get('return_msg', '알수없음')})")
+                    else:
+                        self.logger.warning(f"⚠️ 종목 마스터 리스트 HTTP 에러 (시장코드: {market_code}, 코드: {response.status_code})")
+                
+                # 성공적으로 데이터를 받아왔을 때만 기존 맵을 덮어씀 (일시적 실패 시 기존 캐시 보존)
+                if temp_map:
+                    self.stock_code_map = temp_map
+                    self.logger.info(f"✅ 전체 종목 코드 캐싱 완료: {len(self.stock_code_map)}개 종목")
+                else:
+                    self.logger.warning("⚠️ 받아온 종목 리스트가 없어 기존 종목명 캐시를 유지합니다.")
         except Exception as ex:
             self.logger.error(f"전체 종목 코드 캐싱 실패: {ex}", exc_info=True)
 
