@@ -70,10 +70,10 @@ class ChartDataCache:
                 self.logger.error(f"❌ DB 저장 루프 오류: {e}")
 
     async def _queue_loop(self):
-        """API 요청 큐 처리 루프 (기존 queue_timer/queue_processing 대체)"""
+        """API 요청 큐 처리 루프 (기존 1초에서 0.2초 주기로 단축)"""
         while True:
             try:
-                await asyncio.sleep(1)  # 1초 간격
+                await asyncio.sleep(0.2)  # 0.2초 간격
                 self._process_api_queue()
             except asyncio.CancelledError:
                 break
@@ -135,10 +135,7 @@ class ChartDataCache:
     
     async def _collect_chart_data_internal(self, code, max_retries=3, force=False):
         """내부 차트 데이터 수집 (asyncio 기반)"""
-        # 수동 매매 작업이 진행 중이면 데이터 수집을 건너뜁니다. (강제 업데이트 시 제외)
-        if not self.queue_processing and not force:
-            self.logger.debug(f"데이터 수집 건너뜀 (큐 처리 중 아님): {code}")
-            return
+        # 수동 매매 작업이 진행 중이면 데이터 수집을 건너뜁니다.
         if hasattr(self.parent, 'trading_lock') and self.parent.trading_lock.locked():
             self.logger.debug(f"수동 매매 작업 진행 중 - 차트 데이터 수집 건너뜀: {code}")
             return
@@ -213,12 +210,7 @@ class ChartDataCache:
             # 태스크 완료 처리
             if code in self.active_chart_tasks:
                 self.active_chart_tasks.pop(code)
-            
-            # 큐 처리 플래그 해제
-            if self.queue_processing:
-                self.queue_processing = False
-                self.logger.debug(f"✅ 큐 처리 플래그 해제: {code}")
-                self.logger.debug(f"✅ 차트 데이터 수집 태스크 정리 완료: {code}")
+            self.logger.debug(f"✅ 차트 데이터 수집 태스크 정리 완료: {code}")
     
     async def _collect_tic_data_async(self, code, max_retries=3):
         """틱 데이터 수집 (asyncio 기반)"""
@@ -371,22 +363,28 @@ class ChartDataCache:
             self.logger.error(f"❌ API 큐 추가 실패 ({code}): {ex}")
     
     def _process_api_queue(self):
-        """API 요청 큐 처리 (1초 간격)"""
+        """API 요청 큐 처리 (0.2초 간격, 최대 2개 동시 수집 제어로 병목 제거)"""
         try:
-            if not self.api_request_queue or self.queue_processing:
-                return
+            max_concurrent_tasks = 2
             
-            # 큐 처리 시작
-            self.queue_processing = True
+            if not self.api_request_queue:
+                return
+                
+            if len(self.active_chart_tasks) >= max_concurrent_tasks:
+                # 활성 수집 태스크 개수가 한계에 도달한 경우 다음 루프로 대기
+                return
             
             # 큐에서 첫 번째 종목 가져오기
             code = self.api_request_queue.pop(0)
-            name = self.pending_stocks.get(code)  # 종목명 가져오기
             
-            self.logger.debug(f"🔧 큐에서 데이터 수집 시작: {code} (남은 큐: {len(self.api_request_queue)}개)")
+            # 이미 수집 중인 종목인 경우 건너뜀
+            if code in self.active_chart_tasks:
+                return
+                
+            self.logger.debug(f"🔧 큐에서 데이터 수집 시작: {code} (활성 태스크: {len(self.active_chart_tasks)}/{max_concurrent_tasks}, 남은 큐: {len(self.api_request_queue)}개)")
             
-            # 차트 데이터 수집 (QThread에서 비동기 실행)
-            self.update_single_chart(code)
+            # 차트 데이터 수집 비동기 실행 (force=True를 주어 조건 우회)
+            self.update_single_chart(code, force=True)
             
         except Exception as ex:
             self.logger.error(f"❌ API 큐 처리 실패: {ex}")

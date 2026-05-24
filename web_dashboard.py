@@ -409,6 +409,46 @@ HTML_CONTENT = """
             flex-direction: column;
         }
 
+        .chart-loading-overlay {
+            position: absolute;
+            top: 50px;
+            left: 24px;
+            right: 24px;
+            bottom: 24px;
+            background: rgba(8, 7, 16, 0.7);
+            backdrop-filter: blur(8px);
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            border-radius: 16px;
+            border: 1px solid var(--border-color);
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid rgba(255, 255, 255, 0.1);
+            border-radius: 50%;
+            border-top-color: var(--accent-cyan);
+            animation: spin 1s ease-in-out infinite;
+            margin-bottom: 16px;
+        }
+
+        .loading-text {
+            font-size: 13px;
+            font-weight: 600;
+            background: linear-gradient(135deg, var(--text-primary), var(--text-secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: 0.5px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
         .chart-header {
             display: flex;
             justify-content: space-between;
@@ -754,6 +794,11 @@ HTML_CONTENT = """
                         </div>
                     </div>
                     <div id="chartCanvas" class="chart-canvas"></div>
+                    <!-- 실시간 데이터 수집 중 안내 오버레이 -->
+                    <div id="chartLoadingOverlay" class="chart-loading-overlay">
+                        <div class="spinner"></div>
+                        <div class="loading-text">증권사에서 실시간 차트 데이터를 수집하고 있습니다. 잠시만 기다려 주세요...</div>
+                    </div>
                 </div>
 
                 <!-- 실시간 보유종목 포트폴리오 -->
@@ -1303,6 +1348,12 @@ HTML_CONTENT = """
             // 수동 주문 입력창에도 자동 입력
             document.getElementById('orderCode').value = code;
 
+            // 차트 데이터 로딩 오버레이 표시
+            const overlay = document.getElementById('chartLoadingOverlay');
+            if (overlay) {
+                overlay.style.display = 'flex';
+            }
+
             // 기존 구독 해제 및 신규 구독
             ws.send(jsonStr({
                 type: "subscribe_chart",
@@ -1376,6 +1427,12 @@ HTML_CONTENT = """
         function renderChartHistory(data) {
             if (!candleSeries || !volumeSeries) return;
             if (data.code !== currentChartCode) return;
+
+            // 차트 데이터 수집 완료 시 로딩 오버레이 숨김
+            const overlay = document.getElementById('chartLoadingOverlay');
+            if (overlay) {
+                overlay.style.display = 'none';
+            }
 
             const history = (currentChartScope === 'tic') ? data.tic_history : data.min_history;
             if (!history || history.length === 0) {
@@ -1617,6 +1674,13 @@ async def websocket_handler(websocket):
                                 last_id = max(last_id, log_entry.get('id', 0))
                             except Exception: pass
                         websocket.last_sent_log_id = last_id
+
+                        # 로그인 직후 감시 종목들의 차트 데이터를 백그라운드에서 사전 수집(Pre-fetching)하여 캐시 완비
+                        if app and hasattr(app, 'monitoring_manager') and app.monitoring_manager and app.chart_cache:
+                            for m_code in app.monitoring_manager.monitored_stocks:
+                                if m_code not in app.chart_cache.cache or not app.chart_cache.cache[m_code].get('tic_data'):
+                                    logging.info(f"📡 대시보드 로그인 사전 수집(Pre-fetching) 트리거: {m_code} 백그라운드 차트 조회 시작")
+                                    app.chart_cache.update_single_chart(m_code, force=True)
                     else:
                         logging.warning("⚠️ 대시보드 로그인 실패: 비밀번호 불일치")
                         await websocket.send(json.dumps({
