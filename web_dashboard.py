@@ -400,14 +400,15 @@ HTML_CONTENT = """
             height: 480px;
             display: flex;
             flex-direction: column;
+            overflow: hidden;
         }
 
         .chart-loading-overlay {
             position: absolute;
             top: 50px;
             left: 24px;
-            right: 24px;
-            bottom: 24px;
+            width: calc(100% - 48px);
+            height: calc(100% - 74px);
             background: rgba(8, 7, 16, 0.7);
             backdrop-filter: blur(8px);
             display: none;
@@ -417,6 +418,7 @@ HTML_CONTENT = """
             z-index: 100;
             border-radius: 16px;
             border: 1px solid var(--border-color);
+            box-sizing: border-box;
         }
 
         .spinner {
