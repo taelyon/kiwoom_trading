@@ -938,6 +938,7 @@ HTML_CONTENT = """
         let candleSeries;
         let volumeSeries;
         let maSeries = {};
+        let envSeries = {};
         let currentChartCode = null;
         let currentChartName = null; // 현재 선택된 종목의 순수 이름 백업용
         let currentChartScope = 'tic'; // 'tic' or 'minute'
@@ -1350,6 +1351,26 @@ HTML_CONTENT = """
                     });
                 });
 
+                // 엔벨로프(Envelope) 시리즈 추가 (120 이평선 기준 -3%, -5%)
+                envSeries = {
+                    'm3': chart.addLineSeries({
+                        color: 'rgba(255, 100, 100, 0.7)',
+                        lineWidth: 1,
+                        lineStyle: 2, // Dashed
+                        crosshairMarkerVisible: false,
+                        priceLineVisible: false,
+                        lastValueVisible: false,
+                    }),
+                    'm5': chart.addLineSeries({
+                        color: 'rgba(255, 50, 50, 0.9)',
+                        lineWidth: 1,
+                        lineStyle: 3, // Dotted
+                        crosshairMarkerVisible: false,
+                        priceLineVisible: false,
+                        lastValueVisible: false,
+                    })
+                };
+
                 // 볼륨 피드 추가 (스케일 마진 분리 적용)
                 volumeSeries = chart.addHistogramSeries({
                     color: 'rgba(38, 166, 154, 0.5)',
@@ -1544,6 +1565,31 @@ HTML_CONTENT = """
                 maSeries[period].setData(uniqueMA);
             });
 
+            // 엔벨로프 데이터 세팅
+            if (envSeries['m3'] && envSeries['m5']) {
+                const envM3Data = [];
+                const envM5Data = [];
+                history.forEach(bar => {
+                    const formattedTime = parseDateTimeToTimestamp(bar.time);
+                    if (bar['ma120'] !== null && bar['ma120'] !== undefined) {
+                        envM3Data.push({ time: formattedTime, value: bar['ma120'] * 0.97 });
+                        envM5Data.push({ time: formattedTime, value: bar['ma120'] * 0.95 });
+                    }
+                });
+                
+                [envM3Data, envM5Data].forEach(arr => arr.sort((a, b) => a.time - b.time));
+                
+                const uniqueM3 = [];
+                const uniqueM5 = [];
+                const seenM3 = new Set();
+                const seenM5 = new Set();
+                envM3Data.forEach(item => { if (!seenM3.has(item.time)) { seenM3.add(item.time); uniqueM3.push(item); } });
+                envM5Data.forEach(item => { if (!seenM5.has(item.time)) { seenM5.add(item.time); uniqueM5.push(item); } });
+                
+                envSeries['m3'].setData(uniqueM3);
+                envSeries['m5'].setData(uniqueM5);
+            }
+
             chart.timeScale().fitContent();
         }
 
@@ -1580,6 +1626,12 @@ HTML_CONTENT = """
                     maSeries[period].update({ time: formattedTime, value: candle[`ma${period}`] });
                 }
             });
+
+            // 엔벨로프 틱 업데이트
+            if (candle['ma120'] !== null && candle['ma120'] !== undefined) {
+                if (envSeries['m3']) envSeries['m3'].update({ time: formattedTime, value: candle['ma120'] * 0.97 });
+                if (envSeries['m5']) envSeries['m5'].update({ time: formattedTime, value: candle['ma120'] * 0.95 });
+            }
         }
 
     </script>
