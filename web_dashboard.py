@@ -814,6 +814,8 @@ HTML_CONTENT = """
         let currentChartScope = 'tic'; // 'tic' or 'minute'
         let reconnectTimer;
         let heartbeatTimer;
+        let lastLoggedTime = "";
+        let lastLoggedMsg = "";
         let currentPassword = "";
 
         // 페이지 로드 시 로컬 스토리지 확인 및 엔터 키 바인딩
@@ -1000,6 +1002,13 @@ HTML_CONTENT = """
 
         // 로그 메시지 화면 추가
         function appendLog(log) {
+            // 경쟁 상태 등으로 인한 동일 로그 중복 출력 방지
+            if (log.timestamp === lastLoggedTime && log.message === lastLoggedMsg) {
+                return;
+            }
+            lastLoggedTime = log.timestamp;
+            lastLoggedMsg = log.message;
+
             const container = document.getElementById('terminalBody');
             const row = document.createElement('div');
             row.className = 'log-line';
