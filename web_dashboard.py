@@ -857,9 +857,14 @@ HTML_CONTENT = """
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const wsUrl = protocol + '//' + window.location.hostname + ':8082';
             
+            // 기존 소켓이 있으면 onclose 핸들러를 제거한 뒤 닫아서 캐스케이딩 재연결 방지
             if (ws) {
+                ws.onclose = null;
+                ws.onerror = null;
                 ws.close();
             }
+            clearTimeout(reconnectTimer);
+            clearInterval(heartbeatTimer);
 
             ws = new WebSocket(wsUrl);
 
@@ -1503,6 +1508,10 @@ async def websocket_handler(websocket):
                         return
 
                 if msg_type == 'ping':
+                    try:
+                        await websocket.send(json.dumps({"type": "pong"}))
+                    except Exception:
+                        pass
                     continue
 
                 if not authenticated:
@@ -1663,14 +1672,18 @@ async def websocket_handler(websocket):
             except Exception as inner_ex:
                 logging.error(f"대시보드 웹소켓 메시지 처리 오류: {inner_ex}", exc_info=True)
                 
-    except websockets.exceptions.ConnectionClosed:
-        pass
+    except websockets.exceptions.ConnectionClosed as cc:
+        logging.debug(f"대시보드 웹소켓 ConnectionClosed: code={cc.code}, reason={cc.reason}")
+    except Exception as outer_ex:
+        logging.error(f"대시보드 웹소켓 핸들러 예외: {outer_ex}", exc_info=True)
     finally:
+        close_code = getattr(websocket, 'close_code', 'N/A')
+        close_reason = getattr(websocket, 'close_reason', '') or ''
         if websocket in connected_clients:
             connected_clients.remove(websocket)
         if websocket in subscribed_charts:
             del subscribed_charts[websocket]
-        logging.info(f"🔴 대시보드 웹 브라우저 연결 종료 (현재 연결 브라우저: {len(connected_clients)}개)")
+        logging.info(f"🔴 대시보드 웹 브라우저 연결 종료 [코드:{close_code}] (현재 연결 브라우저: {len(connected_clients)}개)")
 
 # 차트 데이터 업데이트 통보 처리 (TradingApp 단에서 이벤트를 쏠 때 호출됨)
 def on_chart_data_updated(code):
