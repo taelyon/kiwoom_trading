@@ -941,6 +941,9 @@ HTML_CONTENT = """
         let envSeries = {};
         let rsiSeries;
         let rsiLowLineSeries;
+        let macdSeries;
+        let macdSigSeries;
+        let macdHistSeries;
         let currentChartCode = null;
         let currentChartName = null; // 현재 선택된 종목의 순수 이름 백업용
         let currentChartScope = 'tic'; // 'tic' or 'minute'
@@ -1320,7 +1323,7 @@ HTML_CONTENT = """
                         borderColor: 'rgba(197, 203, 206, 0.4)',
                         scaleMargins: {
                             top: 0.05,
-                            bottom: 0.3, // 캔들은 위 70% 차지
+                            bottom: 0.4, // 캔들은 위 60% 차지
                         },
                     },
                     timeScale: {
@@ -1386,8 +1389,8 @@ HTML_CONTENT = """
 
                 chart.priceScale('volume_scale').applyOptions({
                     scaleMargins: {
-                        top: 0.7,
-                        bottom: 0.15, // 거래량은 70~85% 영역 차지
+                        top: 0.6,
+                        bottom: 0.25, // 거래량은 60~75% 영역 차지
                     },
                 });
 
@@ -1412,8 +1415,31 @@ HTML_CONTENT = """
 
                 chart.priceScale('rsi_scale').applyOptions({
                     scaleMargins: {
+                        top: 0.75,
+                        bottom: 0.15, // RSI는 75~85% 영역 차지
+                    },
+                });
+
+                // MACD 피드 추가
+                macdSeries = chart.addLineSeries({
+                    color: '#2962FF', // 파란색 (MACD Line)
+                    lineWidth: 1.5,
+                    priceScaleId: 'macd_scale',
+                    crosshairMarkerVisible: false,
+                });
+                macdSigSeries = chart.addLineSeries({
+                    color: '#FF6D00', // 주황색 (Signal Line)
+                    lineWidth: 1.5,
+                    priceScaleId: 'macd_scale',
+                    crosshairMarkerVisible: false,
+                });
+                macdHistSeries = chart.addHistogramSeries({
+                    priceScaleId: 'macd_scale',
+                });
+                chart.priceScale('macd_scale').applyOptions({
+                    scaleMargins: {
                         top: 0.85,
-                        bottom: 0, // RSI는 85~100% 영역 차지
+                        bottom: 0, // MACD는 85~100% 영역 차지
                     },
                 });
 
@@ -1652,6 +1678,42 @@ HTML_CONTENT = """
                 rsiLowLineSeries.setData(uniqueRsiLow);
             }
 
+            // MACD 데이터 세팅
+            if (macdSeries && macdSigSeries && macdHistSeries) {
+                const macdData = [];
+                const macdSigData = [];
+                const macdHistData = [];
+                history.forEach(bar => {
+                    const formattedTime = parseDateTimeToTimestamp(bar.time);
+                    if (bar['macd'] !== null && bar['macd'] !== undefined) {
+                        macdData.push({ time: formattedTime, value: bar['macd'] });
+                        macdSigData.push({ time: formattedTime, value: bar['macd_sig'] });
+                        macdHistData.push({ 
+                            time: formattedTime, 
+                            value: bar['macd_hist'], 
+                            color: bar['macd_hist'] >= 0 ? 'rgba(38, 166, 154, 0.5)' : 'rgba(239, 83, 80, 0.5)' 
+                        });
+                    }
+                });
+                
+                [macdData, macdSigData, macdHistData].forEach(arr => arr.sort((a, b) => a.time - b.time));
+                
+                const uniqueMacd = [], uniqueMacdSig = [], uniqueMacdHist = [];
+                const seenMacd = new Set();
+                macdData.forEach((item, i) => {
+                    if (!seenMacd.has(item.time)) {
+                        seenMacd.add(item.time);
+                        uniqueMacd.push(item);
+                        uniqueMacdSig.push(macdSigData[i]);
+                        uniqueMacdHist.push(macdHistData[i]);
+                    }
+                });
+                
+                macdSeries.setData(uniqueMacd);
+                macdSigSeries.setData(uniqueMacdSig);
+                macdHistSeries.setData(uniqueMacdHist);
+            }
+
             chart.timeScale().fitContent();
         }
 
@@ -1699,6 +1761,17 @@ HTML_CONTENT = """
             if (candle['rsi21'] !== null && candle['rsi21'] !== undefined) {
                 if (rsiSeries) rsiSeries.update({ time: formattedTime, value: candle['rsi21'] });
                 if (rsiLowLineSeries) rsiLowLineSeries.update({ time: formattedTime, value: 30 });
+            }
+
+            // MACD 틱 업데이트
+            if (candle['macd'] !== null && candle['macd'] !== undefined) {
+                if (macdSeries) macdSeries.update({ time: formattedTime, value: candle['macd'] });
+                if (macdSigSeries) macdSigSeries.update({ time: formattedTime, value: candle['macd_sig'] });
+                if (macdHistSeries) macdHistSeries.update({
+                    time: formattedTime, 
+                    value: candle['macd_hist'],
+                    color: candle['macd_hist'] >= 0 ? 'rgba(38, 166, 154, 0.5)' : 'rgba(239, 83, 80, 0.5)'
+                });
             }
         }
 
@@ -2022,6 +2095,9 @@ async def websocket_handler(websocket):
                                     t_ma60 = tic_data.get('MA60', [])
                                     t_ma120 = tic_data.get('MA120', [])
                                     t_rsi21 = tic_data.get('RSI21', [])
+                                    t_macd = tic_data.get('MACD', [])
+                                    t_macd_sig = tic_data.get('MACD_SIGNAL', [])
+                                    t_macd_hist = tic_data.get('MACD_HIST', [])
                                     for idx in range(len(t_closes)):
                                         try:
                                             t_time = datetime_to_timestamp(t_times[idx])
@@ -2039,6 +2115,9 @@ async def websocket_handler(websocket):
                                             if t_ma60 and not math.isnan(float(t_ma60[idx])): item["ma60"] = float(t_ma60[idx])
                                             if t_ma120 and not math.isnan(float(t_ma120[idx])): item["ma120"] = float(t_ma120[idx])
                                             if t_rsi21 and not math.isnan(float(t_rsi21[idx])): item["rsi21"] = float(t_rsi21[idx])
+                                            if t_macd and not math.isnan(float(t_macd[idx])): item["macd"] = float(t_macd[idx])
+                                            if t_macd_sig and not math.isnan(float(t_macd_sig[idx])): item["macd_sig"] = float(t_macd_sig[idx])
+                                            if t_macd_hist and not math.isnan(float(t_macd_hist[idx])): item["macd_hist"] = float(t_macd_hist[idx])
                                             tic_history.append(item)
                                         except Exception: pass
                                     # 최근 200개 캔들로 제한
@@ -2059,6 +2138,9 @@ async def websocket_handler(websocket):
                                     m_ma60 = min_data.get('MA60', [])
                                     m_ma120 = min_data.get('MA120', [])
                                     m_rsi21 = min_data.get('RSI21', [])
+                                    m_macd = min_data.get('MACD', [])
+                                    m_macd_sig = min_data.get('MACD_SIGNAL', [])
+                                    m_macd_hist = min_data.get('MACD_HIST', [])
                                     for idx in range(len(m_closes)):
                                         try:
                                             m_time = datetime_to_timestamp(m_times[idx])
@@ -2076,6 +2158,9 @@ async def websocket_handler(websocket):
                                             if m_ma60 and not math.isnan(float(m_ma60[idx])): item["ma60"] = float(m_ma60[idx])
                                             if m_ma120 and not math.isnan(float(m_ma120[idx])): item["ma120"] = float(m_ma120[idx])
                                             if m_rsi21 and not math.isnan(float(m_rsi21[idx])): item["rsi21"] = float(m_rsi21[idx])
+                                            if m_macd and not math.isnan(float(m_macd[idx])): item["macd"] = float(m_macd[idx])
+                                            if m_macd_sig and not math.isnan(float(m_macd_sig[idx])): item["macd_sig"] = float(m_macd_sig[idx])
+                                            if m_macd_hist and not math.isnan(float(m_macd_hist[idx])): item["macd_hist"] = float(m_macd_hist[idx])
                                             min_history.append(item)
                                         except Exception: pass
                                     # 최신 데이터 시점 기준 최근 6시간 데이터로 필터링
@@ -2142,6 +2227,9 @@ def on_chart_data_updated(code):
         t_ma60 = tic_data.get('MA60', [])
         t_ma120 = tic_data.get('MA120', [])
         t_rsi21 = tic_data.get('RSI21', [])
+        t_macd = tic_data.get('MACD', [])
+        t_macd_sig = tic_data.get('MACD_SIGNAL', [])
+        t_macd_hist = tic_data.get('MACD_HIST', [])
         for idx in range(len(t_closes)):
             try:
                 t_time = datetime_to_timestamp(t_times[idx])
@@ -2159,6 +2247,9 @@ def on_chart_data_updated(code):
                 if t_ma60 and not math.isnan(float(t_ma60[idx])): item["ma60"] = float(t_ma60[idx])
                 if t_ma120 and not math.isnan(float(t_ma120[idx])): item["ma120"] = float(t_ma120[idx])
                 if t_rsi21 and not math.isnan(float(t_rsi21[idx])): item["rsi21"] = float(t_rsi21[idx])
+                if t_macd and not math.isnan(float(t_macd[idx])): item["macd"] = float(t_macd[idx])
+                if t_macd_sig and not math.isnan(float(t_macd_sig[idx])): item["macd_sig"] = float(t_macd_sig[idx])
+                if t_macd_hist and not math.isnan(float(t_macd_hist[idx])): item["macd_hist"] = float(t_macd_hist[idx])
                 tic_history.append(item)
             except Exception: pass
         # 최근 200개 캔들로 제한
@@ -2178,6 +2269,9 @@ def on_chart_data_updated(code):
         m_ma60 = min_data.get('MA60', [])
         m_ma120 = min_data.get('MA120', [])
         m_rsi21 = min_data.get('RSI21', [])
+        m_macd = min_data.get('MACD', [])
+        m_macd_sig = min_data.get('MACD_SIGNAL', [])
+        m_macd_hist = min_data.get('MACD_HIST', [])
         for idx in range(len(m_closes)):
             try:
                 m_time = datetime_to_timestamp(m_times[idx])
@@ -2195,6 +2289,9 @@ def on_chart_data_updated(code):
                 if m_ma60 and not math.isnan(float(m_ma60[idx])): item["ma60"] = float(m_ma60[idx])
                 if m_ma120 and not math.isnan(float(m_ma120[idx])): item["ma120"] = float(m_ma120[idx])
                 if m_rsi21 and not math.isnan(float(m_rsi21[idx])): item["rsi21"] = float(m_rsi21[idx])
+                if m_macd and not math.isnan(float(m_macd[idx])): item["macd"] = float(m_macd[idx])
+                if m_macd_sig and not math.isnan(float(m_macd_sig[idx])): item["macd_sig"] = float(m_macd_sig[idx])
+                if m_macd_hist and not math.isnan(float(m_macd_hist[idx])): item["macd_hist"] = float(m_macd_hist[idx])
                 min_history.append(item)
             except Exception: pass
         # 최신 데이터 시점 기준 최근 6시간 데이터로 필터링
@@ -2221,6 +2318,9 @@ def on_chart_data_updated(code):
         if 'MA60' in tic_data and tic_data['MA60'] and not math.isnan(float(tic_data['MA60'][-1])): tic_candle['ma60'] = float(tic_data['MA60'][-1])
         if 'MA120' in tic_data and tic_data['MA120'] and not math.isnan(float(tic_data['MA120'][-1])): tic_candle['ma120'] = float(tic_data['MA120'][-1])
         if 'RSI21' in tic_data and tic_data['RSI21'] and not math.isnan(float(tic_data['RSI21'][-1])): tic_candle['rsi21'] = float(tic_data['RSI21'][-1])
+        if 'MACD' in tic_data and tic_data['MACD'] and not math.isnan(float(tic_data['MACD'][-1])): tic_candle['macd'] = float(tic_data['MACD'][-1])
+        if 'MACD_SIGNAL' in tic_data and tic_data['MACD_SIGNAL'] and not math.isnan(float(tic_data['MACD_SIGNAL'][-1])): tic_candle['macd_sig'] = float(tic_data['MACD_SIGNAL'][-1])
+        if 'MACD_HIST' in tic_data and tic_data['MACD_HIST'] and not math.isnan(float(tic_data['MACD_HIST'][-1])): tic_candle['macd_hist'] = float(tic_data['MACD_HIST'][-1])
     
     min_candle = None
     if min_data and len(min_data.get('close', [])) > 0:
@@ -2239,6 +2339,9 @@ def on_chart_data_updated(code):
         if 'MA60' in min_data and min_data['MA60'] and not math.isnan(float(min_data['MA60'][-1])): min_candle['ma60'] = float(min_data['MA60'][-1])
         if 'MA120' in min_data and min_data['MA120'] and not math.isnan(float(min_data['MA120'][-1])): min_candle['ma120'] = float(min_data['MA120'][-1])
         if 'RSI21' in min_data and min_data['RSI21'] and not math.isnan(float(min_data['RSI21'][-1])): min_candle['rsi21'] = float(min_data['RSI21'][-1])
+        if 'MACD' in min_data and min_data['MACD'] and not math.isnan(float(min_data['MACD'][-1])): min_candle['macd'] = float(min_data['MACD'][-1])
+        if 'MACD_SIGNAL' in min_data and min_data['MACD_SIGNAL'] and not math.isnan(float(min_data['MACD_SIGNAL'][-1])): min_candle['macd_sig'] = float(min_data['MACD_SIGNAL'][-1])
+        if 'MACD_HIST' in min_data and min_data['MACD_HIST'] and not math.isnan(float(min_data['MACD_HIST'][-1])): min_candle['macd_hist'] = float(min_data['MACD_HIST'][-1])
 
     from utils import create_fire_and_forget_task
     async def send_to_subscribed_clients():
