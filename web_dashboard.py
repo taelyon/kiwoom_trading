@@ -628,7 +628,7 @@ HTML_CONTENT = """
         <div class="auth-desc">시놀로지 Docker 자동매매 콘솔 보안을 위해 웹 대시보드 비밀번호를 입력해주세요.</div>
         <div class="input-group">
             <label for="passwordField">비밀번호</label>
-            <input type="password" id="passwordField" class="input-field" placeholder="Password" onkeydown="if(event.key==='Enter') attemptAuth()">
+            <input type="password" id="passwordField" class="input-field" placeholder="Password">
         </div>
         <button class="btn-primary" onclick="attemptAuth()">콘솔 진입</button>
         <div id="authErrorMsg" style="color: var(--accent-pink); font-size: 12px; min-height: 18px;"></div>
@@ -815,8 +815,16 @@ HTML_CONTENT = """
         let reconnectTimer;
         let currentPassword = "";
 
-        // 페이지 로드 시 로컬 스토리지 확인
+        // 페이지 로드 시 로컬 스토리지 확인 및 엔터 키 바인딩
         window.onload = () => {
+            const passField = document.getElementById('passwordField');
+            if (passField) {
+                passField.addEventListener('keydown', (event) => {
+                    if (event.key === 'Enter') {
+                        attemptAuth();
+                    }
+                });
+            }
             const savedPass = localStorage.getItem('dashboard_password');
             if (savedPass) {
                 currentPassword = savedPass;
@@ -1116,53 +1124,61 @@ HTML_CONTENT = """
 
         // --- TradingView 차트 그리기 ---
         function initTradingViewChart() {
-            const chartDiv = document.getElementById('chartCanvas');
-            chart = LightweightCharts.createChart(chartDiv, {
-                layout: {
-                    backgroundColor: '#0c0b1e',
-                    textColor: '#d1d4dc',
-                },
-                grid: {
-                    vertLines: { color: 'rgba(70, 130, 180, 0.1)' },
-                    horzLines: { color: 'rgba(70, 130, 180, 0.1)' },
-                },
-                crosshair: {
-                    mode: LightweightCharts.CrosshairMode.Normal,
-                },
-                rightPriceScale: {
-                    borderColor: 'rgba(197, 203, 206, 0.4)',
-                },
-                timeScale: {
-                    borderColor: 'rgba(197, 203, 206, 0.4)',
-                    timeVisible: true,
-                },
-            });
+            try {
+                if (typeof LightweightCharts === 'undefined') {
+                    console.warn("TradingView 라이브러리가 로드되지 않았습니다. 차트 기능이 비활성화됩니다.");
+                    return;
+                }
+                const chartDiv = document.getElementById('chartCanvas');
+                chart = LightweightCharts.createChart(chartDiv, {
+                    layout: {
+                        backgroundColor: '#0c0b1e',
+                        textColor: '#d1d4dc',
+                    },
+                    grid: {
+                        vertLines: { color: 'rgba(70, 130, 180, 0.1)' },
+                        horzLines: { color: 'rgba(70, 130, 180, 0.1)' },
+                    },
+                    crosshair: {
+                        mode: LightweightCharts.CrosshairMode.Normal,
+                    },
+                    rightPriceScale: {
+                        borderColor: 'rgba(197, 203, 206, 0.4)',
+                    },
+                    timeScale: {
+                        borderColor: 'rgba(197, 203, 206, 0.4)',
+                        timeVisible: true,
+                    },
+                });
 
-            candleSeries = chart.addCandlestickSeries({
-                upColor: '#ef5350',
-                downColor: '#26a69a',
-                borderDownColor: '#26a69a',
-                borderUpColor: '#ef5350',
-                wickDownColor: '#26a69a',
-                wickUpColor: '#ef5350',
-            });
+                candleSeries = chart.addCandlestickSeries({
+                    upColor: '#ef5350',
+                    downColor: '#26a69a',
+                    borderDownColor: '#26a69a',
+                    borderUpColor: '#ef5350',
+                    wickDownColor: '#26a69a',
+                    wickUpColor: '#ef5350',
+                });
 
-            volumeSeries = chart.addHistogramSeries({
-                color: '#26a69a',
-                priceFormat: { type: 'volume' },
-                priceScaleId: '', // 볼륨은 별도 스케일로 표시
-                scaleMargins: {
-                    top: 0.8,
-                    bottom: 0,
-                },
-            });
+                volumeSeries = chart.addHistogramSeries({
+                    color: '#26a69a',
+                    priceFormat: { type: 'volume' },
+                    priceScaleId: '', // 볼륨은 별도 스케일로 표시
+                    scaleMargins: {
+                        top: 0.8,
+                        bottom: 0,
+                    },
+                });
 
-            // 화면 크기 반응형 리사이즈
-            new ResizeObserver(entries => {
-                if (entries.length === 0 || !chart) return;
-                const { width, height } = entries[0].contentRect;
-                chart.resize(width, height);
-            }).observe(chartDiv);
+                // 화면 크기 반응형 리사이즈
+                new ResizeObserver(entries => {
+                    if (entries.length === 0 || !chart) return;
+                    const { width, height } = entries[0].contentRect;
+                    chart.resize(width, height);
+                }).observe(chartDiv);
+            } catch (e) {
+                console.error("차트 라이브러리 초기화 실패:", e);
+            }
         }
 
         function subscribeStockChart(code, name) {
@@ -1195,6 +1211,7 @@ HTML_CONTENT = """
 
         // 역사적 차트 그리기
         function renderChartHistory(data) {
+            if (!candleSeries || !volumeSeries) return;
             if (data.code !== currentChartCode) return;
 
             const history = (currentChartScope === 'tic') ? data.tic_history : data.min_history;
@@ -1261,6 +1278,7 @@ HTML_CONTENT = """
 
         // 실시간 차트 틱 추가
         function renderChartTick(data) {
+            if (!candleSeries || !volumeSeries) return;
             if (data.code !== currentChartCode) return;
 
             const candle = (currentChartScope === 'tic') ? data.tic_candle : data.min_candle;
