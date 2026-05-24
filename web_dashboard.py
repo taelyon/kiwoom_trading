@@ -15,6 +15,10 @@ log_queue = collections.deque(maxlen=150)
 connected_clients = set()
 main_window_ref = None
 
+# 로그 고유 ID 발급용 카운터 및 락
+log_counter = 0
+log_counter_lock = threading.Lock()
+
 # 활성 차트 구독 관리 { websocket: subscribed_code }
 subscribed_charts = {}
 
@@ -26,12 +30,19 @@ class WebDashboardLogHandler(logging.Handler):
         self.setFormatter(logging.Formatter(log_format))
 
     def emit(self, record):
+        global log_counter
         try:
             # 웹소켓 및 asyncio 내부 로그는 피드백 루프 방지를 위해 대시보드 로깅 대상에서 제외
             if record.name.startswith('websockets') or record.name.startswith('asyncio'):
                 return
             formatted_msg = self.format(record)
+            
+            with log_counter_lock:
+                log_counter += 1
+                entry_id = log_counter
+                
             log_entry = {
+                "id": entry_id,
                 "type": "log",
                 "timestamp": datetime.now().strftime('%H:%M:%S'),
                 "level": record.levelname,
@@ -1491,12 +1502,15 @@ async def websocket_handler(websocket):
                         status_data = get_current_status_data()
                         await websocket.send(json.dumps(status_data))
                         
-                        # 최근 로그 스트리밍
+                        # 최근 로그 스트리밍 (최대 150개)
                         current_logs = list(log_queue)
+                        last_id = 0
                         for log_entry in current_logs:
                             try:
                                 await websocket.send(json.dumps(log_entry))
+                                last_id = max(last_id, log_entry.get('id', 0))
                             except Exception: pass
+                        websocket.last_sent_log_id = last_id
                     else:
                         logging.warning("⚠️ 대시보드 로그인 실패: 비밀번호 불일치")
                         await websocket.send(json.dumps({
@@ -1758,15 +1772,24 @@ async def dashboard_log_broadcast_loop():
     """로그 큐에 쌓인 로그를 실시간으로 모든 인증된 클라이언트에 브로드캐스트"""
     while True:
         try:
-            if connected_clients and log_queue:
-                tasks = []
-                while log_queue:
-                    log_entry = log_queue.popleft()
-                    message = json.dumps(log_entry)
-                    for client in connected_clients:
-                        tasks.append(client.send(message))
-                if tasks:
-                    await asyncio.gather(*tasks, return_exceptions=True)
+            if connected_clients:
+                # 현재 큐에 있는 로그들의 스냅샷 복사
+                current_logs = list(log_queue)
+                for client in list(connected_clients):
+                    if not client.open:
+                        continue
+                    last_sent = getattr(client, 'last_sent_log_id', 0)
+                    # 아직 이 클라이언트에게 전송되지 않은 신규 로그만 필터링
+                    unsent_logs = [log for log in current_logs if log.get('id', 0) > last_sent]
+                    if unsent_logs:
+                        max_id = last_sent
+                        for log in unsent_logs:
+                            try:
+                                await client.send(json.dumps(log))
+                                max_id = max(max_id, log.get('id', 0))
+                            except Exception:
+                                break
+                        client.last_sent_log_id = max_id
         except Exception:
             pass
         await asyncio.sleep(0.1)
