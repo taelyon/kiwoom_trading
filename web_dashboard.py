@@ -824,7 +824,7 @@ HTML_CONTENT = """
                 
                 <!-- 하단 실시간 로그 영역 (좌측 영역 하단으로 이동) -->
                 <div class="glass-card terminal-box">
-                    <div class="section-title" style="margin-bottom:12px;">실시간 자동매매 통제국 로그</div>
+                    <div class="section-title" style="margin-bottom:12px;">실시간 자동매매 로그</div>
                     <div id="terminalBody" class="terminal-logs">
                         <div class="log-line"><span class="log-time">[00:00:00]</span> <span class="log-lvl-info">SYSTEM</span> <span>실시간 로그 대기 중...</span></div>
                     </div>
