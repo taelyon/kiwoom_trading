@@ -615,7 +615,12 @@ HTML_CONTENT = """
             outline: none;
         }
 
-        .form-field input:focus {
+        .form-field select option {
+            background: #111; /* 콤보박스 드롭다운 배경색 */
+            color: white;
+        }
+
+        .form-field input:focus, .form-field select:focus {
             border-color: var(--accent-cyan);
         }
 
