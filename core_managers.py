@@ -349,8 +349,8 @@ class DataManager:
             if hasattr(self.parent, 'login_handler') and self.parent.login_handler.kiwoom_client:
                 kiwoom_client = self.parent.login_handler.kiwoom_client
 
-                # 코스피(0)와 코스닥(10) 종목 리스트를 모두 조회
-                for market_code in ['0', '10']:
+                # 코스피(0), 코스닥(10), K-OTC(30), 코넥스(50) 종목 리스트를 모두 조회
+                for market_code in ['0', '10', '30', '50']:
                     headers = {
                         'Content-Type': 'application/json;charset=UTF-8',
                         'authorization': f'Bearer {kiwoom_client.access_token}',
@@ -397,7 +397,7 @@ class DataManager:
                     await kiwoom_client.check_token_validity()
                 
                 temp_map = {}
-                markets = ['0', '10']
+                markets = ['0', '10', '30', '50'] # KOSPI, KOSDAQ, K-OTC, KONEX
                 for idx, market_code in enumerate(markets):
                     # KOSPI와 KOSDAQ 목록 수신 간 1초 지연을 적용하여 HTTP 429 Too Many Requests 방지
                     if idx > 0:
@@ -444,6 +444,10 @@ class DataManager:
                         if not found:
                             self.non_existent_codes.add(req_clean)
                             self.logger.info(f"🚫 종목코드 '{req_clean}'은 OpenAPI 마스터 목록에 없으므로 캐시 예외 목록(Negative Cache)에 등록합니다.")
+                        else:
+                            # 만약 예외 목록에 등록되었던 종목이 신규로 발견되었을 경우, 예외 목록에서 제거(discard)하여 정상 상태로 환원
+                            self.non_existent_codes.discard(req_clean)
+                            self.logger.info(f"🔄 종목코드 '{req_clean}'이 캐시에서 발견되어 예외 목록(Negative Cache)에서 제외했습니다.")
                 else:
                     self.logger.warning("⚠️ 받아온 종목 리스트가 없어 기존 종목명 캐시를 유지합니다.")
         except Exception as ex:
