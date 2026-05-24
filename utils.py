@@ -220,9 +220,15 @@ class ApiLimitManager:
                 request_type = cls._get_request_type(operation_name)
             interval = cls._request_intervals.get(request_type, cls._request_intervals['default'])
             
+            # 차트 요청들은 동일한 큐를 공유하여 동시 다발적인 요청 방지 (429 에러 방지)
+            queue_key = request_type
+            if request_type in ['tic_chart', 'minute_chart', 'tic', 'minute']:
+                queue_key = 'chart_req'
+                interval = 1.0  # 차트 요청 간격 1초로 단축하여 체감 속도 향상 (기존 1.5초)
+            
             current_time = time.time()
             # 이 요청 타입의 다음 사용 가능 시간 확인
-            next_time = cls._next_request_time.get(request_type, current_time)
+            next_time = cls._next_request_time.get(queue_key, current_time)
             
             # 다음 사용 가능 시간이 과거라면 현재 시간으로 갱신
             if next_time < current_time:
@@ -232,7 +238,7 @@ class ApiLimitManager:
             wait_time = next_time - current_time
             
             # 다음 요청을 위해 예약 시간 슬롯을 확보 (Interval 추가)
-            cls._next_request_time[request_type] = next_time + interval
+            cls._next_request_time[queue_key] = next_time + interval
             
             if wait_time > 0:
                 await asyncio.sleep(wait_time)

@@ -216,10 +216,8 @@ class ChartDataCache:
         """틱 데이터 수집 (asyncio 기반)"""
         for attempt in range(max_retries):
             try:
-                # API 제한 확인 (비동기 버전)
-                await ApiLimitManager.check_api_limit_and_wait_async(request_type='tic')
-                
                 # 비동기 API 직접 호출
+                # (API 제한 확인은 kiwoom_rest.py 내에서 처리됨)
                 data = await self.trader.client.get_stock_tic_chart(code, tic_scope=60)
                 
                 if data:
@@ -236,10 +234,8 @@ class ChartDataCache:
         """분봉 데이터 수집 (asyncio 기반)"""
         for attempt in range(max_retries):
             try:
-                # API 제한 확인 (비동기 버전)
-                await ApiLimitManager.check_api_limit_and_wait_async(request_type='minute')
-                
                 # 비동기 API 직접 호출
+                # (API 제한 확인은 kiwoom_rest.py 내에서 처리됨)
                 data = await self.trader.client.get_stock_minute_chart(code, period=3)
                 
                 if data:

@@ -1866,14 +1866,17 @@ async def websocket_handler(websocket):
                                         limit_time = latest_time - (6 * 3600)
                                         min_history = [bar for bar in min_history if bar["time"] >= limit_time]
                                 
-                                await websocket.send(json.dumps({
-                                    "type": "chart_history",
-                                    "code": code,
-                                    "tic_history": tic_history,
-                                    "min_history": min_history
-                                }))
-                                websocket.sent_chart_history[code] = True
-                                logging.debug(f"📊 대시보드: {code} 역사적 차트 데이터 스트리밍 완료 (틱:{len(tic_history)}개, 분봉:{len(min_history)}개)")
+                                if tic_history or min_history:
+                                    await websocket.send(json.dumps({
+                                        "type": "chart_history",
+                                        "code": code,
+                                        "tic_history": tic_history,
+                                        "min_history": min_history
+                                    }))
+                                    websocket.sent_chart_history[code] = True
+                                    logging.debug(f"📊 대시보드: {code} 역사적 차트 데이터 스트리밍 완료 (틱:{len(tic_history)}개, 분봉:{len(min_history)}개)")
+                                else:
+                                    logging.debug(f"📊 대시보드: {code} 차트 데이터 캐시가 없어 백그라운드 수집을 기다립니다.")
 
             except Exception as inner_ex:
                 logging.error(f"대시보드 웹소켓 메시지 처리 오류: {inner_ex}", exc_info=True)
