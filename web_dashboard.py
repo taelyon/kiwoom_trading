@@ -1,3 +1,4 @@
+import os
 import json
 import logging
 import asyncio
@@ -302,6 +303,29 @@ HTML_CONTENT = """
         
         .header-pw-input::placeholder {
             color: rgba(255, 255, 255, 0.25);
+        }
+
+        .btn-pw-apply {
+            background: rgba(0, 229, 255, 0.2);
+            border: 1px solid rgba(0, 229, 255, 0.4);
+            color: #fff;
+            padding: 3px 10px;
+            border-radius: 6px;
+            font-size: 11px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+        }
+
+        .btn-pw-apply:hover {
+            background: rgba(0, 229, 255, 0.4);
+            box-shadow: 0 0 8px rgba(0, 229, 255, 0.3);
+        }
+
+        .settings-panel .btn-primary {
+            padding: 8px 16px;
+            font-size: 13px;
+            border-radius: 8px;
         }
 
         .header-controls {
@@ -806,6 +830,7 @@ HTML_CONTENT = """
                 <div class="header-pw-container">
                     <span>비밀번호 변경:</span>
                     <input type="password" id="cfgPassword" class="header-pw-input" placeholder="유지 시 공란">
+                    <button class="btn-pw-apply" onclick="changePassword()">적용</button>
                 </div>
             </div>
             <div class="header-controls">
@@ -918,11 +943,11 @@ HTML_CONTENT = """
                         </div>
                         <div class="form-field">
                             <label for="cfgBuyStrategy">매수 전략 편집 (JSON)</label>
-                            <textarea id="cfgBuyStrategy" placeholder="매수 전략 조건식 목록 (JSON)" style="font-family: monospace; font-size:11px; width: 100%; height: 80px; box-sizing: border-box; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 8px; resize: vertical;"></textarea>
+                            <textarea id="cfgBuyStrategy" placeholder="매수 전략 조건식 목록 (JSON)" style="font-family: monospace; font-size:11px; width: 100%; height: 40px; box-sizing: border-box; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 8px; resize: vertical;"></textarea>
                         </div>
                         <div class="form-field">
                             <label for="cfgSellStrategy">매도 전략 편집 (JSON)</label>
-                            <textarea id="cfgSellStrategy" placeholder="매도 전략 조건식 목록 (JSON)" style="font-family: monospace; font-size:11px; width: 100%; height: 120px; box-sizing: border-box; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 8px; resize: vertical;"></textarea>
+                            <textarea id="cfgSellStrategy" placeholder="매도 전략 조건식 목록 (JSON)" style="font-family: monospace; font-size:11px; width: 100%; height: 50px; box-sizing: border-box; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 8px; resize: vertical;"></textarea>
                         </div>
                         <button class="btn-primary" onclick="saveSettings()">설정 파라미터 적용</button>
                     </div>
@@ -1309,7 +1334,6 @@ HTML_CONTENT = """
         function saveSettings() {
             const buycount = document.getElementById('cfgBuyCount').value;
             const strategy = document.getElementById('cfgStrategy').value;
-            const password = document.getElementById('cfgPassword').value;
             
             const req = {
                 type: "save_settings",
@@ -1339,16 +1363,38 @@ HTML_CONTENT = """
                 req.settings.sell_strategy = sellTextarea.value;
             }
             
-            if (password.trim()) {
-                req.settings.dashboard_password = password.trim();
-            }
-            
             ws.send(jsonStr(req));
             alert("설정 적용 요청을 전송하였습니다.");
-            if (password.trim()) {
-                alert("비밀번호가 변경되었으므로 다시 로그인해야 합니다.");
+        }
+
+        // 콘솔 비밀번호 단독 변경 요청
+        function changePassword() {
+            const passwordField = document.getElementById('cfgPassword');
+            const password = passwordField.value.trim();
+            
+            if (!password) {
+                alert("변경할 새로운 비밀번호를 입력해주세요.");
+                return;
+            }
+            
+            if (!confirm("콘솔 비밀번호를 변경하시겠습니까?\\n변경 즉시 새로운 비밀번호로 다시 로그인해야 합니다.")) {
+                return;
+            }
+            
+            const req = {
+                type: "save_settings",
+                settings: {
+                    dashboard_password: password
+                }
+            };
+            
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(jsonStr(req));
+                alert("비밀번호 변경 요청을 전송하였습니다. 다시 로그인해 주십시오.");
                 localStorage.removeItem('dashboard_password');
                 window.location.reload();
+            } else {
+                alert("서버 연결 상태가 원활하지 않습니다. 다시 시도해 주세요.");
             }
         }
 
