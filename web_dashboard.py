@@ -1893,6 +1893,20 @@ class DashboardHTTPHandler(SimpleHTTPRequestHandler):
                 self.send_header("Expires", "0")
                 self.end_headers()
                 self.wfile.write(HTML_CONTENT.encode("utf-8"))
+            elif self.path == "/favicon.ico":
+                ico_path = os.path.join(os.path.dirname(__file__), "stock_trader.ico")
+                if os.path.exists(ico_path):
+                    self.send_response(200)
+                    self.send_header("Content-Type", "image/x-icon")
+                    self.send_header("Cache-Control", "public, max-age=86400")
+                    self.end_headers()
+                    with open(ico_path, "rb") as f:
+                        self.wfile.write(f.read())
+                else:
+                    self.send_response(200)
+                    self.send_header("Content-Type", "image/x-icon")
+                    self.end_headers()
+                    self.wfile.write(b"")
             elif self.path == "/health":
                 self.send_response(200)
                 self.send_header("Content-Type", "text/plain")
