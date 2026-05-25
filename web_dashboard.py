@@ -650,13 +650,13 @@ HTML_CONTENT = """
         .settings-panel {
             display: flex;
             flex-direction: column;
-            gap: 16px;
+            gap: 10px;
         }
 
         .form-field {
             display: flex;
             flex-direction: column;
-            gap: 6px;
+            gap: 4px;
         }
 
         .form-field label {
@@ -668,7 +668,7 @@ HTML_CONTENT = """
             background: rgba(255, 255, 255, 0.05);
             border: 1px solid var(--border-color);
             border-radius: 8px;
-            padding: 10px;
+            padding: 8px;
             color: white;
             outline: none;
         }
@@ -916,11 +916,11 @@ HTML_CONTENT = """
                                 </select>
                             </div>
                         </div>
-                        <div class="form-field" style="margin-top: 12px;">
+                        <div class="form-field">
                             <label for="cfgBuyStrategy">매수 전략 편집 (JSON)</label>
                             <textarea id="cfgBuyStrategy" placeholder="매수 전략 조건식 목록 (JSON)" style="font-family: monospace; font-size:11px; width: 100%; height: 80px; box-sizing: border-box; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 8px; resize: vertical;"></textarea>
                         </div>
-                        <div class="form-field" style="margin-top: 12px;">
+                        <div class="form-field">
                             <label for="cfgSellStrategy">매도 전략 편집 (JSON)</label>
                             <textarea id="cfgSellStrategy" placeholder="매도 전략 조건식 목록 (JSON)" style="font-family: monospace; font-size:11px; width: 100%; height: 120px; box-sizing: border-box; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 8px; resize: vertical;"></textarea>
                         </div>
@@ -1933,10 +1933,8 @@ class DashboardHTTPHandler(SimpleHTTPRequestHandler):
                     with open(ico_path, "rb") as f:
                         self.wfile.write(f.read())
                 else:
-                    self.send_response(200)
-                    self.send_header("Content-Type", "image/x-icon")
+                    self.send_response(204)
                     self.end_headers()
-                    self.wfile.write(b"")
             elif self.path == "/health":
                 self.send_response(200)
                 self.send_header("Content-Type", "text/plain")

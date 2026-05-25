@@ -6,7 +6,6 @@ dist/
 backup/
 __pycache__/
 *.spec
-*.ico
 *.db.bak
 *.db-wal
 *.db-shm
