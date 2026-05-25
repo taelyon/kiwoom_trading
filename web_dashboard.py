@@ -2142,15 +2142,19 @@ async def websocket_handler(websocket):
                     buy_stgs = []
                     sell_stgs = []
                     
+                    logging.info(f"🔍 [get_strategy_detail] Requested strategy: '{strategy_name}', has_section: {config.has_section(strategy_name)}")
+                    
                     # 통합 전략 및 조건검색식을 제외한 개별 전략인 경우만 파싱
                     if config.has_section(strategy_name) and strategy_name not in ["통합 전략", "통합전략"]:
                         # 매수 조건 수집
                         buy_items = [(k, v) for k, v in config.items(strategy_name) if k.startswith('buy_stg_')]
                         buy_items.sort(key=lambda x: int(x[0].split('_')[-1]) if x[0].split('_')[-1].isdigit() else 999)
+                        logging.info(f"🔍 buy_items: {buy_items}")
                         for k, v in buy_items:
                             try:
                                 buy_stgs.append(json.loads(v))
-                            except Exception: pass
+                            except Exception as e:
+                                logging.error(f"❌ JSON 파싱 에러 (매수 {k}): {e}")
                             
                         # 매도 조건 수집
                         sell_items = [(k, v) for k, v in config.items(strategy_name) if k.startswith('sell_stg_')]
@@ -2158,7 +2162,10 @@ async def websocket_handler(websocket):
                         for k, v in sell_items:
                             try:
                                 sell_stgs.append(json.loads(v))
-                            except Exception: pass
+                            except Exception as e:
+                                logging.error(f"❌ JSON 파싱 에러 (매도 {k}): {e}")
+                    else:
+                        logging.warning(f"⚠️ [{strategy_name}] 전략 섹션이 존재하지 않거나 통합 전략입니다.")
                     
                     await websocket.send(json.dumps({
                         "type": "strategy_detail",

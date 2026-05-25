@@ -41,7 +41,7 @@ class EnvConfigParser:
             with open(self.env_path, 'w', encoding='utf-8') as f:
                 f.write("# Generated .env file\n")
         
-        load_dotenv(self.env_path, override=True)
+        load_dotenv(self.env_path, override=True, encoding='utf-8')
         self._data = {}
         self._sync_from_env()
 
@@ -54,7 +54,7 @@ class EnvConfigParser:
 
     def read(self, filenames, encoding='utf-8'):
         """filenames 인자는 무시하고 .env 파일을 로드"""
-        load_dotenv(self.env_path, override=True)
+        load_dotenv(self.env_path, override=True, encoding='utf-8')
         self._sync_from_env()
         return [self.env_path]
 
