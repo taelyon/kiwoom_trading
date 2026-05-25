@@ -2222,9 +2222,9 @@ async def websocket_handler(websocket):
                         
                     # 대표 매매 전략 변경에 맞춰 감시 대상 조건검색식과 실시간 감시 종목을 전환합니다.
                     target_stg = new_settings.get('last_strategy')
-                    if target_stg and hasattr(app, 'monitoring_manager') and app.monitoring_manager:
+                    if target_stg and hasattr(app, 'strategy_manager') and app.strategy_manager:
                         from utils import create_fire_and_forget_task
-                        create_fire_and_forget_task(app.monitoring_manager.stg_changed(target_stg))
+                        create_fire_and_forget_task(app.strategy_manager.stg_changed(target_stg))
                         logging.info(f"🔄 대시보드 제어: 실시간 감시 대상을 '{target_stg}' 전략으로 전환 개시")
                         
                     logging.info("💾 대시보드 제어: .env 설정 수정 및 적용 완료")
