@@ -120,7 +120,7 @@ HTML_CONTENT = """
     <title>Kiwoom trading</title>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=Noto+Sans+KR:wght@300;400;700&display=swap" rel="stylesheet">
     <!-- TradingView Lightweight Charts CDN (버전을 v4.1.1로 고정하여 v5 API 충돌 방지 및 국내 로딩 속도 최적화) -->
-    <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+    <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js" crossorigin="anonymous"></script>
     <style>
         :root {
             --bg-color: #080710;
@@ -1075,13 +1075,10 @@ HTML_CONTENT = """
             clearInterval(heartbeatTimer);
 
             console.log("⚡ 웹소켓 연결 시작...");
-            console.time("⏱️ 웹소켓 연결 완료 시간");
             ws = new WebSocket(wsUrl);
 
             ws.onopen = () => {
-                console.timeEnd("⏱️ 웹소켓 연결 완료 시간");
                 console.log("🔑 인증 요청 전송 중...");
-                console.time("⏱️ 인증 완료 및 화면 렌더링 시간");
                 // 첫 패킷으로 인증 요청 전송
                 ws.send(jsonStr({
                     type: "auth",
@@ -1107,16 +1104,11 @@ HTML_CONTENT = """
                         document.getElementById('dashboardContainer').style.display = "flex";
                         document.body.style.alignItems = "stretch";
                         
-                        console.time("⏱️ 차트 초기화 시간");
                         initTradingViewChart();
-                        console.timeEnd("⏱️ 차트 초기화 시간");
-                        
-                        console.timeEnd("⏱️ 인증 완료 및 화면 렌더링 시간");
                         
                         // 초기 설정 가져오기
                         ws.send(jsonStr({ type: "get_settings" }));
                     } else {
-                        console.timeEnd("⏱️ 인증 완료 및 화면 렌더링 시간");
                         showAuthError(data.message || "인증 실패");
                         localStorage.removeItem('dashboard_password');
                         ws.close();
