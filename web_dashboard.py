@@ -2135,9 +2135,12 @@ async def websocket_handler(websocket):
                         "settings": settings
                     }))
                 elif msg_type == 'get_strategy_detail':
-                    strategy_name = data.get('strategy')
+                    strategy_name = data.get('strategy', '').strip()
                     from config_manager import EnvConfigParser
                     config = EnvConfigParser()
+                    # 런타임에 싱글톤 캐시를 초기화하여 UTF-8 로드 강제 적용
+                    config._initialized = False
+                    config.__init__()
                     
                     buy_stgs = []
                     sell_stgs = []
