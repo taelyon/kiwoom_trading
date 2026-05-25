@@ -865,14 +865,22 @@ HTML_CONTENT = """
                             </div>
                             <div class="form-field">
                                 <label for="cfgStrategy">대표 매매 전략</label>
-                                <select id="cfgStrategy">
+                                <select id="cfgStrategy" onchange="onStrategyChange(this.value)">
                                     <option value="통합 전략">통합 전략 (추천)</option>
                                     <option value="급등주">급등주 전략</option>
                                     <option value="갭상승">갭상승 전략</option>
                                 </select>
                             </div>
                         </div>
-                        <div class="form-field">
+                        <div class="form-field" style="margin-top: 12px;">
+                            <label for="cfgBuyStrategy">매수 전략 편집 (JSON)</label>
+                            <textarea id="cfgBuyStrategy" placeholder="매수 전략 조건식 목록 (JSON)" style="font-family: monospace; font-size:11px; width: 100%; height: 80px; box-sizing: border-box; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 8px; resize: vertical;"></textarea>
+                        </div>
+                        <div class="form-field" style="margin-top: 12px;">
+                            <label for="cfgSellStrategy">매도 전략 편집 (JSON)</label>
+                            <textarea id="cfgSellStrategy" placeholder="매도 전략 조건식 목록 (JSON)" style="font-family: monospace; font-size:11px; width: 100%; height: 120px; box-sizing: border-box; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 8px; resize: vertical;"></textarea>
+                        </div>
+                        <div class="form-field" style="margin-top: 12px;">
                             <label for="cfgPassword">콘솔 비밀번호 변경</label>
                             <input type="password" id="cfgPassword" placeholder="현재 비밀번호 유지 시 공란">
                         </div>
@@ -1054,6 +1062,14 @@ HTML_CONTENT = """
                     appendLog(data);
                 } else if (data.type === 'settings') {
                     applySettingsToUI(data.settings);
+                } else if (data.type === 'strategy_detail') {
+                    handleStrategyDetail(data);
+                } else if (data.type === 'save_settings_result') {
+                    if (data.success) {
+                        alert(data.message || "설정이 저장 및 적용되었습니다.");
+                    } else {
+                        alert("설정 저장 실패: " + data.message);
+                    }
                 } else if (data.type === 'chart_history') {
                     renderChartHistory(data);
                 } else if (data.type === 'chart_tick') {
@@ -1205,7 +1221,58 @@ HTML_CONTENT = """
                 });
             }
             
-            selectEl.value = settings.last_strategy || "통합 전략";
+            const lastStrategy = settings.last_strategy || "통합 전략";
+            selectEl.value = lastStrategy;
+            
+            // 전략별 매수/매도 리스트 가져오기 호출
+            onStrategyChange(lastStrategy);
+        }
+
+        // 전략 선택 박스 변경 핸들러
+        function onStrategyChange(strategy) {
+            const buyTextarea = document.getElementById('cfgBuyStrategy');
+            const sellTextarea = document.getElementById('cfgSellStrategy');
+            
+            if (strategy === "통합 전략" || strategy.startsWith("[")) {
+                // 통합 전략 또는 조건검색식은 편집 불가능 처리
+                buyTextarea.value = "통합 전략 또는 조건검색식은 직접 수정할 수 없습니다.\n개별 전략(급등주, 갭상승)을 선택하여 수정해 주세요.";
+                sellTextarea.value = "통합 전략 또는 조건검색식은 직접 수정할 수 없습니다.\n개별 전략(급등주, 갭상승)을 선택하여 수정해 주세요.";
+                buyTextarea.disabled = true;
+                sellTextarea.disabled = true;
+                buyTextarea.style.opacity = 0.5;
+                sellTextarea.style.opacity = 0.5;
+            } else {
+                buyTextarea.disabled = false;
+                sellTextarea.disabled = false;
+                buyTextarea.style.opacity = 1.0;
+                sellTextarea.style.opacity = 1.0;
+                buyTextarea.value = "전략 데이터를 불러오는 중...";
+                sellTextarea.value = "전략 데이터를 불러오는 중...";
+                
+                // 백엔드로 세부 내용 조회 웹소켓 요청
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(jsonStr({
+                        type: "get_strategy_detail",
+                        strategy: strategy
+                    }));
+                }
+            }
+        }
+
+        // 백엔드로부터 전략 상세 수신 시 바인딩
+        function handleStrategyDetail(data) {
+            const buyTextarea = document.getElementById('cfgBuyStrategy');
+            const sellTextarea = document.getElementById('cfgSellStrategy');
+            
+            if (buyTextarea.disabled) return;
+            
+            try {
+                buyTextarea.value = JSON.stringify(data.buy, null, 4);
+                sellTextarea.value = JSON.stringify(data.sell, null, 4);
+            } catch (e) {
+                buyTextarea.value = "데이터 파싱 에러: " + e;
+                sellTextarea.value = "데이터 파싱 에러: " + e;
+            }
         }
 
         // 설정 저장 요청
@@ -1221,6 +1288,26 @@ HTML_CONTENT = """
                     last_strategy: strategy
                 }
             };
+            
+            const buyTextarea = document.getElementById('cfgBuyStrategy');
+            const sellTextarea = document.getElementById('cfgSellStrategy');
+            
+            if (!buyTextarea.disabled) {
+                // JSON 유효성 체크
+                try {
+                    if (buyTextarea.value.trim()) {
+                        JSON.parse(buyTextarea.value);
+                    }
+                    if (sellTextarea.value.trim()) {
+                        JSON.parse(sellTextarea.value);
+                    }
+                } catch (e) {
+                    alert("매수 또는 매도 전략 조건식이 올바른 JSON 포맷이 아닙니다.\n대괄호 [ ]로 감싸진 JSON 리스트 형식이어야 합니다.\n오류: " + e.message);
+                    return;
+                }
+                req.settings.buy_strategy = buyTextarea.value;
+                req.settings.sell_strategy = sellTextarea.value;
+            }
             
             if (password.trim()) {
                 req.settings.dashboard_password = password.trim();
@@ -1960,6 +2047,38 @@ async def websocket_handler(websocket):
                         "type": "settings",
                         "settings": settings
                     }))
+                elif msg_type == 'get_strategy_detail':
+                    strategy_name = data.get('strategy')
+                    from config_manager import EnvConfigParser
+                    config = EnvConfigParser()
+                    
+                    buy_stgs = []
+                    sell_stgs = []
+                    
+                    # 통합 전략 및 조건검색식을 제외한 개별 전략인 경우만 파싱
+                    if config.has_section(strategy_name) and strategy_name not in ["통합 전략", "통합전략"]:
+                        # 매수 조건 수집
+                        buy_items = [(k, v) for k, v in config.items(strategy_name) if k.startswith('buy_stg_')]
+                        buy_items.sort(key=lambda x: int(x[0].split('_')[-1]) if x[0].split('_')[-1].isdigit() else 999)
+                        for k, v in buy_items:
+                            try:
+                                buy_stgs.append(json.loads(v))
+                            except Exception: pass
+                            
+                        # 매도 조건 수집
+                        sell_items = [(k, v) for k, v in config.items(strategy_name) if k.startswith('sell_stg_')]
+                        sell_items.sort(key=lambda x: int(x[0].split('_')[-1]) if x[0].split('_')[-1].isdigit() else 999)
+                        for k, v in sell_items:
+                            try:
+                                sell_stgs.append(json.loads(v))
+                            except Exception: pass
+                    
+                    await websocket.send(json.dumps({
+                        "type": "strategy_detail",
+                        "strategy": strategy_name,
+                        "buy": buy_stgs,
+                        "sell": sell_stgs
+                    }))
                     
                 elif msg_type == 'save_settings':
                     new_settings = data.get('settings', {})
@@ -1973,12 +2092,42 @@ async def websocket_handler(websocket):
                     if 'dashboard_password' in new_settings:
                         config.set('SETTINGS', 'dashboard_password', str(new_settings['dashboard_password']))
                         
+                    # 매수/매도 세부 전략 JSON 저장 (편집 가능한 개별 전략일 때만)
+                    target_stg = new_settings.get('last_strategy')
+                    if target_stg and config.has_section(target_stg) and target_stg not in ["통합 전략", "통합전략"]:
+                        buy_json = new_settings.get('buy_strategy')
+                        sell_json = new_settings.get('sell_strategy')
+                        
+                        try:
+                            # JSON 유효성 검증
+                            buy_data = json.loads(buy_json) if buy_json else []
+                            sell_data = json.loads(sell_json) if sell_json else []
+                            
+                            if isinstance(buy_data, list) and isinstance(sell_data, list):
+                                # 기존 stg 옵션들 전체 제거
+                                options_to_del = [opt for opt in config.options(target_stg) 
+                                                  if opt.startswith('buy_stg_') or opt.startswith('sell_stg_')]
+                                for opt in options_to_del:
+                                    config.remove_option(target_stg, opt)
+                                
+                                # 신규 매수 조건 기록
+                                for idx, item in enumerate(buy_data):
+                                    config.set(target_stg, f"buy_stg_{idx+1}", json.dumps(item, ensure_ascii=False))
+                                    
+                                # 신규 매도 조건 기록
+                                for idx, item in enumerate(sell_data):
+                                    config.set(target_stg, f"sell_stg_{idx+1}", json.dumps(item, ensure_ascii=False))
+                                    
+                                logging.info(f"💾 대시보드 제어: 전략 '{target_stg}' 세부 조건 갱신 완료")
+                        except Exception as stg_save_ex:
+                            logging.error(f"❌ 대시보드 전략 상세 저장 실패: {stg_save_ex}")
+                        
                     # .env 디스크 파일 저장 및 메모리 로드
                     config.save_config()
                     app.login_handler.load_settings_sync()
                     if app.trader:
                         # trader.py 설정값 재조정
-                        app.trader.max_holdings = int(new_settings.get('buycount', app.trader.max_holdings))
+                        app.trader.buycount = int(new_settings.get('buycount', app.trader.buycount))
                     if app.objstg:
                         # strategy.py 설정 재조정
                         app.objstg.load_strategy_config()

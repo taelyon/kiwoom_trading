@@ -143,6 +143,18 @@ class EnvConfigParser:
         """config['SECTION'] 형태로 접근할 때 해당 섹션의 딕셔너리 반환"""
         return dict(self.items(section))
 
+    def remove_option(self, section, option):
+        """특정 섹션의 옵션을 삭제 (메모리 및 환경변수에서 제거)"""
+        key = self._get_key(section, option)
+        removed = False
+        if key in self._data:
+            del self._data[key]
+            removed = True
+        if key in os.environ:
+            del os.environ[key]
+            removed = True
+        return removed
+
     def save(self):
         """현재 변경된 설정을 .env 파일에 안전하게 저장 (코멘트 보존, Docker mount 안전)"""
         try:
@@ -160,9 +172,14 @@ class EnvConfigParser:
                     
                 if '=' in stripped:
                     k = stripped.split('=', 1)[0].strip()
-                    if k in self._data and any(k.startswith(p) for p in _MANAGED_PREFIXES):
-                        new_lines.append(f"{k}={self._data[k]}\n")
-                        updated_keys.add(k)
+                    is_managed = any(k.startswith(p) for p in _MANAGED_PREFIXES)
+                    if is_managed:
+                        if k in self._data:
+                            new_lines.append(f"{k}={self._data[k]}\n")
+                            updated_keys.add(k)
+                        else:
+                            # self._data에 없는 관리 대상 키는 .env 파일에서 삭제 처리
+                            pass
                     else:
                         new_lines.append(line)
                 else:
@@ -194,6 +211,10 @@ class EnvConfigParser:
     def add_section(self, section):
         """ConfigParser 호환용 (실제 .env에선 섹션 구분이 없으므로 무시)"""
         pass
+
+    def save_config(self):
+        """save() 메서드의 별칭 (웹 대시보드 호환용)"""
+        self.save()
 
     def reload(self):
         """강제로 .env를 다시 로드 (설정이 외부에서 변경된 경우)"""
