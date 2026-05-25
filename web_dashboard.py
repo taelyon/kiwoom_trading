@@ -254,12 +254,54 @@ HTML_CONTENT = """
             box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
         }
 
+        .header-logo {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
         .header-logo h1 {
             font-size: 24px;
             font-weight: 700;
             background: linear-gradient(135deg, var(--accent-cyan), var(--primary-glow));
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
+        }
+
+        .header-pw-container {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 4px 10px;
+            transition: all 0.3s ease;
+        }
+
+        .header-pw-container:focus-within {
+            border-color: var(--accent-cyan);
+            box-shadow: 0 0 8px rgba(0, 229, 255, 0.2);
+        }
+
+        .header-pw-container span {
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.5);
+            white-space: nowrap;
+        }
+
+        .header-pw-input {
+            background: transparent;
+            border: none;
+            outline: none;
+            color: #fff;
+            font-size: 12px;
+            width: 130px;
+            padding: 2px 4px;
+        }
+        
+        .header-pw-input::placeholder {
+            color: rgba(255, 255, 255, 0.25);
         }
 
         .header-controls {
@@ -761,6 +803,10 @@ HTML_CONTENT = """
         <header>
             <div class="header-logo">
                 <h1>🛸 Kiwoom trading</h1>
+                <div class="header-pw-container">
+                    <span>비밀번호 변경:</span>
+                    <input type="password" id="cfgPassword" class="header-pw-input" placeholder="유지 시 공란">
+                </div>
             </div>
             <div class="header-controls">
                 <!-- 자동매매 구동 스위치 -->
@@ -866,9 +912,7 @@ HTML_CONTENT = """
                             <div class="form-field">
                                 <label for="cfgStrategy">대표 매매 전략</label>
                                 <select id="cfgStrategy" onchange="onStrategyChange(this.value)">
-                                    <option value="통합 전략">통합 전략 (추천)</option>
-                                    <option value="급등주">급등주 전략</option>
-                                    <option value="갭상승">갭상승 전략</option>
+                                    <!-- 키움증권 조건식 목록이 동적으로 채워집니다 -->
                                 </select>
                             </div>
                         </div>
@@ -879,10 +923,6 @@ HTML_CONTENT = """
                         <div class="form-field" style="margin-top: 12px;">
                             <label for="cfgSellStrategy">매도 전략 편집 (JSON)</label>
                             <textarea id="cfgSellStrategy" placeholder="매도 전략 조건식 목록 (JSON)" style="font-family: monospace; font-size:11px; width: 100%; height: 120px; box-sizing: border-box; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 8px; resize: vertical;"></textarea>
-                        </div>
-                        <div class="form-field" style="margin-top: 12px;">
-                            <label for="cfgPassword">콘솔 비밀번호 변경</label>
-                            <input type="password" id="cfgPassword" placeholder="현재 비밀번호 유지 시 공란">
                         </div>
                         <button class="btn-primary" onclick="saveSettings()">설정 파라미터 적용</button>
                     </div>
@@ -1204,12 +1244,8 @@ HTML_CONTENT = """
             document.getElementById('cfgBuyCount').value = settings.buycount || 3;
             
             const selectEl = document.getElementById('cfgStrategy');
-            // 기본 옵션 목록 초기화
-            selectEl.innerHTML = `
-                <option value="통합 전략">통합 전략 (추천)</option>
-                <option value="급등주">급등주 전략</option>
-                <option value="갭상승">갭상승 전략</option>
-            `;
+            // 기본 옵션 목록 초기화 (키움 조건식 이외의 하드코딩된 항목 제거)
+            selectEl.innerHTML = '';
             
             // 전달받은 조건식 목록이 있으면 옵션에 동적 추가
             if (settings.condition_list && settings.condition_list.length > 0) {
@@ -1219,13 +1255,24 @@ HTML_CONTENT = """
                     option.textContent = cond.title;
                     selectEl.appendChild(option);
                 });
+            } else {
+                const option = document.createElement('option');
+                option.value = "";
+                option.textContent = "(등록된 조건검색식 없음)";
+                selectEl.appendChild(option);
             }
             
-            const lastStrategy = settings.last_strategy || "통합 전략";
-            selectEl.value = lastStrategy;
+            let lastStrategy = settings.last_strategy;
+            // 현재 select 엘리먼트 내에 lastStrategy 값이 존재하는지 확인
+            const hasLastStrategy = Array.from(selectEl.options).some(opt => opt.value === lastStrategy);
+            if (!hasLastStrategy && selectEl.options.length > 0) {
+                // 기존 설정이 목록에 없거나 유효하지 않은 경우 첫 번째 조건식을 기본 선택
+                lastStrategy = selectEl.options[0].value;
+            }
+            selectEl.value = lastStrategy || "";
             
             // 전략별 매수/매도 리스트 가져오기 호출
-            onStrategyChange(lastStrategy);
+            onStrategyChange(selectEl.value);
         }
 
         // 전략 선택 박스 변경 핸들러
@@ -1233,30 +1280,13 @@ HTML_CONTENT = """
             const buyTextarea = document.getElementById('cfgBuyStrategy');
             const sellTextarea = document.getElementById('cfgSellStrategy');
             
-            if (strategy === "통합 전략" || strategy.startsWith("[")) {
-                // 통합 전략 또는 조건검색식은 편집 불가능 처리
-                buyTextarea.value = "통합 전략 또는 조건검색식은 직접 수정할 수 없습니다.\\n개별 전략(급등주, 갭상승)을 선택하여 수정해 주세요.";
-                sellTextarea.value = "통합 전략 또는 조건검색식은 직접 수정할 수 없습니다.\\n개별 전략(급등주, 갭상승)을 선택하여 수정해 주세요.";
-                buyTextarea.disabled = true;
-                sellTextarea.disabled = true;
-                buyTextarea.style.opacity = 0.5;
-                sellTextarea.style.opacity = 0.5;
-            } else {
-                buyTextarea.disabled = false;
-                sellTextarea.disabled = false;
-                buyTextarea.style.opacity = 1.0;
-                sellTextarea.style.opacity = 1.0;
-                buyTextarea.value = "전략 데이터를 불러오는 중...";
-                sellTextarea.value = "전략 데이터를 불러오는 중...";
-                
-                // 백엔드로 세부 내용 조회 웹소켓 요청
-                if (ws && ws.readyState === WebSocket.OPEN) {
-                    ws.send(jsonStr({
-                        type: "get_strategy_detail",
-                        strategy: strategy
-                    }));
-                }
-            }
+            // 모든 선택지가 키움증권 조건검색식이므로 텍스트 편집기 비활성화 처리
+            buyTextarea.value = "키움증권 조건검색식의 매수 조건은 직접 수정할 수 없습니다.\\n영웅문(HTS) 또는 키움증권 모바일에서 조건식 구성을 수정해주세요.";
+            sellTextarea.value = "키움증권 조건검색식의 매도 조건은 직접 수정할 수 없습니다.\\n영웅문(HTS) 또는 키움증권 모바일에서 조건식 구성을 수정해주세요.";
+            buyTextarea.disabled = true;
+            sellTextarea.disabled = true;
+            buyTextarea.style.opacity = 0.5;
+            sellTextarea.style.opacity = 0.5;
         }
 
         // 백엔드로부터 전략 상세 수신 시 바인딩
