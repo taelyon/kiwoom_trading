@@ -1260,6 +1260,26 @@ HTML_CONTENT = """
             }
         }
 
+        // 전략 선택 박스 변경 핸들러
+        function onStrategyChange(strategy) {
+            const buyTextarea = document.getElementById('cfgBuyStrategy');
+            const sellTextarea = document.getElementById('cfgSellStrategy');
+            
+            buyTextarea.disabled = false;
+            sellTextarea.disabled = false;
+            buyTextarea.style.opacity = 1.0;
+            sellTextarea.style.opacity = 1.0;
+            
+            // 로딩 중 표시
+            buyTextarea.value = "불러오는 중...";
+            sellTextarea.value = "불러오는 중...";
+            
+            ws.send(jsonStr({
+                type: "get_strategy_detail",
+                strategy: strategy
+            }));
+        }
+
         // 설정 UI 대입
         function applySettingsToUI(settings) {
             document.getElementById('cfgBuyCount').value = settings.buycount || 3;
@@ -1314,8 +1334,6 @@ HTML_CONTENT = """
         function handleStrategyDetail(data) {
             const buyTextarea = document.getElementById('cfgBuyStrategy');
             const sellTextarea = document.getElementById('cfgSellStrategy');
-            
-            if (buyTextarea.disabled) return;
             
             try {
                 buyTextarea.value = JSON.stringify(data.buy, null, 4);

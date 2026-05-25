@@ -134,10 +134,8 @@ class KiwoomStrategy:
             
             if effective_strategy_name != "통합 전략" and effective_strategy_name not in self.strategy_config:
                 if is_first_eval:
-                    self.logger.warning(f"⚠️ [{code}] 전략 '{effective_strategy_name}'이 설정에 없음")
-                return
-            
-            if is_first_eval:
+                    self.logger.warning(f"⚠️ [{code}] 전략 '{effective_strategy_name}'이 설정에 없음 - 기본 전략으로 대체 진행")
+            elif is_first_eval:
                 self.logger.debug(f"✅ [{code}] 전략 설정 확인됨: {effective_strategy_name}")
 
             # 매도 주문이 진행 중인 경우 전략 평가 건너뛰기 (중복 주문 방지)
