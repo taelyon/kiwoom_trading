@@ -49,8 +49,8 @@ class ChartDataCache:
         """차트 데이터 주기적 업데이트 루프 (기존 update_timer 대체)"""
         while True:
             try:
-                # 차트 업데이트 주기는 chartdata_update_interval 사용 (기본 10초)
-                chartdata_update_interval = getattr(self.trader, 'chartdata_update_interval', 10)
+                # 차트 업데이트 주기는 chartdata_update_interval 사용 (기본 300초 / 5분)
+                chartdata_update_interval = getattr(self.trader, 'chartdata_update_interval', 300)
                 await asyncio.sleep(chartdata_update_interval)
                 self.update_all_charts()
             except asyncio.CancelledError:
@@ -925,16 +925,16 @@ class ChartDataCache:
             num_stocks = len(monitoring_codes)
 
             if num_stocks > 0:
-                # 종목당 3초 간격으로 설정
-                new_interval_seconds = num_stocks * 3
+                # 종목당 30초 간격으로 설정하고, 최소 주기를 300초(5분)로 제한하여 API 429 에러 방지 마진 확보
+                new_interval_seconds = max(num_stocks * 30, 300)
                 if hasattr(self.trader, 'chartdata_update_interval'):
                     if self.trader.chartdata_update_interval != new_interval_seconds:
                         self.trader.chartdata_update_interval = new_interval_seconds
-                        self.logger.debug(f"🔄 차트 업데이트 주기 변경: {num_stocks}개 종목 * 3초 = {new_interval_seconds}초")
+                        self.logger.debug(f"🔄 차트 업데이트 주기 변경: {num_stocks}개 종목 * 30초 = {new_interval_seconds}초 (최소 300초)")
             else:
-                # 종목이 없으면 기본 10초로 유지
+                # 종목이 없으면 기본 300초(5분)로 설정
                 if hasattr(self.trader, 'chartdata_update_interval'):
-                    self.trader.chartdata_update_interval = 10
+                    self.trader.chartdata_update_interval = 300
         except Exception as ex:
             self.logger.error(f"❌ 차트 업데이트 주기 조절 실패: {ex}", exc_info=True)
     

@@ -111,7 +111,7 @@ class KiwoomTrader:
             self.tax_rate = float(tax_rate_str.split(';')[0].strip())
             self.min_hold_seconds = config.getint('TRADING', 'min_hold_seconds', fallback=0)
             self.data_saving_interval = config.getint('DATA_SAVING', 'interval_seconds', fallback=60)
-            self.chartdata_update_interval = config.getint('CHART', 'chartdata_update_interval', fallback=10)
+            self.chartdata_update_interval = config.getint('CHART', 'chartdata_update_interval', fallback=300)
             self.logger.debug("설정 로드 완료")
         except Exception as ex:
             self.logger.error(f"설정 로드 실패: {ex}", exc_info=True)
