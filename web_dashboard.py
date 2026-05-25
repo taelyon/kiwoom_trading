@@ -1680,6 +1680,8 @@ HTML_CONTENT = """
 
             // MACD 데이터 세팅
             if (macdSeries && macdSigSeries && macdHistSeries) {
+                const macdCount = history.filter(b => b['macd'] !== null && b['macd'] !== undefined).length;
+                console.log(`📊 MACD 디버그: 전체 ${history.length}개 bar 중 MACD 데이터 ${macdCount}개 존재`);
                 const macdData = [];
                 const macdSigData = [];
                 const macdHistData = [];
@@ -2087,6 +2089,9 @@ async def websocket_handler(websocket):
                                 # 틱 차트 가공
                                 tic_history = []
                                 if tic_data:
+                                    # MACD 디버그 로깅
+                                    macd_keys = [k for k in tic_data.keys() if 'MACD' in k.upper() or 'RSI' in k.upper()]
+                                    logging.debug(f"📊 차트 캐시 tic_data 키: {list(tic_data.keys())[:20]}, MACD관련: {macd_keys}, close수: {len(tic_data.get('close', []))}, MACD수: {len(tic_data.get('MACD', []))}")
                                     t_times = tic_data.get('time', [])
                                     t_opens = tic_data.get('open', [])
                                     t_highs = tic_data.get('high', [])
@@ -2113,15 +2118,15 @@ async def websocket_handler(websocket):
                                                 "close": float(t_closes[idx]),
                                                 "volume": int(t_vols[idx])
                                             }
-                                            if t_ma5 and not math.isnan(float(t_ma5[idx])): item["ma5"] = float(t_ma5[idx])
-                                            if t_ma10 and not math.isnan(float(t_ma10[idx])): item["ma10"] = float(t_ma10[idx])
-                                            if t_ma20 and not math.isnan(float(t_ma20[idx])): item["ma20"] = float(t_ma20[idx])
-                                            if t_ma60 and not math.isnan(float(t_ma60[idx])): item["ma60"] = float(t_ma60[idx])
-                                            if t_ma120 and not math.isnan(float(t_ma120[idx])): item["ma120"] = float(t_ma120[idx])
-                                            if t_rsi21 and not math.isnan(float(t_rsi21[idx])): item["rsi21"] = float(t_rsi21[idx])
-                                            if t_macd and not math.isnan(float(t_macd[idx])): item["macd"] = float(t_macd[idx])
-                                            if t_macd_sig and not math.isnan(float(t_macd_sig[idx])): item["macd_sig"] = float(t_macd_sig[idx])
-                                            if t_macd_hist and not math.isnan(float(t_macd_hist[idx])): item["macd_hist"] = float(t_macd_hist[idx])
+                                            if t_ma5 and len(t_ma5) > idx and not math.isnan(float(t_ma5[idx])): item["ma5"] = float(t_ma5[idx])
+                                            if t_ma10 and len(t_ma10) > idx and not math.isnan(float(t_ma10[idx])): item["ma10"] = float(t_ma10[idx])
+                                            if t_ma20 and len(t_ma20) > idx and not math.isnan(float(t_ma20[idx])): item["ma20"] = float(t_ma20[idx])
+                                            if t_ma60 and len(t_ma60) > idx and not math.isnan(float(t_ma60[idx])): item["ma60"] = float(t_ma60[idx])
+                                            if t_ma120 and len(t_ma120) > idx and not math.isnan(float(t_ma120[idx])): item["ma120"] = float(t_ma120[idx])
+                                            if t_rsi21 and len(t_rsi21) > idx and not math.isnan(float(t_rsi21[idx])): item["rsi21"] = float(t_rsi21[idx])
+                                            if t_macd and len(t_macd) > idx and not math.isnan(float(t_macd[idx])): item["macd"] = float(t_macd[idx])
+                                            if t_macd_sig and len(t_macd_sig) > idx and not math.isnan(float(t_macd_sig[idx])): item["macd_sig"] = float(t_macd_sig[idx])
+                                            if t_macd_hist and len(t_macd_hist) > idx and not math.isnan(float(t_macd_hist[idx])): item["macd_hist"] = float(t_macd_hist[idx])
                                             tic_history.append(item)
                                         except Exception: pass
                                     # 최근 200개 캔들로 제한
@@ -2156,15 +2161,15 @@ async def websocket_handler(websocket):
                                                 "close": float(m_closes[idx]),
                                                 "volume": int(m_vols[idx])
                                             }
-                                            if m_ma5 and not math.isnan(float(m_ma5[idx])): item["ma5"] = float(m_ma5[idx])
-                                            if m_ma10 and not math.isnan(float(m_ma10[idx])): item["ma10"] = float(m_ma10[idx])
-                                            if m_ma20 and not math.isnan(float(m_ma20[idx])): item["ma20"] = float(m_ma20[idx])
-                                            if m_ma60 and not math.isnan(float(m_ma60[idx])): item["ma60"] = float(m_ma60[idx])
-                                            if m_ma120 and not math.isnan(float(m_ma120[idx])): item["ma120"] = float(m_ma120[idx])
-                                            if m_rsi21 and not math.isnan(float(m_rsi21[idx])): item["rsi21"] = float(m_rsi21[idx])
-                                            if m_macd and not math.isnan(float(m_macd[idx])): item["macd"] = float(m_macd[idx])
-                                            if m_macd_sig and not math.isnan(float(m_macd_sig[idx])): item["macd_sig"] = float(m_macd_sig[idx])
-                                            if m_macd_hist and not math.isnan(float(m_macd_hist[idx])): item["macd_hist"] = float(m_macd_hist[idx])
+                                            if m_ma5 and len(m_ma5) > idx and not math.isnan(float(m_ma5[idx])): item["ma5"] = float(m_ma5[idx])
+                                            if m_ma10 and len(m_ma10) > idx and not math.isnan(float(m_ma10[idx])): item["ma10"] = float(m_ma10[idx])
+                                            if m_ma20 and len(m_ma20) > idx and not math.isnan(float(m_ma20[idx])): item["ma20"] = float(m_ma20[idx])
+                                            if m_ma60 and len(m_ma60) > idx and not math.isnan(float(m_ma60[idx])): item["ma60"] = float(m_ma60[idx])
+                                            if m_ma120 and len(m_ma120) > idx and not math.isnan(float(m_ma120[idx])): item["ma120"] = float(m_ma120[idx])
+                                            if m_rsi21 and len(m_rsi21) > idx and not math.isnan(float(m_rsi21[idx])): item["rsi21"] = float(m_rsi21[idx])
+                                            if m_macd and len(m_macd) > idx and not math.isnan(float(m_macd[idx])): item["macd"] = float(m_macd[idx])
+                                            if m_macd_sig and len(m_macd_sig) > idx and not math.isnan(float(m_macd_sig[idx])): item["macd_sig"] = float(m_macd_sig[idx])
+                                            if m_macd_hist and len(m_macd_hist) > idx and not math.isnan(float(m_macd_hist[idx])): item["macd_hist"] = float(m_macd_hist[idx])
                                             min_history.append(item)
                                         except Exception: pass
                                     # 최신 데이터 시점 기준 최근 6시간 데이터로 필터링
@@ -2245,15 +2250,15 @@ def on_chart_data_updated(code):
                     "close": float(t_closes[idx]),
                     "volume": int(t_vols[idx])
                 }
-                if t_ma5 and not math.isnan(float(t_ma5[idx])): item["ma5"] = float(t_ma5[idx])
-                if t_ma10 and not math.isnan(float(t_ma10[idx])): item["ma10"] = float(t_ma10[idx])
-                if t_ma20 and not math.isnan(float(t_ma20[idx])): item["ma20"] = float(t_ma20[idx])
-                if t_ma60 and not math.isnan(float(t_ma60[idx])): item["ma60"] = float(t_ma60[idx])
-                if t_ma120 and not math.isnan(float(t_ma120[idx])): item["ma120"] = float(t_ma120[idx])
-                if t_rsi21 and not math.isnan(float(t_rsi21[idx])): item["rsi21"] = float(t_rsi21[idx])
-                if t_macd and not math.isnan(float(t_macd[idx])): item["macd"] = float(t_macd[idx])
-                if t_macd_sig and not math.isnan(float(t_macd_sig[idx])): item["macd_sig"] = float(t_macd_sig[idx])
-                if t_macd_hist and not math.isnan(float(t_macd_hist[idx])): item["macd_hist"] = float(t_macd_hist[idx])
+                if t_ma5 and len(t_ma5) > idx and not math.isnan(float(t_ma5[idx])): item["ma5"] = float(t_ma5[idx])
+                if t_ma10 and len(t_ma10) > idx and not math.isnan(float(t_ma10[idx])): item["ma10"] = float(t_ma10[idx])
+                if t_ma20 and len(t_ma20) > idx and not math.isnan(float(t_ma20[idx])): item["ma20"] = float(t_ma20[idx])
+                if t_ma60 and len(t_ma60) > idx and not math.isnan(float(t_ma60[idx])): item["ma60"] = float(t_ma60[idx])
+                if t_ma120 and len(t_ma120) > idx and not math.isnan(float(t_ma120[idx])): item["ma120"] = float(t_ma120[idx])
+                if t_rsi21 and len(t_rsi21) > idx and not math.isnan(float(t_rsi21[idx])): item["rsi21"] = float(t_rsi21[idx])
+                if t_macd and len(t_macd) > idx and not math.isnan(float(t_macd[idx])): item["macd"] = float(t_macd[idx])
+                if t_macd_sig and len(t_macd_sig) > idx and not math.isnan(float(t_macd_sig[idx])): item["macd_sig"] = float(t_macd_sig[idx])
+                if t_macd_hist and len(t_macd_hist) > idx and not math.isnan(float(t_macd_hist[idx])): item["macd_hist"] = float(t_macd_hist[idx])
                 tic_history.append(item)
             except Exception: pass
         # 최근 200개 캔들로 제한
@@ -2287,15 +2292,15 @@ def on_chart_data_updated(code):
                     "close": float(m_closes[idx]),
                     "volume": int(m_vols[idx])
                 }
-                if m_ma5 and not math.isnan(float(m_ma5[idx])): item["ma5"] = float(m_ma5[idx])
-                if m_ma10 and not math.isnan(float(m_ma10[idx])): item["ma10"] = float(m_ma10[idx])
-                if m_ma20 and not math.isnan(float(m_ma20[idx])): item["ma20"] = float(m_ma20[idx])
-                if m_ma60 and not math.isnan(float(m_ma60[idx])): item["ma60"] = float(m_ma60[idx])
-                if m_ma120 and not math.isnan(float(m_ma120[idx])): item["ma120"] = float(m_ma120[idx])
-                if m_rsi21 and not math.isnan(float(m_rsi21[idx])): item["rsi21"] = float(m_rsi21[idx])
-                if m_macd and not math.isnan(float(m_macd[idx])): item["macd"] = float(m_macd[idx])
-                if m_macd_sig and not math.isnan(float(m_macd_sig[idx])): item["macd_sig"] = float(m_macd_sig[idx])
-                if m_macd_hist and not math.isnan(float(m_macd_hist[idx])): item["macd_hist"] = float(m_macd_hist[idx])
+                if m_ma5 and len(m_ma5) > idx and not math.isnan(float(m_ma5[idx])): item["ma5"] = float(m_ma5[idx])
+                if m_ma10 and len(m_ma10) > idx and not math.isnan(float(m_ma10[idx])): item["ma10"] = float(m_ma10[idx])
+                if m_ma20 and len(m_ma20) > idx and not math.isnan(float(m_ma20[idx])): item["ma20"] = float(m_ma20[idx])
+                if m_ma60 and len(m_ma60) > idx and not math.isnan(float(m_ma60[idx])): item["ma60"] = float(m_ma60[idx])
+                if m_ma120 and len(m_ma120) > idx and not math.isnan(float(m_ma120[idx])): item["ma120"] = float(m_ma120[idx])
+                if m_rsi21 and len(m_rsi21) > idx and not math.isnan(float(m_rsi21[idx])): item["rsi21"] = float(m_rsi21[idx])
+                if m_macd and len(m_macd) > idx and not math.isnan(float(m_macd[idx])): item["macd"] = float(m_macd[idx])
+                if m_macd_sig and len(m_macd_sig) > idx and not math.isnan(float(m_macd_sig[idx])): item["macd_sig"] = float(m_macd_sig[idx])
+                if m_macd_hist and len(m_macd_hist) > idx and not math.isnan(float(m_macd_hist[idx])): item["macd_hist"] = float(m_macd_hist[idx])
                 min_history.append(item)
             except Exception: pass
         # 최신 데이터 시점 기준 최근 6시간 데이터로 필터링

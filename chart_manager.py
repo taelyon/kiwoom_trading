@@ -976,12 +976,14 @@ class ChartDataCache:
             if chart_type == "tic":
                 allowed_set = {
                     'MA5', 'MA10', 'MA20', 'MA60', 'MA120',
-                    'RSI', 'RSI_SIGNAL', 'RSI21'
+                    'RSI', 'RSI_SIGNAL', 'RSI21',
+                    'MACD', 'MACD_SIGNAL', 'MACD_HIST'
                 }
             elif chart_type == "minute":
                 allowed_set = {
                     'MA5', 'MA10', 'MA20', 'MA60', 'MA120',
-                    'RSI', 'RELATIVE_POSITION', 'RSI21'
+                    'RSI', 'RELATIVE_POSITION', 'RSI21',
+                    'MACD', 'MACD_SIGNAL', 'MACD_HIST'
                 }
             else:
                 allowed_set = {'MA5', 'MA20', 'MA60', 'RSI'}
