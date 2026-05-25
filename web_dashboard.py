@@ -1235,8 +1235,8 @@ HTML_CONTENT = """
             
             if (strategy === "통합 전략" || strategy.startsWith("[")) {
                 // 통합 전략 또는 조건검색식은 편집 불가능 처리
-                buyTextarea.value = "통합 전략 또는 조건검색식은 직접 수정할 수 없습니다.\n개별 전략(급등주, 갭상승)을 선택하여 수정해 주세요.";
-                sellTextarea.value = "통합 전략 또는 조건검색식은 직접 수정할 수 없습니다.\n개별 전략(급등주, 갭상승)을 선택하여 수정해 주세요.";
+                buyTextarea.value = "통합 전략 또는 조건검색식은 직접 수정할 수 없습니다.\\n개별 전략(급등주, 갭상승)을 선택하여 수정해 주세요.";
+                sellTextarea.value = "통합 전략 또는 조건검색식은 직접 수정할 수 없습니다.\\n개별 전략(급등주, 갭상승)을 선택하여 수정해 주세요.";
                 buyTextarea.disabled = true;
                 sellTextarea.disabled = true;
                 buyTextarea.style.opacity = 0.5;
@@ -1302,7 +1302,7 @@ HTML_CONTENT = """
                         JSON.parse(sellTextarea.value);
                     }
                 } catch (e) {
-                    alert("매수 또는 매도 전략 조건식이 올바른 JSON 포맷이 아닙니다.\n대괄호 [ ]로 감싸진 JSON 리스트 형식이어야 합니다.\n오류: " + e.message);
+                    alert("매수 또는 매도 전략 조건식이 올바른 JSON 포맷이 아닙니다.\\n대괄호 [ ]로 감싸진 JSON 리스트 형식이어야 합니다.\\n오류: " + e.message);
                     return;
                 }
                 req.settings.buy_strategy = buyTextarea.value;
