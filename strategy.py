@@ -433,10 +433,7 @@ class KiwoomStrategy:
                     # 기본 전략: RSI 과매도 + MACD 골든크로스
                     buy_strategies = [{
                         'name': '기본 전략',
-                        'conditions': [
-                            {'indicator': 'RSI', 'operator': '<', 'value': 30},
-                            {'indicator': 'MACD_HIST', 'operator': '>', 'value': 0}
-                        ]
+                        'content': 'tic_RSI[-1] < 30 and tic_MACD_HIST[-1] > 0'
                     }]
                 
                 if is_first_check:
@@ -659,14 +656,11 @@ class KiwoomStrategy:
             if not sell_strategies:
                 if is_first_sell_check: # type: ignore
                     self.logger.debug(f"⚠️ [{code}] 매도 전략 없음 - 기본 손익 전략 사용")
-                # 기본 전략: -3% 손절, +5% 익절
-                sell_strategies = [{
-                    'name': '기본 손익 전략',
-                    'conditions': [
-                        {'type': 'stop_loss', 'value': -3.0},   # -3% 손절
-                        {'type': 'take_profit', 'value': 5.0}   # +5% 익절
-                    ]
-                }]
+                # 기본 전략: +3% 익절, -2% 손절
+                sell_strategies = [
+                    {'name': '익절', 'content': 'current_profit_pct > 3.0'},
+                    {'name': '손절', 'content': 'current_profit_pct < -2.0'}
+                ]
             else:
                 if is_first_sell_check: # type: ignore
                     self.logger.debug(f"✅ [{code}] 매도 전략 {len(sell_strategies)}개 로드됨: {strategy_name}")
