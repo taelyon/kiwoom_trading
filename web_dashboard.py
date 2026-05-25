@@ -2227,65 +2227,81 @@ async def websocket_handler(websocket):
                     }))
                     
                 elif msg_type == 'save_settings':
-                    new_settings = data.get('settings', {})
-                    from config_manager import EnvConfigParser
-                    config = EnvConfigParser()
-                    
-                    if 'buycount' in new_settings:
-                        config.set('SETTINGS', 'buycount', str(new_settings['buycount']))
-                    if 'last_strategy' in new_settings:
-                        config.set('SETTINGS', 'last_strategy', str(new_settings['last_strategy']))
-                    if 'dashboard_password' in new_settings:
-                        config.set('SETTINGS', 'dashboard_password', str(new_settings['dashboard_password']))
+                    try:
+                        new_settings = data.get('settings', {})
+                        from config_manager import EnvConfigParser
+                        config = EnvConfigParser()
                         
-                    # 매수/매도 세부 전략 JSON 저장 (편집 가능한 개별 전략일 때만)
-                    target_stg = new_settings.get('last_strategy')
-                    if target_stg and config.has_section(target_stg) and target_stg not in ["통합 전략", "통합전략"]:
-                        buy_json = new_settings.get('buy_strategy')
-                        sell_json = new_settings.get('sell_strategy')
-                        
-                        try:
-                            # JSON 유효성 검증
-                            buy_data = json.loads(buy_json) if buy_json else []
-                            sell_data = json.loads(sell_json) if sell_json else []
+                        if 'buycount' in new_settings:
+                            config.set('SETTINGS', 'buycount', str(new_settings['buycount']))
+                        if 'last_strategy' in new_settings:
+                            config.set('SETTINGS', 'last_strategy', str(new_settings['last_strategy']))
+                        if 'dashboard_password' in new_settings:
+                            config.set('SETTINGS', 'dashboard_password', str(new_settings['dashboard_password']))
                             
-                            if isinstance(buy_data, list) and isinstance(sell_data, list):
-                                # 기존 stg 옵션들 전체 제거
-                                options_to_del = [opt for opt in config.options(target_stg) 
-                                                  if opt.startswith('buy_stg_') or opt.startswith('sell_stg_')]
-                                for opt in options_to_del:
-                                    config.remove_option(target_stg, opt)
+                        # 매수/매도 세부 전략 JSON 저장 (편집 가능한 개별 전략일 때만)
+                        target_stg = new_settings.get('last_strategy')
+                        if target_stg and config.has_section(target_stg) and target_stg not in ["통합 전략", "통합전략"]:
+                            buy_json = new_settings.get('buy_strategy')
+                            sell_json = new_settings.get('sell_strategy')
+                            
+                            try:
+                                # JSON 유효성 검증
+                                buy_data = json.loads(buy_json) if buy_json else []
+                                sell_data = json.loads(sell_json) if sell_json else []
                                 
-                                # 신규 매수 조건 기록
-                                for idx, item in enumerate(buy_data):
-                                    config.set(target_stg, f"buy_stg_{idx+1}", json.dumps(item, ensure_ascii=False))
+                                if isinstance(buy_data, list) and isinstance(sell_data, list):
+                                    # 기존 stg 옵션들 전체 제거
+                                    options_to_del = [opt for opt in config.options(target_stg) 
+                                                      if opt.startswith('buy_stg_') or opt.startswith('sell_stg_')]
+                                    for opt in options_to_del:
+                                        config.remove_option(target_stg, opt)
                                     
-                                # 신규 매도 조건 기록
-                                for idx, item in enumerate(sell_data):
-                                    config.set(target_stg, f"sell_stg_{idx+1}", json.dumps(item, ensure_ascii=False))
-                                    
-                                logging.info(f"💾 대시보드 제어: 전략 '{target_stg}' 세부 조건 갱신 완료")
-                        except Exception as stg_save_ex:
-                            logging.error(f"❌ 대시보드 전략 상세 저장 실패: {stg_save_ex}")
+                                    # 신규 매수 조건 기록
+                                    for idx, item in enumerate(buy_data):
+                                        config.set(target_stg, f"buy_stg_{idx+1}", json.dumps(item, ensure_ascii=False))
+                                        
+                                    # 신규 매도 조건 기록
+                                    for idx, item in enumerate(sell_data):
+                                        config.set(target_stg, f"sell_stg_{idx+1}", json.dumps(item, ensure_ascii=False))
+                                        
+                                    logging.info(f"💾 대시보드 제어: 전략 '{target_stg}' 세부 조건 갱신 완료")
+                            except Exception as stg_save_ex:
+                                logging.error(f"❌ 대시보드 전략 상세 저장 실패: {stg_save_ex}")
+                                raise stg_save_ex
+                            
+                        # .env 디스크 파일 저장 및 메모리 로드
+                        config.save_config()
+                        app.login_handler.load_settings_sync()
+                        if app.trader:
+                            # trader.py 설정값 재조정
+                            app.trader.buycount = int(new_settings.get('buycount', app.trader.buycount))
+                        if app.objstg:
+                            # strategy.py 설정 재조정
+                            app.objstg.load_strategy_config()
+                            
+                        # 대표 매매 전략 변경에 맞춰 감시 대상 조건검색식과 실시간 감시 종목을 전환합니다.
+                        target_stg = new_settings.get('last_strategy')
+                        if target_stg and hasattr(app, 'strategy_manager') and app.strategy_manager:
+                            from utils import create_fire_and_forget_task
+                            create_fire_and_forget_task(app.strategy_manager.stg_changed(target_stg))
+                            logging.info(f"🔄 대시보드 제어: 실시간 감시 대상을 '{target_stg}' 전략으로 전환 개시")
+                            
+                        logging.info("💾 대시보드 제어: .env 설정 수정 및 적용 완료")
                         
-                    # .env 디스크 파일 저장 및 메모리 로드
-                    config.save_config()
-                    app.login_handler.load_settings_sync()
-                    if app.trader:
-                        # trader.py 설정값 재조정
-                        app.trader.buycount = int(new_settings.get('buycount', app.trader.buycount))
-                    if app.objstg:
-                        # strategy.py 설정 재조정
-                        app.objstg.load_strategy_config()
-                        
-                    # 대표 매매 전략 변경에 맞춰 감시 대상 조건검색식과 실시간 감시 종목을 전환합니다.
-                    target_stg = new_settings.get('last_strategy')
-                    if target_stg and hasattr(app, 'strategy_manager') and app.strategy_manager:
-                        from utils import create_fire_and_forget_task
-                        create_fire_and_forget_task(app.strategy_manager.stg_changed(target_stg))
-                        logging.info(f"🔄 대시보드 제어: 실시간 감시 대상을 '{target_stg}' 전략으로 전환 개시")
-                        
-                    logging.info("💾 대시보드 제어: .env 설정 수정 및 적용 완료")
+                        # 웹소켓 클라이언트에 성공 결과 응답
+                        await websocket.send(json.dumps({
+                            "type": "save_settings_result",
+                            "success": True,
+                            "message": "설정이 성공적으로 저장 및 적용되었습니다."
+                        }))
+                    except Exception as save_err:
+                        logging.error(f"❌ 대시보드 설정 적용 중 예외 발생: {save_err}", exc_info=True)
+                        await websocket.send(json.dumps({
+                            "type": "save_settings_result",
+                            "success": False,
+                            "message": f"설정 저장 실패: {str(save_err)}"
+                        }))
                     
                 elif msg_type == 'subscribe_chart':
                     code = data.get('code')
