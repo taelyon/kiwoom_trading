@@ -46,10 +46,19 @@ class EnvConfigParser:
         self._sync_from_env()
 
     def _sync_from_env(self):
-        """환경 변수에서 캐시로 데이터 동기화 (관리 대상 키만)"""
+        """환경 변수 및 파일에서 캐시로 데이터 동기화 (관리 대상 키만)"""
+        from dotenv import dotenv_values
+        file_env = dotenv_values(self.env_path, encoding='utf-8')
+        
+        # 1. 파일에서 읽은 값을 우선적으로 딕셔너리에 저장 (한글 키 깨짐 방지)
+        for k, v in file_env.items():
+            if v is not None and any(k.startswith(p) for p in _MANAGED_PREFIXES):
+                self._data[k] = v
+                
+        # 2. os.environ에 있는 값을 병합 (런타임 오버라이드 지원)
         for k, v in os.environ.items():
-            # 프로젝트 관리 대상 키만 캐시에 포함
             if any(k.startswith(p) for p in _MANAGED_PREFIXES):
+                # 파일에서 읽은 값과 다를 경우 덮어씀 (단, 한글 키가 깨진 경우는 무시되도록 함)
                 self._data[k] = v
 
     def read(self, filenames, encoding='utf-8'):
