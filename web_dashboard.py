@@ -2170,7 +2170,7 @@ async def websocket_handler(websocket):
                         if not buy_stgs:
                             logging.info(f"📝 [{strategy_name}] 매수 전략이 없어 기본 전략을 자동 생성합니다.")
                             buy_stgs = [
-                                {"name": "기본_매수_전략", "content": "RSI < 30 AND MACD_HIST > 0"}
+                                {"name": "기본_매수_전략", "content": "tic_RSI[-1] < 30 and tic_MACD_HIST[-1] > 0"}
                             ]
                             config.set(strategy_name, 'buy_stg_1', json.dumps(buy_stgs[0], ensure_ascii=False))
                             
