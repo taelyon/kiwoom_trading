@@ -2170,17 +2170,15 @@ async def websocket_handler(websocket):
                         if not buy_stgs:
                             logging.info(f"📝 [{strategy_name}] 매수 전략이 없어 기본 전략을 자동 생성합니다.")
                             buy_stgs = [
-                                {"name": "실시간_모멘텀_진입", "content": "AI_SCORE > 50"}
+                                {"name": "기본_매수_전략", "content": "RSI < 30 AND MACD_HIST > 0"}
                             ]
                             config.set(strategy_name, 'buy_stg_1', json.dumps(buy_stgs[0], ensure_ascii=False))
                             
                         if not sell_stgs:
                             logging.info(f"📝 [{strategy_name}] 매도 전략이 없어 기본 전략을 자동 생성합니다.")
                             sell_stgs = [
-                                {"name": "목표익절", "content": "current_profit_pct > 3.0"},
-                                {"name": "트레일링스탑", "content": "from_peak_pct < -1.5"},
-                                {"name": "과열조기청산", "content": "min3_relative_position[-1] > 0.06"},
-                                {"name": "손절매", "content": "current_profit_pct < -2.0"}
+                                {"name": "익절", "content": "current_profit_pct > 3.0"},
+                                {"name": "손절", "content": "current_profit_pct < -2.0"}
                             ]
                             for idx, stg in enumerate(sell_stgs, 1):
                                 config.set(strategy_name, f'sell_stg_{idx}', json.dumps(stg, ensure_ascii=False))
