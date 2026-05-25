@@ -1259,10 +1259,6 @@ HTML_CONTENT = """
                 container.removeChild(container.firstChild);
             }
         }
-
-));
-        }
-
         // 전략 선택 박스 변경 핸들러
         function onStrategyChange(strategy) {
             const buyTextarea = document.getElementById('cfgBuyStrategy');
