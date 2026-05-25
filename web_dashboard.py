@@ -1186,7 +1186,26 @@ HTML_CONTENT = """
         // 설정 UI 대입
         function applySettingsToUI(settings) {
             document.getElementById('cfgBuyCount').value = settings.buycount || 3;
-            document.getElementById('cfgStrategy').value = settings.last_strategy || "통합 전략";
+            
+            const selectEl = document.getElementById('cfgStrategy');
+            // 기본 옵션 목록 초기화
+            selectEl.innerHTML = `
+                <option value="통합 전략">통합 전략 (추천)</option>
+                <option value="급등주">급등주 전략</option>
+                <option value="갭상승">갭상승 전략</option>
+            `;
+            
+            // 전달받은 조건식 목록이 있으면 옵션에 동적 추가
+            if (settings.condition_list && settings.condition_list.length > 0) {
+                settings.condition_list.forEach(cond => {
+                    const option = document.createElement('option');
+                    option.value = cond.title;
+                    option.textContent = cond.title;
+                    selectEl.appendChild(option);
+                });
+            }
+            
+            selectEl.value = settings.last_strategy || "통합 전략";
         }
 
         // 설정 저장 요청
@@ -1934,7 +1953,8 @@ async def websocket_handler(websocket):
                     config = EnvConfigParser()
                     settings = {
                         "buycount": config.get('SETTINGS', 'buycount', fallback='3'),
-                        "last_strategy": config.get('SETTINGS', 'last_strategy', fallback='통합 전략')
+                        "last_strategy": config.get('SETTINGS', 'last_strategy', fallback='통합 전략'),
+                        "condition_list": getattr(app, 'condition_search_list', []) or []
                     }
                     await websocket.send(json.dumps({
                         "type": "settings",
