@@ -1563,158 +1563,58 @@ HTML_CONTENT = """
                 return;
             }
 
-            // 가공
-            const candleData = [];
-            const volumeData = [];
+            // === 1회 순회로 모든 시리즈 데이터를 동시에 가공 ===
+            const seen = new Set();
+            const sorted = history
+                .map(bar => ({ ...bar, _t: parseDateTimeToTimestamp(bar.time) }))
+                .sort((a, b) => a._t - b._t)
+                .filter(bar => { if (seen.has(bar._t)) return false; seen.add(bar._t); return true; });
 
-            history.forEach(bar => {
-                const formattedTime = parseDateTimeToTimestamp(bar.time);
+            const candles = [], volumes = [];
+            const ma = { 5:[], 10:[], 20:[], 60:[], 120:[] };
+            const envM3 = [], envM5 = [];
+            const rsi = [], rsiLow = [];
+            const macdArr = [], macdSig = [], macdHist = [];
 
-                candleData.push({
-                    time: formattedTime,
-                    open: bar.open,
-                    high: bar.high,
-                    low: bar.low,
-                    close: bar.close
+            sorted.forEach(bar => {
+                const t = bar._t;
+                candles.push({ time: t, open: bar.open, high: bar.high, low: bar.low, close: bar.close });
+                volumes.push({ time: t, value: bar.volume, color: bar.close >= bar.open ? 'rgba(239, 83, 80, 0.5)' : 'rgba(38, 166, 154, 0.5)' });
+
+                [5, 10, 20, 60, 120].forEach(p => {
+                    if (bar[`ma${p}`] != null) ma[p].push({ time: t, value: bar[`ma${p}`] });
                 });
 
-                volumeData.push({
-                    time: formattedTime,
-                    value: bar.volume,
-                    color: bar.close >= bar.open ? 'rgba(239, 83, 80, 0.5)' : 'rgba(38, 166, 154, 0.5)'
-                });
-            });
-
-            // 시간 오름차순 정렬 필수
-            candleData.sort((a, b) => a.time - b.time);
-            volumeData.sort((a, b) => a.time - b.time);
-
-            // 동일 시간 중복 데이터 제거
-            const uniqueCandles = [];
-            const uniqueVolumes = [];
-            const seenTimes = new Set();
-            for (let i = 0; i < candleData.length; i++) {
-                if (!seenTimes.has(candleData[i].time)) {
-                    seenTimes.add(candleData[i].time);
-                    uniqueCandles.push(candleData[i]);
-                    uniqueVolumes.push(volumeData[i]);
+                if (bar.ma120 != null) {
+                    envM3.push({ time: t, value: bar.ma120 * 0.97 });
+                    envM5.push({ time: t, value: bar.ma120 * 0.95 });
                 }
-            }
 
-            candleSeries.setData(uniqueCandles);
-            volumeSeries.setData(uniqueVolumes);
-            
-            // 이동평균선 데이터 세팅
-            [5, 10, 20, 60, 120].forEach(period => {
-                if (!maSeries[period]) return;
-                const maData = [];
-                history.forEach(bar => {
-                    const formattedTime = parseDateTimeToTimestamp(bar.time);
-                    if (bar[`ma${period}`] !== null && bar[`ma${period}`] !== undefined) {
-                        maData.push({ time: formattedTime, value: bar[`ma${period}`] });
-                    }
-                });
-                maData.sort((a, b) => a.time - b.time);
-                
-                const uniqueMA = [];
-                const seenMA = new Set();
-                maData.forEach(item => {
-                    if (!seenMA.has(item.time)) {
-                        seenMA.add(item.time);
-                        uniqueMA.push(item);
-                    }
-                });
-                maSeries[period].setData(uniqueMA);
+                if (bar.rsi21 != null) {
+                    rsi.push({ time: t, value: bar.rsi21 });
+                    rsiLow.push({ time: t, value: 30 });
+                }
+
+                if (bar.macd != null) macdArr.push({ time: t, value: bar.macd });
+                if (bar.macd_sig != null) macdSig.push({ time: t, value: bar.macd_sig });
+                if (bar.macd_hist != null) macdHist.push({ time: t, value: bar.macd_hist, color: bar.macd_hist >= 0 ? 'rgba(38, 166, 154, 0.5)' : 'rgba(239, 83, 80, 0.5)' });
             });
 
-            // 엔벨로프 데이터 세팅
-            if (envSeries['m3'] && envSeries['m5']) {
-                const envM3Data = [];
-                const envM5Data = [];
-                history.forEach(bar => {
-                    const formattedTime = parseDateTimeToTimestamp(bar.time);
-                    if (bar['ma120'] !== null && bar['ma120'] !== undefined) {
-                        envM3Data.push({ time: formattedTime, value: bar['ma120'] * 0.97 });
-                        envM5Data.push({ time: formattedTime, value: bar['ma120'] * 0.95 });
-                    }
-                });
-                
-                [envM3Data, envM5Data].forEach(arr => arr.sort((a, b) => a.time - b.time));
-                
-                const uniqueM3 = [];
-                const uniqueM5 = [];
-                const seenM3 = new Set();
-                const seenM5 = new Set();
-                envM3Data.forEach(item => { if (!seenM3.has(item.time)) { seenM3.add(item.time); uniqueM3.push(item); } });
-                envM5Data.forEach(item => { if (!seenM5.has(item.time)) { seenM5.add(item.time); uniqueM5.push(item); } });
-                
-                envSeries['m3'].setData(uniqueM3);
-                envSeries['m5'].setData(uniqueM5);
-            }
+            // === 한꺼번에 차트에 세팅 ===
+            candleSeries.setData(candles);
+            volumeSeries.setData(volumes);
 
-            // RSI 데이터 세팅
-            if (rsiSeries && rsiLowLineSeries) {
-                const rsiData = [];
-                const rsiLowData = [];
-                history.forEach(bar => {
-                    const formattedTime = parseDateTimeToTimestamp(bar.time);
-                    if (bar['rsi21'] !== null && bar['rsi21'] !== undefined) {
-                        rsiData.push({ time: formattedTime, value: bar['rsi21'] });
-                        rsiLowData.push({ time: formattedTime, value: 30 }); // 30 라인
-                    }
-                });
-                
-                rsiData.sort((a, b) => a.time - b.time);
-                rsiLowData.sort((a, b) => a.time - b.time);
-                
-                const uniqueRsi = [];
-                const uniqueRsiLow = [];
-                const seenRsi = new Set();
-                const seenRsiLow = new Set();
-                rsiData.forEach(item => { if (!seenRsi.has(item.time)) { seenRsi.add(item.time); uniqueRsi.push(item); } });
-                rsiLowData.forEach(item => { if (!seenRsiLow.has(item.time)) { seenRsiLow.add(item.time); uniqueRsiLow.push(item); } });
-                
-                rsiSeries.setData(uniqueRsi);
-                rsiLowLineSeries.setData(uniqueRsiLow);
-            }
+            [5, 10, 20, 60, 120].forEach(p => { if (maSeries[p]) maSeries[p].setData(ma[p]); });
 
-            // MACD 데이터 세팅
-            if (macdSeries && macdSigSeries && macdHistSeries) {
-                const macdCount = history.filter(b => b['macd'] !== null && b['macd'] !== undefined).length;
-                console.log(`📊 MACD 디버그: 전체 ${history.length}개 bar 중 MACD 데이터 ${macdCount}개 존재`);
-                const macdData = [];
-                const macdSigData = [];
-                const macdHistData = [];
-                history.forEach(bar => {
-                    const formattedTime = parseDateTimeToTimestamp(bar.time);
-                    if (bar['macd'] !== null && bar['macd'] !== undefined) {
-                        macdData.push({ time: formattedTime, value: bar['macd'] });
-                    }
-                    if (bar['macd_sig'] !== null && bar['macd_sig'] !== undefined) {
-                        macdSigData.push({ time: formattedTime, value: bar['macd_sig'] });
-                    }
-                    if (bar['macd_hist'] !== null && bar['macd_hist'] !== undefined) {
-                        macdHistData.push({ 
-                            time: formattedTime, 
-                            value: bar['macd_hist'], 
-                            color: bar['macd_hist'] >= 0 ? 'rgba(38, 166, 154, 0.5)' : 'rgba(239, 83, 80, 0.5)' 
-                        });
-                    }
-                });
-                
-                [macdData, macdSigData, macdHistData].forEach(arr => arr.sort((a, b) => a.time - b.time));
-                
-                const uniqueMacd = [], uniqueMacdSig = [], uniqueMacdHist = [];
-                const seenMacd = new Set(), seenMacdSig = new Set(), seenMacdHist = new Set();
-                
-                macdData.forEach(item => { if (!seenMacd.has(item.time)) { seenMacd.add(item.time); uniqueMacd.push(item); } });
-                macdSigData.forEach(item => { if (!seenMacdSig.has(item.time)) { seenMacdSig.add(item.time); uniqueMacdSig.push(item); } });
-                macdHistData.forEach(item => { if (!seenMacdHist.has(item.time)) { seenMacdHist.add(item.time); uniqueMacdHist.push(item); } });
-                
-                macdSeries.setData(uniqueMacd);
-                macdSigSeries.setData(uniqueMacdSig);
-                macdHistSeries.setData(uniqueMacdHist);
-            }
+            if (envSeries['m3']) envSeries['m3'].setData(envM3);
+            if (envSeries['m5']) envSeries['m5'].setData(envM5);
+
+            if (rsiSeries) rsiSeries.setData(rsi);
+            if (rsiLowLineSeries) rsiLowLineSeries.setData(rsiLow);
+
+            if (macdSeries) macdSeries.setData(macdArr);
+            if (macdSigSeries) macdSigSeries.setData(macdSig);
+            if (macdHistSeries) macdHistSeries.setData(macdHist);
 
             chart.timeScale().fitContent();
         }
