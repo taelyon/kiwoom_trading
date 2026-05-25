@@ -1046,6 +1046,10 @@ HTML_CONTENT = """
 
         // 비밀번호 인증 요청 시도
         function attemptAuth() {
+            if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) {
+                return; // 이미 연결 중이거나 연결된 상태에서는 중복 실행 방지
+            }
+            
             const passField = document.getElementById('passwordField');
             currentPassword = passField.value.trim();
             if (!currentPassword) {
