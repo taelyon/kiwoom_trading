@@ -1260,6 +1260,9 @@ HTML_CONTENT = """
             }
         }
 
+));
+        }
+
         // 전략 선택 박스 변경 핸들러
         function onStrategyChange(strategy) {
             const buyTextarea = document.getElementById('cfgBuyStrategy');
@@ -1316,21 +1319,7 @@ HTML_CONTENT = """
             onStrategyChange(selectEl.value);
         }
 
-        // 전략 선택 박스 변경 핸들러
-        function onStrategyChange(strategy) {
-            const buyTextarea = document.getElementById('cfgBuyStrategy');
-            const sellTextarea = document.getElementById('cfgSellStrategy');
-            
-            // 모든 선택지가 키움증권 조건검색식이므로 텍스트 편집기 비활성화 처리
-            buyTextarea.value = "키움증권 조건검색식의 매수 조건은 직접 수정할 수 없습니다.\\n영웅문(HTS) 또는 키움증권 모바일에서 조건식 구성을 수정해주세요.";
-            sellTextarea.value = "키움증권 조건검색식의 매도 조건은 직접 수정할 수 없습니다.\\n영웅문(HTS) 또는 키움증권 모바일에서 조건식 구성을 수정해주세요.";
-            buyTextarea.disabled = true;
-            sellTextarea.disabled = true;
-            buyTextarea.style.opacity = 0.5;
-            sellTextarea.style.opacity = 0.5;
-        }
-
-        // 백엔드로부터 전략 상세 수신 시 바인딩
+// 백엔드로부터 전략 상세 수신 시 바인딩
         function handleStrategyDetail(data) {
             const buyTextarea = document.getElementById('cfgBuyStrategy');
             const sellTextarea = document.getElementById('cfgSellStrategy');
