@@ -829,8 +829,12 @@ class StrategyManager:
                     holding_codes.add(code)
         self.logger.debug(f"보유 종목은 모니터링에서 제외하지 않습니다: {list(holding_codes)}")
 
+        # 모니터링 매니저 및 실시간 모니터링 종목 셋 가져오기
+        monitoring_mgr = getattr(self.parent, 'monitoring_manager', None)
+        monitored_stocks = monitoring_mgr.monitored_stocks if monitoring_mgr else set()
+
         # 해제할 구독 종목 (모니터링 중이었으나 보유 종목이 아닌 것들)
-        codes_to_unsubscribe = list(self.monitored_stocks.difference(holding_codes))
+        codes_to_unsubscribe = list(monitored_stocks.difference(holding_codes))
 
         # 조건검색 해제
         if hasattr(self.parent, 'condition_search_list') and self.parent.condition_search_list:
@@ -843,7 +847,8 @@ class StrategyManager:
         self.logger.debug("✅ 모든 실시간 조건검색 모니터링 중단 완료.")
 
         # 모니터링 종목 초기화 (보유 종목 제외) - 기존 set 레퍼런스를 유지하기 위해 intersection_update 사용
-        self.monitored_stocks.intersection_update(holding_codes)
+        if monitoring_mgr:
+            monitoring_mgr.monitored_stocks.intersection_update(holding_codes)
         
         # 실시간 주식체결 데이터 구독 해제 전송 (UNREG)
         if codes_to_unsubscribe:
