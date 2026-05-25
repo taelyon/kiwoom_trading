@@ -829,6 +829,9 @@ class StrategyManager:
                     holding_codes.add(code)
         self.logger.debug(f"보유 종목은 모니터링에서 제외하지 않습니다: {list(holding_codes)}")
 
+        # 해제할 구독 종목 (모니터링 중이었으나 보유 종목이 아닌 것들)
+        codes_to_unsubscribe = list(self.monitored_stocks.difference(holding_codes))
+
         # 조건검색 해제
         if hasattr(self.parent, 'condition_search_list') and self.parent.condition_search_list:
             all_seqs = [c['seq'] for c in self.parent.condition_search_list]
@@ -839,10 +842,17 @@ class StrategyManager:
             self.parent.active_realtime_conditions.clear()
         self.logger.debug("✅ 모든 실시간 조건검색 모니터링 중단 완료.")
 
-        # 모니터링 종목 초기화 (보유 종목 제외)
-        if hasattr(self.parent, 'monitoring_manager'):
-            self.parent.monitoring_manager.monitored_stocks = self.parent.monitoring_manager.monitored_stocks.intersection(holding_codes)
+        # 모니터링 종목 초기화 (보유 종목 제외) - 기존 set 레퍼런스를 유지하기 위해 intersection_update 사용
+        self.monitored_stocks.intersection_update(holding_codes)
         
+        # 실시간 주식체결 데이터 구독 해제 전송 (UNREG)
+        if codes_to_unsubscribe:
+            ws_client = getattr(self.parent.login_handler, 'websocket_client', None)
+            if ws_client and ws_client.connected:
+                from utils import create_fire_and_forget_task
+                create_fire_and_forget_task(ws_client.unsubscribe_stock_execution_data(codes_to_unsubscribe))
+                self.logger.info(f"🗑️ 전략 변경으로 인해 기존 {len(codes_to_unsubscribe)}개 종목 실시간 구독 해제 요청 완료")
+
         if hasattr(self.parent, 'chart_cache') and self.parent.chart_cache:
             self.parent.chart_cache.update_chart_update_interval()
 

@@ -943,11 +943,11 @@ HTML_CONTENT = """
                         </div>
                         <div class="form-field">
                             <label for="cfgBuyStrategy">매수 전략 편집 (JSON)</label>
-                            <textarea id="cfgBuyStrategy" placeholder="매수 전략 조건식 목록 (JSON)" style="font-family: monospace; font-size:11px; width: 100%; height: 50px; box-sizing: border-box; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 8px; resize: vertical;"></textarea>
+                            <textarea id="cfgBuyStrategy" placeholder="매수 전략 조건식 목록 (JSON)" style="font-family: monospace; font-size:11px; width: 100%; height: 60px; box-sizing: border-box; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 8px; resize: vertical;"></textarea>
                         </div>
                         <div class="form-field">
                             <label for="cfgSellStrategy">매도 전략 편집 (JSON)</label>
-                            <textarea id="cfgSellStrategy" placeholder="매도 전략 조건식 목록 (JSON)" style="font-family: monospace; font-size:11px; width: 100%; height: 50px; box-sizing: border-box; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 8px; resize: vertical;"></textarea>
+                            <textarea id="cfgSellStrategy" placeholder="매도 전략 조건식 목록 (JSON)" style="font-family: monospace; font-size:11px; width: 100%; height: 60px; box-sizing: border-box; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 8px; resize: vertical;"></textarea>
                         </div>
                         <button class="btn-primary" onclick="saveSettings()">설정 파라미터 적용</button>
                     </div>
