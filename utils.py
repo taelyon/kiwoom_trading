@@ -4,6 +4,7 @@ import sys
 import time
 import ctypes
 import asyncio
+import threading
 import sqlite3
 from datetime import datetime
 
@@ -185,6 +186,9 @@ class ApiLimitManager:
     """API 제한 관리 클래스 (개선된 버전)"""
     logger = logging.getLogger(__qualname__)
     
+    # 스레드 동기화용 락
+    _lock = threading.Lock()
+    
     # API 요청을 위한 다음 예약 시간 (Race condition 방지)
     _next_request_time = {}
     _request_intervals = {
@@ -224,22 +228,25 @@ class ApiLimitManager:
             queue_key = request_type
             if request_type in ['tic_chart', 'minute_chart', 'tic', 'minute']:
                 queue_key = 'chart_req'
-                interval = 1.0  # 차트 요청 간격 1초로 단축하여 체감 속도 향상 (기존 1.5초)
+                interval = 1.2  # 차트 요청 간격 1.2초로 설정하여 429 예방 (기존 1.0초 대비 안전 마진 확보)
             
-            current_time = time.time()
-            # 이 요청 타입의 다음 사용 가능 시간 확인
-            next_time = cls._next_request_time.get(queue_key, current_time)
-            
-            # 다음 사용 가능 시간이 과거라면 현재 시간으로 갱신
-            if next_time < current_time:
-                next_time = current_time
+            # 임계 영역 보호 - 스레드 락 적용으로 레이스 컨디션 차단
+            with cls._lock:
+                current_time = time.time()
+                # 이 요청 타입의 다음 사용 가능 시간 확인
+                next_time = cls._next_request_time.get(queue_key, current_time)
                 
-            # 대기 시간 계산
-            wait_time = next_time - current_time
+                # 다음 사용 가능 시간이 과거라면 현재 시간으로 갱신
+                if next_time < current_time:
+                    next_time = current_time
+                    
+                # 대기 시간 계산
+                wait_time = next_time - current_time
+                
+                # 다음 요청을 위해 예약 시간 슬롯을 확보 (Interval 추가)
+                cls._next_request_time[queue_key] = next_time + interval
             
-            # 다음 요청을 위해 예약 시간 슬롯을 확보 (Interval 추가)
-            cls._next_request_time[queue_key] = next_time + interval
-            
+            # 락을 해제한 상태에서 비동기 대기
             if wait_time > 0:
                 await asyncio.sleep(wait_time)
             
