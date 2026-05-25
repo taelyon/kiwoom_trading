@@ -2138,37 +2138,56 @@ async def websocket_handler(websocket):
                     strategy_name = data.get('strategy', '').strip()
                     from config_manager import EnvConfigParser
                     config = EnvConfigParser()
-                    # 런타임에 싱글톤 캐시를 초기화하여 UTF-8 로드 강제 적용
+                    # 런타임에 싱글톤 캐시를 초기화하여 최신 .env 반영
                     config._initialized = False
                     config.__init__()
                     
                     buy_stgs = []
                     sell_stgs = []
                     
-                    logging.info(f"🔍 [get_strategy_detail] Requested strategy: '{strategy_name}', has_section: {config.has_section(strategy_name)}")
+                    logging.info(f"🔍 [get_strategy_detail] strategy: '{strategy_name}', has_section: {config.has_section(strategy_name)}")
                     
-                    # 통합 전략 및 조건검색식을 제외한 개별 전략인 경우만 파싱
-                    if config.has_section(strategy_name) and strategy_name not in ["통합 전략", "통합전략"]:
-                        # 매수 조건 수집
-                        buy_items = [(k, v) for k, v in config.items(strategy_name) if k.startswith('buy_stg_')]
-                        buy_items.sort(key=lambda x: int(x[0].split('_')[-1]) if x[0].split('_')[-1].isdigit() else 999)
-                        logging.info(f"🔍 buy_items: {buy_items}")
-                        for k, v in buy_items:
-                            try:
-                                buy_stgs.append(json.loads(v))
-                            except Exception as e:
-                                logging.error(f"❌ JSON 파싱 에러 (매수 {k}): {e}")
+                    if strategy_name and strategy_name not in ["통합 전략", "통합전략"]:
+                        if config.has_section(strategy_name):
+                            # .env에 전략이 존재하는 경우: 정상 파싱
+                            buy_items = [(k, v) for k, v in config.items(strategy_name) if k.startswith('buy_stg_')]
+                            buy_items.sort(key=lambda x: int(x[0].split('_')[-1]) if x[0].split('_')[-1].isdigit() else 999)
+                            for k, v in buy_items:
+                                try:
+                                    buy_stgs.append(json.loads(v))
+                                except Exception as e:
+                                    logging.error(f"❌ JSON 파싱 에러 (매수 {k}): {e}")
+                                
+                            sell_items = [(k, v) for k, v in config.items(strategy_name) if k.startswith('sell_stg_')]
+                            sell_items.sort(key=lambda x: int(x[0].split('_')[-1]) if x[0].split('_')[-1].isdigit() else 999)
+                            for k, v in sell_items:
+                                try:
+                                    sell_stgs.append(json.loads(v))
+                                except Exception as e:
+                                    logging.error(f"❌ JSON 파싱 에러 (매도 {k}): {e}")
+                        
+                        # .env에 전략이 없거나 파싱 결과가 비어있는 경우: 기본 전략 자동 생성 및 저장
+                        if not buy_stgs:
+                            logging.info(f"📝 [{strategy_name}] 매수 전략이 없어 기본 전략을 자동 생성합니다.")
+                            buy_stgs = [
+                                {"name": "실시간_모멘텀_진입", "content": "AI_SCORE > 50"}
+                            ]
+                            config.set(strategy_name, 'buy_stg_1', json.dumps(buy_stgs[0], ensure_ascii=False))
                             
-                        # 매도 조건 수집
-                        sell_items = [(k, v) for k, v in config.items(strategy_name) if k.startswith('sell_stg_')]
-                        sell_items.sort(key=lambda x: int(x[0].split('_')[-1]) if x[0].split('_')[-1].isdigit() else 999)
-                        for k, v in sell_items:
-                            try:
-                                sell_stgs.append(json.loads(v))
-                            except Exception as e:
-                                logging.error(f"❌ JSON 파싱 에러 (매도 {k}): {e}")
-                    else:
-                        logging.warning(f"⚠️ [{strategy_name}] 전략 섹션이 존재하지 않거나 통합 전략입니다.")
+                        if not sell_stgs:
+                            logging.info(f"📝 [{strategy_name}] 매도 전략이 없어 기본 전략을 자동 생성합니다.")
+                            sell_stgs = [
+                                {"name": "목표익절", "content": "current_profit_pct > 3.0"},
+                                {"name": "트레일링스탑", "content": "from_peak_pct < -1.5"},
+                                {"name": "과열조기청산", "content": "min3_relative_position[-1] > 0.06"},
+                                {"name": "손절매", "content": "current_profit_pct < -2.0"}
+                            ]
+                            for idx, stg in enumerate(sell_stgs, 1):
+                                config.set(strategy_name, f'sell_stg_{idx}', json.dumps(stg, ensure_ascii=False))
+                        
+                        # 자동 생성된 전략을 .env 파일에 영구 저장
+                        config.save()
+                        logging.info(f"✅ [{strategy_name}] 매수 {len(buy_stgs)}개, 매도 {len(sell_stgs)}개 전략 로드 완료")
                     
                     await websocket.send(json.dumps({
                         "type": "strategy_detail",
