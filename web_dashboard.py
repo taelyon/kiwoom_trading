@@ -949,7 +949,7 @@ HTML_CONTENT = """
                             <label for="cfgSellStrategy">매도 전략 (JSON)</label>
                             <textarea id="cfgSellStrategy" placeholder="매도 전략 조건식 목록 (JSON)" style="font-family: monospace; font-size:11px; width: 100%; height: 120px; box-sizing: border-box; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 8px; resize: vertical;"></textarea>
                         </div>
-                        <button class="btn-primary" onclick="saveSettings()">설정 파라미터 적용</button>
+                        <button id="btnSaveSettings" class="btn-primary" onclick="saveSettings()">설정 파라미터 적용</button>
                     </div>
                 </div>
 
@@ -1126,10 +1126,38 @@ HTML_CONTENT = """
                 } else if (data.type === 'strategy_detail') {
                     handleStrategyDetail(data);
                 } else if (data.type === 'save_settings_result') {
-                    if (data.success) {
-                        alert(data.message || "설정이 저장 및 적용되었습니다.");
+                    const btn = document.getElementById('btnSaveSettings');
+                    if (btn) {
+                        if (data.success) {
+                            btn.innerText = "적용 완료! ✅";
+                            btn.style.background = "#2e7d32";
+                            btn.style.borderColor = "#2e7d32";
+                            btn.style.opacity = "1";
+                            setTimeout(() => {
+                                btn.disabled = false;
+                                btn.innerText = "설정 파라미터 적용";
+                                btn.style.background = "";
+                                btn.style.borderColor = "";
+                            }, 2000);
+                        } else {
+                            btn.innerText = "적용 실패! ❌";
+                            btn.style.background = "#c62828";
+                            btn.style.borderColor = "#c62828";
+                            btn.style.opacity = "1";
+                            alert("설정 저장 실패: " + data.message);
+                            setTimeout(() => {
+                                btn.disabled = false;
+                                btn.innerText = "설정 파라미터 적용";
+                                btn.style.background = "";
+                                btn.style.borderColor = "";
+                            }, 2000);
+                        }
                     } else {
-                        alert("설정 저장 실패: " + data.message);
+                        if (data.success) {
+                            alert(data.message || "설정이 저장 및 적용되었습니다.");
+                        } else {
+                            alert("설정 저장 실패: " + data.message);
+                        }
                     }
                 } else if (data.type === 'chart_history') {
                     renderChartHistory(data);
@@ -1361,9 +1389,13 @@ HTML_CONTENT = """
                 req.settings.buy_strategy = buyTextarea.value;
                 req.settings.sell_strategy = sellTextarea.value;
             }
-            
+            const btn = document.getElementById('btnSaveSettings');
+            if (btn) {
+                btn.disabled = true;
+                btn.innerText = "적용 중... 🔄";
+                btn.style.opacity = "0.7";
+            }
             ws.send(jsonStr(req));
-            alert("설정 적용 요청을 전송하였습니다.");
         }
 
         // 콘솔 비밀번호 단독 변경 요청
