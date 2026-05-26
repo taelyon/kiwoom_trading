@@ -806,6 +806,109 @@ HTML_CONTENT = """
             font-style: italic;
             font-size: 13px;
         }
+
+        /* --- 모바일 반응형 디자인 (Mobile Responsive Design) --- */
+        @media (max-width: 768px) {
+            #authContainer {
+                width: 90%;
+                padding: 30px 20px;
+            }
+            #dashboardContainer {
+                padding: 12px;
+                gap: 16px;
+            }
+            header {
+                flex-direction: column;
+                align-items: stretch;
+                padding: 16px;
+                gap: 16px;
+                border-radius: 16px;
+            }
+            .header-logo {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 12px;
+                width: 100%;
+            }
+            .header-logo h1 {
+                font-size: 20px;
+            }
+            .header-pw-container {
+                width: 100%;
+                justify-content: space-between;
+                box-sizing: border-box;
+            }
+            .header-pw-input {
+                flex-grow: 1;
+                max-width: none;
+            }
+            .header-controls {
+                flex-direction: row;
+                justify-content: space-between;
+                align-items: center;
+                width: 100%;
+                gap: 10px;
+            }
+            .switch-container {
+                font-size: 13px;
+            }
+            .status-badge {
+                padding: 6px 12px;
+                font-size: 12px;
+            }
+            .summary-grid {
+                grid-template-columns: 1fr;
+                gap: 12px;
+            }
+            .glass-card {
+                padding: 16px;
+                border-radius: 16px;
+            }
+            .card-value {
+                font-size: 24px;
+            }
+            .chart-container-box {
+                height: 380px;
+                max-height: 380px;
+            }
+            .chart-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 10px;
+            }
+            .chart-tabs {
+                width: 100%;
+                justify-content: flex-start;
+            }
+            .chart-tab {
+                flex-grow: 1;
+                text-align: center;
+            }
+            .portfolio-table th, .portfolio-table td {
+                padding: 10px 8px;
+                font-size: 12px;
+            }
+            .order-row {
+                grid-template-columns: 1fr;
+                gap: 10px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .header-controls {
+                flex-direction: column;
+                align-items: stretch;
+                gap: 12px;
+            }
+            .switch-container {
+                justify-content: space-between;
+                width: 100%;
+            }
+            .status-badge {
+                justify-content: center;
+                width: 100%;
+            }
+        }
     </style>
 </head>
 <body>
