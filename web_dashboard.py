@@ -441,6 +441,31 @@ HTML_CONTENT = """
             transform: translateX(20px);
         }
 
+        /* 투자 모드 토글 전용 스타일 */
+        .slider.mode-slider {
+            background-color: #ffca28 !important; /* MOCK: 노란색 */
+            box-shadow: inset 0 0 5px rgba(0,0,0,0.3);
+        }
+        .slider.mode-slider:before {
+            background-color: #121212 !important;
+        }
+        input:checked + .slider.mode-slider {
+            background-color: #ff3d00 !important; /* LIVE: 빨간색 */
+            box-shadow: 0 0 8px rgba(255, 61, 0, 0.6) !important;
+        }
+        input:checked + .slider.mode-slider:before {
+            background-color: #ffffff !important;
+        }
+        .badge-label-live {
+            animation: pulse-live-text 2s infinite;
+            font-weight: bold;
+        }
+        @keyframes pulse-live-text {
+            0% { opacity: 0.8; }
+            50% { opacity: 1; text-shadow: 0 0 10px rgba(255, 61, 0, 0.8); }
+            100% { opacity: 0.8; }
+        }
+
         /* 요약 카드 그리드 */
         .summary-grid {
             display: grid;
@@ -964,10 +989,13 @@ HTML_CONTENT = """
                         <span class="slider"></span>
                     </label>
                 </div>
-                <!-- 투자 모드 표시 -->
-                <div id="investmentMode" class="status-badge mode-mock">
-                    <span style="width: 8px; height: 8px; border-radius: 50%; background-color: #ffca28; box-shadow: 0 0 8px #ffca28;"></span>
-                    모의투자
+                <!-- 투자 모드 토글 스위치 -->
+                <div class="switch-container">
+                    <span id="investmentModeLabel" style="font-size: 13px; font-weight: 600;">투자 모드: 모의투자 🟡</span>
+                    <label class="switch" title="스위치를 변경하면 투자 서버(모의투자/실거래)가 실시간으로 재연결됩니다.">
+                        <input type="checkbox" id="investmentModeToggle" onchange="clickInvestmentModeToggle(this.checked)">
+                        <span class="slider mode-slider"></span>
+                    </label>
                 </div>
                 <!-- 연결 상태 표시 -->
                 <div id="connectionStatus" class="status-badge">
@@ -1065,13 +1093,6 @@ HTML_CONTENT = """
                                 <label for="cfgStrategy">대표 매매 전략</label>
                                 <select id="cfgStrategy" onchange="onStrategyChange(this.value)">
                                     <!-- 키움증권 조건식 목록이 동적으로 채워집니다 -->
-                                </select>
-                            </div>
-                            <div class="form-field">
-                                <label for="cfgSimulation">투자 모드</label>
-                                <select id="cfgSimulation">
-                                    <option value="true">모의투자 (MOCK)</option>
-                                    <option value="false">실제투자 (LIVE)</option>
                                 </select>
                             </div>
                         </div>
@@ -1480,18 +1501,16 @@ HTML_CONTENT = """
 
             // 투자 모드 및 뱃지 업데이트
             const simulation = settings.simulation;
-            const modeEl = document.getElementById('investmentMode');
-            const simSelectEl = document.getElementById('cfgSimulation');
-            if (simSelectEl) {
-                simSelectEl.value = simulation ? "true" : "false";
+            const modeToggleEl = document.getElementById('investmentModeToggle');
+            const modeLabelEl = document.getElementById('investmentModeLabel');
+            if (modeToggleEl) {
+                modeToggleEl.checked = !simulation; // checked=LIVE(simulation=false)
             }
-            if (modeEl) {
+            if (modeLabelEl) {
                 if (simulation) {
-                    modeEl.className = "status-badge mode-mock";
-                    modeEl.innerHTML = `<span style="width: 8px; height: 8px; border-radius: 50%; background-color: #ffca28; box-shadow: 0 0 8px #ffca28;"></span>모의투자`;
+                    modeLabelEl.innerHTML = '투자 모드: <span class="badge-label-mock" style="color: #ffca28; text-shadow: 0 0 5px rgba(255, 202, 40, 0.3);">모의투자 🟡</span>';
                 } else {
-                    modeEl.className = "status-badge mode-live";
-                    modeEl.innerHTML = `<span style="width: 8px; height: 8px; border-radius: 50%; background-color: #ff3d00; box-shadow: 0 0 8px #ff3d00;"></span>실거래 (LIVE)`;
+                    modeLabelEl.innerHTML = '투자 모드: <span class="badge-label-live" style="color: #ff3d00;">실거래 (LIVE) 🔴</span>';
                 }
             }
         }
@@ -1514,7 +1533,8 @@ HTML_CONTENT = """
         function saveSettings() {
             const buycount = document.getElementById('cfgBuyCount').value;
             const strategy = document.getElementById('cfgStrategy').value;
-            const simulation = document.getElementById('cfgSimulation').value === 'true';
+            const simulationToggle = document.getElementById('investmentModeToggle');
+            const simulation = simulationToggle ? !simulationToggle.checked : true; // checked=LIVE(simulation=false)
             
             const req = {
                 type: "save_settings",
@@ -1581,6 +1601,59 @@ HTML_CONTENT = """
                 window.location.reload();
             } else {
                 alert("서버 연결 상태가 원활하지 않습니다. 다시 시도해 주세요.");
+            }
+        }
+
+        // 투자 모드 스위치 제어
+        let isChangingInvestmentMode = false;
+        function clickInvestmentModeToggle(checked) {
+            if (isChangingInvestmentMode) return;
+            
+            const targetModeText = checked ? "실거래 (LIVE)" : "모의투자 (MOCK)";
+            
+            // 토글 상태 일단 되돌림 (사용자 승인 대기 목적)
+            const toggleEl = document.getElementById('investmentModeToggle');
+            if (toggleEl) {
+                isChangingInvestmentMode = true;
+                toggleEl.checked = !checked;
+                isChangingInvestmentMode = false;
+            }
+            
+            if (confirm(`투자 모드를 [${targetModeText}]로 변경하시겠습니까?\n변경 시 프로그램이 새로운 투자 서버로 재연결을 시도하며, 현재 거래 및 대시보드가 초기화될 수 있습니다.`)) {
+                // 승인 시 변경 요청
+                if (toggleEl) {
+                    isChangingInvestmentMode = true;
+                    toggleEl.checked = checked;
+                    isChangingInvestmentMode = false;
+                }
+                
+                // 설정 패널 값에 반영
+                const buycount = document.getElementById('cfgBuyCount').value;
+                const strategy = document.getElementById('cfgStrategy').value;
+                const simulation = !checked; // checked=LIVE 이므로 simulation=false
+                
+                const req = {
+                    type: "save_settings",
+                    settings: {
+                        buycount: buycount,
+                        last_strategy: strategy,
+                        simulation: simulation
+                    }
+                };
+                
+                const buyTextarea = document.getElementById('cfgBuyStrategy');
+                const sellTextarea = document.getElementById('cfgSellStrategy');
+                if (buyTextarea && !buyTextarea.disabled) {
+                    req.settings.buy_strategy = buyTextarea.value;
+                    req.settings.sell_strategy = sellTextarea.value;
+                }
+                
+                const btn = document.getElementById('btnSaveSettings');
+                if (btn) {
+                    btn.disabled = true;
+                    btn.innerText = "투자 모드 변경 중...";
+                }
+                ws.send(jsonStr(req));
             }
         }
 
