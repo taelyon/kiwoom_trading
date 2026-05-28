@@ -1029,6 +1029,11 @@ class KiwoomWebSocketClient:
 
             # 체결 완료 확인: 주문상태='체결' AND 미체결수량=0
             if order_status == '체결' and unfilled_qty_int == 0:                
+                # 계좌 예수금 및 잔고 갱신 비동기 호출 (체결 완료 직후 총 평가자산 반영용)
+                if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'account_manager') and self.parent.account_manager:
+                    from utils import create_fire_and_forget_task
+                    create_fire_and_forget_task(self.parent.account_manager.handle_acnt_balance_query_async())
+
                 # 매수 체결 완료 → 보유종목 리스트에 추가 (람다 클로저 문제 방지)
                 # 매도 체결 완료 시 실현 손익 직접 계산 및 알림
                 # 손익 계산 및 로깅은 process_balance_data에서 처리하므로 여기서는 제거합니다.
