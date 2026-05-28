@@ -991,7 +991,7 @@ HTML_CONTENT = """
                 </div>
                 <!-- 투자 모드 토글 스위치 -->
                 <div class="switch-container">
-                    <span id="investmentModeLabel" style="font-size: 13px; font-weight: 600;">투자 모드: 모의투자 🟡</span>
+                    <span id="investmentModeLabel" style="font-size: 13px; font-weight: 600;">모의투자 🟡</span>
                     <label class="switch" title="스위치를 변경하면 투자 서버(모의투자/실거래)가 실시간으로 재연결됩니다.">
                         <input type="checkbox" id="investmentModeToggle" onchange="clickInvestmentModeToggle(this.checked)">
                         <span class="slider mode-slider"></span>
@@ -1508,9 +1508,9 @@ HTML_CONTENT = """
             }
             if (modeLabelEl) {
                 if (simulation) {
-                    modeLabelEl.innerHTML = '투자 모드: <span class="badge-label-mock" style="color: #ffca28; text-shadow: 0 0 5px rgba(255, 202, 40, 0.3);">모의투자 🟡</span>';
+                    modeLabelEl.innerHTML = '<span class="badge-label-mock" style="color: #ffca28; text-shadow: 0 0 5px rgba(255, 202, 40, 0.3);">모의투자 🟡</span>';
                 } else {
-                    modeLabelEl.innerHTML = '투자 모드: <span class="badge-label-live" style="color: #ff3d00;">실거래 (LIVE) 🔴</span>';
+                    modeLabelEl.innerHTML = '<span class="badge-label-live" style="color: #ff3d00;">실거래 (LIVE) 🔴</span>';
                 }
             }
         }
