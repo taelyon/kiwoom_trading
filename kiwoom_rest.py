@@ -530,7 +530,7 @@ class KiwoomRestClient:
                 return pd.DataFrame()
                 
         except Exception as e:
-            self.logger.error(f"차트 데이터 조회 중 오류: {e}", exc_info=True)
+            self.logger.error(f"차트 데이터 조회 중 오류: ({type(e).__name__}) {e}", exc_info=True)
             return pd.DataFrame()
     
     async def get_stock_tic_chart(self, code: str, tic_scope: int = 30, cont_yn: str = 'N', next_key: str = '') -> Dict:
@@ -612,7 +612,7 @@ class KiwoomRestClient:
             self.logger.warning(f"틱 차트 데이터 조회 연결 타임아웃: {code}")
             return {}
         except Exception as e:
-            self.logger.error(f"틱 차트 데이터 조회 중 오류: {e}", exc_info=True)
+            self.logger.error(f"틱 차트 데이터 조회 중 오류: ({type(e).__name__}) {e}", exc_info=True)
             return {}
     
     
@@ -675,7 +675,7 @@ class KiwoomRestClient:
             self.logger.warning(f"분봉 차트 데이터 조회 연결 타임아웃: {code}")
             return {}
         except Exception as e:
-            self.logger.error(f"분봉 차트 데이터 조회 중 오류: {e}", exc_info=True)
+            self.logger.error(f"분봉 차트 데이터 조회 중 오류: ({type(e).__name__}) {e}", exc_info=True)
             return {}
     
     async def get_deposit_detail(self) -> Dict:
