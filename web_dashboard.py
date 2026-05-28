@@ -1267,6 +1267,8 @@ HTML_CONTENT = """
                             btn.style.background = "#2e7d32";
                             btn.style.borderColor = "#2e7d32";
                             btn.style.opacity = "1";
+                            // 최신 설정 정보를 재요청하여 헤더 배지와 UI 즉시 동기화
+                            ws.send(jsonStr({ type: "get_settings" }));
                             setTimeout(() => {
                                 btn.disabled = false;
                                 btn.innerText = "설정 파라미터 적용";
