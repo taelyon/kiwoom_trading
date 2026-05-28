@@ -100,6 +100,14 @@ def safe_float_conversion(value, default=0.0):
 
 def setup_logging():
     """로그 설정"""
+    import sys
+    try:
+        # Docker 컨테이너 등에서 콘솔 로그가 지연 출력(버퍼링)되는 현상 방지
+        sys.stdout.reconfigure(line_buffering=True)
+        sys.stderr.reconfigure(line_buffering=True)
+    except Exception:
+        pass
+
     try:
         # 로그 디렉토리 생성
         log_dir = "logs"
