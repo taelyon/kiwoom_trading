@@ -1191,6 +1191,10 @@ HTML_CONTENT = """
                     }
                 });
             }
+            
+            // 페이지 로드 시 로컬 스토리지에 저장된 로그 우선 복원
+            loadPersistedLogs();
+
             const savedPass = localStorage.getItem('dashboard_password');
             if (savedPass) {
                 currentPassword = savedPass;
@@ -1413,18 +1417,20 @@ HTML_CONTENT = """
             }
         }
 
-        // 로그 메시지 화면 추가
-        function appendLog(log) {
-            // 경쟁 상태 등으로 인한 동일 로그 중복 출력 방지
-            if (log.timestamp === lastLoggedTime && log.message === lastLoggedMsg) {
+        // 개별 로그 렌더링 함수
+        function renderLog(log) {
+            const container = document.getElementById('terminalBody');
+            
+            // 동일 ID를 가진 로그가 이미 화면에 출력되었는지 확인 (중복 출력 방지)
+            if (log.id && document.getElementById(`log-item-${log.id}`)) {
                 return;
             }
-            lastLoggedTime = log.timestamp;
-            lastLoggedMsg = log.message;
 
-            const container = document.getElementById('terminalBody');
             const row = document.createElement('div');
             row.className = 'log-line';
+            if (log.id) {
+                row.id = `log-item-${log.id}`;
+            }
 
             let lvlClass = "log-lvl-info";
             if (log.level === 'WARNING') lvlClass = "log-lvl-warn";
@@ -1440,8 +1446,51 @@ HTML_CONTENT = """
             container.appendChild(row);
             container.scrollTop = container.scrollHeight;
 
-            while (container.childNodes.length > 300) {
+            while (container.childNodes.length > 500) {
                 container.removeChild(container.firstChild);
+            }
+        }
+
+        // 로컬 스토리지에 저장된 로그 불러와 출력
+        function loadPersistedLogs() {
+            try {
+                const savedLogs = JSON.parse(localStorage.getItem('dashboard_logs')) || [];
+                const container = document.getElementById('terminalBody');
+                if (savedLogs.length > 0) {
+                    container.innerHTML = ''; // 초기화
+                    savedLogs.forEach(log => {
+                        renderLog(log);
+                    });
+                }
+            } catch (e) {
+                console.error("로컬 스토리지 로그 복원 실패:", e);
+            }
+        }
+
+        // 로그 메시지 화면 추가 및 로컬 스토리지 영구 저장
+        function appendLog(log) {
+            // 중복 메시지 방지
+            if (log.timestamp === lastLoggedTime && log.message === lastLoggedMsg) {
+                return;
+            }
+            lastLoggedTime = log.timestamp;
+            lastLoggedMsg = log.message;
+
+            renderLog(log);
+
+            // 로컬 스토리지 저장 처리
+            try {
+                let savedLogs = JSON.parse(localStorage.getItem('dashboard_logs')) || [];
+                // 중복 검사 후 리스트에 삽입
+                if (!savedLogs.some(item => item.id === log.id)) {
+                    savedLogs.push(log);
+                    if (savedLogs.length > 500) {
+                        savedLogs.shift();
+                    }
+                    localStorage.setItem('dashboard_logs', JSON.stringify(savedLogs));
+                }
+            } catch (e) {
+                console.error("로컬 스토리지 로그 저장 실패:", e);
             }
         }
         // 전략 선택 박스 변경 핸들러
