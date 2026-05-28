@@ -658,14 +658,14 @@ class KiwoomWebSocketClient:
                 daily_net_buy_str = values.get('945', '0')  # 당일순매수량
                 daily_total_profit_str = values.get('950', '0')  # 당일총매도손익
                 
-                # 데이터 변환
-                quantity = int(quantity_str) if quantity_str else 0
-                current_price = float(current_price_str) if current_price_str else 0.0
-                average_price = float(average_price_str) if average_price_str else 0.0
-                total_purchase = float(total_purchase_str) if total_purchase_str else 0.0
-                order_available_qty = int(order_available_qty_str) if order_available_qty_str else 0
-                daily_net_buy = int(daily_net_buy_str) if daily_net_buy_str else 0
-                daily_total_profit = float(daily_total_profit_str) if daily_total_profit_str else 0.0 
+                # 데이터 변환 (안전하게 문자열 변환 후 기호 및 쉼표 제거)
+                quantity = int(float(str(quantity_str).replace('+', '').replace('-', '').replace(',', ''))) if quantity_str else 0
+                current_price = abs(float(str(current_price_str).replace('+', '').replace('-', '').replace(',', ''))) if current_price_str else 0.0
+                average_price = abs(float(str(average_price_str).replace('+', '').replace('-', '').replace(',', ''))) if average_price_str else 0.0
+                total_purchase = abs(float(str(total_purchase_str).replace('+', '').replace('-', '').replace(',', ''))) if total_purchase_str else 0.0
+                order_available_qty = int(float(str(order_available_qty_str).replace('+', '').replace('-', '').replace(',', ''))) if order_available_qty_str else 0
+                daily_net_buy = int(float(str(daily_net_buy_str).replace('+', '').replace('-', '').replace(',', ''))) if daily_net_buy_str else 0
+                daily_total_profit = float(str(daily_total_profit_str).replace('+', '').replace('-', '').replace(',', '')) if daily_total_profit_str else 0.0 
                 
                 # 수량이 0보다 큰 경우에만 처리
                 if quantity > 0:
@@ -1140,8 +1140,8 @@ class KiwoomWebSocketClient:
                     current_price_raw = values.get('10', '0')
                     
                     try:
-                        current_price = float(current_price_raw.replace('+', '').replace('-', '').replace(',', ''))
-                    except (ValueError, AttributeError):
+                        current_price = abs(float(str(current_price_raw).replace('+', '').replace('-', '').replace(',', '')))
+                    except (ValueError, TypeError):
                         self.logger.warning(f"현재가 파싱 실패: {current_price_raw}")
                         return
                     
@@ -1153,8 +1153,8 @@ class KiwoomWebSocketClient:
                         strength_raw = values.get('228', '0')
                         
                         try:
-                            volume = int(volume_raw.replace('+', '').replace('-', '').replace(',', ''))
-                        except (ValueError, AttributeError):
+                            volume = int(float(str(volume_raw).replace('+', '').replace('-', '').replace(',', '')))
+                        except (ValueError, TypeError):
                             volume = 0
                         
                         try:
@@ -1232,8 +1232,8 @@ class KiwoomWebSocketClient:
                     current_price_raw = values.get('10', '0')
                     
                     try:
-                        current_price = float(current_price_raw.replace('+', '').replace('-', '').replace(',', ''))
-                    except (ValueError, AttributeError):
+                        current_price = abs(float(str(current_price_raw).replace('+', '').replace('-', '').replace(',', '')))
+                    except (ValueError, TypeError):
                         self.logger.warning(f"현재가 파싱 실패: {current_price_raw}")
                         return
                     
@@ -1245,8 +1245,8 @@ class KiwoomWebSocketClient:
                         strength_raw = values.get('228', '0')
                         
                         try:
-                            volume = int(volume_raw.replace('+', '').replace('-', '').replace(',', ''))
-                        except (ValueError, AttributeError):
+                            volume = int(float(str(volume_raw).replace('+', '').replace('-', '').replace(',', '')))
+                        except (ValueError, TypeError):
                             volume = 0
                         
                         try:

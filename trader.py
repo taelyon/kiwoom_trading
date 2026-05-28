@@ -736,15 +736,16 @@ class AutoTrader:
                     self.logger.debug("🔍 자동매매 실행 중 - 모니터링 종목 없음")
                 self._last_status_log_time = current_time
             
-            # 서킷 브레이커
+            # 서킷 브레이커 (계좌 총수익률 기준)
             ws_client = getattr(self.parent.login_handler, 'websocket_client', None)
-            if ws_client and hasattr(ws_client, 'balance_data') and len(ws_client.balance_data) > 0:
-                total_purchase = sum(data.get('purchase_amount', 0) for data in ws_client.balance_data.values() if isinstance(data, dict))
-                total_profit = sum(data.get('profit_loss', 0) for data in ws_client.balance_data.values() if isinstance(data, dict))
-                
-                if total_purchase > 0:
-                    global_profit_rate = (total_profit / total_purchase) * 100
-                    circuit_breaker_pct = self.trader.client.config.getfloat('TRADING', 'global_stoploss_pct', fallback=-5.0)
+            if ws_client and hasattr(ws_client, 'balance_data'):
+                prime_cash = getattr(self.trader, 'prime_cash', 0)
+                if prime_cash > 0:
+                    available_cash = getattr(self.trader, '_cash_cache', 0)
+                    total_valuation = sum(data.get('evaluation_amount', 0) for data in ws_client.balance_data.values() if isinstance(data, dict))
+                    total_assets = available_cash + total_valuation
+                    global_profit_rate = ((total_assets - prime_cash) / prime_cash) * 100
+                    circuit_breaker_pct = self.trader.client.config.getfloat('TRADING', 'global_stoploss_pct', fallback=-10.0)
                     
                     if global_profit_rate <= circuit_breaker_pct:
                         if not getattr(self, 'circuit_breaker_triggered', False):

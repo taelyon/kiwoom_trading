@@ -683,6 +683,7 @@ class KiwoomRestClient:
         예수금, 출금가능금액, 주문가능금액 등을 조회합니다.
         """
         try:
+            await ApiLimitManager.check_api_limit_and_wait_async("예수금상세현황 조회", request_type="deposit")
             await self._ensure_client()
             if not await self.check_token_validity():
                 return {}
@@ -749,6 +750,7 @@ class KiwoomRestClient:
                 return self._balance_cache
 
         try:
+            await ApiLimitManager.check_api_limit_and_wait_async("계좌평가현황 조회", request_type="deposit")
             await self._ensure_client()
             if not await self.check_token_validity():
                 return {}
@@ -812,6 +814,7 @@ class KiwoomRestClient:
             dict: API 응답 데이터 (실패 시 빈 딕셔너리)
         """
         try:
+            await ApiLimitManager.check_api_limit_and_wait_async("계좌평가잔고내역 조회", request_type="deposit")
             await self._ensure_client()
             if not await self.check_token_validity():
                 return {}
@@ -864,6 +867,7 @@ class KiwoomRestClient:
             tuple[float, float]: (당일 총 실현 손익, 당일 총 실현 손익률)
         """
         try:
+            await ApiLimitManager.check_api_limit_and_wait_async("당일 실현 손익 조회", request_type="deposit")
             await self._ensure_client()
             if not await self.check_token_validity():
                 return 0.0, 0.0
