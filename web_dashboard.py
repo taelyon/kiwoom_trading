@@ -78,6 +78,20 @@ log_counter_lock = threading.Lock()
 # 활성 차트 구독 관리 { websocket: subscribed_code }
 subscribed_charts = {}
 
+async def safe_send(websocket, data):
+    """주어진 웹소켓에 대해 동시 전송(ConcurrencyError)을 방지하기 위한 안전한 직렬화 전송 함수"""
+    if not websocket.open:
+        return False
+    if not hasattr(websocket, 'send_lock'):
+        websocket.send_lock = asyncio.Lock()
+    async with websocket.send_lock:
+        try:
+            await websocket.send(data)
+            return True
+        except Exception as e:
+            logging.debug(f"웹소켓 safe_send 오류: {e}")
+            return False
+
 class WebDashboardLogHandler(logging.Handler):
     """Python 로깅 이벤트를 웹 대시보드 클라이언트로 실시간 전달하기 위한 핸들러"""
     def __init__(self):
@@ -2336,21 +2350,21 @@ async def websocket_handler(websocket):
                         authenticated = True
                         logging.info(f"🔑 대시보드 로그인 성공! (연결 브라우저: {len(connected_clients) + 1}개)")
                         
-                        await websocket.send(json.dumps({
+                        await safe_send(websocket, json.dumps({
                             "type": "auth_result",
                             "success": True
                         }))
                         
                         # 최초 연결 시 상태 전송
                         status_data = get_current_status_data()
-                        await websocket.send(json.dumps(status_data))
+                        await safe_send(websocket, json.dumps(status_data))
                         
                         # 최근 로그 스트리밍 (최대 150개)
                         current_logs = list(log_queue)
                         last_id = 0
                         for log_entry in current_logs:
                             try:
-                                await websocket.send(json.dumps(log_entry))
+                                await safe_send(websocket, json.dumps(log_entry))
                                 last_id = max(last_id, log_entry.get('id', 0))
                             except Exception: pass
                         websocket.last_sent_log_id = last_id
@@ -2374,7 +2388,7 @@ async def websocket_handler(websocket):
                                 create_fire_and_forget_task(app.data_manager._cache_all_stock_codes_async())
                     else:
                         logging.warning("⚠️ 대시보드 로그인 실패: 비밀번호 불일치")
-                        await websocket.send(json.dumps({
+                        await safe_send(websocket, json.dumps({
                             "type": "auth_result",
                             "success": False,
                             "message": "비밀번호가 일치하지 않습니다."
@@ -2384,13 +2398,13 @@ async def websocket_handler(websocket):
 
                 if msg_type == 'ping':
                     try:
-                        await websocket.send(json.dumps({"type": "pong"}))
+                        await safe_send(websocket, json.dumps({"type": "pong"}))
                     except Exception:
                         pass
                     continue
 
                 if not authenticated:
-                    await websocket.send(json.dumps({
+                    await safe_send(websocket, json.dumps({
                         "type": "auth_result",
                         "success": False,
                         "message": "인증 정보가 없습니다."
@@ -2450,7 +2464,7 @@ async def websocket_handler(websocket):
                         "simulation": config.getboolean('KIWOOM_API', 'simulation', fallback=False),
                         "condition_list": getattr(app, 'condition_search_list', []) or []
                     }
-                    await websocket.send(json.dumps({
+                    await safe_send(websocket, json.dumps({
                         "type": "settings",
                         "settings": settings
                     }))
@@ -2507,7 +2521,7 @@ async def websocket_handler(websocket):
                         config.save()
                         logging.info(f"✅ [{strategy_name}] 매수 {len(buy_stgs)}개, 매도 {len(sell_stgs)}개 전략 로드 완료")
                     
-                    await websocket.send(json.dumps({
+                    await safe_send(websocket, json.dumps({
                         "type": "strategy_detail",
                         "strategy": strategy_name,
                         "buy": buy_stgs,
@@ -2633,14 +2647,14 @@ async def websocket_handler(websocket):
                         logging.info("💾 대시보드 제어: .env 설정 수정 및 적용 완료")
                         
                         # 웹소켓 클라이언트에 성공 결과 응답
-                        await websocket.send(json.dumps({
+                        await safe_send(websocket, json.dumps({
                             "type": "save_settings_result",
                             "success": True,
                             "message": "설정이 성공적으로 저장 및 적용되었습니다."
                         }))
                     except Exception as save_err:
                         logging.error(f"❌ 대시보드 설정 적용 중 예외 발생: {save_err}", exc_info=True)
-                        await websocket.send(json.dumps({
+                        await safe_send(websocket, json.dumps({
                             "type": "save_settings_result",
                             "success": False,
                             "message": f"설정 저장 실패: {str(save_err)}"
@@ -2757,7 +2771,7 @@ async def websocket_handler(websocket):
                                     min_history = min_history[-120:]
                                 
                                 if tic_history or min_history:
-                                    await websocket.send(json.dumps({
+                                    await safe_send(websocket, json.dumps({
                                         "type": "chart_history",
                                         "code": code,
                                         "tic_history": tic_history,
@@ -2935,7 +2949,7 @@ def on_chart_data_updated(code):
                 sent_history = getattr(ws, 'sent_chart_history', {})
                 if not sent_history.get(code):
                     try:
-                        await ws.send(json.dumps({
+                        await safe_send(ws, json.dumps({
                             "type": "chart_history",
                             "code": code,
                             "tic_history": tic_history,
@@ -2949,7 +2963,7 @@ def on_chart_data_updated(code):
                 
                 # 실시간 틱/분봉 캔들 전송
                 try:
-                    await ws.send(json.dumps({
+                    await safe_send(ws, json.dumps({
                         "type": "chart_tick",
                         "code": code,
                         "tic_candle": tic_candle,
@@ -2967,7 +2981,7 @@ async def dashboard_data_broadcast_loop():
             if connected_clients:
                 status_data = get_current_status_data()
                 message = json.dumps(status_data)
-                await asyncio.gather(*[client.send(message) for client in connected_clients], return_exceptions=True)
+                await asyncio.gather(*[safe_send(client, message) for client in connected_clients], return_exceptions=True)
         except Exception as e:
             logging.error(f"대시보드 브로드캐스트 루프 에러: {e}")
         await asyncio.sleep(1.0)
@@ -2989,7 +3003,7 @@ async def dashboard_log_broadcast_loop():
                         max_id = last_sent
                         for log in unsent_logs:
                             try:
-                                await client.send(json.dumps(log))
+                                await safe_send(client, json.dumps(log))
                                 max_id = max(max_id, log.get('id', 0))
                             except Exception:
                                 break
