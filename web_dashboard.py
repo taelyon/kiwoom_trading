@@ -2513,11 +2513,8 @@ async def websocket_handler(websocket):
                                             if m_macd_hist and len(m_macd_hist) > idx and not math.isnan(float(m_macd_hist[idx])): item["macd_hist"] = float(m_macd_hist[idx])
                                             min_history.append(item)
                                         except Exception: pass
-                                    # 최신 데이터 시점 기준 최근 6시간 데이터로 필터링
-                                    if min_history:
-                                        latest_time = min_history[-1]["time"]
-                                        limit_time = latest_time - (6 * 3600)
-                                        min_history = [bar for bar in min_history if bar["time"] >= limit_time]
+                                    # 최근 120개 캔들(3분봉 기준 6시간)로 제한
+                                    min_history = min_history[-120:]
                                 
                                 if tic_history or min_history:
                                     await websocket.send(json.dumps({
@@ -2644,11 +2641,8 @@ def on_chart_data_updated(code):
                 if m_macd_hist and len(m_macd_hist) > idx and not math.isnan(float(m_macd_hist[idx])): item["macd_hist"] = float(m_macd_hist[idx])
                 min_history.append(item)
             except Exception: pass
-        # 최신 데이터 시점 기준 최근 6시간 데이터로 필터링
-        if min_history:
-            latest_time = min_history[-1]["time"]
-            limit_time = latest_time - (6 * 3600)
-            min_history = [bar for bar in min_history if bar["time"] >= limit_time]
+        # 최근 120개 캔들(3분봉 기준 6시간)로 제한
+        min_history = min_history[-120:]
 
     # 2. 실시간 틱 데이터 가공
     tic_candle = None
