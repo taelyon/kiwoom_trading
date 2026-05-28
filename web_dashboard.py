@@ -353,6 +353,25 @@ HTML_CONTENT = """
             color: var(--danger);
         }
 
+        .status-badge.mode-mock {
+            background: rgba(255, 193, 7, 0.1);
+            border: 1px solid rgba(255, 193, 7, 0.2);
+            color: #ffca28;
+        }
+
+        .status-badge.mode-live {
+            background: rgba(255, 61, 0, 0.1);
+            border: 1px solid rgba(255, 61, 0, 0.2);
+            color: #ff3d00;
+            animation: pulse-live 2s infinite;
+        }
+
+        @keyframes pulse-live {
+            0% { box-shadow: 0 0 0 0 rgba(255, 61, 0, 0.4); }
+            70% { box-shadow: 0 0 0 6px rgba(255, 61, 0, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(255, 61, 0, 0); }
+        }
+
         /* 스위치 토글 스타일 (자동매매용) */
         .switch-container {
             display: flex;
@@ -945,6 +964,11 @@ HTML_CONTENT = """
                         <span class="slider"></span>
                     </label>
                 </div>
+                <!-- 투자 모드 표시 -->
+                <div id="investmentMode" class="status-badge mode-mock">
+                    <span style="width: 8px; height: 8px; border-radius: 50%; background-color: #ffca28; box-shadow: 0 0 8px #ffca28;"></span>
+                    모의투자
+                </div>
                 <!-- 연결 상태 표시 -->
                 <div id="connectionStatus" class="status-badge">
                     <span style="width: 8px; height: 8px; border-radius: 50%; background-color: var(--success); box-shadow: 0 0 8px var(--success);"></span>
@@ -1041,6 +1065,13 @@ HTML_CONTENT = """
                                 <label for="cfgStrategy">대표 매매 전략</label>
                                 <select id="cfgStrategy" onchange="onStrategyChange(this.value)">
                                     <!-- 키움증권 조건식 목록이 동적으로 채워집니다 -->
+                                </select>
+                            </div>
+                            <div class="form-field">
+                                <label for="cfgSimulation">투자 모드</label>
+                                <select id="cfgSimulation">
+                                    <option value="true">모의투자 (MOCK)</option>
+                                    <option value="false">실제투자 (LIVE)</option>
                                 </select>
                             </div>
                         </div>
@@ -1444,6 +1475,23 @@ HTML_CONTENT = """
             
             // 전략별 매수/매도 리스트 가져오기 호출
             onStrategyChange(selectEl.value);
+
+            // 투자 모드 및 뱃지 업데이트
+            const simulation = settings.simulation;
+            const modeEl = document.getElementById('investmentMode');
+            const simSelectEl = document.getElementById('cfgSimulation');
+            if (simSelectEl) {
+                simSelectEl.value = simulation ? "true" : "false";
+            }
+            if (modeEl) {
+                if (simulation) {
+                    modeEl.className = "status-badge mode-mock";
+                    modeEl.innerHTML = `<span style="width: 8px; height: 8px; border-radius: 50%; background-color: #ffca28; box-shadow: 0 0 8px #ffca28;"></span>모의투자`;
+                } else {
+                    modeEl.className = "status-badge mode-live";
+                    modeEl.innerHTML = `<span style="width: 8px; height: 8px; border-radius: 50%; background-color: #ff3d00; box-shadow: 0 0 8px #ff3d00;"></span>실거래 (LIVE)`;
+                }
+            }
         }
 
 // 백엔드로부터 전략 상세 수신 시 바인딩
@@ -1464,12 +1512,14 @@ HTML_CONTENT = """
         function saveSettings() {
             const buycount = document.getElementById('cfgBuyCount').value;
             const strategy = document.getElementById('cfgStrategy').value;
+            const simulation = document.getElementById('cfgSimulation').value === 'true';
             
             const req = {
                 type: "save_settings",
                 settings: {
                     buycount: buycount,
-                    last_strategy: strategy
+                    last_strategy: strategy,
+                    simulation: simulation
                 }
             };
             
@@ -2263,6 +2313,7 @@ async def websocket_handler(websocket):
                     settings = {
                         "buycount": config.get('SETTINGS', 'buycount', fallback='3'),
                         "last_strategy": config.get('SETTINGS', 'last_strategy', fallback='통합 전략'),
+                        "simulation": config.getboolean('KIWOOM_API', 'simulation', fallback=False),
                         "condition_list": getattr(app, 'condition_search_list', []) or []
                     }
                     await websocket.send(json.dumps({
@@ -2342,6 +2393,15 @@ async def websocket_handler(websocket):
                         if 'dashboard_password' in new_settings:
                             config.set('SETTINGS', 'dashboard_password', str(new_settings['dashboard_password']))
                             
+                        simulation_changed = False
+                        if 'simulation' in new_settings:
+                            new_sim = new_settings['simulation']
+                            new_sim_bool = new_sim if isinstance(new_sim, bool) else (str(new_sim).lower() in ('true', '1', 't', 'y', 'yes'))
+                            old_sim_bool = config.getboolean('KIWOOM_API', 'simulation', fallback=False)
+                            if new_sim_bool != old_sim_bool:
+                                config.set('KIWOOM_API', 'simulation', 'true' if new_sim_bool else 'false')
+                                simulation_changed = True
+                            
                         # 매수/매도 세부 전략 JSON 저장 (편집 가능한 개별 전략일 때만)
                         target_stg = new_settings.get('last_strategy')
                         if target_stg and config.has_section(target_stg) and target_stg not in ["통합 전략", "통합전략"]:
@@ -2375,13 +2435,59 @@ async def websocket_handler(websocket):
                             
                         # .env 디스크 파일 저장 및 메모리 로드
                         config.save_config()
-                        app.login_handler.load_settings_sync()
-                        if app.trader:
-                            # trader.py 설정값 재조정
-                            app.trader.buycount = int(new_settings.get('buycount', app.trader.buycount))
-                        if app.objstg:
-                            # strategy.py 설정 재조정
-                            app.objstg.load_strategy_config()
+                        
+                        if simulation_changed:
+                            logging.info(f"🔄 투자 모드가 변경되었습니다 ({'실제투자' if old_sim_bool else '모의투자'} -> {'실제투자' if new_sim_bool else '모의투자'}). API 연결을 재시작합니다.")
+                            if app.login_handler:
+                                if hasattr(app.login_handler, 'websocket_client') and app.login_handler.websocket_client:
+                                    logging.info("🔌 기존 웹소켓 클라이언트 중단 중...")
+                                    try:
+                                        await app.login_handler.websocket_client.stop()
+                                    except Exception as ws_stop_err:
+                                        logging.error(f"❌ 웹소켓 중단 에러: {ws_stop_err}")
+                                if hasattr(app.login_handler, 'kiwoom_client') and app.login_handler.kiwoom_client:
+                                    logging.info("🔌 기존 키움 REST 클라이언트 연결 해제 중...")
+                                    try:
+                                        await app.login_handler.kiwoom_client.disconnect()
+                                    except Exception as rest_disc_err:
+                                        logging.error(f"❌ REST 클라이언트 해제 에러: {rest_disc_err}")
+                                
+                                app.update_connection_status(False)
+                                
+                                # 기존 trader 및 strategy 객체 파괴
+                                app.trader = None
+                                app.objstg = None
+                                app._post_login_setup_done = False
+                                
+                                # 갱신된 설정을 명시적으로 reload
+                                app.login_handler.config.reload()
+                                app.login_handler.load_settings_sync()
+                                
+                                # 새로운 투자 모드로 API 연결 시도
+                                logging.info("🔌 새로운 투자 모드로 API 연결 시도 중...")
+                                await app.login_handler.handle_api_connection()
+                                await app.login_handler.start_websocket_client()
+                                
+                                if app.login_handler.kiwoom_client and app.login_handler.kiwoom_client.is_connected:
+                                    app.update_connection_status(True)
+                                    logging.info("✅ 새로운 투자 모드로 API 연결 성공!")
+                                    
+                                    # autotrader의 trader 참조 업데이트
+                                    if app.autotrader:
+                                        app.autotrader.trader = app.trader
+                                    
+                                    # post_login_setup 재실행
+                                    await app.post_login_setup()
+                                else:
+                                    logging.error("❌ 새로운 투자 모드로 API 연결 실패!")
+                        else:
+                            app.login_handler.load_settings_sync()
+                            if app.trader:
+                                # trader.py 설정값 재조정
+                                app.trader.buycount = int(new_settings.get('buycount', app.trader.buycount))
+                            if app.objstg:
+                                # strategy.py 설정 재조정
+                                app.objstg.load_strategy_config()
                             
                         # 대표 매매 전략 변경에 맞춰 감시 대상 조건검색식과 실시간 감시 종목을 전환합니다.
                         target_stg = new_settings.get('last_strategy')
