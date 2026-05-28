@@ -78,19 +78,25 @@ log_counter_lock = threading.Lock()
 # 활성 차트 구독 관리 { websocket: subscribed_code }
 subscribed_charts = {}
 
+# 클라이언트 세션별 상태 및 락 관리 딕셔너리 { websocket: { "send_lock": asyncio.Lock, "last_sent_log_id": int, "sent_chart_history": dict } }
+client_sessions = collections.defaultdict(lambda: {
+    "send_lock": asyncio.Lock(),
+    "last_sent_log_id": 0,
+    "sent_chart_history": {}
+})
+
 async def safe_send(websocket, data):
     """주어진 웹소켓에 대해 동시 전송(ConcurrencyError)을 방지하기 위한 안전한 직렬화 전송 함수"""
     if not websocket.open:
         return False
-    if not hasattr(websocket, 'send_lock'):
-        websocket.send_lock = asyncio.Lock()
-    async with websocket.send_lock:
-        try:
+    try:
+        session = client_sessions[websocket]
+        async with session["send_lock"]:
             await websocket.send(data)
             return True
-        except Exception as e:
-            logging.debug(f"웹소켓 safe_send 오류: {e}")
-            return False
+    except Exception as e:
+        logging.debug(f"웹소켓 safe_send 오류: {e}")
+        return False
 
 class WebDashboardLogHandler(logging.Handler):
     """Python 로깅 이벤트를 웹 대시보드 클라이언트로 실시간 전달하기 위한 핸들러"""
@@ -2367,7 +2373,7 @@ async def websocket_handler(websocket):
                                 await safe_send(websocket, json.dumps(log_entry))
                                 last_id = max(last_id, log_entry.get('id', 0))
                             except Exception: pass
-                        websocket.last_sent_log_id = last_id
+                        client_sessions[websocket]["last_sent_log_id"] = last_id
                         
                         # 초기 데이터 전송 완료 후 브로드캐스트 리스트에 등록하여 동시 전송 레이스 방지
                         connected_clients.add(websocket)
@@ -2665,9 +2671,7 @@ async def websocket_handler(websocket):
                     if code:
                         subscribed_charts[websocket] = code
                         # 해당 웹소켓의 역사적 데이터 전송 여부 초기화
-                        if not hasattr(websocket, 'sent_chart_history'):
-                            websocket.sent_chart_history = {}
-                        websocket.sent_chart_history[code] = False
+                        client_sessions[websocket]["sent_chart_history"][code] = False
                         
                         if app.chart_cache:
                             # 만약 캐시에 없는 종목이거나 데이터가 유실된 경우 백그라운드 수집 즉시 요청
@@ -2777,7 +2781,7 @@ async def websocket_handler(websocket):
                                         "tic_history": tic_history,
                                         "min_history": min_history
                                     }))
-                                    websocket.sent_chart_history[code] = True
+                                    client_sessions[websocket]["sent_chart_history"][code] = True
                                     logging.debug(f"📊 대시보드: {code} 역사적 차트 데이터 스트리밍 완료 (틱:{len(tic_history)}개, 분봉:{len(min_history)}개)")
                                 else:
                                     logging.debug(f"📊 대시보드: {code} 차트 데이터 캐시가 없어 백그라운드 수집을 기다립니다.")
@@ -2796,6 +2800,8 @@ async def websocket_handler(websocket):
             connected_clients.remove(websocket)
         if websocket in subscribed_charts:
             del subscribed_charts[websocket]
+        if websocket in client_sessions:
+            del client_sessions[websocket]
         logging.info(f"🔴 대시보드 웹 브라우저 연결 종료 [코드:{close_code}] (현재 연결 브라우저: {len(connected_clients)}개)")
 
 # 차트 데이터 업데이트 통보 처리 (TradingApp 단에서 이벤트를 쏠 때 호출됨)
@@ -2946,8 +2952,8 @@ def on_chart_data_updated(code):
         for ws, sc_code in list(subscribed_charts.items()):
             if sc_code == code:
                 # 역사적 데이터를 아직 보내지 않았다면 역사적 데이터부터 전송
-                sent_history = getattr(ws, 'sent_chart_history', {})
-                if not sent_history.get(code):
+                session = client_sessions[ws]
+                if not session["sent_chart_history"].get(code):
                     try:
                         await safe_send(ws, json.dumps({
                             "type": "chart_history",
@@ -2955,9 +2961,7 @@ def on_chart_data_updated(code):
                             "tic_history": tic_history,
                             "min_history": min_history
                         }))
-                        if not hasattr(ws, 'sent_chart_history'):
-                            ws.sent_chart_history = {}
-                        ws.sent_chart_history[code] = True
+                        session["sent_chart_history"][code] = True
                     except Exception:
                         continue
                 
@@ -2996,7 +3000,8 @@ async def dashboard_log_broadcast_loop():
                 for client in list(connected_clients):
                     if not client.open:
                         continue
-                    last_sent = getattr(client, 'last_sent_log_id', 0)
+                    session = client_sessions[client]
+                    last_sent = session["last_sent_log_id"]
                     # 아직 이 클라이언트에게 전송되지 않은 신규 로그만 필터링
                     unsent_logs = [log for log in current_logs if log.get('id', 0) > last_sent]
                     if unsent_logs:
@@ -3007,7 +3012,7 @@ async def dashboard_log_broadcast_loop():
                                 max_id = max(max_id, log.get('id', 0))
                             except Exception:
                                 break
-                        client.last_sent_log_id = max_id
+                        session["last_sent_log_id"] = max_id
         except Exception:
             pass
         await asyncio.sleep(0.1)
