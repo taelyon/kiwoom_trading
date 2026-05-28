@@ -985,7 +985,7 @@ HTML_CONTENT = """
                     <div class="glass-card">
                         <div class="card-title">총 평가자산</div>
                         <div id="totalAssets" class="card-value">0원</div>
-                        <div id="totalProfitText" class="card-subtext">평가손익: <span class="up-trend">0원 (0.00%)</span></div>
+                        <div id="totalProfitText" class="card-subtext">누적 총손익: <span class="up-trend">0원 (0.00%)</span></div>
                     </div>
                     <div class="glass-card">
                         <div class="card-title">매수가능 현금 (예수금)</div>
@@ -1338,9 +1338,9 @@ HTML_CONTENT = """
             const profitSpan = document.getElementById('totalProfitText');
             
             if (totalProfit >= 0) {
-                profitSpan.innerHTML = `평가손익: <span class="up-trend">+${Number(totalProfit).toLocaleString()}원 (+${totalProfitRate.toFixed(2)}%)</span>`;
+                profitSpan.innerHTML = `누적 총손익: <span class="up-trend">+${Number(totalProfit).toLocaleString()}원 (+${totalProfitRate.toFixed(2)}%)</span>`;
             } else {
-                profitSpan.innerHTML = `평가손익: <span class="down-trend">${Number(totalProfit).toLocaleString()}원 (${totalProfitRate.toFixed(2)}%)</span>`;
+                profitSpan.innerHTML = `누적 총손익: <span class="down-trend">${Number(totalProfit).toLocaleString()}원 (${totalProfitRate.toFixed(2)}%)</span>`;
             }
 
             const tbody = document.getElementById('portfolioBody');
