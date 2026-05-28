@@ -2334,8 +2334,7 @@ async def websocket_handler(websocket):
                     
                     if password == expected_password:
                         authenticated = True
-                        connected_clients.add(websocket)
-                        logging.info(f"🔑 대시보드 로그인 성공! (연결 브라우저: {len(connected_clients)}개)")
+                        logging.info(f"🔑 대시보드 로그인 성공! (연결 브라우저: {len(connected_clients) + 1}개)")
                         
                         await websocket.send(json.dumps({
                             "type": "auth_result",
@@ -2355,6 +2354,9 @@ async def websocket_handler(websocket):
                                 last_id = max(last_id, log_entry.get('id', 0))
                             except Exception: pass
                         websocket.last_sent_log_id = last_id
+                        
+                        # 초기 데이터 전송 완료 후 브로드캐스트 리스트에 등록하여 동시 전송 레이스 방지
+                        connected_clients.add(websocket)
                         
                         app = main_window_ref
                         # 로그인 직후 감시 종목들의 차트 데이터를 백그라운드에서 사전 수집(Pre-fetching)하여 캐시 완비
