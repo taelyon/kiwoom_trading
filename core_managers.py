@@ -1265,7 +1265,8 @@ class AccountManager:
                 deposit_data = await parent.trader.client.get_deposit_detail()
                 if deposit_data:
                     self.logger.debug("✅ 예수금상세현황 조회 성공")
-                    entr_amount = parent.data_manager.safe_int(deposit_data.get('entr', 0))
+                    # 'ord_alow_amt' (주문가능금액)을 우선 예수금으로 활용하고, 없으면 'entr' 사용
+                    entr_amount = parent.data_manager.safe_int(deposit_data.get('ord_alow_amt', deposit_data.get('entr', 0)))
                     parent.trader._cash_cache = entr_amount
                     
                     ws_client = getattr(parent.login_handler, 'websocket_client', None)
@@ -1307,8 +1308,9 @@ class AccountManager:
             # 1. 예수금상세현황 조회
             try:
                 deposit_data = await self.parent.trader.client.get_deposit_detail()
-                if deposit_data and 'entr' in deposit_data:
-                    entr_amount = self.parent.data_manager.safe_int(deposit_data.get('entr', 0))
+                if deposit_data:
+                    # 'ord_alow_amt' (주문가능금액)을 우선 예수금으로 활용하고, 없으면 'entr' 사용
+                    entr_amount = self.parent.data_manager.safe_int(deposit_data.get('ord_alow_amt', deposit_data.get('entr', 0)))
                     self.logger.info(f"예수금: {entr_amount:,}원")
                     
                     if hasattr(self.parent, 'trader') and self.parent.trader:
