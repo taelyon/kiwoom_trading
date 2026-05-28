@@ -48,6 +48,7 @@ class KiwoomTrader:
         self.execution_data = {}  # 웹소켓 실시간 체결 데이터
         
         # 현금 조회 캐시 (API 호출 빈도 제한)
+        self.prime_cash = 0
         self._cash_cache = 0.0
         self._cash_cache_time = 0
         # 예수금 조회 동시성 제어를 위한 Lock

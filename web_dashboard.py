@@ -2072,7 +2072,6 @@ def get_current_status_data():
 
         # 2. 자산 현황 요약 계산
         total_purchase = sum(data.get('purchase_amount', 0) for data in ws_balance.values() if isinstance(data, dict))
-        total_profit = sum(data.get('profit_loss', 0) for data in ws_balance.values() if isinstance(data, dict))
         total_valuation = sum(data.get('valuation_amount', 0) for data in ws_balance.values() if isinstance(data, dict))
         
         # available_cash 추출
@@ -2084,7 +2083,16 @@ def get_current_status_data():
                 available_cash = app.trader.get_balance_data().get('available_cash', 0)
             
         total_assets = available_cash + total_valuation
-        total_profit_rate = (total_profit / total_purchase * 100) if total_purchase > 0 else 0.0
+        
+        # 계좌 누적 평가손익 계산 (초기 투자 원금 대비)
+        prime_cash = getattr(app.trader, 'prime_cash', 0) if app.trader else 0
+        if prime_cash > 0:
+            total_profit = total_assets - prime_cash
+            total_profit_rate = (total_profit / prime_cash * 100)
+        else:
+            # 원금 조회 전에는 기존 보유 종목의 평가손익 합산으로 Fallback
+            total_profit = sum(data.get('profit_loss', 0) for data in ws_balance.values() if isinstance(data, dict))
+            total_profit_rate = (total_profit / total_purchase * 100) if total_purchase > 0 else 0.0
 
         # 3. 보유 종목 리스트 변환
         holdings = {}
