@@ -980,10 +980,10 @@ HTML_CONTENT = """
         <div class="dashboard-layout">
             <!-- 좌측 메인 영역 -->
             <div class="main-column">
-                <!-- 요약 계좌 현황 (총 평가자산, 매수가능 현금, 총 매입금액) -->
+                <!-- 요약 계좌 현황 (총 자산, 매수가능 현금, 총 매입금액) -->
                 <div class="summary-grid">
                     <div class="glass-card">
-                        <div class="card-title">총 평가자산</div>
+                        <div class="card-title">총 자산</div>
                         <div id="totalAssets" class="card-value">0원</div>
                         <div id="totalProfitText" class="card-subtext">누적 총손익: <span class="up-trend">0원 (0.00%)</span></div>
                     </div>
