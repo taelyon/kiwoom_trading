@@ -1106,18 +1106,6 @@ HTML_CONTENT = """
                     <div class="settings-panel">
                         <div class="order-row">
                             <div class="form-field">
-                                <label for="cfgBuyCount">최대 매수종목수 (buycount)</label>
-                                <input type="number" id="cfgBuyCount" value="3">
-                            </div>
-                            <div class="form-field">
-                                <label for="cfgStrategy">대표 매매 전략</label>
-                                <select id="cfgStrategy" onchange="onStrategyChange(this.value)">
-                                    <!-- 키움증권 조건식 목록이 동적으로 채워집니다 -->
-                                </select>
-                            </div>
-                        </div>
-                        <div class="order-row">
-                            <div class="form-field">
                                 <label for="cfgRealAppKey">실전투자 App Key</label>
                                 <input type="password" id="cfgRealAppKey" placeholder="실전 App Key">
                             </div>
@@ -1134,6 +1122,18 @@ HTML_CONTENT = """
                             <div class="form-field">
                                 <label for="cfgMockSecret">모의투자 App Secret</label>
                                 <input type="password" id="cfgMockSecret" placeholder="모의 App Secret">
+                            </div>
+                        </div>
+                        <div class="order-row">
+                            <div class="form-field">
+                                <label for="cfgBuyCount">최대 매수종목수 (buycount)</label>
+                                <input type="number" id="cfgBuyCount" value="3">
+                            </div>
+                            <div class="form-field">
+                                <label for="cfgStrategy">대표 매매 전략</label>
+                                <select id="cfgStrategy" onchange="onStrategyChange(this.value)">
+                                    <!-- 키움증권 조건식 목록이 동적으로 채워집니다 -->
+                                </select>
                             </div>
                         </div>
                         <div class="form-field">
