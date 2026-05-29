@@ -140,10 +140,11 @@ class TradingApp:
 
     async def post_login_setup(self):
         """로그인 후 핵심 거래 관련 객체 초기화 및 백그라운드 태스크 기동"""
-        if self._post_login_setup_done:
-            self.logger.debug("이미 초기화 및 설정이 완료되었습니다.")
+        if getattr(self, '_is_initializing', False) or self._post_login_setup_done:
+            self.logger.debug("이미 초기화가 진행 중이거나 완료되었습니다.")
             return
 
+        self._is_initializing = True
         try:
             self.logger.info("⚙️ 로그인 완료 후 거래 시스템 초기화 시작...")
             
@@ -209,6 +210,8 @@ class TradingApp:
         except Exception as ex:
             self.logger.error(f"❌ 로그인 후 초기화 실패: {ex}", exc_info=True)
             self.logger.debug("⚠️ 초기화 실패했지만 애플리케이션을 계속 가동합니다.")
+        finally:
+            self._is_initializing = False
 
     # --- 실시간 상태 통보용 껍데기/대시보드 통지 메서드 ---
 
