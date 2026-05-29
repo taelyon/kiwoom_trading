@@ -72,7 +72,7 @@ connected_clients = set()
 main_window_ref = None
 
 # 로그 고유 ID 발급용 카운터 및 락
-log_counter = 0
+log_counter = int(time.time() * 1000)
 log_counter_lock = threading.Lock()
 
 # 활성 차트 구독 관리 { websocket: subscribed_code }
