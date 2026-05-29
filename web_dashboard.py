@@ -1200,6 +1200,7 @@ HTML_CONTENT = """
         let lastLoggedTime = "";
         let lastLoggedMsg = "";
         let currentPassword = "";
+        let lastChartTimestamp = 0;
 
         // 페이지 로드 시 로컬 스토리지 확인 및 엔터 키 바인딩
         window.onload = () => {
@@ -1804,6 +1805,7 @@ HTML_CONTENT = """
 
         // --- TradingView 차트 그리기 ---
         function initTradingViewChart() {
+            lastChartTimestamp = 0;
             try {
                 if (typeof LightweightCharts === 'undefined') {
                     console.warn("⚠️ TradingView 라이브러리가 로드되지 않았습니다. 차트 기능이 비활성화됩니다.");
@@ -1969,6 +1971,7 @@ HTML_CONTENT = """
         }
 
         function subscribeStockChart(code, name) {
+            lastChartTimestamp = 0;
             currentChartCode = code;
             currentChartName = name; // 순수 종목 이름을 백업하여 탭 전환 시 중복 방지
             document.getElementById('chartTitle').innerText = `실시간 차트 - ${name} (${code})`;
@@ -2126,6 +2129,12 @@ HTML_CONTENT = """
             if (macdSigSeries) macdSigSeries.setData(macdSig);
             if (macdHistSeries) macdHistSeries.setData(macdHist);
 
+            if (sorted.length > 0) {
+                lastChartTimestamp = sorted[sorted.length - 1]._t;
+            } else {
+                lastChartTimestamp = 0;
+            }
+
             chart.timeScale().fitContent();
         }
 
@@ -2138,6 +2147,12 @@ HTML_CONTENT = """
             if (!candle) return;
 
             const formattedTime = parseDateTimeToTimestamp(candle.time);
+
+            // 과거 틱 데이터가 와서 lightweight-charts가 크래시되는 것을 방어
+            if (lastChartTimestamp && formattedTime < lastChartTimestamp) {
+                return;
+            }
+            lastChartTimestamp = formattedTime;
 
             const tickData = {
                 time: formattedTime,
