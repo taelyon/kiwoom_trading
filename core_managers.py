@@ -174,7 +174,7 @@ class LoginHandler:
                 self.parent.update_connection_status(True)
                 
                 is_simulation = self.config.getboolean('KIWOOM_API', 'simulation', fallback=True)
-                mode = "모의투자" if is_simulation else "실제투자"
+                mode = "모의투자" if is_simulation else "실전투자"
                 logging.debug(f"키움 REST API 연결 성공! 거래 모드: {mode}")
                 
                 try:

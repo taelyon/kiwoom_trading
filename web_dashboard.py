@@ -1015,7 +1015,7 @@ HTML_CONTENT = """
                 <!-- 투자 모드 토글 스위치 -->
                 <div class="switch-container">
                     <span id="investmentModeLabel" style="font-size: 13px; font-weight: 600;">모의투자 🟡</span>
-                    <label class="switch" title="스위치를 변경하면 투자 서버(모의투자/실거래)가 실시간으로 재연결됩니다.">
+                    <label class="switch" title="스위치를 변경하면 투자 서버(모의투자/실전투자)가 실시간으로 재연결됩니다.">
                         <input type="checkbox" id="investmentModeToggle" onchange="clickInvestmentModeToggle(this.checked)">
                         <span class="slider mode-slider"></span>
                     </label>
@@ -1615,7 +1615,7 @@ HTML_CONTENT = """
                 if (simulation) {
                     modeLabelEl.innerHTML = '<span class="badge-label-mock" style="color: #ffca28; text-shadow: 0 0 5px rgba(255, 202, 40, 0.3);">모의투자 🟡</span>';
                 } else {
-                    modeLabelEl.innerHTML = '<span class="badge-label-live" style="color: #ff3d00;">실거래 (LIVE) 🔴</span>';
+                    modeLabelEl.innerHTML = '<span class="badge-label-live" style="color: #ff3d00;">실전투자 (LIVE) 🔴</span>';
                 }
             }
         }
@@ -1718,7 +1718,7 @@ HTML_CONTENT = """
         function clickInvestmentModeToggle(checked) {
             if (isChangingInvestmentMode) return;
             
-            const targetModeText = checked ? "실거래 (LIVE)" : "모의투자 (MOCK)";
+            const targetModeText = checked ? "실전투자 (LIVE)" : "모의투자 (MOCK)";
             
             // 토글 상태 일단 되돌림 (사용자 승인 대기 목적)
             const toggleEl = document.getElementById('investmentModeToggle');
@@ -2673,7 +2673,7 @@ async def websocket_handler(websocket):
                         config.save_config()
                         
                         if simulation_changed:
-                            logging.info(f"🔄 투자 모드가 변경되었습니다 ({'모의투자' if old_sim_bool else '실제투자'} -> {'모의투자' if new_sim_bool else '실제투자'}). API 연결을 재시작합니다.")
+                            logging.info(f"🔄 투자 모드가 변경되었습니다 ({'모의투자' if old_sim_bool else '실전투자'} -> {'모의투자' if new_sim_bool else '실전투자'}). API 연결을 재시작합니다.")
                             if app.login_handler:
                                 if hasattr(app.login_handler, 'websocket_client') and app.login_handler.websocket_client:
                                     logging.info("🔌 기존 웹소켓 클라이언트 중단 중...")

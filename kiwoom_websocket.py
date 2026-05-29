@@ -25,7 +25,7 @@ class KiwoomWebSocketClient:
         if is_mock:
             self.uri = 'wss://mockapi.kiwoom.com:10000/api/dostk/websocket'  # 모의투자 웹소켓 URL
         else:
-            self.uri = 'wss://api.kiwoom.com:10000/api/dostk/websocket'  # 실제투자 웹소켓 URL
+            self.uri = 'wss://api.kiwoom.com:10000/api/dostk/websocket'  # 실전투자 웹소켓 URL
         self.logger = logging.getLogger(self.__class__.__name__)
         
         self.token = token
@@ -82,7 +82,7 @@ class KiwoomWebSocketClient:
                             self.logger.error("❌ 토큰 갱신 실패 - 연결 중단")
                             return False
 
-            mode_text = "모의투자" if self.is_mock else "실제투자" # type: ignore
+            mode_text = "모의투자" if self.is_mock else "실전투자" # type: ignore
             logging.debug(f"🔧 웹소켓 연결 시작... ({mode_text})")
             
             # 웹소켓 연결 (키움증권 예시코드와 동일)
@@ -273,7 +273,7 @@ class KiwoomWebSocketClient:
                             # 토큰 문제가 아닌 다른 오류인 경우
                             await self.disconnect()
                     else:
-                        mode_text = "모의투자" if self.is_mock else "실제투자" # type: ignore
+                        mode_text = "모의투자" if self.is_mock else "실전투자" # type: ignore
                         self.logger.debug(f'✅ 웹소켓 로그인 성공하였습니다. ({mode_text} 모드)')
                         
                         # 웹소켓 연결 성공 시 post_login_setup 실행

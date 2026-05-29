@@ -40,7 +40,7 @@ class KiwoomRestClient:
             self.app_key = self.config.get('KIWOOM_API', 'mock_appkey', fallback=legacy_app_key)
             self.app_secret = self.config.get('KIWOOM_API', 'mock_secretkey', fallback=legacy_app_secret)
         else:
-            self.logger.info("실거래 서버 사용 모드로 설정됨")
+            self.logger.info("실전투자 서버 사용 모드로 설정됨")
             self.app_key = self.config.get('KIWOOM_API', 'real_appkey', fallback=legacy_app_key)
             self.app_secret = self.config.get('KIWOOM_API', 'real_secretkey', fallback=legacy_app_secret)
         
