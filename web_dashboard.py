@@ -2539,7 +2539,7 @@ async def websocket_handler(websocket):
                     sell_stgs = []
                     
                     actual_section = strategy_name
-                    logging.info(f"🔍 [get_strategy_detail] strategy: '{strategy_name}' -> '{actual_section}', has_section: {config.has_section(actual_section)}")
+                    logging.debug(f"🔍 [get_strategy_detail] strategy: '{strategy_name}' -> '{actual_section}', has_section: {config.has_section(actual_section)}")
                     
                     if actual_section:
                         if config.has_section(actual_section):
