@@ -94,6 +94,9 @@ async def safe_send(websocket, data):
         async with _get_send_lock():
             await websocket.send(data)
             return True
+    except websockets.exceptions.ConnectionClosedOK:
+        # 정상적인 웹소켓 연결 종료(새로고침, 탭 닫기 등)는 경고 로그를 남기지 않음
+        return False
     except Exception as e:
         logging.warning(f"웹소켓 safe_send 전송 실패: {type(e).__name__}: {e}")
         return False
