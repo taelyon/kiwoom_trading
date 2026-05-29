@@ -1,4 +1,4 @@
-﻿import os
+import os
 import sys
 
 # 프로젝트 루트 경로를 sys.path에 추가
@@ -12,11 +12,8 @@ def setup_ai_strategies():
     # 설정 관리자 인스턴스 생성
     config = EnvConfigParser()
     
-    # 기본 전략(Integrated)에 AI 매수 전략 세팅 (이미 있으면 덮어씀)
-    # AI_SCORE > 0.75
-    config.set('INTEGRATED', 'buy_stg_0', '{"name": "AI 정밀 매수", "content": "AI_SCORE > 0.75"}')
-    config.set('INTEGRATED', 'buy_stg_1', '{"name": "기본 눌림목 매수", "content": "tic_RSI[-1] < 30 and tic_MACD_HIST[-1] > 0"}')
-    
+    # 통합 전략(Integrated)에 AI 매수 전략 세팅 (이미 있으면 덮어씀)
+    config.set('INTEGRATED', 'buy_stg_0', '{"name": "AI 정밀 매수", "content": "AI_SCORE > 0.75"}')    
     # 기본 전략에 AI 매도 전략 세팅
     # AI_SCORE < 0.3 and current_profit_pct < -1.0
     config.set('INTEGRATED', 'sell_stg_0', '{"name": "AI 조기 매도", "content": "AI_SCORE < 0.3 and current_profit_pct < -1.0", "partial_sell_ratio": 1.0}')

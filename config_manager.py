@@ -68,9 +68,8 @@ class EnvConfigParser:
             self.logger.info("기본 AI 전략(INTEGRATED)이 누락되어 자동 생성합니다.")
             import json
             
-            # 매수 전략 세팅
+            # 매수 전략 세팅 (AI 모델에 전적으로 의존)
             self.set('INTEGRATED', 'buy_stg_0', json.dumps({"name": "AI 정밀 매수", "content": "AI_SCORE > 0.75"}, ensure_ascii=False))
-            self.set('INTEGRATED', 'buy_stg_1', json.dumps({"name": "기본 눌림목 매수", "content": "tic_RSI[-1] < 30 and tic_MACD_HIST[-1] > 0"}, ensure_ascii=False))
             
             # 매도 전략 세팅
             self.set('INTEGRATED', 'sell_stg_0', json.dumps({"name": "AI 조기 매도", "content": "AI_SCORE < 0.3 and current_profit_pct < -1.0", "partial_sell_ratio": 1.0}, ensure_ascii=False))
