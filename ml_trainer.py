@@ -73,12 +73,7 @@ class MLTrainingWorker(threading.Thread):
             # 학습에 필요한 핵심 컬럼만 조회 (데이터 양이 많을 수 있으므로 필요한 것만)
             # 주의: 데이터가 충분히 쌓인 후에 실행해야 함
             query = """
-                SELECT 
-                    code, datetime,
-                    tic_close, tic_volume, tic_strength, 
-                    tic_velocity, 
-                    tic_order_book_imbalance, 
-                    min3_relative_position
+                SELECT *
                 FROM stock_data 
                 WHERE tic_velocity IS NOT NULL 
                   AND tic_velocity != 0
