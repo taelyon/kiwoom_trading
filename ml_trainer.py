@@ -96,12 +96,13 @@ class MLTrainingWorker(threading.Thread):
             # === Feature Engineering (비율/속도 변환) ===
             # 종목별로 그룹화하여 계산 필요
             
-            # 1. Target 생성 (미래 수익률 > 0.3% 이면 1, 아니면 0)
-            # 여기서는 다음 5틱 뒤의 가격이 올랐는지 확인
+            # 1. Target 생성 (미래 수익률이 수수료+세금을 상회하면 1, 아니면 0)
+            # 키움증권 기준 수수료 및 세금 왕복 약 0.21% (안전하게 0.23% 이상 상승 시 1로 간주)
+            FEE_RATE = 0.0023
             df['target'] = df.groupby('code')['tic_close'].shift(-5)
             # target이 NaN인 마지막 5개 행은 평가할 수 없으므로 미리 제거
             df = df.dropna(subset=['target']).copy()
-            df['label'] = (df['target'] > df['tic_close']).astype(int)
+            df['label'] = (df['target'] > (df['tic_close'] * (1 + FEE_RATE))).astype(int)
             
             # 2. 비율 변환 (가격 자체는 제거)
             # 이미 RELATIVE_POSITION(이격도), STRENGTH(체결강도) 등은 비율임.
