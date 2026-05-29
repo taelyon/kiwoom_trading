@@ -431,10 +431,16 @@ class KiwoomStrategy:
                     if is_first_check:
                         self.logger.warning(f"⚠️ [{code}] 매수 전략 없음 - 기본 전략 사용 (RSI < 30 + MACD 골든크로스)")
                     # 기본 전략: RSI 과매도 + MACD 골든크로스
-                    buy_strategies = [{
-                        'name': '기본 전략',
-                        'content': 'tic_RSI[-1] < 30 and tic_MACD_HIST[-1] > 0'
-                    }]
+                    buy_strategies = [
+                        {
+                            'name': 'AI 매수 전략',
+                            'content': 'AI_SCORE > 0.75'
+                        },
+                        {
+                            'name': '기본 전략',
+                            'content': 'tic_RSI[-1] < 30 and tic_MACD_HIST[-1] > 0'
+                        }
+                    ]
                 
                 if is_first_check:
                     self.logger.debug(f"✅ [{code}] 최종 매수 전략 {len(buy_strategies)}개 준비 완료")
@@ -658,6 +664,7 @@ class KiwoomStrategy:
                     self.logger.debug(f"⚠️ [{code}] 매도 전략 없음 - 기본 손익 전략 사용")
                 # 기본 전략: +3% 익절, -2% 손절
                 sell_strategies = [
+                    {'name': 'AI 조기 매도', 'content': 'AI_SCORE < 0.3 and current_profit_pct < -1.0'},
                     {'name': '익절', 'content': 'current_profit_pct > 3.0'},
                     {'name': '손절', 'content': 'current_profit_pct < -2.0'}
                 ]

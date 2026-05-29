@@ -640,6 +640,59 @@ def prepare_sell_strategy_locals(code, tic_chart_data, min_chart_data, buy_price
         locals_dict['after_market_close'] = current_hour >= 15  # 15시 이후 (장 마감 후)
         locals_dict['market_open'] = 9 <= current_hour <= 15  # 장 개장 시간
         
+        # ==========================================================
+        # AI 실시간 추론 (LightGBM Inference)
+        # ==========================================================
+        if LGBM_MODEL and 'TICK_VELOCITY' in locals_dict:
+            try:
+                # 입력 벡터 준비
+                feature_strength = locals_dict.get('tic_strength', [0])[-1] if isinstance(locals_dict.get('tic_strength'), (list, np.ndarray)) else 0
+                
+                # TICK_VELOCITY (배열 보장됨)
+                tv_val = locals_dict.get('tic_velocity')
+                feature_velocity = tv_val[-1] if isinstance(tv_val, (list, np.ndarray)) and len(tv_val) > 0 else 999999.0
+
+                # ORDER_BOOK_IMBALANCE (배열 보장됨)
+                obi_val = locals_dict.get('tic_order_book_imbalance')
+                feature_imbalance = obi_val[-1] if isinstance(obi_val, (list, np.ndarray)) and len(obi_val) > 0 else 0.0
+
+                feature_relative = locals_dict.get('min3_relative_position', [0])[-1] if isinstance(locals_dict.get('min3_relative_position'), (list, np.ndarray)) else 0
+                
+                # Volume Spike (스칼라 값)
+                feature_spike = locals_dict.get('tic_volume_spike', 0.0)
+                
+                # 추가 피처 (신규 모델용)
+                feature_turnover = locals_dict.get('tic_turnover', [0])[-1] if isinstance(locals_dict.get('tic_turnover'), (list, np.ndarray)) else 0
+                feature_vi_dist = locals_dict.get('tic_vi_distance', [999])[-1] if isinstance(locals_dict.get('tic_vi_distance'), (list, np.ndarray)) else 999.0
+                
+                # 호가 잔량
+                sell_1 = locals_dict.get('tic_sell_hoga_size_1', [0])[-1] if isinstance(locals_dict.get('tic_sell_hoga_size_1'), (list, np.ndarray)) else 0
+                sell_2 = locals_dict.get('tic_sell_hoga_size_2', [0])[-1] if isinstance(locals_dict.get('tic_sell_hoga_size_2'), (list, np.ndarray)) else 0
+                sell_3 = locals_dict.get('tic_sell_hoga_size_3', [0])[-1] if isinstance(locals_dict.get('tic_sell_hoga_size_3'), (list, np.ndarray)) else 0
+                buy_1 = locals_dict.get('tic_buy_hoga_size_1', [0])[-1] if isinstance(locals_dict.get('tic_buy_hoga_size_1'), (list, np.ndarray)) else 0
+                buy_2 = locals_dict.get('tic_buy_hoga_size_2', [0])[-1] if isinstance(locals_dict.get('tic_buy_hoga_size_2'), (list, np.ndarray)) else 0
+                buy_3 = locals_dict.get('tic_buy_hoga_size_3', [0])[-1] if isinstance(locals_dict.get('tic_buy_hoga_size_3'), (list, np.ndarray)) else 0
+                
+                # 모델 학습 시 사용된 피처 개수에 맞춰 동적으로 차원 맞추기
+                num_features = LGBM_MODEL.num_feature()
+                if num_features == 5:
+                    input_vector = np.array([[feature_strength, feature_velocity, feature_imbalance, feature_relative, feature_spike]])
+                else:
+                    # 13개 피처 (기본 5 + 신규 8)
+                    input_vector = np.array([[
+                        feature_strength, feature_velocity, feature_imbalance, feature_relative, feature_spike,
+                        feature_turnover, feature_vi_dist, sell_1, sell_2, sell_3, buy_1, buy_2, buy_3
+                    ]])
+                
+                # 추론 실행
+                ai_score = LGBM_MODEL.predict(input_vector)[0]
+                locals_dict['AI_SCORE'] = float(ai_score)
+                
+            except Exception as ai_ex:
+                locals_dict['AI_SCORE'] = 0.0
+        else:
+            locals_dict['AI_SCORE'] = 0.0
+        
         return locals_dict
         
     except Exception as ex:
