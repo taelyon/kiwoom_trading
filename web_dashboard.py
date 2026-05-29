@@ -1542,8 +1542,13 @@ HTML_CONTENT = """
             document.getElementById('cfgBuyCount').value = settings.buycount || 3;
             
             const selectEl = document.getElementById('cfgStrategy');
-            // 기본 옵션 목록 초기화 (키움 조건식 이외의 하드코딩된 항목 제거)
+            // 기본 옵션 목록 초기화 및 '기본 전략' 항상 추가
             selectEl.innerHTML = '';
+            
+            const defaultOption = document.createElement('option');
+            defaultOption.value = "기본 전략";
+            defaultOption.textContent = "기본 전략 (공통 AI 템플릿)";
+            selectEl.appendChild(defaultOption);
             
             // 전달받은 조건식 목록이 있으면 옵션에 동적 추가
             if (settings.condition_list && settings.condition_list.length > 0) {
