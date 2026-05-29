@@ -1116,6 +1116,26 @@ HTML_CONTENT = """
                                 </select>
                             </div>
                         </div>
+                        <div class="order-row">
+                            <div class="form-field">
+                                <label for="cfgRealAppKey">실전투자 App Key</label>
+                                <input type="password" id="cfgRealAppKey" placeholder="실전 App Key">
+                            </div>
+                            <div class="form-field">
+                                <label for="cfgRealSecret">실전투자 App Secret</label>
+                                <input type="password" id="cfgRealSecret" placeholder="실전 App Secret">
+                            </div>
+                        </div>
+                        <div class="order-row">
+                            <div class="form-field">
+                                <label for="cfgMockAppKey">모의투자 App Key</label>
+                                <input type="password" id="cfgMockAppKey" placeholder="모의 App Key">
+                            </div>
+                            <div class="form-field">
+                                <label for="cfgMockSecret">모의투자 App Secret</label>
+                                <input type="password" id="cfgMockSecret" placeholder="모의 App Secret">
+                            </div>
+                        </div>
                         <div class="form-field">
                             <label for="cfgBuyStrategy">매수 전략 (JSON)</label>
                             <textarea id="cfgBuyStrategy" placeholder="매수 전략 조건식 목록 (JSON)" style="font-family: monospace; font-size:11px; width: 100%; height: 120px; box-sizing: border-box; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 8px; resize: vertical;"></textarea>
@@ -1540,6 +1560,10 @@ HTML_CONTENT = """
         // 설정 UI 대입
         function applySettingsToUI(settings) {
             document.getElementById('cfgBuyCount').value = settings.buycount || 3;
+            if(document.getElementById('cfgRealAppKey')) document.getElementById('cfgRealAppKey').value = settings.real_appkey || '';
+            if(document.getElementById('cfgRealSecret')) document.getElementById('cfgRealSecret').value = settings.real_secretkey || '';
+            if(document.getElementById('cfgMockAppKey')) document.getElementById('cfgMockAppKey').value = settings.mock_appkey || '';
+            if(document.getElementById('cfgMockSecret')) document.getElementById('cfgMockSecret').value = settings.mock_secretkey || '';
             
             const selectEl = document.getElementById('cfgStrategy');
             // 기본 옵션 목록 초기화 및 '기본 전략' 항상 추가
@@ -1619,7 +1643,11 @@ HTML_CONTENT = """
                 settings: {
                     buycount: buycount,
                     last_strategy: strategy,
-                    simulation: simulation
+                    simulation: simulation,
+                    real_appkey: document.getElementById('cfgRealAppKey') ? document.getElementById('cfgRealAppKey').value : '',
+                    real_secretkey: document.getElementById('cfgRealSecret') ? document.getElementById('cfgRealSecret').value : '',
+                    mock_appkey: document.getElementById('cfgMockAppKey') ? document.getElementById('cfgMockAppKey').value : '',
+                    mock_secretkey: document.getElementById('cfgMockSecret') ? document.getElementById('cfgMockSecret').value : ''
                 }
             };
             
@@ -2491,7 +2519,11 @@ async def websocket_handler(websocket):
                         "buycount": config.get('SETTINGS', 'buycount', fallback='3'),
                         "last_strategy": config.get('SETTINGS', 'last_strategy', fallback='기본 전략'),
                         "simulation": config.getboolean('KIWOOM_API', 'simulation', fallback=False),
-                        "condition_list": getattr(app, 'condition_search_list', []) or []
+                        "condition_list": getattr(app, 'condition_search_list', []) or [],
+                        "real_appkey": config.get('KIWOOM_API', 'real_appkey', fallback=config.get('KIWOOM_API', 'appkey', fallback='')),
+                        "real_secretkey": config.get('KIWOOM_API', 'real_secretkey', fallback=config.get('KIWOOM_API', 'secretkey', fallback='')),
+                        "mock_appkey": config.get('KIWOOM_API', 'mock_appkey', fallback=''),
+                        "mock_secretkey": config.get('KIWOOM_API', 'mock_secretkey', fallback='')
                     }
                     await safe_send(websocket, json.dumps({
                         "type": "settings",
@@ -2508,9 +2540,8 @@ async def websocket_handler(websocket):
                     buy_stgs = []
                     sell_stgs = []
                     
-                    logging.info(f"🔍 [get_strategy_detail] strategy: '{strategy_name}', has_section: {config.has_section(strategy_name)}")
-                    
                     actual_section = "INTEGRATED" if strategy_name in ["기본 전략", "기본전략"] else strategy_name
+                    logging.info(f"🔍 [get_strategy_detail] strategy: '{strategy_name}' -> '{actual_section}', has_section: {config.has_section(actual_section)}")
                     
                     if actual_section:
                         if config.has_section(actual_section):
@@ -2581,6 +2612,15 @@ async def websocket_handler(websocket):
                         if 'dashboard_password' in new_settings:
                             config.set('SETTINGS', 'dashboard_password', str(new_settings['dashboard_password']))
                             
+                        # 새로운 API 키 저장
+                        if 'real_appkey' in new_settings:
+                            config.set('KIWOOM_API', 'real_appkey', str(new_settings['real_appkey']).strip())
+                        if 'real_secretkey' in new_settings:
+                            config.set('KIWOOM_API', 'real_secretkey', str(new_settings['real_secretkey']).strip())
+                        if 'mock_appkey' in new_settings:
+                            config.set('KIWOOM_API', 'mock_appkey', str(new_settings['mock_appkey']).strip())
+                        if 'mock_secretkey' in new_settings:
+                            config.set('KIWOOM_API', 'mock_secretkey', str(new_settings['mock_secretkey']).strip())
                         simulation_changed = False
                         if 'simulation' in new_settings:
                             new_sim = new_settings['simulation']

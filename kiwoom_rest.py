@@ -30,15 +30,19 @@ class KiwoomRestClient:
         self.mock_url = "https://mockapi.kiwoom.com"  # 모의 서버
         self.is_mock = self.config.getboolean('KIWOOM_API', 'simulation', fallback=False)  # 모의 서버 사용 여부
         
-        # API 키 설정
-        self.app_key = self.config.get('KIWOOM_API', 'appkey', fallback='')
-        self.app_secret = self.config.get('KIWOOM_API', 'secretkey', fallback='')
+        # API 키 설정 (모의투자와 실전투자를 분리하되, 없으면 기존 레거시 키로 폴백)
+        legacy_app_key = self.config.get('KIWOOM_API', 'appkey', fallback='')
+        legacy_app_secret = self.config.get('KIWOOM_API', 'secretkey', fallback='')
         
-        # 모의투자 상태 로그 출력
+        # 모의투자 상태 로그 출력 및 키 매핑
         if self.is_mock:
             self.logger.info("모의투자 서버 사용 모드로 설정됨")
+            self.app_key = self.config.get('KIWOOM_API', 'mock_appkey', fallback=legacy_app_key)
+            self.app_secret = self.config.get('KIWOOM_API', 'mock_secretkey', fallback=legacy_app_secret)
         else:
             self.logger.info("실거래 서버 사용 모드로 설정됨")
+            self.app_key = self.config.get('KIWOOM_API', 'real_appkey', fallback=legacy_app_key)
+            self.app_secret = self.config.get('KIWOOM_API', 'real_secretkey', fallback=legacy_app_secret)
         
         # 인증 토큰
         self.access_token = None
@@ -93,7 +97,7 @@ class KiwoomRestClient:
                 'access_token': self.access_token,
                 'expires_at': self.token_expires_at.isoformat(),
                 'is_mock': self.is_mock,
-                'appkey': self.config.get('KIWOOM_API', 'appkey', fallback=''),
+                'appkey': self.app_key,
                 'saved_at': datetime.now().isoformat()
             }
             
@@ -137,7 +141,7 @@ class KiwoomRestClient:
             
             # appkey가 일치하는지 확인
             saved_appkey = token_data.get('appkey', '')
-            current_appkey = self.config.get('KIWOOM_API', 'appkey', fallback='')
+            current_appkey = self.app_key
             if saved_appkey != current_appkey:
                 self.logger.debug("저장된 토큰의 appkey가 현재 설정과 다릅니다")
                 return False
@@ -281,8 +285,8 @@ class KiwoomRestClient:
             # 인증 정보 (키움 API 문서에 따른 올바른 형식)
             auth_data = {
                 "grant_type": "client_credentials",
-                "appkey": self.config.get('KIWOOM_API', 'appkey', fallback=''),
-                "secretkey": self.config.get('KIWOOM_API', 'secretkey', fallback='')
+                "appkey": self.app_key,
+                "appsecret": self.app_secret
             }
             
             # 헤더 설정 (키움 API 문서에 따른 올바른 형식)
@@ -379,8 +383,8 @@ class KiwoomRestClient:
             
             # 키움 API 문서에 따른 요청 데이터 (appkey, secretkey, token 모두 필요)
             data = {
-                "appkey": self.config.get('KIWOOM_API', 'appkey', fallback=''),
-                "secretkey": self.config.get('KIWOOM_API', 'secretkey', fallback=''),
+                "appkey": self.app_key,
+                "secretkey": self.app_secret,
                 "token": self.access_token
             }
             
