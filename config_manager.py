@@ -58,8 +58,9 @@ class EnvConfigParser:
         # 2. os.environ에 있는 값을 병합 (런타임 오버라이드 지원)
         for k, v in os.environ.items():
             if any(k.startswith(p) for p in _MANAGED_PREFIXES):
-                # 파일에서 읽은 값과 다를 경우 덮어씀 (단, 한글 키가 깨진 경우는 무시되도록 함)
-                self._data[k] = v
+                # 파일에 값이 아예 없거나, 파일 값이 비어있고 os.environ 값은 있을 때만 사용
+                if k not in self._data or (not self._data[k] and v):
+                    self._data[k] = v
 
 
     def read(self, filenames, encoding='utf-8'):
