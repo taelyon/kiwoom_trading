@@ -97,8 +97,10 @@ class MLTrainingWorker(threading.Thread):
             # 종목별로 그룹화하여 계산 필요
             
             # 1. Target 생성 (미래 수익률 > 0.3% 이면 1, 아니면 0)
-            # 여기서는 단순히 다음 5틱 뒤의 가격이 올랐는지 확인 (예시)
+            # 여기서는 다음 5틱 뒤의 가격이 올랐는지 확인
             df['target'] = df.groupby('code')['tic_close'].shift(-5)
+            # target이 NaN인 마지막 5개 행은 평가할 수 없으므로 미리 제거
+            df = df.dropna(subset=['target']).copy()
             df['label'] = (df['target'] > df['tic_close']).astype(int)
             
             # 2. 비율 변환 (가격 자체는 제거)
@@ -158,12 +160,15 @@ class MLTrainingWorker(threading.Thread):
             self.progress_signal.emit("💾 [ML] 모델 파일 저장 중...")
             model.save_model(self.model_output_path)
             
+            # 검증 성능(AUC) 가져오기
+            best_score = model.best_score.get('valid_1', {}).get('auc', 0.0) if hasattr(model, 'best_score') else 0.0
+            
             # Feature Importance 로깅
             importance = list(zip(features, model.feature_importance()))
             importance.sort(key=lambda x: x[1], reverse=True)
             top_features = ", ".join([f"{f}:{score}" for f, score in importance[:3]])
             
-            success_msg = f"✅ 모델 학습 완료! (Data: {len(df_train)}, Top Features: {top_features})"
+            success_msg = f"✅ 모델 학습 완료! (Data: {len(df_train)}, 검증 AUC: {best_score:.4f}, Top: {top_features})"
             self.logger.info(success_msg)
             self.finished_signal.emit(True, success_msg)
 
