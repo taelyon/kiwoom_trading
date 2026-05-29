@@ -1,4 +1,4 @@
-﻿"""
+"""
 UI 매니저 모듈 (통합 버전)
 
 기존에 개별 파일로 분리되어 있던 매니저 클래스들을 하나의 모듈로 통합하였습니다.
@@ -916,12 +916,12 @@ class TradingManager:
         """.env에서 최대투자 종목수 읽기"""
         try:
             config = EnvConfigParser()
-            if config.has_option('BUYCOUNT', 'target_buy_count'):
-                return config.getint('BUYCOUNT', 'target_buy_count')
+            if config.has_option('SETTINGS', 'buycount'):
+                return config.getint('SETTINGS', 'buycount')
             else:
                 return 3  # 기본값
         except Exception as ex:
-            self.logger.error(f"target_buy_count 읽기 실패: {ex}")
+            self.logger.error(f"buycount 읽기 실패: {ex}")
             return 3  # 기본값
 
     def buycount_setting(self, buycount):
@@ -929,10 +929,10 @@ class TradingManager:
         try:
             if buycount > 0:
                 config = EnvConfigParser()
-                if not config.has_section('BUYCOUNT'):
-                    config.add_section('BUYCOUNT')
+                if not config.has_section('SETTINGS'):
+                    config.add_section('SETTINGS')
                 
-                config.set('BUYCOUNT', 'target_buy_count', str(buycount))
+                config.set('SETTINGS', 'buycount', str(buycount))
                 config.save()
                 
                 if hasattr(self.parent, 'trader') and self.parent.trader:
