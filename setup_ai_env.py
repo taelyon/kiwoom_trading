@@ -14,11 +14,11 @@ def setup_ai_strategies():
     
     # 통합 전략(Integrated)에 AI 매수 전략 세팅 (이미 있으면 덮어씀)
     config.set('INTEGRATED', 'buy_stg_0', '{"name": "AI 정밀 매수", "content": "AI_SCORE > 0.75"}')    
-    # 기본 전략에 AI 매도 전략 세팅
-    # AI_SCORE < 0.3 and current_profit_pct < -1.0
+    # 기본 전략에 AI 매도 전략 세팅 (초단타/스캘핑 특화)
     config.set('INTEGRATED', 'sell_stg_0', '{"name": "AI 조기 매도", "content": "AI_SCORE < 0.3 and current_profit_pct < -1.0", "partial_sell_ratio": 1.0}')
-    config.set('INTEGRATED', 'sell_stg_1', '{"name": "수익 보존(익절)", "content": "current_profit_pct > 3.0", "partial_sell_ratio": 1.0}')
-    config.set('INTEGRATED', 'sell_stg_2', '{"name": "기계적 손절", "content": "current_profit_pct < -2.0", "partial_sell_ratio": 1.0}')
+    config.set('INTEGRATED', 'sell_stg_1', '{"name": "1차 분할 익절", "content": "current_profit_pct > 1.5", "partial_sell_ratio": 0.5}')
+    config.set('INTEGRATED', 'sell_stg_2', '{"name": "2차 전량 익절", "content": "current_profit_pct > 2.5", "partial_sell_ratio": 1.0}')
+    config.set('INTEGRATED', 'sell_stg_3', '{"name": "기계적 손절", "content": "current_profit_pct < -1.5", "partial_sell_ratio": 1.0}')
     
     # STRATEGIES 섹션에 기본 전략이 등록되어 있는지 확인하고 없으면 등록
     has_integrated = False

@@ -71,10 +71,11 @@ class EnvConfigParser:
             # 매수 전략 세팅 (AI 모델에 전적으로 의존)
             self.set('INTEGRATED', 'buy_stg_0', json.dumps({"name": "AI 정밀 매수", "content": "AI_SCORE > 0.75"}, ensure_ascii=False))
             
-            # 매도 전략 세팅
+            # 매도 전략 세팅 (초단타/스캘핑 특화)
             self.set('INTEGRATED', 'sell_stg_0', json.dumps({"name": "AI 조기 매도", "content": "AI_SCORE < 0.3 and current_profit_pct < -1.0", "partial_sell_ratio": 1.0}, ensure_ascii=False))
-            self.set('INTEGRATED', 'sell_stg_1', json.dumps({"name": "수익 보존(익절)", "content": "current_profit_pct > 3.0", "partial_sell_ratio": 1.0}, ensure_ascii=False))
-            self.set('INTEGRATED', 'sell_stg_2', json.dumps({"name": "기계적 손절", "content": "current_profit_pct < -2.0", "partial_sell_ratio": 1.0}, ensure_ascii=False))
+            self.set('INTEGRATED', 'sell_stg_1', json.dumps({"name": "1차 분할 익절", "content": "current_profit_pct > 1.5", "partial_sell_ratio": 0.5}, ensure_ascii=False))
+            self.set('INTEGRATED', 'sell_stg_2', json.dumps({"name": "2차 전량 익절", "content": "current_profit_pct > 2.5", "partial_sell_ratio": 1.0}, ensure_ascii=False))
+            self.set('INTEGRATED', 'sell_stg_3', json.dumps({"name": "기계적 손절", "content": "current_profit_pct < -1.5", "partial_sell_ratio": 1.0}, ensure_ascii=False))
             
             # 전략 목록에 등록
             self.set('STRATEGIES', 'stg_integrated', 'INTEGRATED')
