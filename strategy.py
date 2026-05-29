@@ -134,7 +134,8 @@ class KiwoomStrategy:
             
             if effective_strategy_name != "통합 전략" and effective_strategy_name not in self.strategy_config:
                 if is_first_eval:
-                    self.logger.warning(f"⚠️ [{code}] 전략 '{effective_strategy_name}'이 설정에 없음 - 기본 전략으로 대체 진행")
+                    self.logger.warning(f"⚠️ [{code}] 전략 '{effective_strategy_name}'이 설정에 없음 - 기본 전략(통합 전략)으로 대체 진행")
+                effective_strategy_name = "통합 전략"
             elif is_first_eval:
                 self.logger.debug(f"✅ [{code}] 전략 설정 확인됨: {effective_strategy_name}")
 
