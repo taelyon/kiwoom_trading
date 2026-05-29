@@ -282,11 +282,11 @@ class KiwoomRestClient:
             server_url = self.mock_url if self.is_mock else self.base_url
             url = f"{server_url}/oauth2/token"
             
-            # 인증 정보 (키움 API 문서에 따른 올바른 형식)
+            # 인증 정보 (키움 API 문서 및 에러 메시지에 따른 올바른 형식)
             auth_data = {
                 "grant_type": "client_credentials",
                 "appkey": self.app_key,
-                "appsecret": self.app_secret
+                "secretkey": self.app_secret
             }
             
             # 헤더 설정 (키움 API 문서에 따른 올바른 형식)
