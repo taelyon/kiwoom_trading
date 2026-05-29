@@ -2234,7 +2234,7 @@ def get_current_status_data():
 
         # 2. 자산 현황 요약 계산
         total_purchase = sum(data.get('purchase_amount', 0) for data in ws_balance.values() if isinstance(data, dict))
-        total_valuation = sum(data.get('valuation_amount', 0) for data in ws_balance.values() if isinstance(data, dict))
+        total_valuation = sum(data.get('evaluation_amount', 0) for data in ws_balance.values() if isinstance(data, dict))
         
         # available_cash 추출
         available_cash = 0

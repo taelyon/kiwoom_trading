@@ -590,6 +590,7 @@ class AutoTrader:
         self.auto_liquidation_executed = False
         self.daily_report_sent = False
         self._loop_task = None
+        self.circuit_breaker_violation_count = 0
         self.logger.debug("AutoTrader 초기화 완료")
         
     def start_auto_trading(self):
@@ -748,14 +749,18 @@ class AutoTrader:
                     circuit_breaker_pct = self.trader.client.config.getfloat('TRADING', 'global_stoploss_pct', fallback=-10.0)
                     
                     if global_profit_rate <= circuit_breaker_pct:
-                        if not getattr(self, 'circuit_breaker_triggered', False):
-                            self.circuit_breaker_triggered = True
-                            self.logger.critical(f"🚨 [서킷 브레이커 발동] 총수익률 {global_profit_rate:.2f}% (제한선 {circuit_breaker_pct}%)")
-                            
-                            if hasattr(self.trader, 'client') and self.trader.client:
-                                create_fire_and_forget_task(self.trader.client.send_slack_message(
-                                    f"🚨 *[긴급 서킷 브레이커 발동]*\n계좌 총 수익률이 제한선({circuit_breaker_pct}%) 이하인 {global_profit_rate:.2f}%로 떨어져 신규 매수를 전면 중단합니다."
-                                ))
+                        self.circuit_breaker_violation_count += 1
+                        if self.circuit_breaker_violation_count >= 3:
+                            if not getattr(self, 'circuit_breaker_triggered', False):
+                                self.circuit_breaker_triggered = True
+                                self.logger.critical(f"🚨 [서킷 브레이커 발동] 총수익률 {global_profit_rate:.2f}% (제한선 {circuit_breaker_pct}%)")
+                                
+                                if hasattr(self.trader, 'client') and self.trader.client:
+                                    create_fire_and_forget_task(self.trader.client.send_slack_message(
+                                        f"🚨 *[긴급 서킷 브레이커 발동]*\n계좌 총 수익률이 제한선({circuit_breaker_pct}%) 이하인 {global_profit_rate:.2f}%로 떨어져 신규 매수를 전면 중단합니다."
+                                    ))
+                    else:
+                        self.circuit_breaker_violation_count = 0
 
             if self.auto_liquidation_executed:
                 return
