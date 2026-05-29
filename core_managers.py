@@ -1,4 +1,4 @@
-"""
+﻿"""
 UI 매니저 모듈 (통합 버전)
 
 기존에 개별 파일로 분리되어 있던 매니저 클래스들을 하나의 모듈로 통합하였습니다.
@@ -685,7 +685,7 @@ class StrategyManager:
             config = EnvConfigParser()
             key_prefix = 'buy_stg_' if strategy_type == 'buy' else 'sell_stg_'
             
-            if current_strategy == "통합 전략":
+            if current_strategy == "기본 전략":
                 merge_sections = []
                 if config.has_section('급등주'):
                     merge_sections.append('급등주')
@@ -738,7 +738,7 @@ class StrategyManager:
             target_key = None
             display_name = strategy_name
 
-            if current_strategy == "통합 전략" and strategy_name.startswith('['):
+            if current_strategy == "기본 전략" and strategy_name.startswith('['):
                 try:
                     end_idx = strategy_name.find(']')
                     section_label = strategy_name[1:end_idx]
@@ -778,13 +778,13 @@ class StrategyManager:
             target_section = current_strategy
             target_key = key_from_client
 
-            if current_strategy == "통합 전략":
+            if current_strategy == "기본 전략":
                 if '.' in key_from_client:
                     section, key = key_from_client.split('.', 1)
                     target_section = section
                     target_key = key
                 else:
-                    self.logger.error(f"통합 전략 저장 오류: 잘못된 키 형식 - {key_from_client}")
+                    self.logger.error(f"기본 전략 저장 오류: 잘못된 키 형식 - {key_from_client}")
                     return False
 
             if not config.has_section(target_section):
@@ -895,7 +895,7 @@ class StrategyManager:
                 if strategy_name in condition_names:
                     await self.parent.condition_search_manager.handle_condition_search(strategy_name)
             
-            if strategy_name == "통합 전략":
+            if strategy_name == "기본 전략":
                 await self.parent.condition_search_manager.handle_integrated_condition_search()
             
         except Exception as ex:
@@ -1531,9 +1531,9 @@ class ConditionSearchManager:
                         self.logger.debug("🔍 저장된 조건검색식 자동 실행 예약 (1초 후)")
                         return True
                 
-                # 통합 전략인 경우 모든 조건검색식 실행
-                if last_strategy == "통합 전략":
-                    self.logger.debug(f"🔍 저장된 통합 전략 발견: {last_strategy}")
+                # 기본 전략인 경우 모든 조건검색식 실행
+                if last_strategy == "기본 전략":
+                    self.logger.debug(f"🔍 저장된 기본 전략 발견: {last_strategy}")
                     
                     # 자동 실행 (1.5초 후)
                     async def delayed_integrated_search():
@@ -1546,7 +1546,7 @@ class ConditionSearchManager:
                             self.logger.error(f"통합 조건검색 실행 실패: {e}")
                     task = asyncio.create_task(delayed_integrated_search())
                     self.parent._delayed_search_task = task
-                    self.logger.debug("🔍 저장된 통합 전략 자동 실행 예약 (1.5초 후)")
+                    self.logger.debug("🔍 저장된 기본 전략 자동 실행 예약 (1.5초 후)")
                     return True
 
                 # 일반 조건검색식인 경우
@@ -1572,7 +1572,7 @@ class ConditionSearchManager:
             return False
     
     async def handle_integrated_condition_search(self):
-        """통합 전략 실행: 모든 조건검색식 순차적으로 실행"""
+        """기본 전략 실행: 모든 조건검색식 순차적으로 실행"""
         try:
             if not hasattr(self.parent, 'condition_search_list') or not self.parent.condition_search_list:
                 self.logger.warning("⚠️ 조건검색 목록이 없어 통합 검색을 실행할 수 없습니다.")

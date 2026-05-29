@@ -1,4 +1,4 @@
-import os
+﻿import os
 import sys
 
 # 프로젝트 루트 경로를 sys.path에 추가
@@ -12,18 +12,18 @@ def setup_ai_strategies():
     # 설정 관리자 인스턴스 생성
     config = EnvConfigParser()
     
-    # 통합 전략(Integrated)에 AI 매수 전략 세팅 (이미 있으면 덮어씀)
+    # 기본 전략(Integrated)에 AI 매수 전략 세팅 (이미 있으면 덮어씀)
     # AI_SCORE > 0.75
     config.set('INTEGRATED', 'buy_stg_0', '{"name": "AI 정밀 매수", "content": "AI_SCORE > 0.75"}')
     config.set('INTEGRATED', 'buy_stg_1', '{"name": "기본 눌림목 매수", "content": "tic_RSI[-1] < 30 and tic_MACD_HIST[-1] > 0"}')
     
-    # 통합 전략에 AI 매도 전략 세팅
+    # 기본 전략에 AI 매도 전략 세팅
     # AI_SCORE < 0.3 and current_profit_pct < -1.0
     config.set('INTEGRATED', 'sell_stg_0', '{"name": "AI 조기 매도", "content": "AI_SCORE < 0.3 and current_profit_pct < -1.0", "partial_sell_ratio": 1.0}')
     config.set('INTEGRATED', 'sell_stg_1', '{"name": "수익 보존(익절)", "content": "current_profit_pct > 3.0", "partial_sell_ratio": 1.0}')
     config.set('INTEGRATED', 'sell_stg_2', '{"name": "기계적 손절", "content": "current_profit_pct < -2.0", "partial_sell_ratio": 1.0}')
     
-    # STRATEGIES 섹션에 통합 전략이 등록되어 있는지 확인하고 없으면 등록
+    # STRATEGIES 섹션에 기본 전략이 등록되어 있는지 확인하고 없으면 등록
     has_integrated = False
     if config.has_section('STRATEGIES'):
         for k, v in config.items('STRATEGIES'):

@@ -38,7 +38,7 @@ class KiwoomStrategy:
             config = EnvConfigParser()
             
             # 현재 전략 로드
-            self.current_strategy = config.get('SETTINGS', 'last_strategy', fallback='통합 전략')
+            self.current_strategy = config.get('SETTINGS', 'last_strategy', fallback='기본 전략')
             
             # 전략별 설정 로드 - [STRATEGIES] 섹션 기반으로 동적 로드
             self.strategy_config = {}
@@ -111,7 +111,7 @@ class KiwoomStrategy:
                 self._eval_debug_codes.add(code)
             
             # 현재 전략에 따른 매수/매도 신호 평가
-            # 1. 통합 전략이 선택된 경우: 모든 종목에 통합 전략 적용
+            # 1. 기본 전략이 선택된 경우: 모든 종목에 기본 전략 적용
             # 2. 조건검색으로 찾은 종목: 해당 조건검색의 전략 사용
             # 3. 그 외: 현재 선택된 전략 사용
             
@@ -132,10 +132,10 @@ class KiwoomStrategy:
                 if is_first_eval:
                     self.logger.debug(f"📍 [{code}] UI 선택 전략 사용: {effective_strategy_name}")
             
-            if effective_strategy_name != "통합 전략" and effective_strategy_name not in self.strategy_config:
+            if effective_strategy_name != "기본 전략" and effective_strategy_name not in self.strategy_config:
                 if is_first_eval:
-                    self.logger.warning(f"⚠️ [{code}] 전략 '{effective_strategy_name}'이 설정에 없음 - 기본 전략(통합 전략)으로 대체 진행")
-                effective_strategy_name = "통합 전략"
+                    self.logger.warning(f"⚠️ [{code}] 전략 '{effective_strategy_name}'이 설정에 없음 - 기본 전략(기본 전략)으로 대체 진행")
+                effective_strategy_name = "기본 전략"
             elif is_first_eval:
                 self.logger.debug(f"✅ [{code}] 전략 설정 확인됨: {effective_strategy_name}")
 
@@ -386,47 +386,27 @@ class KiwoomStrategy:
 
                 buy_strategies = []
 
-                # 통합 전략: '급등주' + '갭상승' 전략을 합산 적용
-                if strategy_name == "통합 전략":
-                    merged_sections = []
-                    if '급등주' in self.strategy_config:
-                        merged_sections.append(('급등주', self.strategy_config['급등주']))
-                    if '갭상승' in self.strategy_config:
-                        merged_sections.append(('갭상승', self.strategy_config['갭상승']))
-
-                    for section_name, section_conf in merged_sections:
-                        # buy_stg_* 만 숫자순 정렬해 결합
-                        items = sorted([item for item in section_conf.items() if item[0].startswith('buy_stg_')], key=lambda x: int(x[0].split('_')[-1]))
-                        items.sort(key=lambda x: int(x[0].split('_')[-1]) if x[0].split('_')[-1].isdigit() else 999)
-                        for key, value in items:
-                            try:
-                                strategy_data = json.loads(value)
-                                # 전략명에 섹션 표기 추가(로그 가독성)
-                                if isinstance(strategy_data, dict) and 'name' in strategy_data:
-                                    strategy_data['name'] = f"[{section_name}] {strategy_data['name']}"
-                                buy_strategies.append(strategy_data)
-                            except json.JSONDecodeError:
-                                if is_first_check: # type: ignore
-                                    self.logger.warning(f"⚠️ [{code}] 매수 전략 파싱 실패: {section_name}.{key}")
-
-                    if buy_strategies and is_first_check:
-                        self.logger.debug(f"✅ [{code}] 통합 전략 로드 완료: 급등주+갭상승 매수 전략 {len(buy_strategies)}개")
+                # 기본 전략은 INTEGRATED 섹션을 사용
+                if strategy_name == "기본 전략":
+                    strategy_name_in_config = "INTEGRATED"
                 else:
-                    # 개별 전략 섹션에서 매수 조건 가져오기
-                    if strategy_name in self.strategy_config:
-                        strategy_conf = self.strategy_config[strategy_name]
-                        items = sorted([item for item in strategy_conf.items() if item[0].startswith('buy_stg_')], key=lambda x: int(x[0].split('_')[-1]))
-                        items.sort(key=lambda x: int(x[0].split('_')[-1]) if x[0].split('_')[-1].isdigit() else 999)
-                        for key, value in items:
-                            try:
-                                strategy_data = json.loads(value)
-                                buy_strategies.append(strategy_data)
-                            except json.JSONDecodeError:
-                                if is_first_check: # type: ignore
-                                    self.logger.warning(f"⚠️ [{code}] 매수 전략 파싱 실패: {key}")
-                        if buy_strategies and is_first_check:
-                            self.logger.debug(f"✅ [{code}] strategy_config에서 매수 전략 {len(buy_strategies)}개 로드됨: {strategy_name}")
-                
+                    strategy_name_in_config = strategy_name
+
+                # 개별 전략 섹션에서 매수 조건 가져오기
+                if strategy_name_in_config in self.strategy_config:
+                    strategy_conf = self.strategy_config[strategy_name_in_config]
+                    items = sorted([item for item in strategy_conf.items() if item[0].startswith('buy_stg_')], key=lambda x: int(x[0].split('_')[-1]))
+                    items.sort(key=lambda x: int(x[0].split('_')[-1]) if x[0].split('_')[-1].isdigit() else 999)
+                    for key, value in items:
+                        try:
+                            strategy_data = json.loads(value)
+                            buy_strategies.append(strategy_data)
+                        except json.JSONDecodeError:
+                            if is_first_check: # type: ignore
+                                self.logger.warning(f"⚠️ [{code}] 매수 전략 파싱 실패: {key}")
+                    if buy_strategies and is_first_check:
+                        self.logger.debug(f"✅ [{code}] strategy_config에서 매수 전략 {len(buy_strategies)}개 로드됨: {strategy_name_in_config}")
+
                 # 전략이 없으면 기본 전략 사용 (매우 보수적)
                 if not buy_strategies:
                     if is_first_check:
@@ -622,31 +602,15 @@ class KiwoomStrategy:
             # 매도 전략 로드
             sell_strategies = []
 
-            # 통합 전략: '급등주' + '갭상승' 전략을 합산 적용
-            if strategy_name == "통합 전략":
-                merged_sections = []
-                if '급등주' in self.strategy_config:
-                    merged_sections.append(('급등주', self.strategy_config['급등주']))
-                if '갭상승' in self.strategy_config:
-                    merged_sections.append(('갭상승', self.strategy_config['갭상승']))
-
-                for section_name, section_conf in merged_sections:
-                    items = [(k, v) for k, v in section_conf.items() if k.startswith('sell_stg_')]
-                    items.sort(key=lambda x: int(x[0].split('_')[-1]) if x[0].split('_')[-1].isdigit() else 999)
-                    for key, value in items:
-                        try:
-                            strategy_data = json.loads(value)
-                            if isinstance(strategy_data, dict) and 'name' in strategy_data:
-                                strategy_data['name'] = f"[{section_name}] {strategy_data['name']}"
-                            sell_strategies.append(strategy_data)
-                        except json.JSONDecodeError:
-                            self.logger.debug(f"매도 전략 파싱 실패 ({code}): {section_name}.{key}", exc_info=True)
-                if is_first_sell_check and sell_strategies: # type: ignore
-                    self.logger.debug(f"✅ [{code}] 통합 전략 로드 완료: 급등주+갭상승 매도 전략 {len(sell_strategies)}개")
+            # 기본 전략은 INTEGRATED 섹션을 사용
+            if strategy_name == "기본 전략":
+                strategy_name_in_config = "INTEGRATED"
+            else:
+                strategy_name_in_config = strategy_name
             
-            # strategy_config에서 현재 전략의 매도 조건 가져오기 (통합 전략이 아닌 경우)
-            if not sell_strategies and strategy_name != "통합 전략" and strategy_name in self.strategy_config:
-                strategy_conf = self.strategy_config[strategy_name]
+            # strategy_config에서 현재 전략의 매도 조건 가져오기
+            if strategy_name_in_config in self.strategy_config:
+                strategy_conf = self.strategy_config[strategy_name_in_config]
                 # sell_stg_로 시작하는 키들을 찾아서 파싱 (숫자 순서로 정렬)
                 sell_stg_items = [(key, value) for key, value in strategy_conf.items() if key.startswith('sell_stg_')]
                 # 숫자 순서로 정렬 (sell_stg_1, sell_stg_2, ... 순서)

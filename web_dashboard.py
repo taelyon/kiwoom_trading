@@ -2484,7 +2484,7 @@ async def websocket_handler(websocket):
                     config = EnvConfigParser()
                     settings = {
                         "buycount": config.get('SETTINGS', 'buycount', fallback='3'),
-                        "last_strategy": config.get('SETTINGS', 'last_strategy', fallback='통합 전략'),
+                        "last_strategy": config.get('SETTINGS', 'last_strategy', fallback='기본 전략'),
                         "simulation": config.getboolean('KIWOOM_API', 'simulation', fallback=False),
                         "condition_list": getattr(app, 'condition_search_list', []) or []
                     }
@@ -2505,10 +2505,12 @@ async def websocket_handler(websocket):
                     
                     logging.info(f"🔍 [get_strategy_detail] strategy: '{strategy_name}', has_section: {config.has_section(strategy_name)}")
                     
-                    if strategy_name and strategy_name not in ["통합 전략", "통합전략"]:
-                        if config.has_section(strategy_name):
+                    actual_section = "INTEGRATED" if strategy_name in ["기본 전략", "기본전략"] else strategy_name
+                    
+                    if actual_section:
+                        if config.has_section(actual_section):
                             # .env에 전략이 존재하는 경우: 정상 파싱
-                            buy_items = [(k, v) for k, v in config.items(strategy_name) if k.startswith('buy_stg_')]
+                            buy_items = [(k, v) for k, v in config.items(actual_section) if k.startswith('buy_stg_')]
                             buy_items.sort(key=lambda x: int(x[0].split('_')[-1]) if x[0].split('_')[-1].isdigit() else 999)
                             for k, v in buy_items:
                                 try:
@@ -2516,7 +2518,7 @@ async def websocket_handler(websocket):
                                 except Exception as e:
                                     logging.error(f"❌ JSON 파싱 에러 (매수 {k}): {e}")
                                 
-                            sell_items = [(k, v) for k, v in config.items(strategy_name) if k.startswith('sell_stg_')]
+                            sell_items = [(k, v) for k, v in config.items(actual_section) if k.startswith('sell_stg_')]
                             sell_items.sort(key=lambda x: int(x[0].split('_')[-1]) if x[0].split('_')[-1].isdigit() else 999)
                             for k, v in sell_items:
                                 try:
@@ -2524,26 +2526,35 @@ async def websocket_handler(websocket):
                                 except Exception as e:
                                     logging.error(f"❌ JSON 파싱 에러 (매도 {k}): {e}")
                         
-                        # .env에 전략이 없거나 파싱 결과가 비어있는 경우: 기본 전략 자동 생성 및 저장
-                        if not buy_stgs:
-                            logging.info(f"📝 [{strategy_name}] 매수 전략이 없어 기본 전략을 자동 생성합니다.")
-                            buy_stgs = [
-                                {"name": "기본_매수_전략", "content": "tic_RSI[-1] < 30 and tic_MACD_HIST[-1] > 0"}
-                            ]
-                            config.set(strategy_name, 'buy_stg_1', json.dumps(buy_stgs[0], ensure_ascii=False))
+                        # .env에 전략이 없거나 파싱 결과가 비어있는 경우: 기본 전략(INTEGRATED) 복사 및 저장
+                        if not buy_stgs or not sell_stgs:
+                            logging.info(f"📝 [{strategy_name}] 전략이 없어 기본 전략(INTEGRATED)을 복사하여 생성합니다.")
                             
-                        if not sell_stgs:
-                            logging.info(f"📝 [{strategy_name}] 매도 전략이 없어 기본 전략을 자동 생성합니다.")
-                            sell_stgs = [
-                                {"name": "익절", "content": "current_profit_pct > 3.0"},
-                                {"name": "손절", "content": "current_profit_pct < -2.0"}
-                            ]
-                            for idx, stg in enumerate(sell_stgs, 1):
-                                config.set(strategy_name, f'sell_stg_{idx}', json.dumps(stg, ensure_ascii=False))
-                        
-                        # 자동 생성된 전략을 .env 파일에 영구 저장
-                        config.save()
-                        logging.info(f"✅ [{strategy_name}] 매수 {len(buy_stgs)}개, 매도 {len(sell_stgs)}개 전략 로드 완료")
+                            if not config.has_section(actual_section):
+                                config.add_section(actual_section)
+                                
+                            if not buy_stgs and config.has_section('INTEGRATED'):
+                                buy_items = [(k, v) for k, v in config.items('INTEGRATED') if k.startswith('buy_stg_')]
+                                buy_items.sort(key=lambda x: int(x[0].split('_')[-1]) if x[0].split('_')[-1].isdigit() else 999)
+                                for k, v in buy_items:
+                                    try:
+                                        buy_stgs.append(json.loads(v))
+                                        config.set(actual_section, k, v)
+                                    except Exception as e:
+                                        pass
+                                        
+                            if not sell_stgs and config.has_section('INTEGRATED'):
+                                sell_items = [(k, v) for k, v in config.items('INTEGRATED') if k.startswith('sell_stg_')]
+                                sell_items.sort(key=lambda x: int(x[0].split('_')[-1]) if x[0].split('_')[-1].isdigit() else 999)
+                                for k, v in sell_items:
+                                    try:
+                                        sell_stgs.append(json.loads(v))
+                                        config.set(actual_section, k, v)
+                                    except Exception as e:
+                                        pass
+                            
+                            config.save()
+                            logging.info(f"✅ [{strategy_name}] 매수 {len(buy_stgs)}개, 매도 {len(sell_stgs)}개 기본 전략 복사 완료")
                     
                     await safe_send(websocket, json.dumps({
                         "type": "strategy_detail",
@@ -2574,9 +2585,14 @@ async def websocket_handler(websocket):
                                 config.set('KIWOOM_API', 'simulation', 'true' if new_sim_bool else 'false')
                                 simulation_changed = True
                             
-                        # 매수/매도 세부 전략 JSON 저장 (편집 가능한 개별 전략일 때만)
+                        # 매수/매도 세부 전략 JSON 저장
                         target_stg = new_settings.get('last_strategy')
-                        if target_stg and config.has_section(target_stg) and target_stg not in ["통합 전략", "통합전략"]:
+                        if target_stg:
+                            actual_section = "INTEGRATED" if target_stg in ["기본 전략", "기본전략"] else target_stg
+                            
+                            if not config.has_section(actual_section):
+                                config.add_section(actual_section)
+                                
                             buy_json = new_settings.get('buy_strategy')
                             sell_json = new_settings.get('sell_strategy')
                             
@@ -2587,20 +2603,20 @@ async def websocket_handler(websocket):
                                 
                                 if isinstance(buy_data, list) and isinstance(sell_data, list):
                                     # 기존 stg 옵션들 전체 제거
-                                    options_to_del = [opt for opt in config.options(target_stg) 
+                                    options_to_del = [opt for opt in config.options(actual_section) 
                                                       if opt.startswith('buy_stg_') or opt.startswith('sell_stg_')]
                                     for opt in options_to_del:
-                                        config.remove_option(target_stg, opt)
+                                        config.remove_option(actual_section, opt)
                                     
                                     # 신규 매수 조건 기록
                                     for idx, item in enumerate(buy_data):
-                                        config.set(target_stg, f"buy_stg_{idx+1}", json.dumps(item, ensure_ascii=False))
+                                        config.set(actual_section, f"buy_stg_{idx+1}", json.dumps(item, ensure_ascii=False))
                                         
                                     # 신규 매도 조건 기록
                                     for idx, item in enumerate(sell_data):
-                                        config.set(target_stg, f"sell_stg_{idx+1}", json.dumps(item, ensure_ascii=False))
+                                        config.set(actual_section, f"sell_stg_{idx+1}", json.dumps(item, ensure_ascii=False))
                                         
-                                    logging.info(f"💾 대시보드 제어: 전략 '{target_stg}' 세부 조건 갱신 완료")
+                                    logging.info(f"💾 대시보드 제어: 전략 '{target_stg}' (섹션: {actual_section}) 세부 조건 갱신 완료")
                             except Exception as stg_save_ex:
                                 logging.error(f"❌ 대시보드 전략 상세 저장 실패: {stg_save_ex}")
                                 raise stg_save_ex
