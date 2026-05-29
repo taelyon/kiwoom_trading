@@ -117,7 +117,7 @@ class MLTrainingWorker(threading.Thread):
             df['tic_volume_spike'] = np.where(df['prev_10_vol_avg'] > 0, df['tic_volume'] / df['prev_10_vol_avg'], 0)
             
             # Feature 목록 정의
-            features = [
+            base_features = [
                 'tic_strength', 
                 'tic_velocity', 
                 'tic_order_book_imbalance', 
@@ -125,8 +125,23 @@ class MLTrainingWorker(threading.Thread):
                 'tic_volume_spike'
             ]
             
+            new_features = [
+                'tic_turnover', 'tic_vi_distance', 
+                'tic_sell_hoga_size_1', 'tic_sell_hoga_size_2', 'tic_sell_hoga_size_3',
+                'tic_buy_hoga_size_1', 'tic_buy_hoga_size_2', 'tic_buy_hoga_size_3'
+            ]
+            
+            features = base_features + new_features
+            
+            # 신규 피처 호환성 처리 (과거 데이터 결측치 0으로 채우기)
+            for nf in new_features:
+                if nf not in df.columns:
+                    df[nf] = 0.0
+                else:
+                    df[nf] = df[nf].fillna(0.0)
+            
             # 결측치 제거
-            df_train = df.dropna(subset=features + ['label'])
+            df_train = df.dropna(subset=base_features + ['label'])
             
             if len(df_train) < 1000:
                 self.finished_signal.emit(False, f"[ML] 유효한 학습 데이터가 너무 적습니다 ({len(df_train)}개). 최소 1000개 필요.")

@@ -1342,9 +1342,16 @@ class AccountManager:
                     total_eval_pl_amount = self.parent.data_manager.safe_int(eval_status.get('tot_evlt_pl', 0))
                     total_profit_rate = self.parent.data_manager.safe_float(eval_status.get('tot_prft_rt', 0.0))
 
-                    self.logger.info(f"총매입금액: {total_purchase_amount:,}원")
-                    self.logger.info(f"총평가손익금액: {total_eval_pl_amount:+,}원")
-                    self.logger.info(f"총수익률: {total_profit_rate:.2f}%")
+                    self.logger.info(f"보유종목 총매입금액: {total_purchase_amount:,}원")
+                    self.logger.info(f"보유종목 총평가손익: {total_eval_pl_amount:+,}원")
+                    self.logger.info(f"보유종목 총수익률: {total_profit_rate:.2f}%")
+                    
+                    prime_cash = getattr(self.parent.trader, 'prime_cash', 0)
+                    available_cash = getattr(self.parent.trader, '_cash_cache', 0)
+                    if prime_cash > 0:
+                        total_assets = available_cash + total_purchase_amount + total_eval_pl_amount
+                        account_profit_rate = ((total_assets - prime_cash) / prime_cash) * 100
+                        self.logger.info(f"계좌 총수익률: {account_profit_rate:.2f}% (총자산: {total_assets:,}원)")
                 else:
                     self.logger.warning("⚠️ 계좌평가잔고내역 조회 실패")
             except Exception as eval_ex:

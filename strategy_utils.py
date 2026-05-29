@@ -459,9 +459,28 @@ def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_
                 # Volume Spike (스칼라 값)
                 feature_spike = locals_dict.get('tic_volume_spike', 0.0)
                 
-                # 차원 맞추기 (2D Array)
-                # 모델 학습 시 사용된 피처 순서와 정확히 일치해야 함: strength, velocity, imbalance, relative_pos, volume_spike
-                input_vector = np.array([[feature_strength, feature_velocity, feature_imbalance, feature_relative, feature_spike]])
+                # 추가 피처 (신규 모델용)
+                feature_turnover = locals_dict.get('tic_turnover', [0])[-1] if isinstance(locals_dict.get('tic_turnover'), (list, np.ndarray)) else 0
+                feature_vi_dist = locals_dict.get('tic_vi_distance', [999])[-1] if isinstance(locals_dict.get('tic_vi_distance'), (list, np.ndarray)) else 999.0
+                
+                # 호가 잔량
+                sell_1 = locals_dict.get('tic_sell_hoga_size_1', [0])[-1] if isinstance(locals_dict.get('tic_sell_hoga_size_1'), (list, np.ndarray)) else 0
+                sell_2 = locals_dict.get('tic_sell_hoga_size_2', [0])[-1] if isinstance(locals_dict.get('tic_sell_hoga_size_2'), (list, np.ndarray)) else 0
+                sell_3 = locals_dict.get('tic_sell_hoga_size_3', [0])[-1] if isinstance(locals_dict.get('tic_sell_hoga_size_3'), (list, np.ndarray)) else 0
+                buy_1 = locals_dict.get('tic_buy_hoga_size_1', [0])[-1] if isinstance(locals_dict.get('tic_buy_hoga_size_1'), (list, np.ndarray)) else 0
+                buy_2 = locals_dict.get('tic_buy_hoga_size_2', [0])[-1] if isinstance(locals_dict.get('tic_buy_hoga_size_2'), (list, np.ndarray)) else 0
+                buy_3 = locals_dict.get('tic_buy_hoga_size_3', [0])[-1] if isinstance(locals_dict.get('tic_buy_hoga_size_3'), (list, np.ndarray)) else 0
+                
+                # 모델 학습 시 사용된 피처 개수에 맞춰 동적으로 차원 맞추기
+                num_features = LGBM_MODEL.num_feature()
+                if num_features == 5:
+                    input_vector = np.array([[feature_strength, feature_velocity, feature_imbalance, feature_relative, feature_spike]])
+                else:
+                    # 13개 피처 (기본 5 + 신규 8)
+                    input_vector = np.array([[
+                        feature_strength, feature_velocity, feature_imbalance, feature_relative, feature_spike,
+                        feature_turnover, feature_vi_dist, sell_1, sell_2, sell_3, buy_1, buy_2, buy_3
+                    ]])
                 
                 # 추론 실행
                 ai_score = LGBM_MODEL.predict(input_vector)[0]

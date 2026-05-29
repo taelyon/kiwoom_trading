@@ -1201,6 +1201,16 @@ class ChartDataCache:
                 cached_data['realtime_metrics'] = {}
             cached_data['realtime_metrics']['tick_velocity'] = tick_velocity
             
+            # 상방 VI 이격도 추정 (시가 기준 10% 상승 가격)
+            open_price = realtime_data.get('open_price', 0)
+            current_price = realtime_data.get('current_price', 0)
+            if open_price > 0 and current_price > 0:
+                vi_price = open_price * 1.10
+                vi_distance = (vi_price - current_price) / current_price * 100
+                cached_data['realtime_metrics']['vi_distance'] = vi_distance
+            else:
+                cached_data['realtime_metrics']['vi_distance'] = 999.0
+            
             # 차트 캐시 업데이트 (메트릭 포함)
             chart_cache.cache[stock_code] = cached_data
 
@@ -1271,6 +1281,14 @@ class ChartDataCache:
             cached_data['realtime_metrics']['order_book_imbalance'] = imbalance
             cached_data['realtime_metrics']['total_sell_hoga'] = total_sell_hoga
             cached_data['realtime_metrics']['total_buy_hoga'] = total_buy_hoga
+            
+            # 1~3호가 잔량 추가
+            cached_data['realtime_metrics']['sell_hoga_1'] = order_book_data.get('sell_hoga_1', 0)
+            cached_data['realtime_metrics']['sell_hoga_2'] = order_book_data.get('sell_hoga_2', 0)
+            cached_data['realtime_metrics']['sell_hoga_3'] = order_book_data.get('sell_hoga_3', 0)
+            cached_data['realtime_metrics']['buy_hoga_1'] = order_book_data.get('buy_hoga_1', 0)
+            cached_data['realtime_metrics']['buy_hoga_2'] = order_book_data.get('buy_hoga_2', 0)
+            cached_data['realtime_metrics']['buy_hoga_3'] = order_book_data.get('buy_hoga_3', 0)
             
             # 차트 캐시 업데이트
             chart_cache.cache[stock_code] = cached_data

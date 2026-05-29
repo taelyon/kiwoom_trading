@@ -1258,6 +1258,22 @@ class KiwoomWebSocketClient:
                         ask_price_raw = values.get('27', '0')
                         bid_price_raw = values.get('28', '0')
                         
+                        # 누적거래대금 추출 (FID 14) 또는 틱 거래대금 추산
+                        turnover_raw = values.get('14', '0')
+                        try:
+                            accumulated_turnover = int(float(str(turnover_raw).replace('+', '').replace('-', '').replace(',', '')))
+                        except (ValueError, TypeError):
+                            accumulated_turnover = 0
+                            
+                        # 시가 추출 (FID 16) - VI 발동가 계산용
+                        open_price_raw = values.get('16', '0')
+                        try:
+                            open_price = abs(float(str(open_price_raw).replace('+', '').replace('-', '').replace(',', '')))
+                        except (ValueError, TypeError):
+                            open_price = 0
+                            
+                        # 틱 거래대금 계산 (현재가 * 틱 체결량)
+                        tick_turnover = current_price * volume
                         try:
                             ask_price = abs(int(ask_price_raw.replace(',', '')))
                             bid_price = abs(int(bid_price_raw.replace(',', '')))
@@ -1281,9 +1297,11 @@ class KiwoomWebSocketClient:
                         execution_info = {
                             'execution_time': execution_time, # type: ignore
                             'current_price': current_price,
+                            'open_price': open_price,
                             'volume': volume,
                             'strength': strength,
-                            'is_buy': is_buy
+                            'is_buy': is_buy,
+                            'turnover': tick_turnover
                         }
                         
                         # 보유 종목이면 balance_data의 현재가 업데이트
@@ -1400,9 +1418,23 @@ class KiwoomWebSocketClient:
                     except Exception:
                         total_buy_hoga = 0
                         
+                    # 1~3호가 대기 잔량 파싱 (SELL: 61, 62, 63 / BUY: 71, 72, 73)
+                    sell_hoga_1 = int(values.get('61', '0').replace(',', '').replace('+', '').replace('-', '') or 0)
+                    sell_hoga_2 = int(values.get('62', '0').replace(',', '').replace('+', '').replace('-', '') or 0)
+                    sell_hoga_3 = int(values.get('63', '0').replace(',', '').replace('+', '').replace('-', '') or 0)
+                    buy_hoga_1 = int(values.get('71', '0').replace(',', '').replace('+', '').replace('-', '') or 0)
+                    buy_hoga_2 = int(values.get('72', '0').replace(',', '').replace('+', '').replace('-', '') or 0)
+                    buy_hoga_3 = int(values.get('73', '0').replace(',', '').replace('+', '').replace('-', '') or 0)
+                        
                     order_book_info = {
                         'total_sell_hoga': total_sell_hoga,
                         'total_buy_hoga': total_buy_hoga,
+                        'sell_hoga_1': sell_hoga_1,
+                        'sell_hoga_2': sell_hoga_2,
+                        'sell_hoga_3': sell_hoga_3,
+                        'buy_hoga_1': buy_hoga_1,
+                        'buy_hoga_2': buy_hoga_2,
+                        'buy_hoga_3': buy_hoga_3,
                         'timestamp': datetime.now()
                     }
                     
@@ -1428,7 +1460,8 @@ class KiwoomWebSocketClient:
             
             # 필수 키가 없으면 초기화
             required_keys = ['time', 'open', 'high', 'low', 'close', 'volume', 'strength', 'buy_volume', 'sell_volume', 
-                             'TICK_VELOCITY', 'ORDER_BOOK_IMBALANCE', 'LAST_TIC_CNT']
+                             'TICK_VELOCITY', 'ORDER_BOOK_IMBALANCE', 'LAST_TIC_CNT', 'TURNOVER', 'SELL_HOGA_SIZE_1', 
+                             'SELL_HOGA_SIZE_2', 'SELL_HOGA_SIZE_3', 'BUY_HOGA_SIZE_1', 'BUY_HOGA_SIZE_2', 'BUY_HOGA_SIZE_3', 'VI_DISTANCE']
             current_len = len(tic_data.get('close', []))
             for key in required_keys:
                 if key not in tic_data:
@@ -1442,6 +1475,17 @@ class KiwoomWebSocketClient:
             realtime_metrics = cached_data.get('realtime_metrics', {})
             tick_velocity = realtime_metrics.get('tick_velocity', 0.0)
             order_book_imbalance = realtime_metrics.get('order_book_imbalance', 0.0)
+            
+            # 최신 호가창 뎁스 데이터 가져오기 (실시간 지표 또는 차트 데이터 갱신)
+            sell_hoga_1 = realtime_metrics.get('sell_hoga_1', 0)
+            sell_hoga_2 = realtime_metrics.get('sell_hoga_2', 0)
+            sell_hoga_3 = realtime_metrics.get('sell_hoga_3', 0)
+            buy_hoga_1 = realtime_metrics.get('buy_hoga_1', 0)
+            buy_hoga_2 = realtime_metrics.get('buy_hoga_2', 0)
+            buy_hoga_3 = realtime_metrics.get('buy_hoga_3', 0)
+            
+            # 틱 거래대금
+            tick_turnover = realtime_data.get('turnover', realtime_data.get('current_price', 0) * realtime_data.get('volume', 0))
             
             # 실시간 데이터에서 시간 파싱
             execution_time = realtime_data.get('execution_time', '')
