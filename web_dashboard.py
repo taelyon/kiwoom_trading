@@ -1280,6 +1280,7 @@ HTML_CONTENT = """
 
             ws.onmessage = (event) => {
                 const data = JSON.parse(event.data);
+                console.log("📥 [WS RECV]", data.type, data);
                 
                 if (data.type === 'auth_result') {
                     if (data.success) {
