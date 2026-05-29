@@ -44,7 +44,6 @@ class EnvConfigParser:
         load_dotenv(self.env_path, override=True, encoding='utf-8')
         self._data = {}
         self._sync_from_env()
-        self._ensure_integrated_strategy()
 
     def _sync_from_env(self):
         """환경 변수 및 파일에서 캐시로 데이터 동기화 (관리 대상 키만)"""
@@ -62,31 +61,6 @@ class EnvConfigParser:
                 # 파일에서 읽은 값과 다를 경우 덮어씀 (단, 한글 키가 깨진 경우는 무시되도록 함)
                 self._data[k] = v
 
-    def _ensure_integrated_strategy(self):
-        """기본 AI 전략(INTEGRATED)이 .env에 없거나 구버전이면 자동 업데이트"""
-        needs_update = False
-        if not self.has_section('INTEGRATED'):
-            needs_update = True
-        elif not self.has_option('INTEGRATED', 'sell_stg_3'):
-            # sell_stg_3(4번째 매도전략)가 없다면 구버전(3단계 매도)이므로 강제 업데이트
-            needs_update = True
-            
-        if needs_update:
-            self.logger.info("기본 AI 전략(INTEGRATED)이 누락되었거나 구버전이므로 최신 스캘핑 버전으로 갱신합니다.")
-            import json
-            
-            # 매수 전략 세팅 (AI 모델에 전적으로 의존)
-            self.set('INTEGRATED', 'buy_stg_0', json.dumps({"name": "AI 정밀 매수", "content": "AI_SCORE > 0.75"}, ensure_ascii=False))
-            
-            # 매도 전략 세팅 (초단타/스캘핑 특화)
-            self.set('INTEGRATED', 'sell_stg_0', json.dumps({"name": "AI 조기 매도", "content": "AI_SCORE < 0.3 and current_profit_pct < -1.0", "partial_sell_ratio": 1.0}, ensure_ascii=False))
-            self.set('INTEGRATED', 'sell_stg_1', json.dumps({"name": "1차 분할 익절", "content": "current_profit_pct > 1.5", "partial_sell_ratio": 0.5}, ensure_ascii=False))
-            self.set('INTEGRATED', 'sell_stg_2', json.dumps({"name": "2차 전량 익절", "content": "current_profit_pct > 2.5", "partial_sell_ratio": 1.0}, ensure_ascii=False))
-            self.set('INTEGRATED', 'sell_stg_3', json.dumps({"name": "기계적 손절", "content": "current_profit_pct < -1.5", "partial_sell_ratio": 1.0}, ensure_ascii=False))
-            
-            # 전략 목록에 등록
-            self.set('STRATEGIES', 'stg_integrated', 'INTEGRATED')
-            self.save()
 
     def read(self, filenames, encoding='utf-8'):
         """filenames 인자는 무시하고 .env 파일을 로드"""

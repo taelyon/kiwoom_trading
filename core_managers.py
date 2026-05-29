@@ -672,7 +672,7 @@ class StrategyManager:
             config = EnvConfigParser()
             if config.has_section('STRATEGIES'):
                 for key, value in config.items('STRATEGIES'):
-                    if key.startswith('stg_') or key == 'stg_integrated':
+                    if key.startswith('stg_') and key != 'stg_integrated':
                         strategies.append(value)
         except Exception as ex:
             self.logger.error(f"투자 전략 목록 로드 실패: {ex}")
@@ -685,33 +685,14 @@ class StrategyManager:
             config = EnvConfigParser()
             key_prefix = 'buy_stg_' if strategy_type == 'buy' else 'sell_stg_'
             
-            if current_strategy == "기본 전략":
-                merge_sections = []
-                if config.has_section('급등주'):
-                    merge_sections.append('급등주')
-                if config.has_section('갭상승'):
-                    merge_sections.append('갭상승')
-
-                for section in merge_sections:
-                    items = [(k, v) for k, v in config.items(section) if k.startswith(key_prefix)]
-                    items.sort(key=lambda x: int(x[0].split('_')[-1]) if x[0].split('_')[-1].isdigit() else 999)
-                    for key, value in items:
+            if config.has_section(current_strategy):
+                for key in config[current_strategy]:
+                    if key.startswith(key_prefix):
                         try:
-                            strategy_data = json.loads(value)
-                            name = strategy_data.get('name', key)
-                            display_name = f"[{section}] {name}"
-                            strategies.append({"key": f"{section}.{key}", "name": display_name})
+                            strategy_data = json.loads(config[current_strategy][key])
+                            strategies.append({"key": key, "name": strategy_data.get('name', key)})
                         except json.JSONDecodeError:
-                            self.logger.warning(f"전략 파싱 실패: {section}.{key}")
-            else:
-                if config.has_section(current_strategy):
-                    for key in config[current_strategy]:
-                        if key.startswith(key_prefix):
-                            try:
-                                strategy_data = json.loads(config[current_strategy][key])
-                                strategies.append({"key": key, "name": strategy_data.get('name', key)})
-                            except json.JSONDecodeError:
-                                self.logger.warning(f"전략 파싱 실패: {key}")
+                            self.logger.warning(f"전략 파싱 실패: {key}")
         except Exception as ex:
             self.logger.error(f"하위 전략 목록 로드 실패 ({strategy_type}): {ex}")
         return strategies
@@ -737,16 +718,6 @@ class StrategyManager:
             target_section = current_strategy
             target_key = None
             display_name = strategy_name
-
-            if current_strategy == "기본 전략" and strategy_name.startswith('['):
-                try:
-                    end_idx = strategy_name.find(']')
-                    section_label = strategy_name[1:end_idx]
-                    display_name = strategy_name[end_idx+2:]
-                    if config.has_section(section_label):
-                        target_section = section_label
-                except Exception:
-                    pass
 
             if not config.has_section(target_section):
                 return ""
@@ -777,15 +748,6 @@ class StrategyManager:
             config = EnvConfigParser()
             target_section = current_strategy
             target_key = key_from_client
-
-            if current_strategy == "기본 전략":
-                if '.' in key_from_client:
-                    section, key = key_from_client.split('.', 1)
-                    target_section = section
-                    target_key = key
-                else:
-                    self.logger.error(f"기본 전략 저장 오류: 잘못된 키 형식 - {key_from_client}")
-                    return False
 
             if not config.has_section(target_section):
                 self.logger.error(f"전략 저장 실패: 섹션을 찾을 수 없음 - [{target_section}]")
@@ -894,9 +856,6 @@ class StrategyManager:
                 condition_names = [condition['title'] for condition in self.parent.condition_search_list]
                 if strategy_name in condition_names:
                     await self.parent.condition_search_manager.handle_condition_search(strategy_name)
-            
-            if strategy_name == "기본 전략":
-                await self.parent.condition_search_manager.handle_integrated_condition_search()
             
         except Exception as ex:
             self.logger.error(f"전략 변경 실패: {ex}")
@@ -1530,27 +1489,8 @@ class ConditionSearchManager:
                         create_fire_and_forget_task(delayed_condition_search())
                         self.logger.debug("🔍 저장된 조건검색식 자동 실행 예약 (1초 후)")
                         return True
-                
-                # 기본 전략인 경우 모든 조건검색식 실행
-                if last_strategy == "기본 전략":
-                    self.logger.debug(f"🔍 저장된 기본 전략 발견: {last_strategy}")
-                    
-                    # 자동 실행 (1.5초 후)
-                    async def delayed_integrated_search():
-                        try:
-                            await asyncio.sleep(1.5)
-                            await self.handle_integrated_condition_search()
-                        except asyncio.CancelledError:
-                            self.logger.debug("통합 조건검색 태스크 취소됨")
-                        except Exception as e:
-                            self.logger.error(f"통합 조건검색 실행 실패: {e}")
-                    task = asyncio.create_task(delayed_integrated_search())
-                    self.parent._delayed_search_task = task
-                    self.logger.debug("🔍 저장된 기본 전략 자동 실행 예약 (1.5초 후)")
-                    return True
-
                 # 일반 조건검색식인 경우
-                elif hasattr(self.parent, 'condition_search_list') and self.parent.condition_search_list:
+                if hasattr(self.parent, 'condition_search_list') and self.parent.condition_search_list:
                     condition_names = [condition['title'] for condition in self.parent.condition_search_list]
                     if last_strategy in condition_names:
                         self.logger.debug(f"🔍 저장된 조건검색식 발견: {last_strategy}")
@@ -1571,29 +1511,6 @@ class ConditionSearchManager:
             self.logger.error(f"❌ 저장된 조건검색식 확인 및 자동 실행 실패: {ex}", exc_info=True)
             return False
     
-    async def handle_integrated_condition_search(self):
-        """기본 전략 실행: 모든 조건검색식 순차적으로 실행"""
-        try:
-            if not hasattr(self.parent, 'condition_search_list') or not self.parent.condition_search_list:
-                self.logger.warning("⚠️ 조건검색 목록이 없어 통합 검색을 실행할 수 없습니다.")
-                return
-
-            self.logger.info(f"🔄 통합 조건검색 시작: {len(self.parent.condition_search_list)}개 조건식 실행")
-
-            for condition in self.parent.condition_search_list:
-                seq = condition.get('seq')
-                name = condition.get('title')
-                if seq and name:
-                    self.logger.debug(f"  - 조건검색 실행: {name} (seq: {seq})")
-                    # 각 조건검색을 순차적으로 실행하고, API 제한을 피하기 위해 약간의 지연을 둡니다.
-                    await self.parent.start_condition_realtime(seq, name)
-                    await asyncio.sleep(1.0)  # API 요청 간격
-
-            self.logger.debug("✅ 모든 조건검색식에 대한 실시간 모니터링이 시작되었습니다.")
-
-        except Exception as ex:
-            self.logger.error(f"❌ 통합 조건검색 실행 실패: {ex}")
-
     async def handle_condition_search(self, condition_name=None):
         """조건검색 실행 (웹소켓 기반)"""
         try:

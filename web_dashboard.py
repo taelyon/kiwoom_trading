@@ -1569,13 +1569,8 @@ HTML_CONTENT = """
             if(document.getElementById('cfgMockSecret')) document.getElementById('cfgMockSecret').value = settings.mock_secretkey || '';
             
             const selectEl = document.getElementById('cfgStrategy');
-            // 기본 옵션 목록 초기화 및 '기본 전략' 항상 추가
+            // 기본 옵션 목록 초기화
             selectEl.innerHTML = '';
-            
-            const defaultOption = document.createElement('option');
-            defaultOption.value = "기본 전략";
-            defaultOption.textContent = "기본 전략 (공통 AI 템플릿)";
-            selectEl.appendChild(defaultOption);
             
             // 전달받은 조건식 목록이 있으면 옵션에 동적 추가
             if (settings.condition_list && settings.condition_list.length > 0) {
@@ -2520,7 +2515,7 @@ async def websocket_handler(websocket):
                     config = EnvConfigParser()
                     settings = {
                         "buycount": config.get('SETTINGS', 'buycount', fallback='3'),
-                        "last_strategy": config.get('SETTINGS', 'last_strategy', fallback='기본 전략'),
+                        "last_strategy": config.get('SETTINGS', 'last_strategy', fallback=''),
                         "simulation": config.getboolean('KIWOOM_API', 'simulation', fallback=False),
                         "condition_list": getattr(app, 'condition_search_list', []) or [],
                         "real_appkey": config.get('KIWOOM_API', 'real_appkey', fallback=config.get('KIWOOM_API', 'appkey', fallback='')),
@@ -2543,7 +2538,7 @@ async def websocket_handler(websocket):
                     buy_stgs = []
                     sell_stgs = []
                     
-                    actual_section = "INTEGRATED" if strategy_name in ["기본 전략", "기본전략"] else strategy_name
+                    actual_section = strategy_name
                     logging.info(f"🔍 [get_strategy_detail] strategy: '{strategy_name}' -> '{actual_section}', has_section: {config.has_section(actual_section)}")
                     
                     if actual_section:
@@ -2564,36 +2559,11 @@ async def websocket_handler(websocket):
                                     sell_stgs.append(json.loads(v))
                                 except Exception as e:
                                     logging.error(f"❌ JSON 파싱 에러 (매도 {k}): {e}")
-                        
-                        # .env에 전략이 없거나 파싱 결과가 비어있는 경우: 기본 전략(INTEGRATED) 복사 및 저장
-                        if not buy_stgs or not sell_stgs:
-                            logging.info(f"📝 [{strategy_name}] 전략이 없어 기본 전략(INTEGRATED)을 복사하여 생성합니다.")
-                            
-                            if not config.has_section(actual_section):
-                                config.add_section(actual_section)
-                                
-                            if not buy_stgs and config.has_section('INTEGRATED'):
-                                buy_items = [(k, v) for k, v in config.items('INTEGRATED') if k.startswith('buy_stg_')]
-                                buy_items.sort(key=lambda x: int(x[0].split('_')[-1]) if x[0].split('_')[-1].isdigit() else 999)
-                                for k, v in buy_items:
-                                    try:
-                                        buy_stgs.append(json.loads(v))
-                                        config.set(actual_section, k, v)
-                                    except Exception as e:
-                                        pass
-                                        
-                            if not sell_stgs and config.has_section('INTEGRATED'):
-                                sell_items = [(k, v) for k, v in config.items('INTEGRATED') if k.startswith('sell_stg_')]
-                                sell_items.sort(key=lambda x: int(x[0].split('_')[-1]) if x[0].split('_')[-1].isdigit() else 999)
-                                for k, v in sell_items:
-                                    try:
-                                        sell_stgs.append(json.loads(v))
-                                        config.set(actual_section, k, v)
-                                    except Exception as e:
-                                        pass
-                            
+                        else:
+                            # .env에 전략이 없는 경우: 섹션만 생성 후 저장
+                            logging.info(f"📝 [{strategy_name}] 전략 섹션이 없어 생성합니다.")
+                            config.add_section(actual_section)
                             config.save()
-                            logging.info(f"✅ [{strategy_name}] 매수 {len(buy_stgs)}개, 매도 {len(sell_stgs)}개 기본 전략 복사 완료")
                     
                     await safe_send(websocket, json.dumps({
                         "type": "strategy_detail",
@@ -2636,7 +2606,7 @@ async def websocket_handler(websocket):
                         # 매수/매도 세부 전략 JSON 저장
                         target_stg = new_settings.get('last_strategy')
                         if target_stg:
-                            actual_section = "INTEGRATED" if target_stg in ["기본 전략", "기본전략"] else target_stg
+                            actual_section = target_stg
                             
                             if not config.has_section(actual_section):
                                 config.add_section(actual_section)

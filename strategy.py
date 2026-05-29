@@ -37,18 +37,24 @@ class KiwoomStrategy:
         try:
             config = EnvConfigParser()
             
-            # 현재 전략 로드
-            self.current_strategy = config.get('SETTINGS', 'last_strategy', fallback='기본 전략')
-            
             # 전략별 설정 로드 - [STRATEGIES] 섹션 기반으로 동적 로드
             self.strategy_config = {}
+            available_strategies = []
             if config.has_section('STRATEGIES'):
                 for key, strategy_name in config.items('STRATEGIES'):
-                    if key.startswith('stg_') or key == 'stg_integrated':
+                    if key.startswith('stg_') and key != 'stg_integrated':
+                        available_strategies.append(strategy_name)
                         # 해당 전략명과 일치하는 섹션이 있으면 로드
                         if config.has_section(strategy_name):
                             self.strategy_config[strategy_name] = dict(config.items(strategy_name)) # type: ignore
                             self.logger.debug(f"✅ 전략 설정 로드: {strategy_name}")
+            
+            # 현재 전략 로드
+            last_stg = config.get('SETTINGS', 'last_strategy', fallback=None)
+            if last_stg and last_stg in available_strategies:
+                self.current_strategy = last_stg
+            else:
+                self.current_strategy = available_strategies[0] if available_strategies else None
             
             self.logger.debug(f"전략 설정 로드 완료: {self.current_strategy}")
             
@@ -132,10 +138,10 @@ class KiwoomStrategy:
                 if is_first_eval:
                     self.logger.debug(f"📍 [{code}] UI 선택 전략 사용: {effective_strategy_name}")
             
-            if effective_strategy_name != "기본 전략" and effective_strategy_name not in self.strategy_config:
+            if effective_strategy_name not in self.strategy_config:
                 if is_first_eval:
-                    self.logger.warning(f"⚠️ [{code}] 전략 '{effective_strategy_name}'이 설정에 없음 - 기본 전략(기본 전략)으로 대체 진행")
-                effective_strategy_name = "기본 전략"
+                    self.logger.warning(f"⚠️ [{code}] 전략 '{effective_strategy_name}'이 설정에 없음 - 평가를 진행하지 않습니다.")
+                return None, None
             elif is_first_eval:
                 self.logger.debug(f"✅ [{code}] 전략 설정 확인됨: {effective_strategy_name}")
 
@@ -386,11 +392,7 @@ class KiwoomStrategy:
 
                 buy_strategies = []
 
-                # 기본 전략은 INTEGRATED 섹션을 사용
-                if strategy_name == "기본 전략":
-                    strategy_name_in_config = "INTEGRATED"
-                else:
-                    strategy_name_in_config = strategy_name
+                strategy_name_in_config = strategy_name
 
                 # 개별 전략 섹션에서 매수 조건 가져오기
                 if strategy_name_in_config in self.strategy_config:
@@ -407,21 +409,11 @@ class KiwoomStrategy:
                     if buy_strategies and is_first_check:
                         self.logger.debug(f"✅ [{code}] strategy_config에서 매수 전략 {len(buy_strategies)}개 로드됨: {strategy_name_in_config}")
 
-                # 전략이 없으면 기본 전략 사용 (매우 보수적)
+                # 전략이 없으면 매수 평가를 진행하지 않음
                 if not buy_strategies:
                     if is_first_check:
-                        self.logger.warning(f"⚠️ [{code}] 매수 전략 없음 - 기본 전략 사용 (RSI < 30 + MACD 골든크로스)")
-                    # 기본 전략: RSI 과매도 + MACD 골든크로스
-                    buy_strategies = [
-                        {
-                            'name': 'AI 매수 전략',
-                            'content': 'AI_SCORE > 0.75'
-                        },
-                        {
-                            'name': '기본 전략',
-                            'content': 'tic_RSI[-1] < 30 and tic_MACD_HIST[-1] > 0'
-                        }
-                    ]
+                        self.logger.warning(f"⚠️ [{code}] 매수 전략 없음 - 매수 평가를 진행하지 않습니다.")
+                    return signals
                 
                 if is_first_check:
                     self.logger.debug(f"✅ [{code}] 최종 매수 전략 {len(buy_strategies)}개 준비 완료")
@@ -602,11 +594,7 @@ class KiwoomStrategy:
             # 매도 전략 로드
             sell_strategies = []
 
-            # 기본 전략은 INTEGRATED 섹션을 사용
-            if strategy_name == "기본 전략":
-                strategy_name_in_config = "INTEGRATED"
-            else:
-                strategy_name_in_config = strategy_name
+            strategy_name_in_config = strategy_name
             
             # strategy_config에서 현재 전략의 매도 조건 가져오기
             if strategy_name_in_config in self.strategy_config:
@@ -623,16 +611,11 @@ class KiwoomStrategy:
                     except json.JSONDecodeError:
                         self.logger.debug(f"매도 전략 파싱 실패 ({code}): {key}", exc_info=True)
             
-            # 전략이 없으면 기본 손절/익절 전략 사용
+            # 전략이 없으면 매도 평가를 진행하지 않음
             if not sell_strategies:
                 if is_first_sell_check: # type: ignore
-                    self.logger.debug(f"⚠️ [{code}] 매도 전략 없음 - 기본 손익 전략 사용")
-                # 기본 전략: +3% 익절, -2% 손절
-                sell_strategies = [
-                    {'name': 'AI 조기 매도', 'content': 'AI_SCORE < 0.3 and current_profit_pct < -1.0'},
-                    {'name': '익절', 'content': 'current_profit_pct > 3.0'},
-                    {'name': '손절', 'content': 'current_profit_pct < -2.0'}
-                ]
+                    self.logger.warning(f"⚠️ [{code}] 매도 전략 없음 - 매도 평가를 진행하지 않습니다.")
+                return signals
             else:
                 if is_first_sell_check: # type: ignore
                     self.logger.debug(f"✅ [{code}] 매도 전략 {len(sell_strategies)}개 로드됨: {strategy_name}")

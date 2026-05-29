@@ -230,10 +230,6 @@ class TradingApp:
         """조건검색 목록 조회"""
         await self.condition_search_manager.handle_condition_search_list_query()
 
-    async def handle_integrated_condition_search(self):
-        """통합 조건검색 실행"""
-        await self.condition_search_manager.handle_integrated_condition_search()
-
     async def start_condition_realtime(self, seq, condition_name=None):
         """조건검색 실시간 모니터링 시작 (웹소켓)"""
         try:
