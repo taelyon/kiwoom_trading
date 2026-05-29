@@ -105,7 +105,7 @@ class EnvConfigParser:
 
     def get(self, section, option, fallback=None):
         key = self._get_key(section, option)
-        val = os.environ.get(key, self._data.get(key, fallback))
+        val = self._data.get(key, os.environ.get(key, fallback))
         # fallback이 None인 경우 ConfigParser는 NoOptionError를 내뱉지만, 여기선 None 반환
         return val
 
