@@ -1353,10 +1353,12 @@ HTML_CONTENT = """
                 document.getElementById('connectionStatus').className = "status-badge disconnected";
                 document.getElementById('connectionStatus').innerHTML = '<span style="width: 8px; height: 8px; border-radius: 50%; background-color: var(--danger); box-shadow: 0 0 8px var(--danger);"></span>DISCONNECTED';
                 
-                // 인증에 성공한 비밀번호가 있을 때만 자동 재연결 시도
-                if (localStorage.getItem('dashboard_password')) {
+                // 인증에 성공했던 비밀번호가 저장되어 있을 때만 자동 재연결 시도
+                const savedPass = localStorage.getItem('dashboard_password');
+                if (savedPass) {
                     clearTimeout(reconnectTimer);
-                    reconnectTimer = setTimeout(() => connectWebSocket(currentPassword), 3000);
+                    currentPassword = savedPass; // 전역 변수 복원
+                    reconnectTimer = setTimeout(() => connectWebSocket(savedPass), 3000);
                 }
             };
 
