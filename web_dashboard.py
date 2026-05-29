@@ -2615,14 +2615,14 @@ async def websocket_handler(websocket):
                         if 'dashboard_password' in new_settings:
                             config.set('SETTINGS', 'dashboard_password', str(new_settings['dashboard_password']))
                             
-                        # 새로운 API 키 저장
-                        if 'real_appkey' in new_settings:
+                        # 새로운 API 키 저장 (빈 값으로 기존 키 덮어쓰기 방지)
+                        if new_settings.get('real_appkey'):
                             config.set('KIWOOM_API', 'real_appkey', str(new_settings['real_appkey']).strip())
-                        if 'real_secretkey' in new_settings:
+                        if new_settings.get('real_secretkey'):
                             config.set('KIWOOM_API', 'real_secretkey', str(new_settings['real_secretkey']).strip())
-                        if 'mock_appkey' in new_settings:
+                        if new_settings.get('mock_appkey'):
                             config.set('KIWOOM_API', 'mock_appkey', str(new_settings['mock_appkey']).strip())
-                        if 'mock_secretkey' in new_settings:
+                        if new_settings.get('mock_secretkey'):
                             config.set('KIWOOM_API', 'mock_secretkey', str(new_settings['mock_secretkey']).strip())
                         simulation_changed = False
                         if 'simulation' in new_settings:
