@@ -63,9 +63,16 @@ class EnvConfigParser:
                 self._data[k] = v
 
     def _ensure_integrated_strategy(self):
-        """기본 AI 전략(INTEGRATED)이 .env에 없으면 자동 생성"""
+        """기본 AI 전략(INTEGRATED)이 .env에 없거나 구버전이면 자동 업데이트"""
+        needs_update = False
         if not self.has_section('INTEGRATED'):
-            self.logger.info("기본 AI 전략(INTEGRATED)이 누락되어 자동 생성합니다.")
+            needs_update = True
+        elif not self.has_option('INTEGRATED', 'sell_stg_3'):
+            # sell_stg_3(4번째 매도전략)가 없다면 구버전(3단계 매도)이므로 강제 업데이트
+            needs_update = True
+            
+        if needs_update:
+            self.logger.info("기본 AI 전략(INTEGRATED)이 누락되었거나 구버전이므로 최신 스캘핑 버전으로 갱신합니다.")
             import json
             
             # 매수 전략 세팅 (AI 모델에 전적으로 의존)
