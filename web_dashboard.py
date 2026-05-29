@@ -2673,7 +2673,7 @@ async def websocket_handler(websocket):
                         config.save_config()
                         
                         if simulation_changed:
-                            logging.info(f"🔄 투자 모드가 변경되었습니다 ({'실제투자' if old_sim_bool else '모의투자'} -> {'실제투자' if new_sim_bool else '모의투자'}). API 연결을 재시작합니다.")
+                            logging.info(f"🔄 투자 모드가 변경되었습니다 ({'모의투자' if old_sim_bool else '실제투자'} -> {'모의투자' if new_sim_bool else '실제투자'}). API 연결을 재시작합니다.")
                             if app.login_handler:
                                 if hasattr(app.login_handler, 'websocket_client') and app.login_handler.websocket_client:
                                     logging.info("🔌 기존 웹소켓 클라이언트 중단 중...")
