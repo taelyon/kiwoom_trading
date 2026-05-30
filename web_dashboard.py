@@ -627,6 +627,9 @@ HTML_CONTENT = """
 
         .chart-canvas {
             flex-grow: 1;
+            width: 100%;
+            height: 100%;
+            min-height: 300px;
             background: rgba(0, 0, 0, 0.2);
             border-radius: 16px;
             border: 1px solid var(--border-color);
