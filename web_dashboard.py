@@ -1310,6 +1310,10 @@ HTML_CONTENT = """
                         document.getElementById('dashboardContainer').style.display = "flex";
                         document.body.style.alignItems = "stretch";
                         
+                        // 연결 상태 뱃지 업데이트 (재연결 시 복원용)
+                        document.getElementById('connectionStatus').className = "status-badge connected";
+                        document.getElementById('connectionStatus').innerHTML = '<span style="width: 8px; height: 8px; border-radius: 50%; background-color: var(--success); box-shadow: 0 0 8px var(--success);"></span>LIVE CONNECTED';
+                        
                         initTradingViewChart();
                         
                         // 초기 설정 가져오기
