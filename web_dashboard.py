@@ -546,8 +546,8 @@ HTML_CONTENT = """
         /* 차트 영역 */
         .chart-container-box {
             position: relative;
-            height: 480px;
-            max-height: 480px;
+            height: 380px;
+            max-height: 380px;
             display: flex;
             flex-direction: column;
             overflow: hidden;
