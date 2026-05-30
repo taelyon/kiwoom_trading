@@ -180,7 +180,7 @@ class MLTrainingWorker(threading.Thread):
             top_features = ", ".join([f"{f}:{score}" for f, score in importance[:3]])
             
             success_msg = f"✅ 모델 학습 완료! (Data: {len(df_train)}, 검증 AUC: {best_score:.4f}, Top: {top_features})"
-            self.logger.info(success_msg)
+            self.logger.debug(success_msg)
             self.finished_signal.emit(True, success_msg)
 
         except Exception as ex:
