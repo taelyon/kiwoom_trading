@@ -570,8 +570,6 @@ HTML_CONTENT = """
             border-radius: 16px;
             border: 1px solid var(--border-color);
             box-sizing: border-box;
-            transition: opacity 0.3s ease;
-            opacity: 1;
         }
 
         .spinner {
@@ -2025,12 +2023,14 @@ HTML_CONTENT = """
             // 수동 주문 입력창에도 자동 입력
             document.getElementById('orderCode').value = code;
 
-            // 차트 데이터 로딩 오버레이 표시
+            // 차트 데이터 로딩 오버레이 표시 및 캔버스 숨김
             const overlay = document.getElementById('chartLoadingOverlay');
             if (overlay) {
                 overlay.style.display = 'flex';
-                // 약간의 지연 후 투명도 변경 (브라우저 렌더링 사이클 적용)
-                setTimeout(() => { overlay.style.opacity = '1'; }, 10);
+            }
+            const canvasDiv = document.getElementById('chartCanvas');
+            if (canvasDiv) {
+                canvasDiv.style.opacity = '0';
             }
 
             // 기존 구독 해제 및 신규 구독
@@ -2111,15 +2111,6 @@ HTML_CONTENT = """
             if (!candleSeries || !volumeSeries) return;
             if (data.code !== currentChartCode) return;
 
-            // 차트 데이터 수집 완료 시 로딩 오버레이 숨김 (애니메이션 노출 방지)
-            const overlay = document.getElementById('chartLoadingOverlay');
-            if (overlay) {
-                setTimeout(() => {
-                    overlay.style.opacity = '0';
-                    setTimeout(() => { overlay.style.display = 'none'; }, 300);
-                }, 200); // LightweightCharts 애니메이션 완료 대기
-            }
-
             const history = (currentChartScope === 'tic') ? data.tic_history : data.min_history;
             if (!history || history.length === 0) {
                 candleSeries.setData([]);
@@ -2187,6 +2178,15 @@ HTML_CONTENT = """
             }
 
             chart.timeScale().fitContent();
+
+            // LightweightCharts 내부 애니메이션이 완전히 끝난 후 차트를 보여줍니다.
+            setTimeout(() => {
+                const canvasDiv = document.getElementById('chartCanvas');
+                if (canvasDiv) canvasDiv.style.opacity = '1';
+                
+                const overlay = document.getElementById('chartLoadingOverlay');
+                if (overlay) overlay.style.display = 'none';
+            }, 500);
         }
 
         // 실시간 차트 틱 추가
