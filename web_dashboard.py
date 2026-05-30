@@ -588,6 +588,9 @@ HTML_CONTENT = """
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             letter-spacing: 0.5px;
+            text-align: center;
+            word-break: keep-all;
+            padding: 0 10px;
         }
 
         @keyframes spin {
@@ -1063,7 +1066,7 @@ HTML_CONTENT = """
                     <!-- 실시간 데이터 수집 중 안내 오버레이 -->
                     <div id="chartLoadingOverlay" class="chart-loading-overlay">
                         <div class="spinner"></div>
-                        <div class="loading-text">증권사에서 실시간 차트 데이터를 수집하고 있습니다. 잠시만 기다려 주세요...</div>
+                        <div class="loading-text">실시간 차트 데이터를 수집 중입니다...</div>
                     </div>
                 </div>
 
