@@ -1327,6 +1327,8 @@ HTML_CONTENT = """
                     updateDashboard(data);
                 } else if (data.type === 'log') {
                     appendLog(data);
+                    const container = document.getElementById('terminalBody');
+                    if (container) container.scrollTop = container.scrollHeight;
                 } else if (data.type === 'log_batch') {
                     if (data.logs && data.logs.length > 0) {
                         try {
@@ -1337,6 +1339,11 @@ HTML_CONTENT = """
                                     savedLogs.push(log);
                                 }
                             });
+                            
+                            // 배치 DOM 추가 완료 후 딱 1번만 스크롤 갱신 (리플로우 과부하 해결)
+                            const container = document.getElementById('terminalBody');
+                            if (container) container.scrollTop = container.scrollHeight;
+                            
                             if (savedLogs.length > 500) {
                                 savedLogs = savedLogs.slice(savedLogs.length - 500);
                             }
@@ -1511,8 +1518,9 @@ HTML_CONTENT = """
             `;
 
             container.appendChild(row);
-            container.scrollTop = container.scrollHeight;
-
+            
+            // 주의: 여기서 scrollTop을 매번 계산하면 브라우저 강제 리플로우(Reflow)가 발생해 심각한 렉(20초 지연)을 유발합니다.
+            // 스크롤 갱신은 호출하는 쪽(appendLog나 log_batch 처리부)에서 한 번만 수행하도록 위임합니다.
             while (container.childNodes.length > 500) {
                 container.removeChild(container.firstChild);
             }
