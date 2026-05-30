@@ -2470,8 +2470,9 @@ async def process_request(arg1, arg2):
 
             if is_modern:
                 from websockets.http11 import Response
+                from websockets.datastructures import Headers
                 reason = "OK" if status == 200 else ("No Content" if status == 204 else "Not Found")
-                return Response(status_code=status, reason_phrase=reason, headers=headers, body=body)
+                return Response(status_code=status, reason_phrase=reason, headers=Headers(headers), body=body)
             else:
                 return status, headers, body
         
@@ -2481,7 +2482,8 @@ async def process_request(arg1, arg2):
         logging.error(f"❌ [process_request ERROR] HTTP 가로채기 처리 중 예외 발생: {e}", exc_info=True)
         if hasattr(arg2, 'headers'):
             from websockets.http11 import Response
-            return Response(status_code=500, reason_phrase="Internal Server Error", headers=[("Content-Type", "text/plain")], body=f"Internal Server Error: {e}".encode("utf-8"))
+            from websockets.datastructures import Headers
+            return Response(status_code=500, reason_phrase="Internal Server Error", headers=Headers([("Content-Type", "text/plain")]), body=f"Internal Server Error: {e}".encode("utf-8"))
         else:
             return 500, [("Content-Type", "text/plain")], f"Internal Server Error: {e}".encode("utf-8")
 
