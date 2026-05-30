@@ -548,6 +548,7 @@ HTML_CONTENT = """
             position: relative;
             height: 480px;
             max-height: 480px;
+            min-height: 480px;
             display: flex;
             flex-direction: column;
             overflow: hidden;
@@ -569,6 +570,8 @@ HTML_CONTENT = """
             border-radius: 16px;
             border: 1px solid var(--border-color);
             box-sizing: border-box;
+            transition: opacity 0.3s ease;
+            opacity: 1;
         }
 
         .spinner {
@@ -937,6 +940,7 @@ HTML_CONTENT = """
             .chart-container-box {
                 height: 380px;
                 max-height: 380px;
+                min-height: 380px;
             }
             .chart-header {
                 flex-direction: column;
@@ -2022,6 +2026,8 @@ HTML_CONTENT = """
             const overlay = document.getElementById('chartLoadingOverlay');
             if (overlay) {
                 overlay.style.display = 'flex';
+                // 약간의 지연 후 투명도 변경 (브라우저 렌더링 사이클 적용)
+                setTimeout(() => { overlay.style.opacity = '1'; }, 10);
             }
 
             // 기존 구독 해제 및 신규 구독
@@ -2102,10 +2108,13 @@ HTML_CONTENT = """
             if (!candleSeries || !volumeSeries) return;
             if (data.code !== currentChartCode) return;
 
-            // 차트 데이터 수집 완료 시 로딩 오버레이 숨김
+            // 차트 데이터 수집 완료 시 로딩 오버레이 숨김 (애니메이션 노출 방지)
             const overlay = document.getElementById('chartLoadingOverlay');
             if (overlay) {
-                overlay.style.display = 'none';
+                setTimeout(() => {
+                    overlay.style.opacity = '0';
+                    setTimeout(() => { overlay.style.display = 'none'; }, 300);
+                }, 200); // LightweightCharts 애니메이션 완료 대기
             }
 
             const history = (currentChartScope === 'tic') ? data.tic_history : data.min_history;
