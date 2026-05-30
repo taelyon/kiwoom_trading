@@ -2436,8 +2436,8 @@ async def websocket_handler(websocket):
                         status_data = get_current_status_data()
                         await safe_send(websocket, json.dumps(status_data))
                         
-                        # 최근 로그 스트리밍 일괄 전송 (배치)
-                        current_logs = list(log_queue)
+                        # 최근 로그 스트리밍 일괄 전송 (배치) - 최대 50개로 제한
+                        current_logs = list(log_queue)[-50:]
                         last_id = 0
                         batch_logs = []
                         for log_entry in current_logs:
