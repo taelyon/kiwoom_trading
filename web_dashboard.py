@@ -1314,10 +1314,13 @@ HTML_CONTENT = """
                         document.getElementById('connectionStatus').className = "status-badge connected";
                         document.getElementById('connectionStatus').innerHTML = '<span style="width: 8px; height: 8px; border-radius: 50%; background-color: var(--success); box-shadow: 0 0 8px var(--success);"></span>LIVE CONNECTED';
                         
-                        initTradingViewChart();
-                        
-                        // 초기 설정 가져오기
-                        ws.send(jsonStr({ type: "get_settings" }));
+                        // 브라우저가 화면을 즉각 그릴(Paint) 수 있도록 콜스택(Call Stack) 양보
+                        setTimeout(() => {
+                            initTradingViewChart();
+                            
+                            // 초기 설정 가져오기
+                            ws.send(jsonStr({ type: "get_settings" }));
+                        }, 100);
                     } else {
                         showAuthError(data.message || "인증 실패");
                         localStorage.removeItem('dashboard_password');
@@ -2439,6 +2442,10 @@ async def websocket_handler(websocket):
                             "type": "auth_result",
                             "success": True
                         }))
+                        
+                        # 프론트엔드가 로그인 화면을 지우고 메인 대시보드 껍데기를 화면에 그릴(Paint) 수 있도록
+                        # 0.5초의 숨통(이벤트 양보)을 열어줍니다. 이 짧은 시간 덕분에 체감 속도가 0.1초가 됩니다.
+                        await asyncio.sleep(0.5)
                         
                         # 최초 연결 시 상태 전송
                         status_data = get_current_status_data()
