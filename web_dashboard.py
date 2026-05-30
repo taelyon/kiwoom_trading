@@ -2474,11 +2474,16 @@ async def websocket_handler(websocket):
                         
                         app = main_window_ref
                         # 로그인 직후 감시 종목들의 차트 데이터를 백그라운드에서 사전 수집(Pre-fetching)하여 캐시 완비
+                        # 주의: update_single_chart 내부에 동기 블로킹(future.result) 함정이 있으므로 별도 스레드로 격리하여 웹소켓 루프 딜레이(20초 지연) 방지
                         if app and hasattr(app, 'monitoring_manager') and app.monitoring_manager and app.chart_cache:
-                            for m_code in app.monitoring_manager.monitored_stocks:
-                                if m_code not in app.chart_cache.cache or not app.chart_cache.cache[m_code].get('tic_data'):
-                                    logging.info(f"📡 대시보드 로그인 사전 수집(Pre-fetching) 트리거: {m_code} 백그라운드 차트 조회 시작")
-                                    app.chart_cache.update_single_chart(m_code, force=True)
+                            def _prefetch_charts():
+                                for m_code in app.monitoring_manager.monitored_stocks:
+                                    if m_code not in app.chart_cache.cache or not app.chart_cache.cache[m_code].get('tic_data'):
+                                        logging.info(f"📡 대시보드 로그인 사전 수집(Pre-fetching) 트리거: {m_code} 백그라운드 차트 조회 시작")
+                                        app.chart_cache.update_single_chart(m_code, force=True)
+                                        time.sleep(0.5) # 과부하 방지 딜레이
+                                        
+                            threading.Thread(target=_prefetch_charts, daemon=True, name="PrefetchChartsThread").start()
 
                         # 로그인 감지 시 종목 마스터 캐시 맵이 비어 있다면 즉각 비동기 충전 기동
                         if app and hasattr(app, 'data_manager') and app.data_manager:
