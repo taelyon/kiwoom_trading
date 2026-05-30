@@ -2410,37 +2410,47 @@ async def process_request(path, request_headers):
     websockets.serve에 바인딩되는 HTTP 요청 가로채기 핸들러.
     Upgrade 헤더가 없으면 일반 HTTP GET 요청으로 판단하여 대시보드 HTML/favicon을 서빙하고 단일 포트 통합 운영.
     """
-    if "Upgrade" not in request_headers:
-        import http
-        if path == "/":
-            return http.HTTPStatus.OK, [
-                ("Content-Type", "text/html; charset=utf-8"),
-                ("Server", "Antigravity Unified Server"),
-                ("Cache-Control", "no-cache, no-store, must-revalidate"),
-                ("Pragma", "no-cache"),
-                ("Expires", "0")
-            ], HTML_CONTENT.encode("utf-8")
-        elif path == "/favicon.ico":
-            ico_path = os.path.join(os.path.dirname(__file__), "stock_trader.ico")
-            if os.path.exists(ico_path):
-                try:
-                    with open(ico_path, "rb") as f:
-                        return http.HTTPStatus.OK, [
+    try:
+        # Headers 객체에서 대소문자 무시(case-insensitive)하고 Upgrade 값을 가져옵니다.
+        upgrade_header = request_headers.get("Upgrade", "").lower()
+        
+        # Upgrade 헤더가 아예 없거나 값이 websocket이 아니라면 일반 HTTP 요청으로 간주
+        if "websocket" not in upgrade_header:
+            if path == "/":
+                return 200, [
+                    ("Content-Type", "text/html; charset=utf-8"),
+                    ("Server", "Antigravity Unified Server"),
+                    ("Cache-Control", "no-cache, no-store, must-revalidate"),
+                    ("Pragma", "no-cache"),
+                    ("Expires", "0")
+                ], HTML_CONTENT.encode("utf-8")
+            elif path == "/favicon.ico":
+                ico_path = os.path.join(os.path.dirname(__file__), "stock_trader.ico")
+                if os.path.exists(ico_path):
+                    try:
+                        with open(ico_path, "rb") as f:
+                            data = f.read()
+                        return 200, [
                             ("Content-Type", "image/x-icon"),
                             ("Cache-Control", "public, max-age=86400"),
-                        ], f.read()
-                except Exception:
-                    return http.HTTPStatus.NO_CONTENT, [], b""
+                        ], data
+                    except Exception:
+                        return 204, [], b""
+                else:
+                    return 204, [], b""
+            elif path == "/health":
+                return 200, [
+                    ("Content-Type", "text/plain"),
+                    ("Cache-Control", "no-cache"),
+                ], b"OK"
             else:
-                return http.HTTPStatus.NO_CONTENT, [], b""
-        elif path == "/health":
-            return http.HTTPStatus.OK, [
-                ("Content-Type", "text/plain"),
-                ("Cache-Control", "no-cache"),
-            ], b"OK"
-        else:
-            return http.HTTPStatus.NOT_FOUND, [], b"Not Found"
-    return None  # None 리턴 시 웹소켓 업그레이드가 자연스럽게 진행됨
+                return 404, [("Content-Type", "text/plain")], b"Not Found"
+        
+        # websocket 요청인 경우 None을 반환하여 기존 핸드쉐이크 루프를 타게 합니다.
+        return None
+    except Exception as e:
+        logging.error(f"❌ [process_request ERROR] HTTP 가로채기 처리 중 예외 발생: {e}", exc_info=True)
+        return 500, [("Content-Type", "text/plain")], f"Internal Server Error: {e}".encode("utf-8")
 
 async def websocket_handler(websocket):
     """WebSocket 신규 클라이언트 처리 및 실시간 동기화 루프"""
