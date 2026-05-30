@@ -1327,6 +1327,24 @@ HTML_CONTENT = """
                     updateDashboard(data);
                 } else if (data.type === 'log') {
                     appendLog(data);
+                } else if (data.type === 'log_batch') {
+                    if (data.logs && data.logs.length > 0) {
+                        try {
+                            let savedLogs = JSON.parse(localStorage.getItem('dashboard_logs')) || [];
+                            data.logs.forEach(log => {
+                                appendLog(log, true);
+                                if (!savedLogs.some(item => item.id === log.id)) {
+                                    savedLogs.push(log);
+                                }
+                            });
+                            if (savedLogs.length > 500) {
+                                savedLogs = savedLogs.slice(savedLogs.length - 500);
+                            }
+                            localStorage.setItem('dashboard_logs', JSON.stringify(savedLogs));
+                        } catch (e) {
+                            console.error("로컬 스토리지 배치 저장 실패:", e);
+                        }
+                    }
                 } else if (data.type === 'settings') {
                     applySettingsToUI(data.settings);
                 } else if (data.type === 'strategy_detail') {
@@ -1517,7 +1535,7 @@ HTML_CONTENT = """
         }
 
         // 로그 메시지 화면 추가 및 로컬 스토리지 영구 저장
-        function appendLog(log) {
+        function appendLog(log, skipStorage = false) {
             // 중복 메시지 방지
             if (log.timestamp === lastLoggedTime && log.message === lastLoggedMsg) {
                 return;
@@ -1526,6 +1544,8 @@ HTML_CONTENT = """
             lastLoggedMsg = log.message;
 
             renderLog(log);
+
+            if (skipStorage) return;
 
             // 로컬 스토리지 저장 처리
             try {
@@ -2416,14 +2436,22 @@ async def websocket_handler(websocket):
                         status_data = get_current_status_data()
                         await safe_send(websocket, json.dumps(status_data))
                         
-                        # 최근 로그 스트리밍 (최대 150개)
+                        # 최근 로그 스트리밍 일괄 전송 (배치)
                         current_logs = list(log_queue)
                         last_id = 0
+                        batch_logs = []
                         for log_entry in current_logs:
+                            batch_logs.append(log_entry)
+                            last_id = max(last_id, log_entry.get('id', 0))
+                            
+                        if batch_logs:
                             try:
-                                await safe_send(websocket, json.dumps(log_entry))
-                                last_id = max(last_id, log_entry.get('id', 0))
+                                await safe_send(websocket, json.dumps({
+                                    "type": "log_batch",
+                                    "logs": batch_logs
+                                }))
                             except Exception: pass
+                            
                         websocket.last_sent_log_id = last_id
                         
                         # 초기 데이터 전송 완료 후 브로드캐스트 리스트에 등록하여 동시 전송 레이스 방지
