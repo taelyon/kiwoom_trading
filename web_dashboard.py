@@ -1063,11 +1063,6 @@ HTML_CONTENT = """
                         </div>
                     </div>
                     <div id="chartCanvas" class="chart-canvas"></div>
-                    <!-- 실시간 데이터 수집 중 안내 오버레이 -->
-                    <div id="chartLoadingOverlay" class="chart-loading-overlay">
-                        <div class="spinner"></div>
-                        <div class="loading-text">증권사에서 실시간 차트 데이터를 수집하고 있습니다. 잠시만 기다려 주세요...</div>
-                    </div>
                 </div>
 
                 <!-- 실시간 보유종목 포트폴리오 -->
