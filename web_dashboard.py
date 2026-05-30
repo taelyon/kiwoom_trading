@@ -548,7 +548,6 @@ HTML_CONTENT = """
             position: relative;
             height: 480px;
             max-height: 480px;
-            min-height: 480px;
             display: flex;
             flex-direction: column;
             overflow: hidden;
@@ -625,13 +624,13 @@ HTML_CONTENT = """
 
         .chart-canvas {
             flex-grow: 1;
-            width: 100%;
-            height: 100%;
-            min-height: 300px;
             background: rgba(0, 0, 0, 0.2);
             border-radius: 16px;
             border: 1px solid var(--border-color);
             overflow: hidden;
+            position: relative;
+            box-sizing: border-box;
+            width: 100%;
         }
 
         /* 포트폴리오 테이블 */
@@ -941,7 +940,6 @@ HTML_CONTENT = """
             .chart-container-box {
                 height: 380px;
                 max-height: 380px;
-                min-height: 380px;
             }
             .chart-header {
                 flex-direction: column;
@@ -1861,12 +1859,7 @@ HTML_CONTENT = """
                 }
 
                 console.log("📊 TradingView 차트 객체 생성 시작...");
-                const initialWidth = chartDiv.clientWidth || 800;
-                const initialHeight = chartDiv.clientHeight || 400;
-                
                 chart = LightweightCharts.createChart(chartDiv, {
-                    width: initialWidth,
-                    height: initialHeight,
                     layout: {
                         background: { type: 'solid', color: '#0c0b1e' },
                         textColor: '#d1d4dc',
@@ -2023,14 +2016,10 @@ HTML_CONTENT = """
             // 수동 주문 입력창에도 자동 입력
             document.getElementById('orderCode').value = code;
 
-            // 차트 데이터 로딩 오버레이 표시 및 캔버스 숨김
+            // 차트 데이터 로딩 오버레이 표시
             const overlay = document.getElementById('chartLoadingOverlay');
             if (overlay) {
                 overlay.style.display = 'flex';
-            }
-            const canvasDiv = document.getElementById('chartCanvas');
-            if (canvasDiv) {
-                canvasDiv.style.opacity = '0';
             }
 
             // 기존 구독 해제 및 신규 구독
@@ -2111,6 +2100,12 @@ HTML_CONTENT = """
             if (!candleSeries || !volumeSeries) return;
             if (data.code !== currentChartCode) return;
 
+            // 차트 데이터 수집 완료 시 로딩 오버레이 숨김
+            const overlay = document.getElementById('chartLoadingOverlay');
+            if (overlay) {
+                overlay.style.display = 'none';
+            }
+
             const history = (currentChartScope === 'tic') ? data.tic_history : data.min_history;
             if (!history || history.length === 0) {
                 candleSeries.setData([]);
@@ -2178,15 +2173,6 @@ HTML_CONTENT = """
             }
 
             chart.timeScale().fitContent();
-
-            // LightweightCharts 내부 애니메이션이 완전히 끝난 후 차트를 보여줍니다.
-            setTimeout(() => {
-                const canvasDiv = document.getElementById('chartCanvas');
-                if (canvasDiv) canvasDiv.style.opacity = '1';
-                
-                const overlay = document.getElementById('chartLoadingOverlay');
-                if (overlay) overlay.style.display = 'none';
-            }, 500);
         }
 
         // 실시간 차트 틱 추가
