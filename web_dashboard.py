@@ -1223,6 +1223,10 @@ HTML_CONTENT = """
         let currentPassword = "";
         let lastChartTimestamp = 0;
 
+        // 대시보드 로그인 정밀 프로파일링용 글로벌 변수
+        let loginStartTime = 0;
+        let wsConnectStartTime = 0;
+
         // 페이지 로드 시 로컬 스토리지 확인 및 엔터 키 바인딩
         window.onload = () => {
             const passField = document.getElementById('passwordField');
@@ -1248,6 +1252,7 @@ HTML_CONTENT = """
         // 비밀번호 인증 요청 시도
         function attemptAuth() {
             if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) {
+                console.log("ℹ️ [WS PROFILE] 이미 연결 중이거나 오픈 상태이므로 attemptAuth 요청을 건너뜁니다.");
                 return; // 이미 연결 중이거나 연결된 상태에서는 중복 실행 방지
             }
             
@@ -1258,6 +1263,8 @@ HTML_CONTENT = """
                 return;
             }
             
+            console.log("🕒 [WS PROFILE] 1. 인증 시도 시작 및 웹소켓 연결 요청 준비...");
+            loginStartTime = performance.now();
             connectWebSocket(currentPassword);
         }
 
@@ -1268,7 +1275,8 @@ HTML_CONTENT = """
         // 웹소켓 연결
         function connectWebSocket(password) {
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const wsUrl = protocol + '//' + window.location.hostname + ':8082';
+            // window.location.host는 호스트명과 포트 번호를 포함합니다. (예: taelyon.synology.me:8081)
+            const wsUrl = protocol + '//' + window.location.host;
             
             // 기존 소켓이 있으면 onclose 핸들러를 제거한 뒤 닫아서 캐스케이딩 재연결 방지
             if (ws) {
@@ -1279,11 +1287,14 @@ HTML_CONTENT = """
             clearTimeout(reconnectTimer);
             clearInterval(heartbeatTimer);
 
-            console.log("⚡ 웹소켓 연결 시작...");
+            wsConnectStartTime = performance.now();
+            console.log(`⚡ [WS PROFILE] 2. 웹소켓 연결 객체 생성 및 접속 시도 (URL: ${wsUrl})`);
             ws = new WebSocket(wsUrl);
 
             ws.onopen = () => {
-                console.log("🔑 인증 요청 전송 중...");
+                const elapsed = (performance.now() - wsConnectStartTime).toFixed(1);
+                console.log(`🔑 [WS PROFILE] 3. 웹소켓 연결 성공! (onopen 도달 시간: ${elapsed} ms)`);
+                console.log("🔑 [WS PROFILE] 4. 인증(auth) 정보 패킷 송신...");
                 // 첫 패킷으로 인증 요청 전송
                 ws.send(jsonStr({
                     type: "auth",
@@ -1301,9 +1312,12 @@ HTML_CONTENT = """
 
             ws.onmessage = (event) => {
                 const data = JSON.parse(event.data);
-                console.log("📥 [WS RECV]", data.type, data);
                 
                 if (data.type === 'auth_result') {
+                    const elapsedFromStart = (performance.now() - loginStartTime).toFixed(1);
+                    console.log(`📥 [WS PROFILE] 5. auth_result 수신 완료 (성공 여부: ${data.success})`);
+                    console.log(`📥 [WS PROFILE] => 총 소요 시간 (시작 -> 인증 결과 수신): ${elapsedFromStart} ms`);
+                    
                     if (data.success) {
                         localStorage.setItem('dashboard_password', password);
                         document.getElementById('authContainer').style.display = "none";
@@ -1316,9 +1330,13 @@ HTML_CONTENT = """
                         
                         // 브라우저가 화면을 즉각 그릴(Paint) 수 있도록 콜스택(Call Stack) 양보
                         setTimeout(() => {
+                            const chartStartTime = performance.now();
+                            console.log("📈 [WS PROFILE] 6. TradingView 차트 초기화 시작...");
                             initTradingViewChart();
+                            console.log(`📈 [WS PROFILE] 7. TradingView 차트 초기화 완료 (소요: ${(performance.now() - chartStartTime).toFixed(1)} ms)`);
                             
                             // 초기 설정 가져오기
+                            console.log("⚙️ [WS PROFILE] 8. 초기 설정(get_settings) 요청 패킷 송신...");
                             ws.send(jsonStr({ type: "get_settings" }));
                         }, 100);
                     } else {
@@ -1327,7 +1345,10 @@ HTML_CONTENT = """
                         ws.close();
                     }
                 } else if (data.type === 'status') {
+                    const statusRecvTime = performance.now();
+                    console.log(`📥 [WS PROFILE] status 패킷 수신 완료! (로그인 시작부터 현재까지: ${(statusRecvTime - loginStartTime).toFixed(1)} ms)`);
                     updateDashboard(data);
+                    console.log(`📥 [WS PROFILE] Dashboard UI 업데이트 완료 (소요: ${(performance.now() - statusRecvTime).toFixed(1)} ms)`);
                 } else if (data.type === 'log') {
                     appendLog(data);
                     const container = document.getElementById('terminalBody');
@@ -2281,6 +2302,8 @@ HTML_CONTENT = """
 def get_current_status_data():
     """현재 TradingApp 메모리에서 실시간 계좌 정보, 보유 종목, 감시 종목을 안전하게 추출"""
     global main_window_ref
+    import time
+    start_time = time.perf_counter()
     if not main_window_ref:
         return {
             "type": "status",
@@ -2291,10 +2314,12 @@ def get_current_status_data():
 
     try:
         app = main_window_ref
+        t1 = time.perf_counter()
         
         # 1. 웹소켓 클라이언트 확인
         ws_client = getattr(app.login_handler, 'websocket_client', None)
         ws_balance = getattr(ws_client, 'balance_data', {}) if ws_client else {}
+        t2 = time.perf_counter()
 
         # 2. 자산 현황 요약 계산
         total_purchase = sum(data.get('purchase_amount', 0) for data in ws_balance.values() if isinstance(data, dict))
@@ -2307,6 +2332,7 @@ def get_current_status_data():
                 available_cash = app.trader._cash_cache
             else:
                 available_cash = app.trader.get_balance_data().get('available_cash', 0)
+        t3 = time.perf_counter()
             
         total_assets = available_cash + total_valuation
         
@@ -2319,6 +2345,7 @@ def get_current_status_data():
             # 원금 조회 전에는 기존 보유 종목의 평가손익 합산으로 Fallback
             total_profit = sum(data.get('profit_loss', 0) for data in ws_balance.values() if isinstance(data, dict))
             total_profit_rate = (total_profit / total_purchase * 100) if total_purchase > 0 else 0.0
+        t4 = time.perf_counter()
 
         # 3. 보유 종목 리스트 변환
         holdings = {}
@@ -2334,6 +2361,7 @@ def get_current_status_data():
                 "profit_loss": data.get('profit_loss', 0),
                 "profit_rate": data.get('profit_loss_rate', 0.0)
             }
+        t5 = time.perf_counter()
 
         # 4. 감시 중인 종목 리스트 추출 (monitoring_manager에서 직접 추출)
         monitored_stocks = []
@@ -2343,11 +2371,19 @@ def get_current_status_data():
                 if hasattr(app, 'data_manager') and app.data_manager:
                     name = app.data_manager.get_stock_name_by_code(code)
                 monitored_stocks.append({"code": code, "name": name})
+        t6 = time.perf_counter()
 
         # 5. 자동매매 루프 활성 여부
         auto_trading_active = False
         if app.autotrader:
             auto_trading_active = app.autotrader.is_running
+        t7 = time.perf_counter()
+
+        elapsed_ms = (t7 - start_time) * 1000
+        if elapsed_ms > 5.0:  # 5ms 초과 시에만 로그 출력하여 오버헤드 방지
+            logging.info(f"📊 [get_current_status_data PROFILE] 총 소요: {elapsed_ms:.2f}ms "
+                         f"(T2-T1={((t2-t1)*1000):.2f}ms, T3-T2={((t3-t2)*1000):.2f}ms, T4-T3={((t4-t3)*1000):.2f}ms, "
+                         f"T5-T4={((t5-t4)*1000):.2f}ms, T6-T5={((t6-t5)*1000):.2f}ms, T7-T6={((t7-t6)*1000):.2f}ms)")
 
         return {
             "type": "status",
@@ -2369,89 +2405,96 @@ def get_current_status_data():
             "auto_trading_active": False
         }
 
-class DashboardHTTPHandler(SimpleHTTPRequestHandler):
-    """파이썬 내장 표준 모듈 기반 대시보드 전용 HTTP 리퀘스트 핸들러"""
-    def log_message(self, format, *args):
-        # http.server 모듈의 디폴트 표준 콘솔 출력 무력화
-        pass
-
-    def do_GET(self):
-        try:
-            if self.path == "/":
-                self.send_response(200)
-                self.send_header("Content-Type", "text/html; charset=utf-8")
-                self.send_header("Server", "Antigravity Dashboard Server")
-                # 브라우저 정적 캐시 무력화 헤더 추가 (CSS 변경 즉시 미반영 이슈 해결)
-                self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
-                self.send_header("Pragma", "no-cache")
-                self.send_header("Expires", "0")
-                self.end_headers()
-                self.wfile.write(HTML_CONTENT.encode("utf-8"))
-            elif self.path == "/favicon.ico":
-                ico_path = os.path.join(os.path.dirname(__file__), "stock_trader.ico")
-                if os.path.exists(ico_path):
-                    self.send_response(200)
-                    self.send_header("Content-Type", "image/x-icon")
-                    self.send_header("Cache-Control", "public, max-age=86400")
-                    self.end_headers()
+async def process_request(path, request_headers):
+    """
+    websockets.serve에 바인딩되는 HTTP 요청 가로채기 핸들러.
+    Upgrade 헤더가 없으면 일반 HTTP GET 요청으로 판단하여 대시보드 HTML/favicon을 서빙하고 단일 포트 통합 운영.
+    """
+    if "Upgrade" not in request_headers:
+        import http
+        if path == "/":
+            return http.HTTPStatus.OK, [
+                ("Content-Type", "text/html; charset=utf-8"),
+                ("Server", "Antigravity Unified Server"),
+                ("Cache-Control", "no-cache, no-store, must-revalidate"),
+                ("Pragma", "no-cache"),
+                ("Expires", "0")
+            ], HTML_CONTENT.encode("utf-8")
+        elif path == "/favicon.ico":
+            ico_path = os.path.join(os.path.dirname(__file__), "stock_trader.ico")
+            if os.path.exists(ico_path):
+                try:
                     with open(ico_path, "rb") as f:
-                        self.wfile.write(f.read())
-                else:
-                    self.send_response(204)
-                    self.end_headers()
-            elif self.path == "/health":
-                self.send_response(200)
-                self.send_header("Content-Type", "text/plain")
-                self.end_headers()
-                self.wfile.write(b"OK")
+                        return http.HTTPStatus.OK, [
+                            ("Content-Type", "image/x-icon"),
+                            ("Cache-Control", "public, max-age=86400"),
+                        ], f.read()
+                except Exception:
+                    return http.HTTPStatus.NO_CONTENT, [], b""
             else:
-                self.send_error(404, "Not Found")
-        except Exception as e:
-            logging.error(f"HTTP 대시보드 서빙 중 에러: {e}")
-
-def run_http_server(host, port):
-    """표준 라이브러리 스레딩 기반 HTTP 서버 기동"""
-    server = ThreadingHTTPServer((host, port), DashboardHTTPHandler)
-    server.serve_forever()
+                return http.HTTPStatus.NO_CONTENT, [], b""
+        elif path == "/health":
+            return http.HTTPStatus.OK, [
+                ("Content-Type", "text/plain"),
+                ("Cache-Control", "no-cache"),
+            ], b"OK"
+        else:
+            return http.HTTPStatus.NOT_FOUND, [], b"Not Found"
+    return None  # None 리턴 시 웹소켓 업그레이드가 자연스럽게 진행됨
 
 async def websocket_handler(websocket):
     """WebSocket 신규 클라이언트 처리 및 실시간 동기화 루프"""
     global main_window_ref
-    logging.info("🟢 새 대시보드 웹 브라우저 연결 시도...")
+    import time
+    handler_start_time = time.time()
+    logging.info(f"🟢 [WS PROFILE SERVER] 새 대시보드 웹 브라우저 연결 수락됨 (시각: {datetime.now().strftime('%H:%M:%S.%f')[:-3]})")
     
     authenticated = False
     
     try:
         async for message in websocket:
             try:
+                msg_recv_time = time.time()
                 data = json.loads(message)
                 msg_type = data.get('type')
                 
                 # 1. 인증 처리
                 if msg_type == 'auth':
+                    auth_start_time = time.time()
                     password = data.get('password', '')
                     from config_manager import EnvConfigParser
                     config = EnvConfigParser()
                     expected_password = config.get('SETTINGS', 'dashboard_password', fallback='admin')
                     
-                    if password == expected_password:
+                    is_match = (password == expected_password)
+                    auth_eval_time = time.time()
+                    
+                    if is_match:
                         authenticated = True
-                        logging.info(f"🔑 대시보드 로그인 성공! (연결 브라우저: {len(connected_clients) + 1}개)")
+                        logging.info(f"🔑 대시보드 로그인 성공! (연결 브라우저: {len(connected_clients) + 1}개, 비밀번호 검증 소요: {(auth_eval_time - auth_start_time)*1000:.1f}ms)")
                         
+                        send_start = time.time()
                         await safe_send(websocket, json.dumps({
                             "type": "auth_result",
                             "success": True
                         }))
+                        send_end = time.time()
+                        logging.info(f"🔑 [WS PROFILE SERVER] auth_result 송신 완료 (소요: {(send_end - send_start)*1000:.1f}ms)")
                         
                         # 프론트엔드가 로그인 화면을 지우고 메인 대시보드 껍데기를 화면에 그릴(Paint) 수 있도록
                         # 0.5초의 숨통(이벤트 양보)을 열어줍니다. 이 짧은 시간 덕분에 체감 속도가 0.1초가 됩니다.
                         await asyncio.sleep(0.5)
                         
                         # 최초 연결 시 상태 전송
+                        status_start = time.time()
                         status_data = get_current_status_data()
+                        status_mid = time.time()
                         await safe_send(websocket, json.dumps(status_data))
+                        status_end = time.time()
+                        logging.info(f"🔑 [WS PROFILE SERVER] status 데이터 수집 소요: {(status_mid - status_start)*1000:.1f}ms, 송신 소요: {(status_end - status_mid)*1000:.1f}ms")
                         
                         # 최근 로그 스트리밍 일괄 전송 (배치) - 최대 50개로 제한
+                        log_batch_start = time.time()
                         current_logs = list(log_queue)[-50:]
                         last_id = 0
                         batch_logs = []
@@ -2468,6 +2511,8 @@ async def websocket_handler(websocket):
                             except Exception: pass
                             
                         websocket.last_sent_log_id = last_id
+                        log_batch_end = time.time()
+                        logging.info(f"🔑 [WS PROFILE SERVER] log_batch 전송 소요: {(log_batch_end - log_batch_start)*1000:.1f}ms")
                         
                         # 초기 데이터 전송 완료 후 브로드캐스트 리스트에 등록하여 동시 전송 레이스 방지
                         connected_clients.add(websocket)
@@ -3122,8 +3167,8 @@ async def dashboard_log_broadcast_loop():
             pass
         await asyncio.sleep(0.1)
 
-async def start_web_dashboard(main_window, host="0.0.0.0", http_port=8081, ws_port=8082):
-    """웹 대시보드 서버 통합 기동"""
+async def start_web_dashboard(main_window, host="0.0.0.0", http_port=8081, ws_port=None):
+    """웹 대시보드 및 웹소켓 서버 단일 포트 통합 기동"""
     global main_window_ref
     main_window_ref = main_window
     
@@ -3131,18 +3176,14 @@ async def start_web_dashboard(main_window, host="0.0.0.0", http_port=8081, ws_po
     if main_window.chart_cache:
         main_window.chart_cache.data_updated.connect(on_chart_data_updated)
     
-    # 1. HTTP 서버 스레드 기동
-    logging.info(f"🌐 실시간 Web Dashboard HTTP 서버 기동: http://{host}:{http_port}")
-    http_thread = threading.Thread(target=run_http_server, args=(host, http_port), daemon=True)
-    http_thread.start()
-    
-    # 2. WebSocket 전용 서버 기동
-    logging.info(f"⚡ 실시간 Web Dashboard 웹소켓 서버 기동: ws://{host}:{ws_port}")
+    # WebSocket 및 HTTP 통합 포트 기동
+    logging.info(f"🌐 [단일 포트 통합] 실시간 Web Dashboard 통합 서버 기동: http://{host}:{http_port}")
     
     async with websockets.serve(
         websocket_handler, 
         host, 
-        ws_port,
+        http_port,
+        process_request=process_request,
         ping_interval=None,
         ping_timeout=None
     ):
