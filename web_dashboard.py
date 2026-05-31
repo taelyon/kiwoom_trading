@@ -1558,6 +1558,11 @@ HTML_CONTENT = """
                         loadingRow.remove();
                     }
                     
+                    if (data.error) {
+                        alert("키움증권 거래내역 동기화 중 서버 에러가 발생했습니다:\n" + data.error);
+                        return;
+                    }
+                    
                     if (!data.data || data.data.length === 0) {
                         alert("키움증권으로부터 가져올 기간 내 매매 내역이 없습니다.");
                         return;
@@ -2905,61 +2910,76 @@ async def websocket_handler(websocket):
                     end_date = data.get('end_date')
                     
                     if hasattr(app, 'kiwoom') and app.kiwoom:
-                        # 기간별 매매내역 요청 (start_date, end_date 가 있으면 기간별, 없으면 당일매매일지)
-                        if start_date and end_date:
-                            diary = await app.kiwoom.get_period_trading_diary(start_date, end_date)
-                        else:
-                            diary = await app.kiwoom.get_daily_trading_diary()
-                        
-                        formatted_records = []
-                        if diary:
-                            def parse_int_safe(val):
-                                if not val: return 0
-                                try:
-                                    return int(str(val).replace(',', '').strip())
-                                except ValueError:
-                                    return 0
+                        try:
+                            if start_date and end_date:
+                                diary = await app.kiwoom.get_period_trading_diary(start_date, end_date)
+                            else:
+                                diary = await app.kiwoom.get_daily_trading_diary()
+                                
+                            # 사용자 디버깅용 파일 생성
+                            import json
+                            import os
+                            debug_path = os.path.join(app.base_dir, 'logs', 'kiwoom_history_debug.json')
+                            with open(debug_path, 'w', encoding='utf-8') as f:
+                                json.dump(diary, f, ensure_ascii=False, indent=2)
+                            logging.info(f"✅ 키움증권 원본 응답 데이터를 {debug_path} 에 저장했습니다.")
+                            
+                            formatted_records = []
+                            if diary:
+                                def parse_int_safe(val):
+                                    if not val: return 0
+                                    try:
+                                        return int(str(val).replace(',', '').strip())
+                                    except ValueError:
+                                        return 0
+                                        
+                                for d in diary:
+                                    if not d.get('stk_cd') or not d.get('stk_nm'):
+                                        continue
                                     
-                            for d in diary:
-                                if not d.get('stk_cd') or not d.get('stk_nm'):
-                                    continue
-                                
-                                # 기간별 날짜 필드 (dt) 처리, 없으면 "당일"
-                                date_val = d.get('dt') or d.get('ord_dt') or "키움 동기화"
-                                if date_val and len(date_val) == 8 and date_val.isdigit():
-                                    date_val = f"{date_val[:4]}-{date_val[4:6]}-{date_val[6:]}"
+                                    # 기간별 날짜 필드 (dt) 처리
+                                    date_val = str(d.get('dt') or d.get('ord_dt') or "키움 동기화")
+                                    if date_val and len(date_val) == 8 and date_val.isdigit():
+                                        date_val = f"{date_val[:4]}-{date_val[4:6]}-{date_val[6:]}"
+                                        
+                                    b_qty = parse_int_safe(d.get('buy_qty'))
+                                    s_qty = parse_int_safe(d.get('sell_qty'))
                                     
-                                b_qty = parse_int_safe(d.get('buy_qty'))
-                                s_qty = parse_int_safe(d.get('sell_qty'))
-                                
-                                if b_qty > 0:
-                                    formatted_records.append({
-                                        "datetime": date_val,
-                                        "code": d.get('stk_cd', ''),
-                                        "name": d.get('stk_nm', ''),
-                                        "order_type": "buy",
-                                        "quantity": b_qty,
-                                        "price": parse_int_safe(d.get('buy_avg_pric')),
-                                        "amount": parse_int_safe(d.get('buy_amt')),
-                                        "strategy": "Kiwoom 매수합산"
-                                    })
-                                
-                                if s_qty > 0:
-                                    formatted_records.append({
-                                        "datetime": date_val,
-                                        "code": d.get('stk_cd', ''),
-                                        "name": d.get('stk_nm', ''),
-                                        "order_type": "sell",
-                                        "quantity": s_qty,
-                                        "price": parse_int_safe(d.get('sel_avg_pric')),
-                                        "amount": parse_int_safe(d.get('sell_amt')),
-                                        "strategy": f"Kiwoom 매도합산 (손익: {parse_int_safe(d.get('pl_amt')):,}원)"
-                                    })
-                        
-                        await safe_send(websocket, json.dumps({
-                            "type": "kiwoom_history_data",
-                            "data": formatted_records
-                        }))
+                                    if b_qty > 0:
+                                        formatted_records.append({
+                                            "datetime": date_val,
+                                            "code": d.get('stk_cd', ''),
+                                            "name": d.get('stk_nm', ''),
+                                            "order_type": "buy",
+                                            "quantity": b_qty,
+                                            "price": parse_int_safe(d.get('buy_avg_pric')),
+                                            "amount": parse_int_safe(d.get('buy_amt')),
+                                            "strategy": "Kiwoom 매수합산"
+                                        })
+                                    
+                                    if s_qty > 0:
+                                        formatted_records.append({
+                                            "datetime": date_val,
+                                            "code": d.get('stk_cd', ''),
+                                            "name": d.get('stk_nm', ''),
+                                            "order_type": "sell",
+                                            "quantity": s_qty,
+                                            "price": parse_int_safe(d.get('sel_avg_pric')),
+                                            "amount": parse_int_safe(d.get('sell_amt')),
+                                            "strategy": f"Kiwoom 매도합산 (손익: {parse_int_safe(d.get('pl_amt')):,}원)"
+                                        })
+                            
+                            await safe_send(websocket, json.dumps({
+                                "type": "kiwoom_history_data",
+                                "data": formatted_records
+                            }))
+                        except Exception as ex:
+                            logging.error(f"❌ fetch_kiwoom_history 에러: {ex}", exc_info=True)
+                            await safe_send(websocket, json.dumps({
+                                "type": "kiwoom_history_data",
+                                "data": [],
+                                "error": str(ex)
+                            }))
 
                 elif msg_type == 'get_trade_history':
                     start_date = data.get('start_date')
