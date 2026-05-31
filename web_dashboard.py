@@ -3034,20 +3034,24 @@ async def websocket_handler(websocket):
                     start_date = data.get('start_date')
                     end_date = data.get('end_date')
                     
-                    if hasattr(app, 'db_manager') and app.db_manager:
-                        records = await app.db_manager.get_trade_history(limit=500, start_date=start_date, end_date=end_date)
-                        # 종목명 매핑
-                        for r in records:
-                            code = r.get('code', '')
-                            name = ""
-                            if hasattr(app, 'data_manager') and app.data_manager:
-                                name = app.data_manager.get_stock_name_by_code(code)
-                            r['name'] = name or code
-                            
-                        await safe_send(websocket, json.dumps({
-                            "type": "trade_history_data",
-                            "data": records
-                        }))
+                    records = []
+                    try:
+                        if hasattr(app, 'db_manager') and app.db_manager:
+                            records = await app.db_manager.get_trade_history(limit=500, start_date=start_date, end_date=end_date)
+                            # 종목명 매핑
+                            for r in records:
+                                code = r.get('code', '')
+                                name = ""
+                                if hasattr(app, 'data_manager') and app.data_manager:
+                                    name = app.data_manager.get_stock_name_by_code(code)
+                                r['name'] = name or code
+                    except Exception as e:
+                        logging.error(f"DB 매매내역 조회 중 오류: {e}")
+                        
+                    await safe_send(websocket, json.dumps({
+                        "type": "trade_history_data",
+                        "data": records
+                    }))
                         
                 elif msg_type == 'get_settings':
                     from config_manager import EnvConfigParser
