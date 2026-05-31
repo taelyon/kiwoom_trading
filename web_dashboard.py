@@ -1553,12 +1553,16 @@ HTML_CONTENT = """
                     const tbody = document.getElementById('tradeHistoryBody');
                     
                     if (!data.data || data.data.length === 0) {
-                        alert("키움증권으로부터 가져올 당일 매매 내역이 없습니다.");
+                        // 기존 '로딩중' 텍스트가 있다면 삭제
+                        if (tbody.innerHTML.includes('데이터를 불러오는 중입니다')) {
+                            tbody.innerHTML = '<tr><td colspan="7" class="text-center" style="padding:20px;">가져올 매매 내역이 없습니다.</td></tr>';
+                        }
+                        alert("키움증권으로부터 가져올 기간 내 매매 내역이 없습니다.");
                         return;
                     }
                     
-                    // 기존 '로딩중' 텍스트가 있다면 삭제
-                    if (tbody.innerHTML.includes('데이터를 불러오는 중입니다')) {
+                    // 데이터가 있을 때 로딩 텍스트 삭제
+                    if (tbody.innerHTML.includes('데이터를 불러오는 중입니다') || tbody.innerHTML.includes('내역이 없습니다')) {
                         tbody.innerHTML = '';
                     }
 
@@ -2519,6 +2523,8 @@ HTML_CONTENT = """
         function fetchKiwoomHistory() {
             const startStr = document.getElementById('tradeStartDate').value;
             const endStr = document.getElementById('tradeEndDate').value;
+            
+            document.getElementById('tradeHistoryBody').innerHTML = '<tr><td colspan="7" class="text-center" style="padding:20px;">데이터를 불러오는 중입니다...</td></tr>';
             
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(jsonStr({ type: "fetch_kiwoom_history", start_date: startStr, end_date: endStr }));

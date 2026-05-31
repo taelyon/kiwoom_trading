@@ -979,11 +979,11 @@ class KiwoomRestClient:
 
     async def get_period_trading_diary(self, start_date: str, end_date: str) -> list:
         """
-        기간별 종목별 합산 체결내역(실현손익 포함)을 조회합니다. (ka10073 API 사용)
-        start_date, end_date 포맷: YYYYMMDD
+        기간별 종목별 합산 체결내역을 조회합니다.
+        (ka10073은 매도/실현손익만 나오므로, ka10170 당일매매일지를 일자별로 호출하여 합산)
+        start_date, end_date 포맷: YYYY-MM-DD 또는 YYYYMMDD
         """
         try:
-            await ApiLimitManager.check_api_limit_and_wait_async("기간별 거래내역 조회", request_type="deposit")
             await self._ensure_client()
             if not await self.check_token_validity():
                 return []
@@ -991,36 +991,62 @@ class KiwoomRestClient:
             host = 'https://mockapi.kiwoom.com' if self.is_mock else 'https://api.kiwoom.com'
             url = host + '/api/dostk/acnt'
 
-            headers = {
-                'Content-Type': 'application/json;charset=UTF-8',
-                'authorization': f'Bearer {self.access_token}',
-                'cont-yn': 'N',
-                'next-key': '',
-                'api-id': 'ka10073',
-            }
+            start_dt_str = start_date.replace('-', '')
+            end_dt_str = end_date.replace('-', '')
 
-            params = {
-                'strt_dt': start_date.replace('-', ''),
-                'end_dt': end_date.replace('-', ''),
-                'stk_cd': '',
-                'ottks_tp': '0',     # 0: 전체
-                'ch_crd_tp': '0',    # 현금신용구분 (0: 전체)
-            }
-
-            response = await self.client.post(url, headers=headers, json=params, timeout=10.0)
-
-            if response.status_code == 200:
-                data = response.json()
-                if data.get('return_code') == 0:
-                    diary = data.get('dt_stk_rlzt_pl', [])
-                    self.logger.info(f"✅ 키움증권 기간별 거래내역 조회 성공: {len(diary)}건")
-                    return diary
-                else:
-                    self.logger.warning(f"⚠️ 기간별 거래내역 조회 실패: {data.get('return_msg')}")
-                    return []
-            else:
-                self.logger.warning(f"⚠️ 기간별 거래내역 조회 통신 실패: HTTP {response.status_code}")
+            from datetime import datetime, timedelta
+            try:
+                start_dt = datetime.strptime(start_dt_str, '%Y%m%d')
+                end_dt = datetime.strptime(end_dt_str, '%Y%m%d')
+            except ValueError:
+                self.logger.error("❌ 기간별 거래내역 조회 실패: 날짜 형식이 올바르지 않습니다.")
                 return []
+
+            # 최대 31일까지만 조회하도록 제한 (API 호출 과다 방지)
+            if (end_dt - start_dt).days > 31:
+                self.logger.warning("⚠️ 기간별 거래내역 조회는 최대 31일까지만 가능합니다. 최근 31일로 조정합니다.")
+                start_dt = end_dt - timedelta(days=31)
+
+            all_diaries = []
+            current_dt = start_dt
+            
+            while current_dt <= end_dt:
+                base_dt = current_dt.strftime('%Y%m%d')
+                
+                # API 호출 제한 방지를 위한 짧은 대기
+                await ApiLimitManager.check_api_limit_and_wait_async("일자별 매매일지 조회", request_type="deposit")
+
+                headers = {
+                    'Content-Type': 'application/json;charset=UTF-8',
+                    'authorization': f'Bearer {self.access_token}',
+                    'cont-yn': 'N',
+                    'next-key': '',
+                    'api-id': 'ka10170',
+                }
+
+                params = {
+                    'base_dt': base_dt,
+                    'ottks_tp': '0',     # 0: 전체
+                    'ch_crd_tp': '0',    # 현금신용구분 (0: 전체)
+                }
+
+                response = await self.client.post(url, headers=headers, json=params, timeout=10.0)
+
+                if response.status_code == 200:
+                    data = response.json()
+                    if data.get('return_code') == 0:
+                        diary = data.get('tdy_trde_diary', [])
+                        if diary:
+                            for d in diary:
+                                # 결과에 날짜 정보 주입
+                                d['ord_dt'] = base_dt
+                                all_diaries.append(d)
+                
+                current_dt += timedelta(days=1)
+                await asyncio.sleep(0.1) # 안전장치
+
+            self.logger.info(f"✅ 키움증권 기간별 매매일지 전체 조회 성공: 총 {len(all_diaries)}건")
+            return all_diaries
 
         except Exception as e:
             self.logger.error(f"❌ 기간별 거래내역 조회 중 오류: {e}", exc_info=True)
