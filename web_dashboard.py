@@ -78,24 +78,20 @@ log_counter_lock = threading.Lock()
 # 활성 차트 구독 관리 { websocket: subscribed_code }
 subscribed_charts = {}
 
-# 전역 전송 직렬화 락 (단일 서버이므로 전역 락으로도 충분)
-_global_send_lock = None
-
-def _get_send_lock():
-    """이벤트 루프 내에서 최초 호출 시 전역 전송 락을 생성"""
-    global _global_send_lock
-    if _global_send_lock is None:
-        _global_send_lock = asyncio.Lock()
-    return _global_send_lock
-
 async def safe_send(websocket, data):
-    """주어진 웹소켓에 대해 동시 전송(ConcurrencyError)을 방지하기 위한 안전한 직렬화 전송 함수"""
+    """주어진 웹소켓에 대해 동시 전송(ConcurrencyError) 및 데드락을 방지하기 위한 안전한 직렬화 전송 함수"""
     try:
-        async with _get_send_lock():
-            await websocket.send(data)
-            return True
+        if not hasattr(websocket, 'send_lock'):
+            websocket.send_lock = asyncio.Lock()
+            
+        async with websocket.send_lock:
+            if websocket.open:
+                await asyncio.wait_for(websocket.send(data), timeout=3.0)
+                return True
+            return False
+    except asyncio.TimeoutError:
+        return False
     except websockets.exceptions.ConnectionClosedOK:
-        # 정상적인 웹소켓 연결 종료(새로고침, 탭 닫기 등)는 경고 로그를 남기지 않음
         return False
     except Exception as e:
         logging.warning(f"웹소켓 safe_send 전송 실패: {type(e).__name__}: {e}")
@@ -2747,7 +2743,7 @@ async def websocket_handler(websocket):
     global main_window_ref
     import time
     handler_start_time = time.time()
-    logging.info(f"🟢 [WS PROFILE SERVER] 새 대시보드 웹 브라우저 연결 수락됨 (시각: {datetime.now().strftime('%H:%M:%S.%f')[:-3]})")
+    logging.info(f"[WS PROFILE SERVER] 새 대시보드 웹 브라우저 연결 수락됨 (시각: {datetime.now().strftime('%H:%M:%S.%f')[:-3]})")
     
     authenticated = False
     
@@ -2771,7 +2767,7 @@ async def websocket_handler(websocket):
                     
                     if is_match:
                         authenticated = True
-                        logging.info(f"🔑 대시보드 로그인 성공! (연결 브라우저: {len(connected_clients) + 1}개, 비밀번호 검증 소요: {(auth_eval_time - auth_start_time)*1000:.1f}ms)")
+                        logging.info(f"[WS PROFILE SERVER] 대시보드 로그인 성공! (연결 브라우저: {len(connected_clients) + 1}개, 비밀번호 검증 소요: {(auth_eval_time - auth_start_time)*1000:.1f}ms)")
                         
                         send_start = time.time()
                         await safe_send(websocket, json.dumps({
@@ -2779,7 +2775,7 @@ async def websocket_handler(websocket):
                             "success": True
                         }))
                         send_end = time.time()
-                        logging.info(f"🔑 [WS PROFILE SERVER] auth_result 송신 완료 (소요: {(send_end - send_start)*1000:.1f}ms)")
+                        logging.info(f"[WS PROFILE SERVER] auth_result 송신 완료 (소요: {(send_end - send_start)*1000:.1f}ms)")
                         
                         # 프론트엔드가 로그인 화면을 지우고 메인 대시보드 껍데기를 화면에 그릴(Paint) 수 있도록
                         # 0.5초의 숨통(이벤트 양보)을 열어줍니다. 이 짧은 시간 덕분에 체감 속도가 0.1초가 됩니다.
@@ -2791,7 +2787,7 @@ async def websocket_handler(websocket):
                         status_mid = time.time()
                         await safe_send(websocket, json.dumps(status_data))
                         status_end = time.time()
-                        logging.info(f"🔑 [WS PROFILE SERVER] status 데이터 수집 소요: {(status_mid - status_start)*1000:.1f}ms, 송신 소요: {(status_end - status_mid)*1000:.1f}ms")
+                        logging.info(f"[WS PROFILE SERVER] status 데이터 수집 소요: {(status_mid - status_start)*1000:.1f}ms, 송신 소요: {(status_end - status_mid)*1000:.1f}ms")
                         
                         # 최근 로그 스트리밍 일괄 전송 (배치) - 최대 50개로 제한
                         log_batch_start = time.time()
@@ -3345,7 +3341,7 @@ async def websocket_handler(websocket):
         if websocket in subscribed_charts:
             del subscribed_charts[websocket]
 
-        logging.info(f"🔴 대시보드 웹 브라우저 연결 종료 [코드:{close_code}] (현재 연결 브라우저: {len(connected_clients)}개)")
+        logging.info(f"[WS PROFILE SERVER] 대시보드 웹 브라우저 연결 종료 [코드:{close_code}] (현재 연결 브라우저: {len(connected_clients)}개)")
 
 # 차트 데이터 업데이트 통보 처리 (TradingApp 단에서 이벤트를 쏠 때 호출됨)
 def on_chart_data_updated(code):
