@@ -657,7 +657,7 @@ HTML_CONTENT = """
         }
 
         .portfolio-table td {
-            padding: 16px 16px;
+            padding: 8px 16px;
             border-bottom: 1px solid rgba(255, 255, 255, 0.03);
             font-size: 14px;
             transition: all 0.2s ease;
@@ -896,7 +896,8 @@ HTML_CONTENT = """
             background: rgba(0, 0, 0, 0.7);
             backdrop-filter: blur(5px);
             display: flex;
-            align-items: center;
+            align-items: flex-start;
+            padding-top: 8vh;
             justify-content: center;
             z-index: 9999;
         }
@@ -1564,8 +1565,8 @@ HTML_CONTENT = """
                         row.innerHTML = `
                             <td style="font-size: 12px; color: var(--text-secondary);">${record.datetime}</td>
                             <td>
-                                <div style="font-weight: bold; font-size: 14px;">${record.name || '-'}</div>
-                                <div style="font-size: 11px; color: var(--text-secondary);">${record.code}</div>
+                                <span style="font-weight: bold; font-size: 14px;">${record.name || '-'}</span>
+                                <span style="font-size: 12px; color: var(--text-secondary);">(${record.code})</span>
                             </td>
                             <td style="color: ${typeColor}; font-weight: bold;">${typeText}</td>
                             <td class="text-right">${record.quantity.toLocaleString()}주</td>
@@ -1626,8 +1627,8 @@ HTML_CONTENT = """
                         row.innerHTML = `
                             <td style="font-size: 12px; color: var(--accent-cyan); font-weight: bold;">${record.ord_dt}</td>
                             <td>
-                                <div style="font-weight: bold; font-size: 14px;">${record.stk_nm || '-'}</div>
-                                <div style="font-size: 11px; color: var(--text-secondary);">${record.stk_cd}</div>
+                                <span style="font-weight: bold; font-size: 14px;">${record.stk_nm || '-'}</span>
+                                <span style="font-size: 12px; color: var(--text-secondary);">(${record.stk_cd})</span>
                             </td>
                             <td style="color: var(--danger); font-weight: bold;">${(parseInt(record.buy_qty)||0).toLocaleString()}주</td>
                             <td style="color: var(--primary); font-weight: bold;">${(parseInt(record.sell_qty)||0).toLocaleString()}주</td>
@@ -1635,7 +1636,7 @@ HTML_CONTENT = """
                             <td class="text-right">${(parseInt(record.sel_avg_pric)||0).toLocaleString()}원</td>
                             <td class="text-right" style="color: ${plColor}; font-weight: bold;">${plAmt > 0 ? '+' : ''}${plAmt.toLocaleString()}원</td>
                             <td class="text-right" style="color: ${prftColor}; font-weight: bold;">${prftRt > 0 ? '+' : ''}${record.prft_rt}%</td>
-                            <td class="text-right" style="font-size: 11px; color: var(--text-secondary);">${(parseInt(record.cmsn_alm_tax)||0).toLocaleString()}원</td>
+                            <td class="text-right">${(parseInt(record.cmsn_alm_tax)||0).toLocaleString()}원</td>
                         `;
                         tbody.appendChild(row);
                     });
