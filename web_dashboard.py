@@ -1380,7 +1380,7 @@ HTML_CONTENT = """
                     const statusRecvTime = performance.now();
                     console.log(`📥 [WS PROFILE] status 패킷 수신 완료! (로그인 시작부터 현재까지: ${(statusRecvTime - loginStartTime).toFixed(1)} ms)`);
                     updateDashboard(data);
-                    console.log(`📥 [WS PROFILE] Dashboard UI 업데이트 완료 (소요: ${(performance.now() - statusRecvTime).toFixed(1)} ms)`);
+                    console.log(`📥 [WS PROFILE] Dashboard UI 업데이트 완료 (소요: ${(statusRecvTime - statusRecvTime).toFixed(1)} ms)`);
                 } else if (data.type === 'log') {
                     appendLog(data);
                     const container = document.getElementById('terminalBody');
