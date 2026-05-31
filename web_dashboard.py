@@ -2067,6 +2067,10 @@ HTML_CONTENT = """
             // 수동 주문 입력창에도 자동 입력
             document.getElementById('orderCode').value = code;
 
+            // 클릭 즉시 기존 차트 데이터를 지워 시각적인 반응성 확보
+            if (candleSeries) candleSeries.setData([]);
+            if (volumeSeries) volumeSeries.setData([]);
+
             // 차트 데이터 로딩 오버레이 표시
             const overlay = document.getElementById('chartLoadingOverlay');
             if (overlay) {
@@ -2865,10 +2869,10 @@ async def websocket_handler(websocket):
                             # 만약 캐시에 없는 종목이거나 데이터가 유실된 경우 백그라운드 수집 즉시 요청
                             if code not in app.chart_cache.cache or not app.chart_cache.cache[code].get('tic_data') or not app.chart_cache.cache[code].get('min_data'):
                                 if code not in app.chart_cache.active_chart_tasks:
-                                    logging.info(f"📡 대시보드 차트 요청: 캐시에 데이터가 없는 종목 {code}에 대한 비동기 수집을 시작합니다.")
+                                    logging.info(f"📡 대시보드 차트 요청: 캐시에 데이터가 부족한 종목 {code}에 대한 비동기 수집을 시작합니다.")
                                     app.chart_cache.update_single_chart(code, force=True)
                                     
-                            cache_data = app.chart_cache.get_chart_data(code)
+                            cache_data = app.chart_cache.cache.get(code)
                             if cache_data:
                                 tic_data = cache_data.get('tic_data', {})
                                 min_data = cache_data.get('min_data', {})
@@ -2998,7 +3002,7 @@ def on_chart_data_updated(code):
     if not main_window_ref or not main_window_ref.chart_cache:
         return
         
-    cache_data = main_window_ref.chart_cache.get_chart_data(code)
+    cache_data = main_window_ref.chart_cache.cache.get(code)
     if not cache_data:
         return
         
