@@ -2913,6 +2913,13 @@ async def websocket_handler(websocket):
                         
                         formatted_records = []
                         if diary:
+                            def parse_int_safe(val):
+                                if not val: return 0
+                                try:
+                                    return int(str(val).replace(',', '').strip())
+                                except ValueError:
+                                    return 0
+                                    
                             for d in diary:
                                 if not d.get('stk_cd') or not d.get('stk_nm'):
                                     continue
@@ -2922,8 +2929,8 @@ async def websocket_handler(websocket):
                                 if date_val and len(date_val) == 8 and date_val.isdigit():
                                     date_val = f"{date_val[:4]}-{date_val[4:6]}-{date_val[6:]}"
                                     
-                                b_qty = int(d.get('buy_qty', '0') or '0')
-                                s_qty = int(d.get('sell_qty', '0') or '0')
+                                b_qty = parse_int_safe(d.get('buy_qty'))
+                                s_qty = parse_int_safe(d.get('sell_qty'))
                                 
                                 if b_qty > 0:
                                     formatted_records.append({
@@ -2932,8 +2939,8 @@ async def websocket_handler(websocket):
                                         "name": d.get('stk_nm', ''),
                                         "order_type": "buy",
                                         "quantity": b_qty,
-                                        "price": int(d.get('buy_avg_pric', '0') or '0'),
-                                        "amount": int(d.get('buy_amt', '0') or '0'),
+                                        "price": parse_int_safe(d.get('buy_avg_pric')),
+                                        "amount": parse_int_safe(d.get('buy_amt')),
                                         "strategy": "Kiwoom 매수합산"
                                     })
                                 
@@ -2944,9 +2951,9 @@ async def websocket_handler(websocket):
                                         "name": d.get('stk_nm', ''),
                                         "order_type": "sell",
                                         "quantity": s_qty,
-                                        "price": int(d.get('sel_avg_pric', '0') or '0'),
-                                        "amount": int(d.get('sell_amt', '0') or '0'),
-                                        "strategy": f"Kiwoom 매도합산 (손익: {int(d.get('pl_amt', '0') or '0'):,}원)"
+                                        "price": parse_int_safe(d.get('sel_avg_pric')),
+                                        "amount": parse_int_safe(d.get('sell_amt')),
+                                        "strategy": f"Kiwoom 매도합산 (손익: {parse_int_safe(d.get('pl_amt')):,}원)"
                                     })
                         
                         await safe_send(websocket, json.dumps({
