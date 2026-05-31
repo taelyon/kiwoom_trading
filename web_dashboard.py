@@ -1559,7 +1559,7 @@ HTML_CONTENT = """
                     }
                     
                     if (data.error) {
-                        alert("키움증권 거래내역 동기화 중 서버 에러가 발생했습니다:\n" + data.error);
+                        alert("키움증권 거래내역 동기화 중 서버 에러가 발생했습니다:\\n" + data.error);
                         return;
                     }
                     
