@@ -489,16 +489,53 @@ class AsyncDatabaseManager:
             async with self._db_lock:
                 cursor = await self._conn.cursor()
                 
-                # 주식 데이터 및 매매 기록 삭제
+                # 주식 데이터 삭제 (매매 기록은 영구 보존)
                 await cursor.execute("DELETE FROM stock_data")
-                await cursor.execute("DELETE FROM trade_records")
+                # await cursor.execute("DELETE FROM trade_records")  # 매매내역 보존을 위해 삭제 주석 처리
                 
                 await self._conn.commit()
                 
-                self.logger.info("🧹 데이터베이스 테이블(stock_data, trade_records) 데이터 삭제 완료")
+                self.logger.info("🧹 데이터베이스 테이블(stock_data) 초기화 완료 (trade_records는 보존됨)")
                 
                 # VACUUM으로 파일 크기 최적화 (선택사항, 시간이 걸릴 수 있음)
                 # await cursor.execute("VACUUM") 
                 
         except Exception as ex:
             self.logger.error(f"데이터베이스 초기화 실패: {ex}", exc_info=True)
+
+    async def get_trade_history(self, limit=500):
+        """저장된 매매 기록을 가져옴 (최신순)"""
+        try:
+            if self._conn is None:
+                await self.init_database()
+
+            async with self._db_lock:
+                cursor = await self._conn.cursor()
+                
+                await cursor.execute('''
+                    SELECT id, code, datetime, order_type, quantity, price, amount, strategy, profit_loss 
+                    FROM trade_records 
+                    ORDER BY datetime DESC 
+                    LIMIT ?
+                ''', (limit,))
+                
+                rows = await cursor.fetchall()
+                
+                records = []
+                for row in rows:
+                    records.append({
+                        'id': row[0],
+                        'code': row[1],
+                        'datetime': row[2],
+                        'order_type': row[3],
+                        'quantity': row[4],
+                        'price': row[5],
+                        'amount': row[6],
+                        'strategy': row[7],
+                        'profit_loss': row[8]
+                    })
+                return records
+                
+        except Exception as ex:
+            self.logger.error(f"매매 기록 조회 실패: {ex}", exc_info=True)
+            return []

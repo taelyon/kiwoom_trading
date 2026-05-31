@@ -1181,6 +1181,10 @@ HTML_CONTENT = """
                                 <button id="btnLiquidate" class="btn-liquidate" onclick="triggerLiquidateAll()">Safe Out</button>
                             </div>
                         </div>
+                        
+                        <div class="trade-history-box" style="margin-top: 15px;">
+                            <button class="btn-primary" style="width: 100%; padding: 12px; font-size: 14px;" onclick="openTradeHistory()">📜 전체 매매내역 보기</button>
+                        </div>
                     </div>
                 </div>
 
@@ -1197,6 +1201,34 @@ HTML_CONTENT = """
                         </div>
                     </div>
                 </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 매매내역 모달 -->
+    <div id="tradeHistoryModal" class="modal-overlay" style="display:none; z-index: 9999;">
+        <div class="modal-container" style="max-width: 900px; width: 90%;">
+            <div class="modal-header">
+                <h2>📜 주식 매매내역</h2>
+                <button class="close-btn" onclick="closeTradeHistory()">&times;</button>
+            </div>
+            <div class="modal-body" style="max-height: 60vh; overflow-y: auto;">
+                <table class="holdings-table">
+                    <thead>
+                        <tr>
+                            <th>시간</th>
+                            <th>종목</th>
+                            <th>구분</th>
+                            <th>수량</th>
+                            <th>단가</th>
+                            <th>금액</th>
+                            <th>전략</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tradeHistoryBody">
+                        <tr><td colspan="7" class="text-center">데이터를 불러오는 중입니다...</td></tr>
+                    </tbody>
+                </table>
             </div>
         </div>
     </div>
@@ -1420,6 +1452,35 @@ HTML_CONTENT = """
                     renderChartHistory(data);
                 } else if (data.type === 'chart_tick') {
                     renderChartTick(data);
+                } else if (data.type === 'trade_history_data') {
+                    const tbody = document.getElementById('tradeHistoryBody');
+                    tbody.innerHTML = '';
+                    
+                    if (!data.data || data.data.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="7" class="text-center" style="padding:20px;">매매 내역이 없습니다.</td></tr>';
+                        return;
+                    }
+                    
+                    data.data.forEach(record => {
+                        const row = document.createElement('tr');
+                        const isBuy = record.order_type.toLowerCase() === 'buy';
+                        const typeColor = isBuy ? 'var(--danger)' : 'var(--primary)';
+                        const typeText = isBuy ? '매수' : '매도';
+                        
+                        row.innerHTML = `
+                            <td style="font-size: 12px; color: var(--text-secondary);">${record.datetime}</td>
+                            <td>
+                                <div style="font-weight: bold; font-size: 14px;">${record.name || '-'}</div>
+                                <div style="font-size: 11px; color: var(--text-secondary);">${record.code}</div>
+                            </td>
+                            <td style="color: ${typeColor}; font-weight: bold;">${typeText}</td>
+                            <td class="text-right">${record.quantity.toLocaleString()}주</td>
+                            <td class="text-right">${Math.round(record.price).toLocaleString()}원</td>
+                            <td class="text-right">${Math.round(record.amount).toLocaleString()}원</td>
+                            <td style="font-size: 12px; color: var(--text-secondary); max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${record.strategy || '-'}">${record.strategy || '-'}</td>
+                        `;
+                        tbody.appendChild(row);
+                    });
                 }
             };
 
@@ -2298,6 +2359,23 @@ HTML_CONTENT = """
             }
         }
 
+        // 매매내역 모달 열기
+        function openTradeHistory() {
+            document.getElementById('tradeHistoryModal').style.display = 'flex';
+            document.getElementById('tradeHistoryBody').innerHTML = '<tr><td colspan="7" class="text-center" style="padding:20px;">데이터를 불러오는 중입니다...</td></tr>';
+            
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(jsonStr({ type: "get_trade_history" }));
+            } else {
+                document.getElementById('tradeHistoryBody').innerHTML = '<tr><td colspan="7" class="text-center" style="padding:20px; color: var(--danger);">서버와 연결되어 있지 않습니다.</td></tr>';
+            }
+        }
+
+        // 매매내역 모달 닫기
+        function closeTradeHistory() {
+            document.getElementById('tradeHistoryModal').style.display = 'none';
+        }
+
     </script>
 </body>
 </html>
@@ -2647,6 +2725,22 @@ async def websocket_handler(websocket):
                     if code and app.monitoring_manager:
                         logging.info(f"📡 대시보드 제어: 감시종목 제거 {code}")
                         create_fire_and_forget_task(app.monitoring_manager.remove_stock_from_monitoring(code))
+                        
+                elif msg_type == 'get_trade_history':
+                    if hasattr(app, 'db_manager') and app.db_manager:
+                        records = await app.db_manager.get_trade_history(limit=500)
+                        # 종목명 매핑
+                        for r in records:
+                            code = r.get('code', '')
+                            name = ""
+                            if hasattr(app, 'data_manager') and app.data_manager:
+                                name = app.data_manager.get_stock_name_by_code(code)
+                            r['name'] = name or code
+                            
+                        await safe_send(websocket, json.dumps({
+                            "type": "trade_history_data",
+                            "data": records
+                        }))
                         
                 elif msg_type == 'get_settings':
                     from config_manager import EnvConfigParser
