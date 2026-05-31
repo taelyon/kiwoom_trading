@@ -1276,8 +1276,8 @@ class KiwoomRestClient:
                 ]
             }
 
-            # 비동기 HTTP 클라이언트로 웹훅 전송
-            async with httpx.AsyncClient() as client:
+            # 비동기 HTTP 클라이언트로 웹훅 전송 (타임아웃 15초 설정)
+            async with httpx.AsyncClient(timeout=15.0) as client:
                 await client.post(slack_webhook_url, json=message)
             self.logger.info(f"🔔 슬랙으로 장 마감 리포트 전송 완료.")
         except Exception as e:

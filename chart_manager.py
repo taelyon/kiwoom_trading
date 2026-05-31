@@ -73,8 +73,10 @@ class ChartDataCache:
                 # [중요] 캐시와 모니터링 리스트 동기화 (좀비 데이터 제거)
                 self.update_monitoring_stocks(monitoring_codes)
                 
-                # 부하 분산을 위해 5분(300초)을 종목 수로 나누어 천천히 하나씩 큐에 추가 (최소 간격 3초)
-                interval = max(3.0, chartdata_update_interval / len(monitoring_codes))
+                # 부하 분산을 위해 천천히 하나씩 큐에 추가
+                # 키움 API 1시간 1000건 제한 방지를 위해 최소 간격을 15초로 강제 (시간당 최대 480 TR로 억제)
+                base_interval = chartdata_update_interval / max(1, len(monitoring_codes))
+                interval = max(15.0, base_interval)
                 
                 for code in monitoring_codes:
                     # 현재 장외 시간이 되었는지 도중 체크
