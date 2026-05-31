@@ -1277,7 +1277,7 @@ HTML_CONTENT = """
                         <input type="date" id="tradeEndDate" style="background: transparent; border: none; color: white; font-size: 12px; outline: none; cursor: pointer;">
                         <button class="btn-primary" style="padding: 4px 10px; font-size: 12px; border-radius: 4px; margin-left: 4px;" onclick="fetchTradeHistoryWithDates()">조회</button>
                     </div>
-                    <button class="btn-primary" style="padding: 6px 12px; font-size: 12px; border-radius: 6px; background: rgba(59, 130, 246, 0.2); border: 1px solid var(--primary);" onclick="fetchKiwoomHistory()">🔄 키움 당일 매매일지 조회</button>
+                    <button class="btn-primary" style="padding: 6px 12px; font-size: 12px; border-radius: 6px; background: rgba(59, 130, 246, 0.2); border: 1px solid var(--primary);" onclick="fetchKiwoomHistory()">🔄 키움 거래내역</button>
                 </div>
             </div>
             <div class="modal-body" style="max-height: 60vh; overflow-y: auto;">
@@ -1586,7 +1586,7 @@ HTML_CONTENT = """
                         tbody.insertBefore(row, tbody.firstChild);
                     });
                     
-                    alert("키움증권 당일 매매일지(종목별 합산)가 표의 최상단에 동기화되었습니다!");
+                    alert("선택하신 기간의 키움증권 거래내역이 표의 최상단에 동기화되었습니다!");
                 }
             };
 
@@ -2517,8 +2517,11 @@ HTML_CONTENT = """
         
         // 키움증권 매매일지 동기화
         function fetchKiwoomHistory() {
+            const startStr = document.getElementById('tradeStartDate').value;
+            const endStr = document.getElementById('tradeEndDate').value;
+            
             if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(jsonStr({ type: "fetch_kiwoom_history" }));
+                ws.send(jsonStr({ type: "fetch_kiwoom_history", start_date: startStr, end_date: endStr }));
             } else {
                 alert("서버와 연결되어 있지 않습니다.");
             }
@@ -2875,43 +2878,52 @@ async def websocket_handler(websocket):
                         create_fire_and_forget_task(app.monitoring_manager.remove_stock_from_monitoring(code))
                         
                 elif msg_type == 'fetch_kiwoom_history':
+                    start_date = data.get('start_date')
+                    end_date = data.get('end_date')
+                    
                     if hasattr(app, 'kiwoom') and app.kiwoom:
-                        diary = await app.kiwoom.get_daily_trading_diary()
+                        # 기간별 매매내역 요청 (start_date, end_date 가 있으면 기간별, 없으면 당일매매일지)
+                        if start_date and end_date:
+                            diary = await app.kiwoom.get_period_trading_diary(start_date, end_date)
+                        else:
+                            diary = await app.kiwoom.get_daily_trading_diary()
                         
-                        # 응답 데이터를 웹 대시보드 표 형식에 맞게 변환
-                        # (stk_nm: 종목명, buy_qty: 매수수량, sell_qty: 매도수량, pl_amt: 실현손익)
                         formatted_records = []
                         if diary:
                             for d in diary:
-                                # 빈 값들 무시
                                 if not d.get('stk_cd') or not d.get('stk_nm'):
                                     continue
+                                
+                                # 기간별 날짜 필드 (dt) 처리, 없으면 "당일"
+                                date_val = d.get('dt') or d.get('ord_dt') or "키움 동기화"
+                                if date_val and len(date_val) == 8 and date_val.isdigit():
+                                    date_val = f"{date_val[:4]}-{date_val[4:6]}-{date_val[6:]}"
                                     
                                 b_qty = int(d.get('buy_qty', '0') or '0')
                                 s_qty = int(d.get('sell_qty', '0') or '0')
                                 
                                 if b_qty > 0:
                                     formatted_records.append({
-                                        "datetime": "오늘 (키움 동기화)",
+                                        "datetime": date_val,
                                         "code": d.get('stk_cd', ''),
                                         "name": d.get('stk_nm', ''),
                                         "order_type": "buy",
                                         "quantity": b_qty,
                                         "price": int(d.get('buy_avg_pric', '0') or '0'),
                                         "amount": int(d.get('buy_amt', '0') or '0'),
-                                        "strategy": "Kiwoom 당일 매수합산"
+                                        "strategy": "Kiwoom 매수합산"
                                     })
                                 
                                 if s_qty > 0:
                                     formatted_records.append({
-                                        "datetime": "오늘 (키움 동기화)",
+                                        "datetime": date_val,
                                         "code": d.get('stk_cd', ''),
                                         "name": d.get('stk_nm', ''),
                                         "order_type": "sell",
                                         "quantity": s_qty,
                                         "price": int(d.get('sel_avg_pric', '0') or '0'),
                                         "amount": int(d.get('sell_amt', '0') or '0'),
-                                        "strategy": f"Kiwoom 당일 매도합산 (손익: {int(d.get('pl_amt', '0') or '0'):,}원)"
+                                        "strategy": f"Kiwoom 매도합산 (손익: {int(d.get('pl_amt', '0') or '0'):,}원)"
                                     })
                         
                         await safe_send(websocket, json.dumps({

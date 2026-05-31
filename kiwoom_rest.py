@@ -977,6 +977,55 @@ class KiwoomRestClient:
             self.logger.error(f"❌ 매매일지 조회 중 오류: {e}", exc_info=True)
             return []
 
+    async def get_period_trading_diary(self, start_date: str, end_date: str) -> list:
+        """
+        기간별 종목별 합산 체결내역(실현손익 포함)을 조회합니다. (ka10073 API 사용)
+        start_date, end_date 포맷: YYYYMMDD
+        """
+        try:
+            await ApiLimitManager.check_api_limit_and_wait_async("기간별 거래내역 조회", request_type="deposit")
+            await self._ensure_client()
+            if not await self.check_token_validity():
+                return []
+
+            host = 'https://mockapi.kiwoom.com' if self.is_mock else 'https://api.kiwoom.com'
+            url = host + '/api/dostk/acnt'
+
+            headers = {
+                'Content-Type': 'application/json;charset=UTF-8',
+                'authorization': f'Bearer {self.access_token}',
+                'cont-yn': 'N',
+                'next-key': '',
+                'api-id': 'ka10073',
+            }
+
+            params = {
+                'strt_dt': start_date.replace('-', ''),
+                'end_dt': end_date.replace('-', ''),
+                'stk_cd': '',
+                'ottks_tp': '0',     # 0: 전체
+                'ch_crd_tp': '0',    # 현금신용구분 (0: 전체)
+            }
+
+            response = await self.client.post(url, headers=headers, json=params, timeout=10.0)
+
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('return_code') == 0:
+                    diary = data.get('dt_stk_rlzt_pl', [])
+                    self.logger.info(f"✅ 키움증권 기간별 거래내역 조회 성공: {len(diary)}건")
+                    return diary
+                else:
+                    self.logger.warning(f"⚠️ 기간별 거래내역 조회 실패: {data.get('return_msg')}")
+                    return []
+            else:
+                self.logger.warning(f"⚠️ 기간별 거래내역 조회 통신 실패: HTTP {response.status_code}")
+                return []
+
+        except Exception as e:
+            self.logger.error(f"❌ 기간별 거래내역 조회 중 오류: {e}", exc_info=True)
+            return []
+
     async def place_buy_order(self, code: str, quantity: int, price: int = 0, order_type: str = "market") -> bool:
         """매수 주문 (키움 REST API 기반) - 시장가만 지원 (비동기)
         
