@@ -1265,11 +1265,19 @@ HTML_CONTENT = """
     <!-- 매매내역 모달 -->
     <div id="tradeHistoryModal" class="modal-overlay" style="display:none; z-index: 9999;">
         <div class="modal-container" style="max-width: 900px; width: 90%;">
-            <div class="modal-header">
-                <h2>📜 주식 매매내역</h2>
-                <div style="display:flex; gap:10px; align-items:center;">
-                    <button class="btn-primary" style="padding: 6px 12px; font-size: 12px; border-radius: 6px;" onclick="fetchKiwoomHistory()">🔄 키움 당일 매매일지 조회</button>
+            <div class="modal-header" style="flex-direction: column; align-items: stretch; gap: 12px;">
+                <div style="display:flex; justify-content: space-between; align-items: center;">
+                    <h2>📜 주식 매매내역</h2>
                     <button class="close-btn" onclick="closeTradeHistory()">&times;</button>
+                </div>
+                <div style="display:flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                    <div style="display:flex; align-items: center; gap: 6px; background: rgba(255,255,255,0.05); padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border-color);">
+                        <input type="date" id="tradeStartDate" style="background: transparent; border: none; color: white; font-size: 12px; outline: none; cursor: pointer;">
+                        <span style="color: var(--text-secondary); font-size: 12px;">~</span>
+                        <input type="date" id="tradeEndDate" style="background: transparent; border: none; color: white; font-size: 12px; outline: none; cursor: pointer;">
+                        <button class="btn-primary" style="padding: 4px 10px; font-size: 12px; border-radius: 4px; margin-left: 4px;" onclick="fetchTradeHistoryWithDates()">조회</button>
+                    </div>
+                    <button class="btn-primary" style="padding: 6px 12px; font-size: 12px; border-radius: 6px; background: rgba(59, 130, 246, 0.2); border: 1px solid var(--primary);" onclick="fetchKiwoomHistory()">🔄 키움 당일 매매일지 조회</button>
                 </div>
             </div>
             <div class="modal-body" style="max-height: 60vh; overflow-y: auto;">
@@ -2462,10 +2470,43 @@ HTML_CONTENT = """
             document.getElementById('tradeHistoryModal').style.display = 'flex';
             document.getElementById('tradeHistoryBody').innerHTML = '<tr><td colspan="7" class="text-center" style="padding:20px;">데이터를 불러오는 중입니다...</td></tr>';
             
+            // 날짜 초기화 (최근 7일)
+            const end = new Date();
+            const start = new Date();
+            start.setDate(end.getDate() - 7);
+            
+            const endStr = end.toISOString().split('T')[0];
+            const startStr = start.toISOString().split('T')[0];
+            
+            // 날짜 input이 비어있을 때만 초기화
+            if (!document.getElementById('tradeStartDate').value) {
+                document.getElementById('tradeStartDate').value = startStr;
+            }
+            if (!document.getElementById('tradeEndDate').value) {
+                document.getElementById('tradeEndDate').value = endStr;
+            }
+            
+            const reqStart = document.getElementById('tradeStartDate').value;
+            const reqEnd = document.getElementById('tradeEndDate').value;
+            
             if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(jsonStr({ type: "get_trade_history" }));
+                ws.send(jsonStr({ type: "get_trade_history", start_date: reqStart, end_date: reqEnd }));
             } else {
                 document.getElementById('tradeHistoryBody').innerHTML = '<tr><td colspan="7" class="text-center" style="padding:20px; color: var(--danger);">서버와 연결되어 있지 않습니다.</td></tr>';
+            }
+        }
+
+        // 날짜 필터로 매매내역 조회
+        function fetchTradeHistoryWithDates() {
+            const startStr = document.getElementById('tradeStartDate').value;
+            const endStr = document.getElementById('tradeEndDate').value;
+            
+            document.getElementById('tradeHistoryBody').innerHTML = '<tr><td colspan="7" class="text-center" style="padding:20px;">데이터를 불러오는 중입니다...</td></tr>';
+            
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(jsonStr({ type: "get_trade_history", start_date: startStr, end_date: endStr }));
+            } else {
+                alert("서버와 연결되어 있지 않습니다.");
             }
         }
 
@@ -2879,8 +2920,11 @@ async def websocket_handler(websocket):
                         }))
 
                 elif msg_type == 'get_trade_history':
+                    start_date = data.get('start_date')
+                    end_date = data.get('end_date')
+                    
                     if hasattr(app, 'db_manager') and app.db_manager:
-                        records = await app.db_manager.get_trade_history(limit=500)
+                        records = await app.db_manager.get_trade_history(limit=500, start_date=start_date, end_date=end_date)
                         # 종목명 매핑
                         for r in records:
                             code = r.get('code', '')

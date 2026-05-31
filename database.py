@@ -503,8 +503,8 @@ class AsyncDatabaseManager:
         except Exception as ex:
             self.logger.error(f"데이터베이스 초기화 실패: {ex}", exc_info=True)
 
-    async def get_trade_history(self, limit=500):
-        """저장된 매매 기록을 가져옴 (최신순)"""
+    async def get_trade_history(self, limit=500, start_date=None, end_date=None):
+        """저장된 매매 기록을 가져옴 (최신순, 날짜 필터 적용 가능)"""
         try:
             if self._conn is None:
                 await self.init_database()
@@ -512,12 +512,24 @@ class AsyncDatabaseManager:
             async with self._db_lock:
                 cursor = await self._conn.cursor()
                 
-                await cursor.execute('''
+                query = '''
                     SELECT id, code, datetime, order_type, quantity, price, amount, strategy, profit_loss 
                     FROM trade_records 
-                    ORDER BY datetime DESC 
-                    LIMIT ?
-                ''', (limit,))
+                    WHERE 1=1
+                '''
+                params = []
+                
+                if start_date:
+                    query += " AND datetime >= ?"
+                    params.append(f"{start_date} 00:00:00")
+                if end_date:
+                    query += " AND datetime <= ?"
+                    params.append(f"{end_date} 23:59:59")
+                    
+                query += " ORDER BY datetime DESC LIMIT ?"
+                params.append(limit)
+                
+                await cursor.execute(query, tuple(params))
                 
                 rows = await cursor.fetchall()
                 
