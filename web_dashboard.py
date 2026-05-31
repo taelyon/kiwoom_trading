@@ -1279,7 +1279,7 @@ HTML_CONTENT = """
             </div>
             <div class="modal-body" style="max-height: 60vh; overflow-y: auto;">
                 <table class="holdings-table">
-                    <thead>
+                    <thead id="tradeHistoryHead">
                         <tr>
                             <th>시간</th>
                             <th>종목</th>
@@ -1518,6 +1518,20 @@ HTML_CONTENT = """
                 } else if (data.type === 'chart_tick') {
                     renderChartTick(data);
                 } else if (data.type === 'trade_history_data') {
+                    const thead = document.getElementById('tradeHistoryHead');
+                    if (thead) {
+                        thead.innerHTML = `
+                            <tr>
+                                <th>시간</th>
+                                <th>종목</th>
+                                <th>구분</th>
+                                <th>수량</th>
+                                <th>단가</th>
+                                <th>금액</th>
+                                <th>전략</th>
+                            </tr>
+                        `;
+                    }
                     const tbody = document.getElementById('tradeHistoryBody');
                     tbody.innerHTML = '';
                     
@@ -1547,6 +1561,22 @@ HTML_CONTENT = """
                         tbody.appendChild(row);
                     });
                 } else if (data.type === 'kiwoom_history_data') {
+                    const thead = document.getElementById('tradeHistoryHead');
+                    if (thead) {
+                        thead.innerHTML = `
+                            <tr>
+                                <th>일자</th>
+                                <th>종목</th>
+                                <th>매수수량</th>
+                                <th>매도수량</th>
+                                <th class="text-right">매수단가</th>
+                                <th class="text-right">매도단가</th>
+                                <th class="text-right">손익금액</th>
+                                <th class="text-right">수익률</th>
+                                <th class="text-right">수수료/세금</th>
+                            </tr>
+                        `;
+                    }
                     const tbody = document.getElementById('tradeHistoryBody');
                     
                     // 로딩 row 제거
@@ -1566,35 +1596,37 @@ HTML_CONTENT = """
                     }
                     
                     // 빈 상태 텍스트(예: 내역이 없습니다)가 있다면 삭제
-                    if (tbody.innerHTML.includes('가져올 매매 내역이 없습니다') || tbody.innerHTML.includes('매매 내역이 없습니다')) {
-                        tbody.innerHTML = '';
-                    }
+                    // 키움 데이터는 필드가 다르므로 기존 데이터를 덮어씌움
+                    tbody.innerHTML = '';
 
                     // 키움 API 데이터 테이블 상단에 추가
                     data.data.forEach(record => {
                         const row = document.createElement('tr');
                         row.style.backgroundColor = 'rgba(255, 255, 255, 0.05)';
-                        const isBuy = record.order_type.toLowerCase() === 'buy';
-                        const typeColor = isBuy ? 'var(--danger)' : 'var(--primary)';
-                        const typeText = isBuy ? '매수' : '매도';
                         
+                        const plAmt = parseInt(record.pl_amt) || 0;
+                        const plColor = plAmt > 0 ? 'var(--danger)' : (plAmt < 0 ? 'var(--primary)' : 'var(--text-secondary)');
+                        const prftRt = parseFloat(record.prft_rt) || 0;
+                        const prftColor = prftRt > 0 ? 'var(--danger)' : (prftRt < 0 ? 'var(--primary)' : 'var(--text-secondary)');
+
                         row.innerHTML = `
-                            <td style="font-size: 12px; color: var(--accent-cyan); font-weight: bold;">${record.datetime}</td>
+                            <td style="font-size: 12px; color: var(--accent-cyan); font-weight: bold;">${record.ord_dt}</td>
                             <td>
-                                <div style="font-weight: bold; font-size: 14px;">${record.name || '-'}</div>
-                                <div style="font-size: 11px; color: var(--text-secondary);">${record.code}</div>
+                                <div style="font-weight: bold; font-size: 14px;">${record.stk_nm || '-'}</div>
+                                <div style="font-size: 11px; color: var(--text-secondary);">${record.stk_cd}</div>
                             </td>
-                            <td style="color: ${typeColor}; font-weight: bold;">${typeText}</td>
-                            <td class="text-right">${record.quantity.toLocaleString()}주</td>
-                            <td class="text-right">${Math.round(record.price).toLocaleString()}원</td>
-                            <td class="text-right">${Math.round(record.amount).toLocaleString()}원</td>
-                            <td style="font-size: 12px; color: var(--accent-cyan); max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${record.strategy || '-'}">${record.strategy || '-'}</td>
+                            <td style="color: var(--danger); font-weight: bold;">${(parseInt(record.buy_qty)||0).toLocaleString()}주</td>
+                            <td style="color: var(--primary); font-weight: bold;">${(parseInt(record.sell_qty)||0).toLocaleString()}주</td>
+                            <td class="text-right">${(parseInt(record.buy_avg_pric)||0).toLocaleString()}원</td>
+                            <td class="text-right">${(parseInt(record.sel_avg_pric)||0).toLocaleString()}원</td>
+                            <td class="text-right" style="color: ${plColor}; font-weight: bold;">${plAmt > 0 ? '+' : ''}${plAmt.toLocaleString()}원</td>
+                            <td class="text-right" style="color: ${prftColor}; font-weight: bold;">${prftRt > 0 ? '+' : ''}${record.prft_rt}%</td>
+                            <td class="text-right" style="font-size: 11px; color: var(--text-secondary);">${(parseInt(record.cmsn_alm_tax)||0).toLocaleString()}원</td>
                         `;
-                        // 첫 번째 자식 앞에 삽입 (최상단)
-                        tbody.insertBefore(row, tbody.firstChild);
+                        tbody.appendChild(row);
                     });
                     
-                    alert("선택하신 기간의 키움증권 거래내역이 표의 최상단에 동기화되었습니다!");
+                    alert("선택하신 기간의 키움증권 거래내역이 표에 로드되었습니다!");
                 }
             };
 
@@ -2951,28 +2983,18 @@ async def websocket_handler(websocket):
                                     b_qty = parse_int_safe(d.get('buy_qty'))
                                     s_qty = parse_int_safe(d.get('sell_qty'))
                                     
-                                    if b_qty > 0:
+                                    if b_qty > 0 or s_qty > 0:
                                         formatted_records.append({
-                                            "datetime": date_val,
-                                            "code": d.get('stk_cd', ''),
-                                            "name": d.get('stk_nm', ''),
-                                            "order_type": "buy",
-                                            "quantity": b_qty,
-                                            "price": parse_int_safe(d.get('buy_avg_pric')),
-                                            "amount": parse_int_safe(d.get('buy_amt')),
-                                            "strategy": "Kiwoom 매수합산"
-                                        })
-                                    
-                                    if s_qty > 0:
-                                        formatted_records.append({
-                                            "datetime": date_val,
-                                            "code": d.get('stk_cd', ''),
-                                            "name": d.get('stk_nm', ''),
-                                            "order_type": "sell",
-                                            "quantity": s_qty,
-                                            "price": parse_int_safe(d.get('sel_avg_pric')),
-                                            "amount": parse_int_safe(d.get('sell_amt')),
-                                            "strategy": f"Kiwoom 매도합산 (손익: {parse_int_safe(d.get('pl_amt')):,}원)"
+                                            "ord_dt": date_val,
+                                            "stk_cd": d.get('stk_cd', ''),
+                                            "stk_nm": d.get('stk_nm', ''),
+                                            "buy_qty": d.get('buy_qty', '0'),
+                                            "sell_qty": d.get('sell_qty', '0'),
+                                            "buy_avg_pric": d.get('buy_avg_pric', '0'),
+                                            "sel_avg_pric": d.get('sel_avg_pric', '0'),
+                                            "pl_amt": d.get('pl_amt', '0'),
+                                            "prft_rt": d.get('prft_rt', '0.00'),
+                                            "cmsn_alm_tax": d.get('cmsn_alm_tax', '0')
                                         })
                             
                             await safe_send(websocket, json.dumps({
