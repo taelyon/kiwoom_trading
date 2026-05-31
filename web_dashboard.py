@@ -1096,10 +1096,11 @@ HTML_CONTENT = """
             <div class="main-column">
                 <!-- 요약 계좌 현황 (총 자산, 매수가능 현금, 총 매입금액) -->
                 <div class="summary-grid">
-                    <div class="glass-card">
+                    <div class="glass-card" style="position: relative;">
                         <div class="card-title">총 자산</div>
                         <div id="totalAssets" class="card-value">0원</div>
                         <div id="totalProfitText" class="card-subtext">누적 총손익: <span class="up-trend">0원 (0.00%)</span></div>
+                        <button class="btn-primary" style="position: absolute; top: 15px; right: 15px; padding: 6px 10px; font-size: 11px; border-radius: 6px;" onclick="openTradeHistory()">📜 매매내역</button>
                     </div>
                     <div class="glass-card">
                         <div class="card-title">매수가능 현금 (예수금)</div>
@@ -1240,10 +1241,6 @@ HTML_CONTENT = """
                                 </label>
                                 <button id="btnLiquidate" class="btn-liquidate" onclick="triggerLiquidateAll()">Safe Out</button>
                             </div>
-                        </div>
-                        
-                        <div class="trade-history-box" style="margin-top: 15px;">
-                            <button class="btn-primary" style="width: 100%; padding: 12px; font-size: 14px;" onclick="openTradeHistory()">📜 전체 매매내역 보기</button>
                         </div>
                     </div>
                 </div>
