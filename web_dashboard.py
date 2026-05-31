@@ -2379,12 +2379,6 @@ def get_current_status_data():
             auto_trading_active = app.autotrader.is_running
         t7 = time.perf_counter()
 
-        elapsed_ms = (t7 - start_time) * 1000
-        if elapsed_ms > 5.0:  # 5ms 초과 시에만 로그 출력하여 오버헤드 방지
-            logging.info(f"📊 [get_current_status_data PROFILE] 총 소요: {elapsed_ms:.2f}ms "
-                         f"(T2-T1={((t2-t1)*1000):.2f}ms, T3-T2={((t3-t2)*1000):.2f}ms, T4-T3={((t4-t3)*1000):.2f}ms, "
-                         f"T5-T4={((t5-t4)*1000):.2f}ms, T6-T5={((t6-t5)*1000):.2f}ms, T7-T6={((t7-t6)*1000):.2f}ms)")
-
         return {
             "type": "status",
             "total_assets": total_assets,
