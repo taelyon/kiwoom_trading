@@ -1276,7 +1276,7 @@ HTML_CONTENT = """
     
     <!-- 매매내역 모달 -->
     <div id="tradeHistoryModal" class="modal-overlay" style="display:none; z-index: 9999;">
-        <div class="modal-container" style="max-width: 900px; width: 90%;">
+        <div class="modal-container">
             <div class="modal-header" style="flex-direction: column; align-items: stretch; gap: 12px;">
                 <div style="display:flex; justify-content: space-between; align-items: center;">
                     <h2>📜 주식 매매내역</h2>
