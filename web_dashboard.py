@@ -2525,8 +2525,17 @@ HTML_CONTENT = """
         
         // 키움증권 매매일지 동기화
         function fetchKiwoomHistory() {
-            const startStr = document.getElementById('tradeStartDate').value;
-            const endStr = document.getElementById('tradeEndDate').value;
+            let startStr = document.getElementById('tradeStartDate').value;
+            let endStr = document.getElementById('tradeEndDate').value;
+            
+            if (!startStr || !endStr) {
+                alert("키움 거래내역을 조회하기 전에 먼저 조회할 시작일과 종료일을 선택해 주세요.");
+                return;
+            }
+            
+            // 키움증권 API는 YYYYMMDD 형식을 요구하므로 하이픈(-) 제거
+            startStr = startStr.replace(/-/g, '');
+            endStr = endStr.replace(/-/g, '');
             
             const tbody = document.getElementById('tradeHistoryBody');
             
