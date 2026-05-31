@@ -1267,7 +1267,10 @@ HTML_CONTENT = """
         <div class="modal-container" style="max-width: 900px; width: 90%;">
             <div class="modal-header">
                 <h2>📜 주식 매매내역</h2>
-                <button class="close-btn" onclick="closeTradeHistory()">&times;</button>
+                <div style="display:flex; gap:10px; align-items:center;">
+                    <button class="btn-primary" style="padding: 6px 12px; font-size: 12px; border-radius: 6px;" onclick="fetchKiwoomHistory()">🔄 키움 당일 매매일지 조회</button>
+                    <button class="close-btn" onclick="closeTradeHistory()">&times;</button>
+                </div>
             </div>
             <div class="modal-body" style="max-height: 60vh; overflow-y: auto;">
                 <table class="holdings-table">
@@ -1538,6 +1541,44 @@ HTML_CONTENT = """
                         `;
                         tbody.appendChild(row);
                     });
+                } else if (data.type === 'kiwoom_history_data') {
+                    const tbody = document.getElementById('tradeHistoryBody');
+                    
+                    if (!data.data || data.data.length === 0) {
+                        alert("키움증권으로부터 가져올 당일 매매 내역이 없습니다.");
+                        return;
+                    }
+                    
+                    // 기존 '로딩중' 텍스트가 있다면 삭제
+                    if (tbody.innerHTML.includes('데이터를 불러오는 중입니다')) {
+                        tbody.innerHTML = '';
+                    }
+
+                    // 키움 API 데이터 테이블 상단에 추가
+                    data.data.forEach(record => {
+                        const row = document.createElement('tr');
+                        row.style.backgroundColor = 'rgba(255, 255, 255, 0.05)';
+                        const isBuy = record.order_type.toLowerCase() === 'buy';
+                        const typeColor = isBuy ? 'var(--danger)' : 'var(--primary)';
+                        const typeText = isBuy ? '매수' : '매도';
+                        
+                        row.innerHTML = `
+                            <td style="font-size: 12px; color: var(--accent-cyan); font-weight: bold;">${record.datetime}</td>
+                            <td>
+                                <div style="font-weight: bold; font-size: 14px;">${record.name || '-'}</div>
+                                <div style="font-size: 11px; color: var(--text-secondary);">${record.code}</div>
+                            </td>
+                            <td style="color: ${typeColor}; font-weight: bold;">${typeText}</td>
+                            <td class="text-right">${record.quantity.toLocaleString()}주</td>
+                            <td class="text-right">${Math.round(record.price).toLocaleString()}원</td>
+                            <td class="text-right">${Math.round(record.amount).toLocaleString()}원</td>
+                            <td style="font-size: 12px; color: var(--accent-cyan); max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${record.strategy || '-'}">${record.strategy || '-'}</td>
+                        `;
+                        // 첫 번째 자식 앞에 삽입 (최상단)
+                        tbody.insertBefore(row, tbody.firstChild);
+                    });
+                    
+                    alert("키움증권 당일 매매일지(종목별 합산)가 표의 최상단에 동기화되었습니다!");
                 }
             };
 
@@ -2432,6 +2473,15 @@ HTML_CONTENT = """
         function closeTradeHistory() {
             document.getElementById('tradeHistoryModal').style.display = 'none';
         }
+        
+        // 키움증권 매매일지 동기화
+        function fetchKiwoomHistory() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(jsonStr({ type: "fetch_kiwoom_history" }));
+            } else {
+                alert("서버와 연결되어 있지 않습니다.");
+            }
+        }
 
     </script>
 </body>
@@ -2783,6 +2833,51 @@ async def websocket_handler(websocket):
                         logging.info(f"📡 대시보드 제어: 감시종목 제거 {code}")
                         create_fire_and_forget_task(app.monitoring_manager.remove_stock_from_monitoring(code))
                         
+                elif msg_type == 'fetch_kiwoom_history':
+                    if hasattr(app, 'kiwoom') and app.kiwoom:
+                        diary = await app.kiwoom.get_daily_trading_diary()
+                        
+                        # 응답 데이터를 웹 대시보드 표 형식에 맞게 변환
+                        # (stk_nm: 종목명, buy_qty: 매수수량, sell_qty: 매도수량, pl_amt: 실현손익)
+                        formatted_records = []
+                        if diary:
+                            for d in diary:
+                                # 빈 값들 무시
+                                if not d.get('stk_cd') or not d.get('stk_nm'):
+                                    continue
+                                    
+                                b_qty = int(d.get('buy_qty', '0') or '0')
+                                s_qty = int(d.get('sell_qty', '0') or '0')
+                                
+                                if b_qty > 0:
+                                    formatted_records.append({
+                                        "datetime": "오늘 (키움 동기화)",
+                                        "code": d.get('stk_cd', ''),
+                                        "name": d.get('stk_nm', ''),
+                                        "order_type": "buy",
+                                        "quantity": b_qty,
+                                        "price": int(d.get('buy_avg_pric', '0') or '0'),
+                                        "amount": int(d.get('buy_amt', '0') or '0'),
+                                        "strategy": "Kiwoom 당일 매수합산"
+                                    })
+                                
+                                if s_qty > 0:
+                                    formatted_records.append({
+                                        "datetime": "오늘 (키움 동기화)",
+                                        "code": d.get('stk_cd', ''),
+                                        "name": d.get('stk_nm', ''),
+                                        "order_type": "sell",
+                                        "quantity": s_qty,
+                                        "price": int(d.get('sel_avg_pric', '0') or '0'),
+                                        "amount": int(d.get('sell_amt', '0') or '0'),
+                                        "strategy": f"Kiwoom 당일 매도합산 (손익: {int(d.get('pl_amt', '0') or '0'):,}원)"
+                                    })
+                        
+                        await safe_send(websocket, json.dumps({
+                            "type": "kiwoom_history_data",
+                            "data": formatted_records
+                        }))
+
                 elif msg_type == 'get_trade_history':
                     if hasattr(app, 'db_manager') and app.db_manager:
                         records = await app.db_manager.get_trade_history(limit=500)

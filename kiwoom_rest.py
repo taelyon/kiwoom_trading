@@ -927,7 +927,56 @@ class KiwoomRestClient:
         except Exception as e:
             self.logger.error(f"❌ 당일 실현 손익 조회 중 예외 발생: {e}", exc_info=True)
             return 0.0, 0.0
-    
+
+    async def get_daily_trading_diary(self) -> list:
+        """
+        당일 매매일지 요약(종목별 합산 체결내역)을 조회합니다. (ka10170 API 사용)
+        
+        Returns:
+            list: 종목별 매매 내역 딕셔너리 리스트
+        """
+        try:
+            await ApiLimitManager.check_api_limit_and_wait_async("당일 매매일지 조회", request_type="deposit")
+            await self._ensure_client()
+            if not await self.check_token_validity():
+                return []
+
+            host = 'https://mockapi.kiwoom.com' if self.is_mock else 'https://api.kiwoom.com'
+            url = host + '/api/dostk/acnt'
+
+            headers = {
+                'Content-Type': 'application/json;charset=UTF-8',
+                'authorization': f'Bearer {self.access_token}',
+                'cont-yn': 'N',
+                'next-key': '',
+                'api-id': 'ka10170',
+            }
+
+            params = {
+                'base_dt': '',
+                'ottks_tp': '0',     # 0: 전체
+                'ch_crd_tp': '0',    # 현금신용구분 (0: 전체)
+            }
+
+            response = await self.client.post(url, headers=headers, json=params, timeout=10.0)
+
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('return_code') == 0:
+                    diary = data.get('tdy_trde_diary', [])
+                    self.logger.info(f"✅ 키움증권 당일 매매일지 조회 성공: {len(diary)}건")
+                    return diary
+                else:
+                    self.logger.warning(f"⚠️ 매매일지 조회 실패: {data.get('return_msg')}")
+                    return []
+            else:
+                self.logger.warning(f"⚠️ 매매일지 조회 통신 실패: HTTP {response.status_code}")
+                return []
+
+        except Exception as e:
+            self.logger.error(f"❌ 매매일지 조회 중 오류: {e}", exc_info=True)
+            return []
+
     async def place_buy_order(self, code: str, quantity: int, price: int = 0, order_type: str = "market") -> bool:
         """매수 주문 (키움 REST API 기반) - 시장가만 지원 (비동기)
         
