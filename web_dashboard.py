@@ -1552,17 +1552,19 @@ HTML_CONTENT = """
                 } else if (data.type === 'kiwoom_history_data') {
                     const tbody = document.getElementById('tradeHistoryBody');
                     
+                    // 로딩 row 제거
+                    const loadingRow = document.getElementById('kiwoomLoading');
+                    if (loadingRow) {
+                        loadingRow.remove();
+                    }
+                    
                     if (!data.data || data.data.length === 0) {
-                        // 기존 '로딩중' 텍스트가 있다면 삭제
-                        if (tbody.innerHTML.includes('데이터를 불러오는 중입니다')) {
-                            tbody.innerHTML = '<tr><td colspan="7" class="text-center" style="padding:20px;">가져올 매매 내역이 없습니다.</td></tr>';
-                        }
                         alert("키움증권으로부터 가져올 기간 내 매매 내역이 없습니다.");
                         return;
                     }
                     
-                    // 데이터가 있을 때 로딩 텍스트 삭제
-                    if (tbody.innerHTML.includes('데이터를 불러오는 중입니다') || tbody.innerHTML.includes('내역이 없습니다')) {
+                    // 빈 상태 텍스트(예: 내역이 없습니다)가 있다면 삭제
+                    if (tbody.innerHTML.includes('가져올 매매 내역이 없습니다') || tbody.innerHTML.includes('매매 내역이 없습니다')) {
                         tbody.innerHTML = '';
                     }
 
@@ -2524,12 +2526,27 @@ HTML_CONTENT = """
             const startStr = document.getElementById('tradeStartDate').value;
             const endStr = document.getElementById('tradeEndDate').value;
             
-            document.getElementById('tradeHistoryBody').innerHTML = '<tr><td colspan="7" class="text-center" style="padding:20px;">데이터를 불러오는 중입니다...</td></tr>';
+            const tbody = document.getElementById('tradeHistoryBody');
+            
+            // 기존 '내역이 없습니다' 텍스트가 있으면 비움
+            if (tbody.innerHTML.includes('내역이 없습니다') || tbody.innerHTML.includes('데이터를 불러오는 중입니다')) {
+                tbody.innerHTML = '';
+            }
+            
+            // 로딩 안내 row 최상단에 삽입
+            if (!document.getElementById('kiwoomLoading')) {
+                const loadingRow = document.createElement('tr');
+                loadingRow.id = 'kiwoomLoading';
+                loadingRow.innerHTML = '<td colspan="7" class="text-center" style="padding:20px; color: var(--primary);">키움증권 서버에서 기간 데이터를 불러오는 중입니다...</td>';
+                tbody.insertBefore(loadingRow, tbody.firstChild);
+            }
             
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(jsonStr({ type: "fetch_kiwoom_history", start_date: startStr, end_date: endStr }));
             } else {
                 alert("서버와 연결되어 있지 않습니다.");
+                const loadingRow = document.getElementById('kiwoomLoading');
+                if (loadingRow) loadingRow.remove();
             }
         }
 
