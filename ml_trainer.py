@@ -91,13 +91,13 @@ class MLTrainingWorker(threading.Thread):
             # === Feature Engineering (비율/속도 변환) ===
             # 종목별로 그룹화하여 계산 필요
             
-            # 1. Target 생성 (미래 수익률이 수수료+세금을 상회하면 1, 아니면 0)
-            # 키움증권 기준 수수료 및 세금 왕복 약 0.21% (안전하게 0.23% 이상 상승 시 1로 간주)
-            FEE_RATE = 0.0023
+            # 1. Target 생성 (미래 수익률이 수수료+세금 및 슬리피지를 상회하면 1, 아니면 0)
+            # 키움증권 기준 수수료/세금 왕복 0.21% + 호가 슬리피지 방어를 위해 0.35% 이상 상승 시 1로 간주
+            TARGET_MARGIN = 0.0035
             df['target'] = df.groupby('code')['tic_close'].shift(-5)
             # target이 NaN인 마지막 5개 행은 평가할 수 없으므로 미리 제거
             df = df.dropna(subset=['target']).copy()
-            df['label'] = (df['target'] > (df['tic_close'] * (1 + FEE_RATE))).astype(int)
+            df['label'] = (df['target'] > (df['tic_close'] * (1 + TARGET_MARGIN))).astype(int)
             
             # 2. 비율 변환 (가격 자체는 제거)
             # 이미 RELATIVE_POSITION(이격도), STRENGTH(체결강도) 등은 비율임.
