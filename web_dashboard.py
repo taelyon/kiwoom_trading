@@ -1554,7 +1554,7 @@ HTML_CONTENT = """
                     tbody.innerHTML = '';
                     
                     if (!data.data || data.data.length === 0) {
-                        tbody.innerHTML = '<tr><td colspan="9" class="text-center" style="padding:20px;">매매 내역이 없습니다.</td></tr>';
+                        tbody.innerHTML = '<tr><td colspan="9" style="padding:20px; text-align:center; color:var(--text-secondary);">매매 내역이 없습니다.</td></tr>';
                         return;
                     }
                     
@@ -2533,7 +2533,7 @@ HTML_CONTENT = """
         // 매매내역 모달 열기
         function openTradeHistory() {
             document.getElementById('tradeHistoryModal').style.display = 'flex';
-            document.getElementById('tradeHistoryBody').innerHTML = '<tr><td colspan="7" class="text-center" style="padding:20px;">데이터를 불러오는 중입니다...</td></tr>';
+            document.getElementById('tradeHistoryBody').innerHTML = '<tr><td colspan="9" style="padding:20px; text-align:center; color:var(--text-secondary);">데이터를 불러오는 중입니다...</td></tr>';
             
             // 날짜 초기화 (최근 7일)
             const end = new Date();
@@ -2605,7 +2605,7 @@ HTML_CONTENT = """
             if (!document.getElementById('kiwoomLoading')) {
                 const loadingRow = document.createElement('tr');
                 loadingRow.id = 'kiwoomLoading';
-                loadingRow.innerHTML = '<td colspan="7" class="text-center" style="padding:20px; color: var(--primary);">키움증권 서버에서 기간 데이터를 불러오는 중입니다...</td>';
+                loadingRow.innerHTML = '<td colspan="9" style="padding:20px; text-align:center; color: var(--primary);">키움증권 서버에서 기간 데이터를 불러오는 중입니다...</td>';
                 tbody.insertBefore(loadingRow, tbody.firstChild);
             }
             
