@@ -2915,12 +2915,14 @@ async def websocket_handler(websocket):
                     start_date = data.get('start_date')
                     end_date = data.get('end_date')
                     
-                    if hasattr(app, 'kiwoom') and app.kiwoom:
+                    kiwoom_client = getattr(getattr(app, 'login_handler', None), 'kiwoom_client', None)
+                    if kiwoom_client:
                         try:
+                            logging.info(f"📡 키움증권 매매일지 조회 시작: {start_date} ~ {end_date}")
                             if start_date and end_date:
-                                diary = await app.kiwoom.get_period_trading_diary(start_date, end_date)
+                                diary = await kiwoom_client.get_period_trading_diary(start_date, end_date)
                             else:
-                                diary = await app.kiwoom.get_daily_trading_diary()
+                                diary = await kiwoom_client.get_daily_trading_diary()
                                 
                             # 사용자 디버깅용 파일 생성
                             debug_path = os.path.join(app.base_dir, 'logs', 'kiwoom_history_debug.json')
