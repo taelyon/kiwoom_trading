@@ -633,28 +633,43 @@ HTML_CONTENT = """
         /* 포트폴리오 테이블 */
         .portfolio-table {
             width: 100%;
-            border-collapse: collapse;
+            border-collapse: separate;
+            border-spacing: 0;
             text-align: left;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+            background: rgba(20, 22, 30, 0.4);
         }
 
         .portfolio-table th {
-            padding: 12px 16px;
+            padding: 14px 16px;
             color: var(--text-secondary);
-            font-size: 12px;
-            font-weight: 600;
-            border-bottom: 1px solid var(--border-color);
+            font-size: 13px;
+            font-weight: 700;
+            background: rgba(10, 12, 18, 0.8);
+            border-bottom: 2px solid rgba(0, 255, 170, 0.1);
             text-transform: uppercase;
+            letter-spacing: 0.5px;
+            position: sticky;
+            top: 0;
+            z-index: 10;
         }
 
         .portfolio-table td {
-            padding: 14px 16px;
-            border-bottom: 1px solid var(--border-color);
+            padding: 16px 16px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.03);
             font-size: 14px;
+            transition: all 0.2s ease;
         }
 
-        .portfolio-table tr:hover {
-            background-color: rgba(255, 255, 255, 0.02);
-            cursor: pointer;
+        .portfolio-table tr:nth-child(even) {
+            background-color: rgba(255, 255, 255, 0.01);
+        }
+
+        .portfolio-table tr:hover td {
+            background-color: rgba(0, 255, 170, 0.05);
+            color: #fff;
         }
 
         .stock-name-info {
@@ -1278,7 +1293,7 @@ HTML_CONTENT = """
                 </div>
             </div>
             <div class="modal-body" style="max-height: 60vh; overflow-y: auto;">
-                <table class="holdings-table">
+                <table class="portfolio-table">
                     <thead id="tradeHistoryHead">
                         <tr>
                             <th>시간</th>
@@ -1602,7 +1617,6 @@ HTML_CONTENT = """
                     // 키움 API 데이터 테이블 상단에 추가
                     data.data.forEach(record => {
                         const row = document.createElement('tr');
-                        row.style.backgroundColor = 'rgba(255, 255, 255, 0.05)';
                         
                         const plAmt = parseInt(record.pl_amt) || 0;
                         const plColor = plAmt > 0 ? 'var(--danger)' : (plAmt < 0 ? 'var(--primary)' : 'var(--text-secondary)');
