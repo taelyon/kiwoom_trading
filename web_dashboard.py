@@ -2916,8 +2916,6 @@ async def websocket_handler(websocket):
                                 diary = await app.kiwoom.get_daily_trading_diary()
                                 
                             # 사용자 디버깅용 파일 생성
-                            import json
-                            import os
                             debug_path = os.path.join(app.base_dir, 'logs', 'kiwoom_history_debug.json')
                             with open(debug_path, 'w', encoding='utf-8') as f:
                                 json.dump(diary, f, ensure_ascii=False, indent=2)
