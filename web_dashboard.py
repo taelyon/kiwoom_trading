@@ -70,6 +70,7 @@ def datetime_to_timestamp(dt_val):
 log_queue = collections.deque(maxlen=150)
 connected_clients = set()
 main_window_ref = None
+client_locks = {}
 
 # 로그 고유 ID 발급용 카운터 및 락
 log_counter = int(time.time() * 1000)
@@ -81,10 +82,12 @@ subscribed_charts = {}
 async def safe_send(websocket, data):
     """주어진 웹소켓에 대해 동시 전송(ConcurrencyError) 및 데드락을 방지하기 위한 안전한 직렬화 전송 함수"""
     try:
-        if not hasattr(websocket, 'send_lock'):
-            websocket.send_lock = asyncio.Lock()
+        lock = client_locks.get(websocket)
+        if lock is None:
+            lock = asyncio.Lock()
+            client_locks[websocket] = lock
             
-        async with websocket.send_lock:
+        async with lock:
             if websocket.open:
                 await asyncio.wait_for(websocket.send(data), timeout=3.0)
                 return True
@@ -3340,6 +3343,7 @@ async def websocket_handler(websocket):
             connected_clients.remove(websocket)
         if websocket in subscribed_charts:
             del subscribed_charts[websocket]
+        client_locks.pop(websocket, None)
 
         logging.info(f"[WS PROFILE SERVER] 대시보드 웹 브라우저 연결 종료 [코드:{close_code}] (현재 연결 브라우저: {len(connected_clients)}개)")
 
