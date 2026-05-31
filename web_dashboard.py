@@ -906,8 +906,8 @@ HTML_CONTENT = """
             border: 1px solid var(--border-color);
             border-radius: 12px;
             box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-            width: 90%;
-            max-width: 900px;
+            width: 95%;
+            max-width: 1200px;
             display: flex;
             flex-direction: column;
             overflow: hidden;
