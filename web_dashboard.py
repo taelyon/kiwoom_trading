@@ -2970,11 +2970,7 @@ async def websocket_handler(websocket):
                             else:
                                 diary = await kiwoom_client.get_daily_trading_diary()
                                 
-                            # 사용자 디버깅용 파일 생성
-                            debug_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs', 'kiwoom_history_debug.json')
-                            with open(debug_path, 'w', encoding='utf-8') as f:
-                                json.dump(diary, f, ensure_ascii=False, indent=2)
-                            logging.info(f"✅ 키움증권 원본 응답 데이터를 {debug_path} 에 저장했습니다.")
+
                             
                             formatted_records = []
                             if diary:
