@@ -88,10 +88,8 @@ async def safe_send(websocket, data):
             client_locks[websocket] = lock
             
         async with lock:
-            if websocket.open:
-                await asyncio.wait_for(websocket.send(data), timeout=3.0)
-                return True
-            return False
+            await asyncio.wait_for(websocket.send(data), timeout=3.0)
+            return True
     except asyncio.TimeoutError:
         return False
     except websockets.exceptions.ConnectionClosedOK:
