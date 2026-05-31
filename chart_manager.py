@@ -222,11 +222,15 @@ class ChartDataCache:
                 
                 if data:
                     return data
+                else:
+                    self.logger.warning(f"틱 데이터 수집 시도 {attempt + 1}/{max_retries} 빈 데이터 응답")
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(2)
                     
             except Exception as e:
                 self.logger.warning(f"틱 데이터 수집 시도 {attempt + 1}/{max_retries} 실패: {e}")
                 if attempt < max_retries - 1:
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(2)
         
         return None
     
@@ -240,11 +244,15 @@ class ChartDataCache:
                 
                 if data:
                     return data
+                else:
+                    self.logger.warning(f"분봉 데이터 수집 시도 {attempt + 1}/{max_retries} 빈 데이터 응답")
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(2)
                     
             except Exception as e:
                 self.logger.warning(f"분봉 데이터 수집 시도 {attempt + 1}/{max_retries} 실패: {e}")
                 if attempt < max_retries - 1:
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(2)
         
         return None
     
@@ -503,13 +511,19 @@ class ChartDataCache:
                 logging.debug("⚠️ 모니터링 중인 종목이 없어 주기적 업데이트를 건너뜁니다.")
                 return
             
-            # 모든 모니터링 종목을 API 요청 큐에 즉시 추가 (중복 확인 없이)
+            # 데이터가 없는 종목만 API 요청 큐에 추가 (이미 데이터가 있는 종목은 실시간으로 업데이트됨)
             added_count = 0
             for code in monitoring_codes:
-                self.api_request_queue.append(code)
-                added_count += 1
+                cached = self.cache.get(code)
+                if not cached or cached.get('tic_data') is None or cached.get('min_data') is None:
+                    if code not in self.api_request_queue:
+                        self.api_request_queue.append(code)
+                        added_count += 1
             
-            self.logger.debug(f"📋 주기적 업데이트: {added_count}개 종목을 API 요청 큐에 추가 (총 큐: {len(self.api_request_queue)}개)")
+            if added_count > 0:
+                self.logger.debug(f"📋 주기적 업데이트: {added_count}개 종목을 API 요청 큐에 추가 (총 큐: {len(self.api_request_queue)}개)")
+            else:
+                self.logger.debug("📋 주기적 업데이트: 모든 종목이 이미 차트 데이터를 보유 중이므로 실시간 업데이트에 의존합니다.")
             
         except Exception as ex:
             logging.error(f"❌ 전체 차트 데이터 업데이트 실패: {ex}", exc_info=True)
