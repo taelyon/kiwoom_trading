@@ -46,17 +46,54 @@ class ChartDataCache:
             raise ex
 
     async def _update_loop(self):
-        """차트 데이터 주기적 업데이트 루프 (기존 update_timer 대체)"""
+        """차트 데이터 주기적 업데이트 루프 (분산 처리 방식으로 API 제한 우회 및 데이터 완전성 확보)"""
         while True:
             try:
                 # 차트 업데이트 주기는 chartdata_update_interval 사용 (기본 300초 / 5분)
                 chartdata_update_interval = getattr(self.trader, 'chartdata_update_interval', 300)
-                await asyncio.sleep(chartdata_update_interval)
-                self.update_all_charts()
+                
+                # 장 시간 체크
+                now = datetime.now()
+                market_open_time = now.replace(hour=9, minute=0, second=0, microsecond=0)
+                market_close_time = now.replace(hour=15, minute=30, second=0, microsecond=0)
+                
+                if now < market_open_time or now > market_close_time:
+                    await asyncio.sleep(60) # 장외 시간은 1분마다 체크
+                    continue
+                
+                # 모니터링 종목 가져오기
+                monitoring_codes = []
+                if self.parent and hasattr(self.parent, 'monitoring_manager'):
+                    monitoring_codes = self.parent.monitoring_manager.get_monitoring_stock_codes()
+                
+                if not monitoring_codes:
+                    await asyncio.sleep(5) # 종목이 없으면 5초 후 다시 체크
+                    continue
+                
+                # [중요] 캐시와 모니터링 리스트 동기화 (좀비 데이터 제거)
+                self.update_monitoring_stocks(monitoring_codes)
+                
+                # 부하 분산을 위해 5분(300초)을 종목 수로 나누어 천천히 하나씩 큐에 추가 (최소 간격 3초)
+                interval = max(3.0, chartdata_update_interval / len(monitoring_codes))
+                
+                for code in monitoring_codes:
+                    # 현재 장외 시간이 되었는지 도중 체크
+                    now = datetime.now()
+                    if now < market_open_time or now > market_close_time:
+                        break
+                        
+                    if code not in self.api_request_queue:
+                        # 데이터 완전성 확보를 위해 무조건 주기적으로 재수집
+                        self.api_request_queue.append(code)
+                        self.logger.debug(f"📋 주기적 백그라운드 분산 업데이트: {code} 차트 완전성 확보용 API 큐 추가")
+                        
+                    await asyncio.sleep(interval)
+                
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 self.logger.error(f"❌ 차트 업데이트 루프 오류: {e}")
+                await asyncio.sleep(5)
 
     async def _save_loop(self):
         """DB 저장 주기적 루프 (기존 save_timer 대체)"""
@@ -481,52 +518,7 @@ class ChartDataCache:
         except Exception as ex:
             logging.error(f"❌ 차트 데이터 업데이트 실패: {code} - {ex}")
     
-    def update_all_charts(self):
-        """모든 모니터링 종목 차트 데이터 업데이트 - 큐 시스템 사용"""
-        try:
-            now = datetime.now()
-            
-            # 장 시작 시간(09:00) 이전에는 업데이트 중지
-            market_open_time = now.replace(hour=9, minute=0, second=0, microsecond=0)
-            if now < market_open_time:
-                logging.debug(f"⏰ 장 시작 시간({market_open_time.strftime('%H:%M:%S')}) 이전이므로 전체 차트 데이터 업데이트를 중지합니다.")
-                return
-                
-            # 장 마감 시간(15:30) 이후에는 업데이트 중지
-            market_close_time = now.replace(hour=15, minute=30, second=0, microsecond=0)
-            
-            if now > market_close_time:
-                logging.debug(f"⏰ 장 마감 시간({market_close_time.strftime('%H:%M:%S')}) 이후이므로 전체 차트 데이터 업데이트를 중지합니다.")
-                return
-            
-            # UI의 모니터링 리스트 박스에서 직접 종목 코드를 가져옴
-            monitoring_codes = self.parent.monitoring_manager.get_monitoring_stock_codes()
-            
-            # [중요] 캐시와 모니터링 리스트 동기화 (좀비 데이터 제거)
-            self.update_monitoring_stocks(monitoring_codes)
-            
-            logging.debug(f"🔧 전체 차트 데이터 업데이트 시작 - 모니터링 종목: {monitoring_codes}")
-            
-            if not monitoring_codes:
-                logging.debug("⚠️ 모니터링 중인 종목이 없어 주기적 업데이트를 건너뜁니다.")
-                return
-            
-            # 데이터가 없는 종목만 API 요청 큐에 추가 (이미 데이터가 있는 종목은 실시간으로 업데이트됨)
-            added_count = 0
-            for code in monitoring_codes:
-                cached = self.cache.get(code)
-                if not cached or cached.get('tic_data') is None or cached.get('min_data') is None:
-                    if code not in self.api_request_queue:
-                        self.api_request_queue.append(code)
-                        added_count += 1
-            
-            if added_count > 0:
-                self.logger.debug(f"📋 주기적 업데이트: {added_count}개 종목을 API 요청 큐에 추가 (총 큐: {len(self.api_request_queue)}개)")
-            else:
-                self.logger.debug("📋 주기적 업데이트: 모든 종목이 이미 차트 데이터를 보유 중이므로 실시간 업데이트에 의존합니다.")
-            
-        except Exception as ex:
-            logging.error(f"❌ 전체 차트 데이터 업데이트 실패: {ex}", exc_info=True)
+
     
     def add_stock_to_api_queue(self, code):
         """종목을 API 큐에 추가 (차트 데이터 수집 후 모니터링에 추가)"""
