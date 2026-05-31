@@ -1538,13 +1538,15 @@ HTML_CONTENT = """
                     if (thead) {
                         thead.innerHTML = `
                             <tr>
-                                <th>시간</th>
+                                <th>일자</th>
                                 <th>종목</th>
-                                <th>구분</th>
-                                <th>수량</th>
-                                <th>단가</th>
-                                <th>금액</th>
-                                <th>전략</th>
+                                <th>매수수량</th>
+                                <th>매도수량</th>
+                                <th class="text-right">매수단가</th>
+                                <th class="text-right">매도단가</th>
+                                <th class="text-right">손익금액</th>
+                                <th class="text-right">수익률</th>
+                                <th class="text-right">수수료/세금</th>
                             </tr>
                         `;
                     }
@@ -1552,27 +1554,35 @@ HTML_CONTENT = """
                     tbody.innerHTML = '';
                     
                     if (!data.data || data.data.length === 0) {
-                        tbody.innerHTML = '<tr><td colspan="7" class="text-center" style="padding:20px;">매매 내역이 없습니다.</td></tr>';
+                        tbody.innerHTML = '<tr><td colspan="9" class="text-center" style="padding:20px;">매매 내역이 없습니다.</td></tr>';
                         return;
                     }
                     
                     data.data.forEach(record => {
                         const row = document.createElement('tr');
                         const isBuy = record.order_type.toLowerCase() === 'buy';
-                        const typeColor = isBuy ? 'var(--danger)' : 'var(--primary)';
-                        const typeText = isBuy ? '매수' : '매도';
+                        
+                        const buyQty = isBuy ? record.quantity : 0;
+                        const sellQty = !isBuy ? record.quantity : 0;
+                        const buyPrice = isBuy ? record.price : 0;
+                        const sellPrice = !isBuy ? record.price : 0;
+                        
+                        const plAmt = !isBuy && record.profit_loss ? parseInt(record.profit_loss) : 0;
+                        const plColor = plAmt > 0 ? 'var(--danger)' : (plAmt < 0 ? 'var(--primary)' : 'var(--text-secondary)');
                         
                         row.innerHTML = `
-                            <td style="font-size: 12px; color: var(--text-secondary);">${record.datetime}</td>
+                            <td style="font-size: 12px; color: var(--accent-cyan); font-weight: bold;">${record.datetime}</td>
                             <td>
                                 <span style="font-weight: bold; font-size: 14px;">${record.name || '-'}</span>
                                 <span style="font-size: 12px; color: var(--text-secondary);">(${record.code})</span>
                             </td>
-                            <td style="color: ${typeColor}; font-weight: bold;">${typeText}</td>
-                            <td class="text-right">${record.quantity.toLocaleString()}주</td>
-                            <td class="text-right">${Math.round(record.price).toLocaleString()}원</td>
-                            <td class="text-right">${Math.round(record.amount).toLocaleString()}원</td>
-                            <td style="font-size: 12px; color: var(--text-secondary); max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${record.strategy || '-'}">${record.strategy || '-'}</td>
+                            <td style="color: var(--danger); font-weight: bold;">${buyQty.toLocaleString()}주</td>
+                            <td style="color: var(--primary); font-weight: bold;">${sellQty.toLocaleString()}주</td>
+                            <td class="text-right">${Math.round(buyPrice).toLocaleString()}원</td>
+                            <td class="text-right">${Math.round(sellPrice).toLocaleString()}원</td>
+                            <td class="text-right" style="color: ${plColor}; font-weight: bold;">${plAmt !== 0 ? (plAmt > 0 ? '+' : '') + plAmt.toLocaleString() + '원' : '-'}</td>
+                            <td class="text-right" style="color: var(--text-secondary); font-weight: bold;">-</td>
+                            <td class="text-right">-</td>
                         `;
                         tbody.appendChild(row);
                     });
