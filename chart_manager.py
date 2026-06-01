@@ -182,12 +182,19 @@ class ChartDataCache:
         try:
             self.logger.debug(f"📊 차트 데이터 수집 시작: {code}")
             
-            # 비동기로 틱 데이터와 분봉 데이터 수집
-            tic_data, min_data = await asyncio.gather(
-                self._collect_tic_data_async(code, max_retries),
-                self._collect_minute_data_async(code, max_retries),
-                return_exceptions=True
-            )
+            # 비동기로 틱 데이터와 분봉 데이터 수집 (순차적으로 수집하여 API 429 에러 완전 방지)
+            try:
+                tic_data = await self._collect_tic_data_async(code, max_retries)
+            except Exception as e:
+                tic_data = e
+                
+            # API 보호를 위해 잠시 대기
+            await asyncio.sleep(0.5)
+            
+            try:
+                min_data = await self._collect_minute_data_async(code, max_retries)
+            except Exception as e:
+                min_data = e
             
             # 예외 처리
             if isinstance(tic_data, Exception):
@@ -406,9 +413,9 @@ class ChartDataCache:
             self.logger.error(f"❌ API 큐 추가 실패 ({code}): {ex}")
     
     def _process_api_queue(self):
-        """API 요청 큐 처리 (0.2초 간격, 최대 2개 동시 수집 제어로 병목 제거)"""
+        """API 요청 큐 처리 (0.2초 간격, 대기열 로직 추가로 최대 1개 동시 수집 제어 -> 병목 및 429 방지)"""
         try:
-            max_concurrent_tasks = 2
+            max_concurrent_tasks = 1
             
             if not self.api_request_queue:
                 return
