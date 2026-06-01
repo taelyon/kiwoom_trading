@@ -67,7 +67,7 @@ def datetime_to_timestamp(dt_val):
 
 
 # 스레드 안전하게 로그를 모으는 덱(Queue)
-log_queue = collections.deque(maxlen=150)
+log_queue = collections.deque(maxlen=100)
 connected_clients = set()
 main_window_ref = None
 client_locks = {}
@@ -110,6 +110,8 @@ class WebDashboardLogHandler(logging.Handler):
         try:
             # 웹소켓 및 asyncio 내부 로그는 피드백 루프 방지를 위해 대시보드 로깅 대상에서 제외
             if record.name.startswith('websockets') or record.name.startswith('asyncio'):
+                return
+            if record.levelno < logging.INFO:
                 return
             formatted_msg = self.format(record)
             
@@ -1469,24 +1471,17 @@ HTML_CONTENT = """
                 } else if (data.type === 'log_batch') {
                     if (data.logs && data.logs.length > 0) {
                         try {
-                            let savedLogs = JSON.parse(localStorage.getItem('dashboard_logs')) || [];
+                            const container = document.getElementById('terminalBody');
+                            if (container) container.innerHTML = ''; // 이전 DOM 초기화
+                            
                             data.logs.forEach(log => {
                                 appendLog(log, true);
-                                if (!savedLogs.some(item => item.id === log.id)) {
-                                    savedLogs.push(log);
-                                }
                             });
                             
-                            // 배치 DOM 추가 완료 후 딱 1번만 스크롤 갱신 (리플로우 과부하 해결)
-                            const container = document.getElementById('terminalBody');
+                            // 배치 DOM 추가 완료 후 딱 1번만 스크롤 갱신
                             if (container) container.scrollTop = container.scrollHeight;
-                            
-                            if (savedLogs.length > 500) {
-                                savedLogs = savedLogs.slice(savedLogs.length - 500);
-                            }
-                            localStorage.setItem('dashboard_logs', JSON.stringify(savedLogs));
                         } catch (e) {
-                            console.error("로컬 스토리지 배치 저장 실패:", e);
+                            console.error("배치 렌더링 실패:", e);
                         }
                     }
                 } else if (data.type === 'settings') {
@@ -1782,20 +1777,9 @@ HTML_CONTENT = """
             }
         }
 
-        // 로컬 스토리지에 저장된 로그 불러와 출력
+        // 로컬 스토리지에 저장된 로그 불러와 출력 (현재 사용 안함)
         function loadPersistedLogs() {
-            try {
-                const savedLogs = JSON.parse(localStorage.getItem('dashboard_logs')) || [];
-                const container = document.getElementById('terminalBody');
-                if (savedLogs.length > 0) {
-                    container.innerHTML = ''; // 초기화
-                    savedLogs.forEach(log => {
-                        renderLog(log);
-                    });
-                }
-            } catch (e) {
-                console.error("로컬 스토리지 로그 복원 실패:", e);
-            }
+            // No-op
         }
 
         // 로그 메시지 화면 추가 및 로컬 스토리지 영구 저장
@@ -1810,21 +1794,7 @@ HTML_CONTENT = """
             renderLog(log);
 
             if (skipStorage) return;
-
-            // 로컬 스토리지 저장 처리
-            try {
-                let savedLogs = JSON.parse(localStorage.getItem('dashboard_logs')) || [];
-                // 중복 검사 후 리스트에 삽입
-                if (!savedLogs.some(item => item.id === log.id)) {
-                    savedLogs.push(log);
-                    if (savedLogs.length > 500) {
-                        savedLogs.shift();
-                    }
-                    localStorage.setItem('dashboard_logs', JSON.stringify(savedLogs));
-                }
-            } catch (e) {
-                console.error("로컬 스토리지 로그 저장 실패:", e);
-            }
+            // 로컬 스토리지 기능은 실시간 동기화를 위해 제거되었습니다.
         }
         // 전략 선택 박스 변경 핸들러
         function onStrategyChange(strategy) {
