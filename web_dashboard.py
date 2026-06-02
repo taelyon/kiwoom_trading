@@ -2826,9 +2826,9 @@ async def websocket_handler(websocket):
                         status_end = time.time()
                         logging.info(f"[WS PROFILE SERVER] status 데이터 수집 소요: {(status_mid - status_start)*1000:.1f}ms, 송신 소요: {(status_end - status_mid)*1000:.1f}ms")
                         
-                        # 최근 로그 스트리밍 일괄 전송 (배치) - 최대 50개로 제한
+                        # 최근 로그 스트리밍 일괄 전송 (배치) - 최대 100개로 제한
                         log_batch_start = time.time()
-                        current_logs = list(log_queue)[-50:]
+                        current_logs = list(log_queue)
                         last_id = 0
                         batch_logs = []
                         for log_entry in current_logs:
