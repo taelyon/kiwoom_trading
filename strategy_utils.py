@@ -471,10 +471,27 @@ def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_
                 buy_2 = locals_dict.get('tic_buy_hoga_size_2', [0])[-1] if isinstance(locals_dict.get('tic_buy_hoga_size_2'), (list, np.ndarray)) else 0
                 buy_3 = locals_dict.get('tic_buy_hoga_size_3', [0])[-1] if isinstance(locals_dict.get('tic_buy_hoga_size_3'), (list, np.ndarray)) else 0
                 
+                # 시장 지수 (KOSPI/KOSDAQ 등락률)
+                feature_kospi_change = 0.0
+                feature_kosdaq_change = 0.0
+                if realtime_metrics:
+                    feature_kospi_change = realtime_metrics.get('kospi_change', 0.0)
+                    feature_kosdaq_change = realtime_metrics.get('kosdaq_change', 0.0)
+                else:
+                    feature_kospi_change = locals_dict.get('tic_kospi_change', [0])[-1] if isinstance(locals_dict.get('tic_kospi_change'), (list, np.ndarray)) else locals_dict.get('tic_kospi_change', 0.0)
+                    feature_kosdaq_change = locals_dict.get('tic_kosdaq_change', [0])[-1] if isinstance(locals_dict.get('tic_kosdaq_change'), (list, np.ndarray)) else locals_dict.get('tic_kosdaq_change', 0.0)
+                
                 # 모델 학습 시 사용된 피처 개수에 맞춰 동적으로 차원 맞추기
                 num_features = LGBM_MODEL.num_feature()
                 if num_features == 5:
                     input_vector = np.array([[feature_strength, feature_velocity, feature_imbalance, feature_relative, feature_spike]])
+                elif num_features == 15:
+                    # 15개 피처 (기본 5 + 신규 8 + 시장지수 2)
+                    input_vector = np.array([[
+                        feature_strength, feature_velocity, feature_imbalance, feature_relative, feature_spike,
+                        feature_turnover, feature_vi_dist, sell_1, sell_2, sell_3, buy_1, buy_2, buy_3,
+                        feature_kospi_change, feature_kosdaq_change
+                    ]])
                 else:
                     # 13개 피처 (기본 5 + 신규 8)
                     input_vector = np.array([[
@@ -673,10 +690,27 @@ def prepare_sell_strategy_locals(code, tic_chart_data, min_chart_data, buy_price
                 buy_2 = locals_dict.get('tic_buy_hoga_size_2', [0])[-1] if isinstance(locals_dict.get('tic_buy_hoga_size_2'), (list, np.ndarray)) else 0
                 buy_3 = locals_dict.get('tic_buy_hoga_size_3', [0])[-1] if isinstance(locals_dict.get('tic_buy_hoga_size_3'), (list, np.ndarray)) else 0
                 
+                # 시장 지수 (KOSPI/KOSDAQ 등락률)
+                feature_kospi_change = 0.0
+                feature_kosdaq_change = 0.0
+                if realtime_metrics:
+                    feature_kospi_change = realtime_metrics.get('kospi_change', 0.0)
+                    feature_kosdaq_change = realtime_metrics.get('kosdaq_change', 0.0)
+                else:
+                    feature_kospi_change = locals_dict.get('tic_kospi_change', [0])[-1] if isinstance(locals_dict.get('tic_kospi_change'), (list, np.ndarray)) else locals_dict.get('tic_kospi_change', 0.0)
+                    feature_kosdaq_change = locals_dict.get('tic_kosdaq_change', [0])[-1] if isinstance(locals_dict.get('tic_kosdaq_change'), (list, np.ndarray)) else locals_dict.get('tic_kosdaq_change', 0.0)
+                
                 # 모델 학습 시 사용된 피처 개수에 맞춰 동적으로 차원 맞추기
                 num_features = LGBM_MODEL.num_feature()
                 if num_features == 5:
                     input_vector = np.array([[feature_strength, feature_velocity, feature_imbalance, feature_relative, feature_spike]])
+                elif num_features == 15:
+                    # 15개 피처 (기본 5 + 신규 8 + 시장지수 2)
+                    input_vector = np.array([[
+                        feature_strength, feature_velocity, feature_imbalance, feature_relative, feature_spike,
+                        feature_turnover, feature_vi_dist, sell_1, sell_2, sell_3, buy_1, buy_2, buy_3,
+                        feature_kospi_change, feature_kosdaq_change
+                    ]])
                 else:
                     # 13개 피처 (기본 5 + 신규 8)
                     input_vector = np.array([[

@@ -848,6 +848,19 @@ class ChartDataCache:
                     for key, value in tic_indicators.items():
                         if key not in base_cols: tic_df[key] = value
                     for key, value in min_indicators.items(): min_df[key] = value
+                    
+                    # [추가] 실시간 KOSPI/KOSDAQ 지수 등락률 병합
+                    ws_client = None
+                    if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'login_handler'):
+                        ws_client = getattr(self.parent.login_handler, 'websocket_client', None)
+                    elif hasattr(self, 'trader') and self.trader and hasattr(self.trader, 'ws_client'):
+                        ws_client = self.trader.ws_client
+                        
+                    if ws_client and hasattr(ws_client, 'market_indices'):
+                        kospi_change = ws_client.market_indices.get('kospi_change', 0.0)
+                        kosdaq_change = ws_client.market_indices.get('kosdaq_change', 0.0)
+                        tic_df['KOSPI_CHANGE'] = kospi_change
+                        tic_df['KOSDAQ_CHANGE'] = kosdaq_change
                 except Exception as df_ex:
                     self.logger.error(f"DB 저장용 데이터프레임 변환/지표 계산 실패 ({code}): {df_ex}")
                     continue

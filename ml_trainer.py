@@ -123,7 +123,8 @@ class MLTrainingWorker(threading.Thread):
             new_features = [
                 'tic_turnover', 'tic_vi_distance', 
                 'tic_sell_hoga_size_1', 'tic_sell_hoga_size_2', 'tic_sell_hoga_size_3',
-                'tic_buy_hoga_size_1', 'tic_buy_hoga_size_2', 'tic_buy_hoga_size_3'
+                'tic_buy_hoga_size_1', 'tic_buy_hoga_size_2', 'tic_buy_hoga_size_3',
+                'tic_kospi_change', 'tic_kosdaq_change'
             ]
             
             features = base_features + new_features

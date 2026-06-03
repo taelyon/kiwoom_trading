@@ -44,6 +44,8 @@ class KiwoomWebSocketClient:
         self._last_table_update_time = 0  # 마지막 투자현황표 업데이트 시간
         self._table_update_interval = 1.0  # 투자현황표 업데이트 최소 간격(초)
         self._pending_subscriptions = {}  # 타입별 그룹 번호 추적 {type: grp_no}
+        self.market_indices = {'kospi_change': 0.0, 'kosdaq_change': 0.0}  # 실시간 시장 지수 등락률 (0J)
+
         
     async def connect(self):
         """웹소켓 연결 (키움증권 예시코드 기반)"""
@@ -313,9 +315,10 @@ class KiwoomWebSocketClient:
                         # 로그인 성공 후 시장 상태 구독 시작
                         try:
                             await self.subscribe_market_status()
-                            self.logger.debug("🔔 시장 상태 모니터링 시작")
+                            await self.subscribe_market_index()
+                            self.logger.debug("🔔 시장 상태 및 업종지수 모니터링 시작")
                         except Exception as market_sub_err:
-                            self.logger.error(f"시장 상태 구독 실패: {market_sub_err}", exc_info=True)
+                            self.logger.error(f"시장 상태/업종지수 구독 실패: {market_sub_err}", exc_info=True)
                             
                         # [추가] 오토 리커넥트 상태 동기화: 끊어지기 전 모니터링 중이던 종목 자동 재구독
                         try:
@@ -402,6 +405,12 @@ class KiwoomWebSocketClient:
                                         self.process_market_status_data(data_item)
                                     except Exception as market_err:
                                         self.logger.error(f"시장 상태 데이터 처리 실패: {market_err}", exc_info=True)
+                                        
+                                elif data_type == '0J':  # 업종 지수
+                                    try:
+                                        self.process_market_index_data(data_item)
+                                    except Exception as index_err:
+                                        self.logger.error(f"업종 지수 데이터 처리 실패: {index_err}", exc_info=True)
                                         
                                 elif data_type == '02':  # 조건검색 실시간 알림
                                     self.logger.debug(f"조건검색 실시간 알림 수신: {data_item.get('item')}")
@@ -605,6 +614,28 @@ class KiwoomWebSocketClient:
             
         except Exception as e:
             self.logger.error(f'시장 상태 구독 요청 실패: {e}', exc_info=True)
+
+    async def subscribe_market_index(self):
+        """업종지수 실시간 구독 (0J) - 코스피, 코스닥"""
+        try:
+            grp_no = '1'
+            sub_type = '0J'
+            # 업종지수 구독 ("001": 코스피, "101": 코스닥)
+            subscribe_data = {
+                'trnm': 'REG',
+                'grp_no': grp_no,
+                'refresh': '1',
+                'data': [{
+                    'item': ['001', '101'],
+                    'type': [sub_type],
+                }]
+            }
+            self._pending_subscriptions[sub_type] = grp_no
+            await self.send_message(subscribe_data)
+            self.logger.info('✅ 업종지수(코스피/코스닥) 실시간 구독 요청 전송 완료')
+            
+        except Exception as e:
+            self.logger.error(f'업종지수 실시간 구독 요청 실패: {e}', exc_info=True)
 
     async def unsubscribe_market_status(self):
         """시장 상태 구독 해제 (0s)"""
@@ -1933,6 +1964,33 @@ class KiwoomWebSocketClient:
                 self.logger.info(f"ℹ️ 알 수 없는 장운영구분: {market_operation}")
         except Exception as e:
             self.logger.error(f"시장 상태 데이터 처리 실패: {e}", exc_info=True)
+            
+    def process_market_index_data(self, data_item):
+        """업종 지수 데이터 처리 (0J)"""
+        try:
+            code = data_item.get('item', '')
+            values = data_item.get('values', {})
+            
+            # 단일 딕셔너리가 아닌 리스트인 경우 처리
+            if isinstance(values, list) and values:
+                merged_values = {}
+                for value in values:
+                    if isinstance(value, dict):
+                        merged_values.update(value)
+                values = merged_values
+            elif not isinstance(values, dict):
+                return
+                
+            # 등락율 (FID: 12)
+            change_rate = safe_float_conversion(values.get('12', 0.0))
+            
+            if code == '001':
+                self.market_indices['kospi_change'] = change_rate
+            elif code == '101':
+                self.market_indices['kosdaq_change'] = change_rate
+                
+        except Exception as e:
+            self.logger.error(f"업종 지수 데이터 처리 실패: {e}", exc_info=True)
             
     
     async def process_condition_search_list_response(self, response):
