@@ -1,0 +1,21 @@
+name: Retrain AI Model
+
+on:
+  workflow_dispatch: # GitHub 웹페이지에서 수동으로 실행 버튼을 누를 수 있게 해주는 트리거
+
+jobs:
+  retrain-model:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Execute Retrain Command via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.NAS_HOST }}
+          username: ${{ secrets.NAS_USER }}
+          key: ${{ secrets.NAS_SSH_KEY }}
+          port: ${{ secrets.NAS_PORT }}
+          script: |
+            echo "🤖 GitHub Actions 트리거: NAS 컨테이너에서 AI 모델 재학습 시작..."
+            sudo docker exec kiwoom_trading_bot python ml_trainer.py
+            echo "✅ 모델 재학습 완료!"
