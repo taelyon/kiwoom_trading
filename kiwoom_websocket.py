@@ -2179,7 +2179,34 @@ class KiwoomWebSocketClient:
                     if hasattr(self.parent, 'is_loading_strategy'):
                         self.parent.is_loading_strategy = False
                         self.logger.debug("is_loading_strategy 플래그 해제")
-                    
+                
+                # 대시보드가 앱보다 먼저 접속한 경우, 조건검색 목록이 비어있었으므로
+                # 목록 로드 완료 시 연결된 모든 대시보드 클라이언트에 설정을 자동으로 재전송한다.
+                try:
+                    from web_dashboard import connected_clients, safe_send
+                    if connected_clients:
+                        from config_manager import EnvConfigParser
+                        config = EnvConfigParser()
+                        settings_payload = {
+                            "type": "settings",
+                            "settings": {
+                                "buycount": config.get('SETTINGS', 'buycount', fallback='3'),
+                                "last_strategy": config.get('SETTINGS', 'last_strategy', fallback=''),
+                                "simulation": config.getboolean('KIWOOM_API', 'simulation', fallback=False),
+                                "condition_list": condition_search_list,
+                                "real_appkey": config.get('KIWOOM_API', 'real_appkey', fallback=config.get('KIWOOM_API', 'appkey', fallback='')),
+                                "real_secretkey": config.get('KIWOOM_API', 'real_secretkey', fallback=config.get('KIWOOM_API', 'secretkey', fallback='')),
+                                "mock_appkey": config.get('KIWOOM_API', 'mock_appkey', fallback=''),
+                                "mock_secretkey": config.get('KIWOOM_API', 'mock_secretkey', fallback='')
+                            }
+                        }
+                        import json as _json
+                        msg = _json.dumps(settings_payload)
+                        for client in list(connected_clients):
+                            create_fire_and_forget_task(safe_send(client, msg))
+                        self.logger.info(f"📡 조건검색 목록 로드 완료 → 대시보드 {len(connected_clients)}개 클라이언트에 설정 자동 푸쉬")
+                except Exception as push_err:
+                    self.logger.debug(f"대시보드 설정 푸쉬 실패 (무시 가능): {push_err}")
             
         except Exception as e:
             self.logger.error(f"조건검색 목록조회 응답 처리 실패: {e}", exc_info=True)
