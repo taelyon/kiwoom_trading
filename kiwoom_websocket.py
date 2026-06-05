@@ -428,7 +428,18 @@ class KiwoomWebSocketClient:
                         
                         # 메시지 큐에 추가 (예외 처리)
                         try:
-                            self.message_queue.put(response)
+                            # 0J(업종지수), 0B, 0D 등 초당 수백/수천건 발생하는 대량 데이터는 
+                            # 큐에 넣지 않아 메모리 누수 방지 및 성능 향상
+                            is_high_volume = False
+                            data_list = response.get('data', [])
+                            if isinstance(data_list, list):
+                                for item in data_list:
+                                    if isinstance(item, dict) and item.get('type') in ['0J', '0B', '0D']:
+                                        is_high_volume = True
+                                        break
+                            
+                            if not is_high_volume:
+                                self.message_queue.put(response)
                         except Exception as queue_err:
                             self.logger.error(f"메시지 큐 추가 실패: {queue_err}", exc_info=True)
                             
@@ -470,6 +481,9 @@ class KiwoomWebSocketClient:
                     except Exception as condition_err:
                         self.logger.error(f"조건검색 응답 처리 실패: {condition_err}", exc_info=True)
                         
+                # 이벤트 루프에 제어권을 양보하여 대량의 0J/0B 수신 중에도
+                # httpx(틱/분봉 차트 조회) 등 다른 비동기 작업이 타임아웃되지 않도록 함
+                await asyncio.sleep(0.001)
 
             except websockets.ConnectionClosed as e:
                 self.logger.warning(f'웹소켓 연결이 서버에 의해 종료되었습니다: {e}')
@@ -618,7 +632,7 @@ class KiwoomWebSocketClient:
     async def subscribe_market_index(self):
         """업종지수 실시간 구독 (0J) - 코스피, 코스닥"""
         try:
-            grp_no = '1'
+            grp_no = '3'  # 1(시장상태/주문체결), 2(잔고)와 충돌하지 않도록 분리
             sub_type = '0J'
             # 업종지수 구독 ("001": 코스피, "101": 코스닥)
             subscribe_data = {
