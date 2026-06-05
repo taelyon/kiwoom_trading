@@ -805,66 +805,34 @@ class ChartDataCache:
                 original_tic_data = data.get('tic_data')
                 original_min_data = data.get('min_data')
 
-                # DataFrame으로 변환하여 지표 계산
+                original_tic_data = data.get('tic_data')
+                original_min_data = data.get('min_data')
+
+                # DataFrame 변환 및 지표 계산 (CPU 바운드 작업을 스레드풀로 오프로드)
                 try:
-                    # 틱 데이터 DataFrame 변환 (길이 불일치 방지)
-                    tic_df = pd.DataFrame()
-                    if original_tic_data:
-                        try:
-                            valid_lists = [v for v in original_tic_data.values() if isinstance(v, list) and len(v) > 0]
-                            if valid_lists:
-                                min_len = min(len(v) for v in valid_lists)
-                                trimmed_data = {k: v[:min_len] for k, v in original_tic_data.items() if isinstance(v, list)}
-                                tic_df = pd.DataFrame(trimmed_data)
-                        except Exception as e:
-                            logging.error(f"틱 데이터 DataFrame 변환 오류: {e}")
-
-                    # 분봉 데이터 DataFrame 변환 (길이 불일치 방지)
-                    min_df = pd.DataFrame()
-                    if original_min_data:
-                        try:
-                            valid_lists = [v for v in original_min_data.values() if isinstance(v, list) and len(v) > 0]
-                            if valid_lists:
-                                min_len = min(len(v) for v in valid_lists)
-                                trimmed_data = {k: v[:min_len] for k, v in original_min_data.items() if isinstance(v, list)}
-                                min_df = pd.DataFrame(trimmed_data)
-                        except Exception as e:
-                            logging.error(f"분봉 데이터 DataFrame 변환 오류: {e}")
-
-                    # 틱봉 지표 계산 최적화 (필요한 것만)
-                    tic_allowed = [
-                        'MA5', 'MA10', 'MA20', 'MA60', 'MA120', 
-                        'RSI', 'RSI_SIGNAL', 
-                        'VELOCITY', 'ORDER_BOOK_IMBALANCE', 'LAST_TIC_CNT'
-                    ]
-                    tic_indicators = strategy_utils.KiwoomIndicatorExtractor.extract_chart_indicators(tic_df, allowed_indicators=tic_allowed)
-                    
-                    # 3분봉 데이터는 MA, RSI, RELATIVE_POSITION 계산 (MACD 등제거)
-                    min_allowed = ['MA5', 'MA10', 'MA20', 'MA60', 'MA120', 'RSI', 'RELATIVE_POSITION']
-                    min_indicators = strategy_utils.KiwoomIndicatorExtractor.extract_chart_indicators(min_df, allowed_indicators=min_allowed)
-
-                    # 계산된 지표를 DataFrame에 다시 병합
-                    # 기본 컬럼(open, high, low, close, volume)은 덮어쓰지 않음
-                    base_cols = {'open', 'high', 'low', 'close', 'volume'}
-                    for key, value in tic_indicators.items():
-                        if key not in base_cols: tic_df[key] = value
-                    for key, value in min_indicators.items(): min_df[key] = value
-                    
-                    # [추가] 실시간 KOSPI/KOSDAQ 지수 등락률 병합
                     ws_client = None
                     if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'login_handler'):
                         ws_client = getattr(self.parent.login_handler, 'websocket_client', None)
                     elif hasattr(self, 'trader') and self.trader and hasattr(self.trader, 'ws_client'):
                         ws_client = self.trader.ws_client
                         
-                    if ws_client and hasattr(ws_client, 'market_indices'):
-                        kospi_change = ws_client.market_indices.get('kospi_change', 0.0)
-                        kosdaq_change = ws_client.market_indices.get('kosdaq_change', 0.0)
-                        tic_df['KOSPI_CHANGE'] = kospi_change
-                        tic_df['KOSDAQ_CHANGE'] = kosdaq_change
+                    kospi_change = ws_client.market_indices.get('kospi_change', 0.0) if ws_client and hasattr(ws_client, 'market_indices') else 0.0
+                    kosdaq_change = ws_client.market_indices.get('kosdaq_change', 0.0) if ws_client and hasattr(ws_client, 'market_indices') else 0.0
+
+                    loop = asyncio.get_running_loop()
+                    tic_df, min_df = await loop.run_in_executor(
+                        None, 
+                        self._prepare_data_for_db, 
+                        original_tic_data, 
+                        original_min_data, 
+                        kospi_change, 
+                        kosdaq_change
+                    )
+
                 except Exception as df_ex:
                     self.logger.error(f"DB 저장용 데이터프레임 변환/지표 계산 실패 ({code}): {df_ex}")
                     continue
+
                 
                 logging.debug(f"🔍 {code}: tic_data={not tic_df.empty}, min_data={not min_df.empty}")
                 
@@ -890,6 +858,10 @@ class ChartDataCache:
                 saved_count += 1
                 
                 logging.debug(f"✅ {code}: DB 저장 완료")
+                
+                # 각 종목 처리 후 이벤트 루프에 제어권 반환 (PING 타임아웃 방지)
+                await asyncio.sleep(0.05)
+
             
             if saved_count > 0:
                 logging.debug(f"📊 통합 차트 데이터 DB 저장 완료: {saved_count}개 종목")
@@ -898,6 +870,47 @@ class ChartDataCache:
                 
         except Exception as ex:
             logging.error(f"통합 차트 데이터 DB 저장 실패: {ex}", exc_info=True)
+
+    def _prepare_data_for_db(self, original_tic_data, original_min_data, kospi_change, kosdaq_change):
+        """DB 저장을 위한 Pandas 데이터프레임 생성 및 지표 계산 (CPU 바운드 로직)"""
+        tic_df = pd.DataFrame()
+        if original_tic_data:
+            valid_lists = [v for v in original_tic_data.values() if isinstance(v, list) and len(v) > 0]
+            if valid_lists:
+                min_len = min(len(v) for v in valid_lists)
+                trimmed_data = {k: v[:min_len] for k, v in original_tic_data.items() if isinstance(v, list)}
+                tic_df = pd.DataFrame(trimmed_data)
+
+        min_df = pd.DataFrame()
+        if original_min_data:
+            valid_lists = [v for v in original_min_data.values() if isinstance(v, list) and len(v) > 0]
+            if valid_lists:
+                min_len = min(len(v) for v in valid_lists)
+                trimmed_data = {k: v[:min_len] for k, v in original_min_data.items() if isinstance(v, list)}
+                min_df = pd.DataFrame(trimmed_data)
+
+        if not tic_df.empty:
+            tic_allowed = [
+                'MA5', 'MA10', 'MA20', 'MA60', 'MA120', 
+                'RSI', 'RSI_SIGNAL', 
+                'VELOCITY', 'ORDER_BOOK_IMBALANCE', 'LAST_TIC_CNT'
+            ]
+            tic_indicators = strategy_utils.KiwoomIndicatorExtractor.extract_chart_indicators(tic_df, allowed_indicators=tic_allowed)
+            base_cols = {'open', 'high', 'low', 'close', 'volume'}
+            for key, value in tic_indicators.items():
+                if key not in base_cols: tic_df[key] = value
+            tic_df['KOSPI_CHANGE'] = kospi_change
+            tic_df['KOSDAQ_CHANGE'] = kosdaq_change
+
+        if not min_df.empty:
+            min_allowed = ['MA5', 'MA10', 'MA20', 'MA60', 'MA120', 'RSI', 'RELATIVE_POSITION']
+            min_indicators = strategy_utils.KiwoomIndicatorExtractor.extract_chart_indicators(min_df, allowed_indicators=min_allowed)
+            base_cols = {'open', 'high', 'low', 'close', 'volume'}
+            for key, value in min_indicators.items():
+                if key not in base_cols: min_df[key] = value
+
+        return tic_df, min_df
+
     
     def log_single_stock_analysis(self, code, tic_data, min_data):
         """단일 종목 분석표 출력 (차트 데이터 저장 시) - 비활성화됨"""
