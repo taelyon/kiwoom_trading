@@ -31,6 +31,7 @@ class ChartDataCache:
             self.queue_processing = False  # 큐 처리 중 플래그
             self.active_chart_tasks = {} # 활성 차트 데이터 수집 asyncio 태스크 관리
             self.realtime_tick_times = {} # {code: deque(maxlen=10)} - 틱 생성 속도 계산용
+            self.last_indicator_calc_time = {} # {code: float} - 실시간 지표 계산 스로틀링용 (CPU 과부하 방지)
             self.pending_stocks = {}  # 큐에 대기 중인 종목 정보 (코드: 이름)
             self.logger.debug("🔍 API 요청 큐 시스템 초기화 완료")
             
@@ -1246,29 +1247,32 @@ class ChartDataCache:
             self.parent.login_handler.websocket_client._update_tic_chart_with_realtime(stock_code, cached_data, realtime_data)
             self.parent.login_handler.websocket_client._update_minute_chart_with_realtime(stock_code, cached_data, realtime_data)
 
-            # 실시간 기술적 지표 계산 (비동기, ThreadPoolExecutor 사용)
-            loop = asyncio.get_running_loop()
-            tasks = []
-            if tic_data:
-                tasks.append(loop.run_in_executor(None, chart_cache._calculate_technical_indicators, tic_data, "tic"))
-            if min_data:
-                tasks.append(loop.run_in_executor(None, chart_cache._calculate_technical_indicators, min_data, "minute"))
+            # 실시간 기술적 지표 계산 (비동기, ThreadPoolExecutor 사용 - 단, 1초 스로틀링 적용)
+            current_time = time.time()
+            if current_time - self.last_indicator_calc_time.get(stock_code, 0) >= 1.0:
+                self.last_indicator_calc_time[stock_code] = current_time
+                loop = asyncio.get_running_loop()
+                tasks = []
+                if tic_data:
+                    tasks.append(loop.run_in_executor(None, chart_cache._calculate_technical_indicators, tic_data, "tic"))
+                if min_data:
+                    tasks.append(loop.run_in_executor(None, chart_cache._calculate_technical_indicators, min_data, "minute"))
 
-            if tasks:
-                results = await asyncio.gather(*tasks, return_exceptions=True)
-                
-                # 결과 처리
-                if tic_data and not isinstance(results[0], Exception):
-                    cached_data['tic_data'] = results[0]
-                elif tic_data:
-                    logging.error(f"틱 지표 계산 실패: {results[0]}")
+                if tasks:
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
+                    
+                    # 결과 처리
+                    if tic_data and not isinstance(results[0], Exception):
+                        cached_data['tic_data'] = results[0]
+                    elif tic_data:
+                        logging.error(f"틱 지표 계산 실패: {results[0]}")
 
-                if min_data and len(results) > 1 and not isinstance(results[1], Exception):
-                    cached_data['min_data'] = results[1]
-                elif min_data and len(results) > 1:
-                    logging.error(f"분봉 지표 계산 실패: {results[1]}")
+                    if min_data and len(results) > 1 and not isinstance(results[1], Exception):
+                        cached_data['min_data'] = results[1]
+                    elif min_data and len(results) > 1:
+                        logging.error(f"분봉 지표 계산 실패: {results[1]}")
 
-                chart_cache.cache[stock_code] = cached_data
+                    chart_cache.cache[stock_code] = cached_data
 
             # 데이터 업데이트 시그널 발생
             self.data_updated.emit(stock_code)
