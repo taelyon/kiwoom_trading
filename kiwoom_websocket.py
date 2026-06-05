@@ -44,6 +44,7 @@ class KiwoomWebSocketClient:
         self.parent = parent  # 부모 윈도우 참조
         self._last_table_update_time = 0  # 마지막 투자현황표 업데이트 시간
         self._table_update_interval = 1.0  # 투자현황표 업데이트 최소 간격(초)
+        self._condition_remove_tasks = {}  # 조건검색 이탈 시 지연 삭제 관리를 위한 딕셔너리
         self._pending_subscriptions = {}  # 타입별 그룹 번호 추적 {type: grp_no}
         self.market_indices = {'kospi_change': 0.0, 'kosdaq_change': 0.0}  # 실시간 시장 지수 등락률 (0J)
 
@@ -1867,6 +1868,11 @@ class KiwoomWebSocketClient:
                 # 액션 타입에 따른 처리
                 if action_type == 'I':  # INSERT (편입) # type: ignore
                     self.logger.info(f"📈 조건검색 실시간 편입: {stock_code} ({condition_name}, seq: {condition_seq})")
+                    
+                    # 지연 삭제 대기 중인 종목이면 삭제 취소 (핑퐁 방지)
+                    if getattr(self, '_condition_remove_tasks', {}).get(stock_code):
+                        self._condition_remove_tasks[stock_code] = False
+                        self.logger.debug(f"✅ [{stock_code}] 60초 내 재편입되어 모니터링 삭제 예약을 취소합니다.")
                     
                     # [추가] 조건검색 재편입 시 차단 목록에서 제거
                     if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'trader') and self.parent.trader:
