@@ -89,10 +89,12 @@ class KiwoomWebSocketClient:
             mode_text = "모의투자" if self.is_mock else "실전투자" # type: ignore
             logging.debug(f"🔧 웹소켓 연결 시작... ({mode_text})")
             
-            # 웹소켓 연결 (ALB Idle Timeout 방지를 위해 30초마다 표준 PING 프레임 전송, 서버가 응답하지 않아도 끊기지 않도록 timeout은 None으로 설정)
+            # 웹소켓 연결
+            # ⚠️ 표준 PING 프레임(ping_interval)은 키움증권 서버가 거부하므로 반드시 None으로 설정
+            # ALB Idle Timeout 방지는 애플리케이션 레벨 PING({"trnm": "PING"})으로 처리
             self.websocket = await websockets.connect(
                 self.uri, 
-                ping_interval=30, 
+                ping_interval=None, 
                 ping_timeout=None, 
                 max_size=None
             )
@@ -164,8 +166,13 @@ class KiwoomWebSocketClient:
             try:
                 # 서버에 연결
                 if await self.connect():
-                    # 메시지를 계속 받을 준비
-                    await self.receive_messages()
+                    # 애플리케이션 레벨 Keepalive 태스크 시작 (ALB Idle Timeout 1006 방지)
+                    keepalive_task = asyncio.create_task(self._keepalive_loop())
+                    try:
+                        # 메시지를 계속 받을 준비
+                        await self.receive_messages()
+                    finally:
+                        keepalive_task.cancel()
 
             except asyncio.CancelledError:
                 self.logger.debug("🛑 웹소켓 클라이언트 태스크가 취소되었습니다")
@@ -2320,3 +2327,21 @@ class KiwoomWebSocketClient:
         except Exception as e:
             self.logger.error(f"❌ 조건검색 실시간 요청 응답 처리 실패: {e}")
             self.logger.error(f"조건검색 실시간 요청 응답 처리 에러 상세: {traceback.format_exc()}") # type: ignore
+
+    async def _keepalive_loop(self):
+        """ALB Idle Timeout(1006) 방지를 위한 애플리케이션 레벨 PING 루프.
+        
+        키움증권 서버는 표준 WebSocket PING 프레임(opcode 0x9)을 거부하므로,
+        공식 예시 코드와 동일한 {"trnm": "PING"} JSON 메시지를 25초 간격으로 전송하여
+        네트워크 장비(AWS ALB 등)의 Idle Timeout을 방지한다.
+        """
+        try:
+            while self.keep_running:
+                await asyncio.sleep(25)
+                try:
+                    if self.connected and self.websocket:
+                        await self.websocket.send(json.dumps({"trnm": "PING"}))
+                except Exception as e:
+                    self.logger.debug(f"Keepalive PING 전송 실패: {e}")
+        except asyncio.CancelledError:
+            pass  # 정상 종료
