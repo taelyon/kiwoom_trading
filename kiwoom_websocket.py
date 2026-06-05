@@ -11,6 +11,7 @@ from typing import Dict, List, Optional, Any
 
 import websockets
 import time
+import httpx
 # PyQt6 QTimer 제거됨 (Headless CLI 최적화)
 
 from utils import ApiLimitManager, safe_float_conversion, create_fire_and_forget_task
@@ -149,6 +150,10 @@ class KiwoomWebSocketClient:
     async def run(self):
         """웹소켓 클라이언트 실행 (키움증권 예시코드 기반)"""
         reconnect_delay = 5  # 재연결 시도 간격 (초)
+        
+        # 네이버 금융 API 폴링 태스크 시작
+        polling_task = asyncio.create_task(self.poll_market_indices())
+        
         while self.keep_running:
             try:
                 # 서버에 연결
@@ -186,6 +191,37 @@ class KiwoomWebSocketClient:
                     self.logger.info(f"🔄 웹소켓 재연결 시도 중... ({reconnect_delay}초 대기 완료)")
         
         self.logger.info("✅ 웹소켓 클라이언트 실행이 완전히 종료되었습니다.")
+        if polling_task and not polling_task.done():
+            polling_task.cancel()
+
+    async def poll_market_indices(self):
+        """네이버 금융 API를 통해 주기적으로 코스피/코스닥 지수를 조회 (10초 주기)"""
+        url_kospi = "https://polling.finance.naver.com/api/realtime/domestic/index/KOSPI"
+        url_kosdaq = "https://polling.finance.naver.com/api/realtime/domestic/index/KOSDAQ"
+        
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            while self.keep_running:
+                try:
+                    # KOSPI 조회
+                    resp_kospi = await client.get(url_kospi)
+                    if resp_kospi.status_code == 200:
+                        data = resp_kospi.json()
+                        if "datas" in data and len(data["datas"]) > 0:
+                            ratio = float(data["datas"][0].get("fluctuationsRatioRaw", "0.0"))
+                            self.market_indices['kospi_change'] = ratio
+                    
+                    # KOSDAQ 조회
+                    resp_kosdaq = await client.get(url_kosdaq)
+                    if resp_kosdaq.status_code == 200:
+                        data = resp_kosdaq.json()
+                        if "datas" in data and len(data["datas"]) > 0:
+                            ratio = float(data["datas"][0].get("fluctuationsRatioRaw", "0.0"))
+                            self.market_indices['kosdaq_change'] = ratio
+                            
+                except Exception as e:
+                    self.logger.debug(f"시장 지수 폴링(네이버) 실패: {e}")
+                    
+                await asyncio.sleep(10)
 
     async def send_message(self, message):
         """메시지 전송 (키움증권 예시코드 기반)"""
