@@ -89,10 +89,10 @@ class KiwoomWebSocketClient:
             mode_text = "모의투자" if self.is_mock else "실전투자" # type: ignore
             logging.debug(f"🔧 웹소켓 연결 시작... ({mode_text})")
             
-            # 웹소켓 연결 (키움증권 서버는 표준 PING/PONG을 지원하지 않으므로 None으로 설정)
+            # 웹소켓 연결 (ALB Idle Timeout 방지를 위해 30초마다 표준 PING 프레임 전송, 서버가 응답하지 않아도 끊기지 않도록 timeout은 None으로 설정)
             self.websocket = await websockets.connect(
                 self.uri, 
-                ping_interval=None, 
+                ping_interval=30, 
                 ping_timeout=None, 
                 max_size=None
             )
@@ -164,13 +164,8 @@ class KiwoomWebSocketClient:
             try:
                 # 서버에 연결
                 if await self.connect():
-                    # 애플리케이션 레벨 PING(Keepalive) 태스크 시작
-                    keepalive_task = asyncio.create_task(self._keepalive_loop())
-                    try:
-                        # 메시지를 계속 받을 준비
-                        await self.receive_messages()
-                    finally:
-                        keepalive_task.cancel()
+                    # 메시지를 계속 받을 준비
+                    await self.receive_messages()
 
             except asyncio.CancelledError:
                 self.logger.debug("🛑 웹소켓 클라이언트 태스크가 취소되었습니다")
@@ -2325,18 +2320,3 @@ class KiwoomWebSocketClient:
         except Exception as e:
             self.logger.error(f"❌ 조건검색 실시간 요청 응답 처리 실패: {e}")
             self.logger.error(f"조건검색 실시간 요청 응답 처리 에러 상세: {traceback.format_exc()}") # type: ignore
-
-    async def _keepalive_loop(self):
-        """AWS ALB 등 네트워크 장비의 Idle Timeout(1006) 방지를 위한 애플리케이션 레벨 PING 루프"""
-        while self.keep_running:
-            try:
-                if self.connected and hasattr(self, 'websocket') and self.websocket:
-                    ping_msg = {"trnm": "PING"}
-                    import json
-                    message_str = json.dumps(ping_msg)
-                    # logger.debug 출력 우회를 위해 send_message 대신 직접 전송
-                    await self.websocket.send(message_str)
-            except Exception as e:
-                self.logger.debug(f"Keepalive PING 전송 오류: {e}")
-            
-            await asyncio.sleep(30)
