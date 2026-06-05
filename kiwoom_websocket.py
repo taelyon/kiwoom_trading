@@ -315,8 +315,9 @@ class KiwoomWebSocketClient:
                         # 로그인 성공 후 시장 상태 구독 시작
                         try:
                             await self.subscribe_market_status()
-                            await self.subscribe_market_index()
-                            self.logger.debug("🔔 시장 상태 및 업종지수 모니터링 시작")
+                            # ⚠️ 서버 강제종료(1000 Bye) 및 PING 지연 방지를 위해 0J(업종지수) 실시간 구독 중단
+                            # await self.subscribe_market_index()
+                            self.logger.debug("🔔 시장 상태 모니터링 시작")
                         except Exception as market_sub_err:
                             self.logger.error(f"시장 상태/업종지수 구독 실패: {market_sub_err}", exc_info=True)
                             
