@@ -2325,3 +2325,18 @@ class KiwoomWebSocketClient:
         except Exception as e:
             self.logger.error(f"❌ 조건검색 실시간 요청 응답 처리 실패: {e}")
             self.logger.error(f"조건검색 실시간 요청 응답 처리 에러 상세: {traceback.format_exc()}") # type: ignore
+
+    async def _keepalive_loop(self):
+        """AWS ALB 등 네트워크 장비의 Idle Timeout(1006) 방지를 위한 애플리케이션 레벨 PING 루프"""
+        while self.keep_running:
+            try:
+                if self.connected and hasattr(self, 'websocket') and self.websocket:
+                    ping_msg = {"trnm": "PING"}
+                    import json
+                    message_str = json.dumps(ping_msg)
+                    # logger.debug 출력 우회를 위해 send_message 대신 직접 전송
+                    await self.websocket.send(message_str)
+            except Exception as e:
+                self.logger.debug(f"Keepalive PING 전송 오류: {e}")
+            
+            await asyncio.sleep(30)
