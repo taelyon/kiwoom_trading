@@ -16,6 +16,11 @@ cleanup() {
 # SIGTERM(docker stop) 및 SIGINT(Ctrl+C) 신호를 cleanup 함수로 연결
 trap cleanup SIGTERM SIGINT
 
+# [1회성 AI 재학습] 컨테이너 시작 시 모델을 재학습합니다.
+echo "🤖 [1회성 트리거] AI 모델 재학습 시작..."
+python ml_trainer.py
+echo "✅ 모델 재학습 완료. 트레이딩 봇을 시작합니다."
+
 # 파이썬 프로세스를 백그라운드로 실행
 python stock_trader.py &
 PYTHON_PID=$!
