@@ -255,11 +255,6 @@ class KiwoomWebSocketClient:
         
         while self.keep_running and self.connected:
             try:
-                # 수동 매매 작업이 진행 중이면 메시지 처리를 잠시 멈춥니다.
-                if hasattr(self.parent, 'trading_lock') and self.parent.trading_lock.locked():
-                    await asyncio.sleep(0.1) # 0.1초 대기 후 다시 확인
-                    continue
-
                 # 서버로부터 수신한 메시지를 JSON 형식으로 파싱
                 # logging.debug(f"🔧 메시지 수신 대기 중... (수신된 메시지 수: {message_count})")
                 message = await self.websocket.recv()
