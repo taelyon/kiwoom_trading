@@ -89,8 +89,13 @@ class KiwoomWebSocketClient:
             mode_text = "모의투자" if self.is_mock else "실전투자" # type: ignore
             logging.debug(f"🔧 웹소켓 연결 시작... ({mode_text})")
             
-            # 웹소켓 연결 (키움증권 예시코드와 동일)
-            self.websocket = await websockets.connect(self.uri, ping_interval=None)
+            # 웹소켓 연결 (30초마다 표준 PING 프레임 전송하여 1006 Idle Timeout 방지)
+            self.websocket = await websockets.connect(
+                self.uri, 
+                ping_interval=30, 
+                ping_timeout=20, 
+                max_size=None
+            )
             self.connected = True
             
             # 로그인 패킷 (키움증권 예시코드 구조)
@@ -363,11 +368,9 @@ class KiwoomWebSocketClient:
                         except Exception as sync_err:
                             self.logger.error(f"모니터링 종목 재구독 실패: {sync_err}", exc_info=True)
 
-                # 메시지 유형이 PING일 경우 서버에서 요구하는 응답(PONG)을 보냄
+                # 메시지 유형이 PING일 경우 수신값 그대로 송신 (키움증권 예시코드 기반)
                 if response.get('trnm') == 'PING':
-                    pong_msg = {"trnm": "PONG"}
-                    await self.send_message(pong_msg)
-                    # self.logger.debug("PING 수신 -> PONG 전송")
+                    await self.send_message(response)
                     continue  # PING은 더 이상 처리하지 않음
                     
                 # CNSRLST 응답인 경우 조건검색 목록조회 결과 처리
