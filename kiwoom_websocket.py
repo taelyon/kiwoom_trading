@@ -89,11 +89,11 @@ class KiwoomWebSocketClient:
             mode_text = "모의투자" if self.is_mock else "실전투자" # type: ignore
             logging.debug(f"🔧 웹소켓 연결 시작... ({mode_text})")
             
-            # 웹소켓 연결 (30초마다 표준 PING 프레임 전송하여 1006 Idle Timeout 방지)
+            # 웹소켓 연결 (키움증권 서버는 표준 PING/PONG을 지원하지 않으므로 None으로 설정)
             self.websocket = await websockets.connect(
                 self.uri, 
-                ping_interval=30, 
-                ping_timeout=20, 
+                ping_interval=None, 
+                ping_timeout=None, 
                 max_size=None
             )
             self.connected = True
@@ -164,8 +164,13 @@ class KiwoomWebSocketClient:
             try:
                 # 서버에 연결
                 if await self.connect():
-                    # 메시지를 계속 받을 준비
-                    await self.receive_messages()
+                    # 애플리케이션 레벨 PING(Keepalive) 태스크 시작
+                    keepalive_task = asyncio.create_task(self._keepalive_loop())
+                    try:
+                        # 메시지를 계속 받을 준비
+                        await self.receive_messages()
+                    finally:
+                        keepalive_task.cancel()
 
             except asyncio.CancelledError:
                 self.logger.debug("🛑 웹소켓 클라이언트 태스크가 취소되었습니다")
