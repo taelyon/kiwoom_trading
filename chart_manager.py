@@ -270,12 +270,12 @@ class ChartDataCache:
                 if data:
                     return data
                 else:
-                    self.logger.warning(f"틱 데이터 수집 시도 {attempt + 1}/{max_retries} 빈 데이터 응답")
+                    self.logger.warning(f"⚠️ [API 지연 디버깅] 틱 차트 빈 데이터 응답! (시도 {attempt + 1}/{max_retries}) - 키움 서버가 데이터를 주지 않았습니다. 2초 후 재시도합니다.")
                     if attempt < max_retries - 1:
                         await asyncio.sleep(2)
                     
             except Exception as e:
-                self.logger.warning(f"틱 데이터 수집 시도 {attempt + 1}/{max_retries} 실패: {e}")
+                self.logger.warning(f"⚠️ [API 지연 디버깅] 틱 데이터 수집 시도 {attempt + 1}/{max_retries} 실패: {e}")
                 if attempt < max_retries - 1:
                     await asyncio.sleep(2)
         
@@ -292,12 +292,12 @@ class ChartDataCache:
                 if data:
                     return data
                 else:
-                    self.logger.warning(f"분봉 데이터 수집 시도 {attempt + 1}/{max_retries} 빈 데이터 응답")
+                    self.logger.warning(f"⚠️ [API 지연 디버깅] 분봉 차트 빈 데이터 응답! (시도 {attempt + 1}/{max_retries}) - 키움 서버가 데이터를 주지 않았습니다. 2초 후 재시도합니다.")
                     if attempt < max_retries - 1:
                         await asyncio.sleep(2)
                     
             except Exception as e:
-                self.logger.warning(f"분봉 데이터 수집 시도 {attempt + 1}/{max_retries} 실패: {e}")
+                self.logger.warning(f"⚠️ [API 지연 디버깅] 분봉 데이터 수집 시도 {attempt + 1}/{max_retries} 실패: {e}")
                 if attempt < max_retries - 1:
                     await asyncio.sleep(2)
         
@@ -635,6 +635,9 @@ class ChartDataCache:
                 'last_save': None,
                 'previous_close': previous_close  # 전일종가 유지
             }
+            
+            if not tic_data:
+                logging.warning(f"⚠️ [캐시 저장] {code} 종목의 틱 차트 데이터가 'None(데이터 없음)' 상태로 저장되었습니다. 향후 클릭 시 API 재요청(16초 지연)을 유발할 수 있습니다.")
             
             tic_count = len(tic_data.get('close', [])) if tic_data else 0
             min_count = len(min_data.get('close', [])) if min_data else 0

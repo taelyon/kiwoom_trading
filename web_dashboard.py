@@ -3377,7 +3377,7 @@ async def websocket_handler(websocket):
                                 # 캐시에 데이터가 없으면 비동기 수집 후 자동 전송
                                 async def _fetch_and_send(ws, chart_code, chart_cache):
                                     try:
-                                        logging.info(f"📡 대시보드 차트 요청: 캐시에 데이터가 부족한 종목 {chart_code}에 대한 비동기 수집을 시작합니다.")
+                                        logging.warning(f"⚠️ [캐시 미스 확인용] {chart_code} 종목이 캐시에 없거나 데이터가 비어있습니다! API로 새로 수집을 강제합니다 (Bypass).")
                                         await chart_cache._collect_chart_data_internal(chart_code, force=True)
                                         # 수집 완료 후 사용자가 아직 이 종목을 보고 있는지 확인
                                         if subscribed_charts.get(ws) == chart_code:

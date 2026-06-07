@@ -601,7 +601,7 @@ class KiwoomRestClient:
                 
                 return tic_data
             else:
-                self.logger.error(f"틱 차트 데이터 조회 실패: {response.status_code}", exc_info=True)
+                self.logger.error(f"🚨 [API 오류 확인용] 틱 차트 데이터 조회 실패: HTTP {response.status_code} - 키움 서버가 요청을 거부했습니다. (429 에러일 가능성 높음)", exc_info=True)
                 try:
                     error_data = response.json()
                     self.logger.error(f"오류 상세: {error_data}", exc_info=True)
