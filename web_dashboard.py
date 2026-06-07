@@ -2264,7 +2264,6 @@ HTML_CONTENT = """
             lastChartTimestamp = 0;
             currentChartCode = code;
             currentChartName = name; // 순수 종목 이름을 백업하여 탭 전환 시 중복 방지
-            document.getElementById('chartTitle').innerText = `실시간 차트 - ${name} (${code})`;
             
             // 수동 주문 입력창에도 자동 입력
             document.getElementById('orderCode').value = code;
@@ -2357,10 +2356,14 @@ HTML_CONTENT = """
             if (!candleSeries || !volumeSeries) return;
             if (data.code !== currentChartCode) return;
 
-            // 차트 데이터 수집 완료 시 로딩 오버레이 숨김
+            // 차트 데이터 수집 완료 시 로딩 오버레이 숨김 및 차트 제목 변경
             const overlay = document.getElementById('chartLoadingOverlay');
             if (overlay) {
                 overlay.style.display = 'none';
+            }
+            
+            if (currentChartName) {
+                document.getElementById('chartTitle').innerText = `실시간 차트 - ${currentChartName} (${currentChartCode})`;
             }
 
             const history = (currentChartScope === 'tic') ? data.tic_history : data.min_history;
