@@ -1130,7 +1130,7 @@ HTML_CONTENT = """
                 </div>
 
                 <!-- TradingView 실시간 차트 -->
-                <div class="glass-card chart-container-box">
+                <div class="glass-card chart-container-box" style="position: relative;">
                     <div class="chart-header">
                         <div class="section-title" id="chartTitle">실시간 차트 (종목을 선택하세요)</div>
                         <div class="chart-tabs">
@@ -1139,6 +1139,13 @@ HTML_CONTENT = """
                         </div>
                     </div>
                     <div id="chartCanvas" class="chart-canvas"></div>
+                    <!-- 로딩 오버레이 -->
+                    <div id="chartLoadingOverlay" style="display: none; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(18, 18, 18, 0.7); z-index: 100; align-items: center; justify-content: center; border-radius: 12px;">
+                        <div style="display: flex; flex-direction: column; align-items: center; gap: 15px;">
+                            <div style="width: 40px; height: 40px; border: 4px solid rgba(255, 255, 255, 0.1); border-top-color: #64ffda; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+                            <div style="color: #64ffda; font-weight: 500; letter-spacing: 1px;">차트 데이터 동기화 중...</div>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- 실시간 보유종목 포트폴리오 -->
