@@ -2624,6 +2624,7 @@ def get_current_status_data():
         ws_client = getattr(app.login_handler, 'websocket_client', None)
         ws_balance = getattr(ws_client, 'balance_data', {}) if ws_client else {}
         t2 = time.perf_counter()
+        logging.debug(f"📊 [성능측정] 계좌정보 로드: {t2 - t1:.4f}s")
 
         # 2. 자산 현황 요약 계산
         total_purchase = sum(data.get('purchase_amount', 0) for data in ws_balance.values() if isinstance(data, dict))
@@ -2889,10 +2890,10 @@ async def _send_chart_history_to_ws(ws, code, chart_cache):
             if not hasattr(ws, 'sent_chart_history'):
                 ws.sent_chart_history = {}
             ws.sent_chart_history[code] = True
-            logging.debug(f"📊 대시보드: {code} 역사적 차트 데이터 전송 완료 (틱:{len(tic_history)}개, 분봉:{len(min_history)}개)")
+            logging.info(f"✅ [차트전송] {code} 차트 히스토리 전송 성공 (틱:{len(tic_history)}개, 분봉:{len(min_history)}개)")
             return True
         else:
-            logging.debug(f"📊 대시보드: {code} 캐시에 가공할 차트 데이터가 없습니다.")
+            logging.warning(f"⚠️ [차트전송] {code} 캐시에서 읽었지만 가공 결과가 빈 배열입니다! (tic_data close건수: {len(tic_data.get('close', []) if tic_data else [])}, min_data close건수: {len(min_data.get('close', []) if min_data else [])}) → 프론트엔드에 아무것도 전송하지 않음 (로딩 오버레이 무한대기 발생!)")
             return False
     except Exception as e:
         logging.error(f"❌ 차트 역사 데이터 전송 실패 ({code}): {e}", exc_info=True)
@@ -2913,6 +2914,9 @@ async def websocket_handler(websocket):
                 msg_recv_time = time.time()
                 data = json.loads(message)
                 msg_type = data.get('type')
+                
+                if msg_type != 'ping':
+                    logging.info(f"📨 [WS 수신] 메시지 수신됨: type={msg_type}, 전체내용={data}")
                 
                 # 1. 인증 처리
                 if msg_type == 'auth':
@@ -3357,6 +3361,7 @@ async def websocket_handler(websocket):
                     
                 elif msg_type == 'subscribe_chart':
                     code = data.get('code')
+                    logging.info(f"📡 [차트구독] 프론트엔드로부터 'subscribe_chart' 요청 받음: {code}")
                     if code:
                         subscribed_charts[websocket] = code
                         # 해당 웹소켓의 역사적 데이터 전송 여부 초기화
@@ -3365,19 +3370,36 @@ async def websocket_handler(websocket):
                         websocket.sent_chart_history[code] = False
                         
                         if app.chart_cache:
-                            # 캐시 존재 여부 확인
-                            cache_hit = (code in app.chart_cache.cache 
-                                        and app.chart_cache.cache[code].get('tic_data') 
-                                        and app.chart_cache.cache[code].get('min_data'))
+                            # 캐시 존재 여부 확인 (상세 로그 포함)
+                            in_cache = code in app.chart_cache.cache
+                            has_tic = False
+                            has_min = False
+                            tic_len = 0
+                            min_len = 0
+                            if in_cache:
+                                tic_raw = app.chart_cache.cache[code].get('tic_data')
+                                min_raw = app.chart_cache.cache[code].get('min_data')
+                                has_tic = bool(tic_raw)
+                                has_min = bool(min_raw)
+                                if has_tic and isinstance(tic_raw, dict):
+                                    tic_len = len(tic_raw.get('close', []))
+                                if has_min and isinstance(min_raw, dict):
+                                    min_len = len(min_raw.get('close', []))
+                            
+                            cache_hit = in_cache and has_tic and has_min
+                            logging.info(f"📡 [차트구독] {code} 캐시 판정: in_cache={in_cache}, has_tic={has_tic}(건수:{tic_len}), has_min={has_min}(건수:{min_len}), cache_hit={cache_hit}")
                             
                             if cache_hit:
                                 # 캐시에 데이터가 있으면 즉시 전송
-                                await _send_chart_history_to_ws(websocket, code, app.chart_cache)
+                                if tic_len == 0 and min_len == 0:
+                                    logging.warning(f"⚠️ [차트구독] {code} 캐시 히트이지만 실제 데이터가 빈 깡통입니다! (tic_data/min_data가 빈 리스트)")
+                                send_result = await _send_chart_history_to_ws(websocket, code, app.chart_cache)
+                                logging.info(f"📡 [차트구독] {code} 캐시 히트 → 즉시 전송 결과: {send_result}")
                             else:
                                 # 캐시에 데이터가 없으면 비동기 수집 후 자동 전송
                                 async def _fetch_and_send(ws, chart_code, chart_cache):
                                     try:
-                                        logging.warning(f"⚠️ [캐시 미스 확인용] {chart_code} 종목이 캐시에 없거나 데이터가 비어있습니다! API로 새로 수집을 강제합니다 (Bypass).")
+                                        logging.warning(f"⚠️ [캐시 미스] {chart_code} 종목이 캐시에 없거나 데이터가 비어있습니다! API로 새로 수집을 강제합니다.")
                                         await chart_cache._collect_chart_data_internal(chart_code, force=True)
                                         # 수집 완료 후 사용자가 아직 이 종목을 보고 있는지 확인
                                         if subscribed_charts.get(ws) == chart_code:
@@ -3570,6 +3592,7 @@ def on_chart_data_updated(code):
                 sent_history = getattr(ws, 'sent_chart_history', {})
                 if not sent_history.get(code):
                     try:
+                        logging.info(f"🔔 [시그널경로] {code} data_updated 시그널을 통해 차트 히스토리 전송 (tic:{len(tic_history)}개, min:{len(min_history)}개)")
                         await safe_send(ws, json.dumps({
                             "type": "chart_history",
                             "code": code,
