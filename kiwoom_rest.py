@@ -576,9 +576,9 @@ class KiwoomRestClient:
                 try:
                     response = await self.client.post(url, headers=headers, json=data, timeout=60.0)
                     break 
-                except (httpx.ReadTimeout, httpx.ConnectTimeout, httpx.ReadError) as timeout_err:
+                except httpx.RequestError as timeout_err:
                      if attempt < max_retries:
-                         self.logger.warning(f"틱 차트 조회 타임아웃/오류 ({attempt+1}/{max_retries}), 재시도 중... {code}")
+                         self.logger.warning(f"틱 차트 조회 타임아웃/네트워크 오류 ({attempt+1}/{max_retries}), 재시도 중... {code}")
                          await asyncio.sleep(1) # 잠시 대기
                          # 마지막 카운트 전에 클라이언트 리셋 시도
                          if attempt == max_retries - 1:
@@ -656,9 +656,9 @@ class KiwoomRestClient:
                 try:
                     response = await self.client.post(url, headers=headers, json=data, timeout=60.0)
                     break
-                except (httpx.ReadTimeout, httpx.ConnectTimeout, httpx.ReadError) as timeout_err:
+                except httpx.RequestError as timeout_err:
                      if attempt < max_retries:
-                         self.logger.warning(f"분봉 차트 조회 타임아웃/오류 ({attempt+1}/{max_retries}), 재시도 중... {code}")
+                         self.logger.warning(f"분봉 차트 조회 타임아웃/네트워크 오류 ({attempt+1}/{max_retries}), 재시도 중... {code}")
                          await asyncio.sleep(1)
                          if attempt == max_retries - 1:
                              await self._reset_client()
