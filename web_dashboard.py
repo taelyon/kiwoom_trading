@@ -2287,9 +2287,11 @@ HTML_CONTENT = """
 
             // 기존 구독 해제 및 신규 구독 로그 먼저 전송
             if (ws.readyState === WebSocket.OPEN) {
+                const now = new Date();
+                const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}.${now.getMilliseconds().toString().padStart(3, '0')}`;
                 ws.send(jsonStr({
                     type: "frontend_log",
-                    message: `[프론트엔드] 🖱️ 사용자 클릭 이벤트 발생 - 종목: ${code} (${name}) - 로딩 오버레이 표시 및 구독 요청 전송 시작`
+                    message: `[${timeStr}] [프론트엔드] 🖱️ 사용자 클릭 이벤트 발생 - 종목: ${code} (${name}) - 로딩 오버레이 표시 및 구독 요청 전송 시작`
                 }));
             }
 
@@ -2377,9 +2379,11 @@ HTML_CONTENT = """
             }
             
             if (ws && ws.readyState === WebSocket.OPEN) {
+                const now = new Date();
+                const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}.${now.getMilliseconds().toString().padStart(3, '0')}`;
                 ws.send(jsonStr({
                     type: "frontend_log",
-                    message: `[프론트엔드] 🎨 차트 데이터 렌더링 시작 및 로딩 오버레이 해제 - 종목: ${data.code}`
+                    message: `[${timeStr}] [프론트엔드] 🎨 차트 데이터 렌더링 시작 및 로딩 오버레이 해제 - 종목: ${data.code}`
                 }));
             }
             
