@@ -2285,7 +2285,14 @@ HTML_CONTENT = """
                 overlay.style.display = 'flex';
             }
 
-            // 기존 구독 해제 및 신규 구독
+            // 기존 구독 해제 및 신규 구독 로그 먼저 전송
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(jsonStr({
+                    type: "frontend_log",
+                    message: `[프론트엔드] 🖱️ 사용자 클릭 이벤트 발생 - 종목: ${code} (${name}) - 로딩 오버레이 표시 및 구독 요청 전송 시작`
+                }));
+            }
+
             ws.send(jsonStr({
                 type: "subscribe_chart",
                 code: code
@@ -2367,6 +2374,13 @@ HTML_CONTENT = """
             const overlay = document.getElementById('chartLoadingOverlay');
             if (overlay) {
                 overlay.style.display = 'none';
+            }
+            
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(jsonStr({
+                    type: "frontend_log",
+                    message: `[프론트엔드] 🎨 차트 데이터 렌더링 시작 및 로딩 오버레이 해제 - 종목: ${data.code}`
+                }));
             }
             
             if (currentChartName) {
@@ -3422,6 +3436,11 @@ async def websocket_handler(websocket):
                                 
                                 from utils import create_fire_and_forget_task
                                 create_fire_and_forget_task(_fetch_and_send(websocket, code, app.chart_cache))
+                                
+                elif msg_type == 'frontend_log':
+                    msg = data.get('message', '')
+                    if msg:
+                        logging.info(f"💻 {msg}")
 
             except Exception as inner_ex:
                 logging.error(f"대시보드 웹소켓 메시지 처리 오류: {inner_ex}", exc_info=True)
