@@ -2775,6 +2775,119 @@ async def process_request(arg1, arg2):
         else:
             return 500, [("Content-Type", "text/plain")], f"Internal Server Error: {e}".encode("utf-8")
 
+async def _send_chart_history_to_ws(ws, code, chart_cache):
+    """캐시에서 차트 데이터를 가공하여 웹소켓 클라이언트에 전송하는 헬퍼 함수"""
+    try:
+        cache_data = chart_cache.cache.get(code)
+        if not cache_data:
+            return False
+        
+        tic_data = cache_data.get('tic_data', {})
+        min_data = cache_data.get('min_data', {})
+        
+        # 틱 차트 가공
+        tic_history = []
+        if tic_data:
+            t_times = tic_data.get('time', [])
+            t_opens = tic_data.get('open', [])
+            t_highs = tic_data.get('high', [])
+            t_lows = tic_data.get('low', [])
+            t_closes = tic_data.get('close', [])
+            t_vols = tic_data.get('volume', [])
+            t_ma5 = tic_data.get('MA5', [])
+            t_ma10 = tic_data.get('MA10', [])
+            t_ma20 = tic_data.get('MA20', [])
+            t_ma60 = tic_data.get('MA60', [])
+            t_ma120 = tic_data.get('MA120', [])
+            t_rsi21 = tic_data.get('RSI21', [])
+            t_macd = tic_data.get('MACD', [])
+            t_macd_sig = tic_data.get('MACD_SIGNAL', [])
+            t_macd_hist = tic_data.get('MACD_HIST', [])
+            for idx in range(len(t_closes)):
+                try:
+                    t_time = datetime_to_timestamp(t_times[idx])
+                    item = {
+                        "time": t_time,
+                        "open": float(t_opens[idx]),
+                        "high": float(t_highs[idx]),
+                        "low": float(t_lows[idx]),
+                        "close": float(t_closes[idx]),
+                        "volume": int(t_vols[idx])
+                    }
+                    if t_ma5 and len(t_ma5) > idx and not math.isnan(float(t_ma5[idx])): item["ma5"] = float(t_ma5[idx])
+                    if t_ma10 and len(t_ma10) > idx and not math.isnan(float(t_ma10[idx])): item["ma10"] = float(t_ma10[idx])
+                    if t_ma20 and len(t_ma20) > idx and not math.isnan(float(t_ma20[idx])): item["ma20"] = float(t_ma20[idx])
+                    if t_ma60 and len(t_ma60) > idx and not math.isnan(float(t_ma60[idx])): item["ma60"] = float(t_ma60[idx])
+                    if t_ma120 and len(t_ma120) > idx and not math.isnan(float(t_ma120[idx])): item["ma120"] = float(t_ma120[idx])
+                    if t_rsi21 and len(t_rsi21) > idx and not math.isnan(float(t_rsi21[idx])): item["rsi21"] = float(t_rsi21[idx])
+                    if t_macd and len(t_macd) > idx and not math.isnan(float(t_macd[idx])): item["macd"] = float(t_macd[idx])
+                    if t_macd_sig and len(t_macd_sig) > idx and not math.isnan(float(t_macd_sig[idx])): item["macd_sig"] = float(t_macd_sig[idx])
+                    if t_macd_hist and len(t_macd_hist) > idx and not math.isnan(float(t_macd_hist[idx])): item["macd_hist"] = float(t_macd_hist[idx])
+                    tic_history.append(item)
+                except Exception: pass
+            tic_history = tic_history[-200:]
+        
+        # 분봉 차트 가공
+        min_history = []
+        if min_data:
+            m_times = min_data.get('time', [])
+            m_opens = min_data.get('open', [])
+            m_highs = min_data.get('high', [])
+            m_lows = min_data.get('low', [])
+            m_closes = min_data.get('close', [])
+            m_vols = min_data.get('volume', [])
+            m_ma5 = min_data.get('MA5', [])
+            m_ma10 = min_data.get('MA10', [])
+            m_ma20 = min_data.get('MA20', [])
+            m_ma60 = min_data.get('MA60', [])
+            m_ma120 = min_data.get('MA120', [])
+            m_rsi21 = min_data.get('RSI21', [])
+            m_macd = min_data.get('MACD', [])
+            m_macd_sig = min_data.get('MACD_SIGNAL', [])
+            m_macd_hist = min_data.get('MACD_HIST', [])
+            for idx in range(len(m_closes)):
+                try:
+                    m_time = datetime_to_timestamp(m_times[idx])
+                    item = {
+                        "time": m_time,
+                        "open": float(m_opens[idx]),
+                        "high": float(m_highs[idx]),
+                        "low": float(m_lows[idx]),
+                        "close": float(m_closes[idx]),
+                        "volume": int(m_vols[idx])
+                    }
+                    if m_ma5 and len(m_ma5) > idx and not math.isnan(float(m_ma5[idx])): item["ma5"] = float(m_ma5[idx])
+                    if m_ma10 and len(m_ma10) > idx and not math.isnan(float(m_ma10[idx])): item["ma10"] = float(m_ma10[idx])
+                    if m_ma20 and len(m_ma20) > idx and not math.isnan(float(m_ma20[idx])): item["ma20"] = float(m_ma20[idx])
+                    if m_ma60 and len(m_ma60) > idx and not math.isnan(float(m_ma60[idx])): item["ma60"] = float(m_ma60[idx])
+                    if m_ma120 and len(m_ma120) > idx and not math.isnan(float(m_ma120[idx])): item["ma120"] = float(m_ma120[idx])
+                    if m_rsi21 and len(m_rsi21) > idx and not math.isnan(float(m_rsi21[idx])): item["rsi21"] = float(m_rsi21[idx])
+                    if m_macd and len(m_macd) > idx and not math.isnan(float(m_macd[idx])): item["macd"] = float(m_macd[idx])
+                    if m_macd_sig and len(m_macd_sig) > idx and not math.isnan(float(m_macd_sig[idx])): item["macd_sig"] = float(m_macd_sig[idx])
+                    if m_macd_hist and len(m_macd_hist) > idx and not math.isnan(float(m_macd_hist[idx])): item["macd_hist"] = float(m_macd_hist[idx])
+                    min_history.append(item)
+                except Exception: pass
+            min_history = min_history[-120:]
+        
+        if tic_history or min_history:
+            await safe_send(ws, json.dumps({
+                "type": "chart_history",
+                "code": code,
+                "tic_history": tic_history,
+                "min_history": min_history
+            }))
+            if not hasattr(ws, 'sent_chart_history'):
+                ws.sent_chart_history = {}
+            ws.sent_chart_history[code] = True
+            logging.debug(f"📊 대시보드: {code} 역사적 차트 데이터 전송 완료 (틱:{len(tic_history)}개, 분봉:{len(min_history)}개)")
+            return True
+        else:
+            logging.debug(f"📊 대시보드: {code} 캐시에 가공할 차트 데이터가 없습니다.")
+            return False
+    except Exception as e:
+        logging.error(f"❌ 차트 역사 데이터 전송 실패 ({code}): {e}", exc_info=True)
+        return False
+
 async def websocket_handler(websocket):
     """WebSocket 신규 클라이언트 처리 및 실시간 동기화 루프"""
     global main_window_ref
@@ -3242,117 +3355,41 @@ async def websocket_handler(websocket):
                         websocket.sent_chart_history[code] = False
                         
                         if app.chart_cache:
-                            # 만약 캐시에 없는 종목이거나 데이터가 유실된 경우 백그라운드 수집 즉시 요청
-                            if code not in app.chart_cache.cache or not app.chart_cache.cache[code].get('tic_data') or not app.chart_cache.cache[code].get('min_data'):
-                                if code not in app.chart_cache.active_chart_tasks:
-                                    logging.info(f"📡 대시보드 차트 요청: 캐시에 데이터가 부족한 종목 {code}에 대한 비동기 수집을 시작합니다.")
-                                    app.chart_cache.update_single_chart(code, force=True)
-                                    
-                            cache_data = app.chart_cache.cache.get(code)
-                            if cache_data:
-                                tic_data = cache_data.get('tic_data', {})
-                                min_data = cache_data.get('min_data', {})
+                            # 캐시 존재 여부 확인
+                            cache_hit = (code in app.chart_cache.cache 
+                                        and app.chart_cache.cache[code].get('tic_data') 
+                                        and app.chart_cache.cache[code].get('min_data'))
+                            
+                            if cache_hit:
+                                # 캐시에 데이터가 있으면 즉시 전송
+                                await _send_chart_history_to_ws(websocket, code, app.chart_cache)
+                            else:
+                                # 캐시에 데이터가 없으면 비동기 수집 후 자동 전송
+                                async def _fetch_and_send(ws, chart_code, chart_cache):
+                                    try:
+                                        logging.info(f"📡 대시보드 차트 요청: 캐시에 데이터가 부족한 종목 {chart_code}에 대한 비동기 수집을 시작합니다.")
+                                        await chart_cache._collect_chart_data_internal(chart_code, force=True)
+                                        # 수집 완료 후 사용자가 아직 이 종목을 보고 있는지 확인
+                                        if subscribed_charts.get(ws) == chart_code:
+                                            await _send_chart_history_to_ws(ws, chart_code, chart_cache)
+                                        else:
+                                            logging.debug(f"📊 {chart_code} 수집 완료, 하지만 사용자가 다른 종목으로 전환함 → 전송 생략")
+                                    except Exception as e:
+                                        logging.error(f"❌ 차트 데이터 수집 후 전송 실패 ({chart_code}): {e}", exc_info=True)
+                                        # 로딩 오버레이 해제를 위해 빈 차트 응답 전송
+                                        if subscribed_charts.get(ws) == chart_code:
+                                            try:
+                                                await safe_send(ws, json.dumps({
+                                                    "type": "chart_history",
+                                                    "code": chart_code,
+                                                    "tic_history": [],
+                                                    "min_history": []
+                                                }))
+                                            except Exception:
+                                                pass
                                 
-                                # 틱 차트 가공
-                                tic_history = []
-                                if tic_data:
-                                    # MACD 디버그 로깅
-                                    macd_keys = [k for k in tic_data.keys() if 'MACD' in k.upper() or 'RSI' in k.upper()]
-                                    logging.debug(f"📊 차트 캐시 tic_data 키: {list(tic_data.keys())[:20]}, MACD관련: {macd_keys}, close수: {len(tic_data.get('close', []))}, MACD수: {len(tic_data.get('MACD', []))}")
-                                    t_times = tic_data.get('time', [])
-                                    t_opens = tic_data.get('open', [])
-                                    t_highs = tic_data.get('high', [])
-                                    t_lows = tic_data.get('low', [])
-                                    t_closes = tic_data.get('close', [])
-                                    t_vols = tic_data.get('volume', [])
-                                    t_ma5 = tic_data.get('MA5', [])
-                                    t_ma10 = tic_data.get('MA10', [])
-                                    t_ma20 = tic_data.get('MA20', [])
-                                    t_ma60 = tic_data.get('MA60', [])
-                                    t_ma120 = tic_data.get('MA120', [])
-                                    t_rsi21 = tic_data.get('RSI21', [])
-                                    t_macd = tic_data.get('MACD', [])
-                                    t_macd_sig = tic_data.get('MACD_SIGNAL', [])
-                                    t_macd_hist = tic_data.get('MACD_HIST', [])
-                                    for idx in range(len(t_closes)):
-                                        try:
-                                            t_time = datetime_to_timestamp(t_times[idx])
-                                            item = {
-                                                "time": t_time,
-                                                "open": float(t_opens[idx]),
-                                                "high": float(t_highs[idx]),
-                                                "low": float(t_lows[idx]),
-                                                "close": float(t_closes[idx]),
-                                                "volume": int(t_vols[idx])
-                                            }
-                                            if t_ma5 and len(t_ma5) > idx and not math.isnan(float(t_ma5[idx])): item["ma5"] = float(t_ma5[idx])
-                                            if t_ma10 and len(t_ma10) > idx and not math.isnan(float(t_ma10[idx])): item["ma10"] = float(t_ma10[idx])
-                                            if t_ma20 and len(t_ma20) > idx and not math.isnan(float(t_ma20[idx])): item["ma20"] = float(t_ma20[idx])
-                                            if t_ma60 and len(t_ma60) > idx and not math.isnan(float(t_ma60[idx])): item["ma60"] = float(t_ma60[idx])
-                                            if t_ma120 and len(t_ma120) > idx and not math.isnan(float(t_ma120[idx])): item["ma120"] = float(t_ma120[idx])
-                                            if t_rsi21 and len(t_rsi21) > idx and not math.isnan(float(t_rsi21[idx])): item["rsi21"] = float(t_rsi21[idx])
-                                            if t_macd and len(t_macd) > idx and not math.isnan(float(t_macd[idx])): item["macd"] = float(t_macd[idx])
-                                            if t_macd_sig and len(t_macd_sig) > idx and not math.isnan(float(t_macd_sig[idx])): item["macd_sig"] = float(t_macd_sig[idx])
-                                            if t_macd_hist and len(t_macd_hist) > idx and not math.isnan(float(t_macd_hist[idx])): item["macd_hist"] = float(t_macd_hist[idx])
-                                            tic_history.append(item)
-                                        except Exception: pass
-                                    # 최근 200개 캔들로 제한
-                                    tic_history = tic_history[-200:]
-                                
-                                # 분봉 차트 가공
-                                min_history = []
-                                if min_data:
-                                    m_times = min_data.get('time', [])
-                                    m_opens = min_data.get('open', [])
-                                    m_highs = min_data.get('high', [])
-                                    m_lows = min_data.get('low', [])
-                                    m_closes = min_data.get('close', [])
-                                    m_vols = min_data.get('volume', [])
-                                    m_ma5 = min_data.get('MA5', [])
-                                    m_ma10 = min_data.get('MA10', [])
-                                    m_ma20 = min_data.get('MA20', [])
-                                    m_ma60 = min_data.get('MA60', [])
-                                    m_ma120 = min_data.get('MA120', [])
-                                    m_rsi21 = min_data.get('RSI21', [])
-                                    m_macd = min_data.get('MACD', [])
-                                    m_macd_sig = min_data.get('MACD_SIGNAL', [])
-                                    m_macd_hist = min_data.get('MACD_HIST', [])
-                                    for idx in range(len(m_closes)):
-                                        try:
-                                            m_time = datetime_to_timestamp(m_times[idx])
-                                            item = {
-                                                "time": m_time,
-                                                "open": float(m_opens[idx]),
-                                                "high": float(m_highs[idx]),
-                                                "low": float(m_lows[idx]),
-                                                "close": float(m_closes[idx]),
-                                                "volume": int(m_vols[idx])
-                                            }
-                                            if m_ma5 and len(m_ma5) > idx and not math.isnan(float(m_ma5[idx])): item["ma5"] = float(m_ma5[idx])
-                                            if m_ma10 and len(m_ma10) > idx and not math.isnan(float(m_ma10[idx])): item["ma10"] = float(m_ma10[idx])
-                                            if m_ma20 and len(m_ma20) > idx and not math.isnan(float(m_ma20[idx])): item["ma20"] = float(m_ma20[idx])
-                                            if m_ma60 and len(m_ma60) > idx and not math.isnan(float(m_ma60[idx])): item["ma60"] = float(m_ma60[idx])
-                                            if m_ma120 and len(m_ma120) > idx and not math.isnan(float(m_ma120[idx])): item["ma120"] = float(m_ma120[idx])
-                                            if m_rsi21 and len(m_rsi21) > idx and not math.isnan(float(m_rsi21[idx])): item["rsi21"] = float(m_rsi21[idx])
-                                            if m_macd and len(m_macd) > idx and not math.isnan(float(m_macd[idx])): item["macd"] = float(m_macd[idx])
-                                            if m_macd_sig and len(m_macd_sig) > idx and not math.isnan(float(m_macd_sig[idx])): item["macd_sig"] = float(m_macd_sig[idx])
-                                            if m_macd_hist and len(m_macd_hist) > idx and not math.isnan(float(m_macd_hist[idx])): item["macd_hist"] = float(m_macd_hist[idx])
-                                            min_history.append(item)
-                                        except Exception: pass
-                                    # 최근 120개 캔들(3분봉 기준 6시간)로 제한
-                                    min_history = min_history[-120:]
-                                
-                                if tic_history or min_history:
-                                    await safe_send(websocket, json.dumps({
-                                        "type": "chart_history",
-                                        "code": code,
-                                        "tic_history": tic_history,
-                                        "min_history": min_history
-                                    }))
-                                    websocket.sent_chart_history[code] = True
-                                    logging.debug(f"📊 대시보드: {code} 역사적 차트 데이터 스트리밍 완료 (틱:{len(tic_history)}개, 분봉:{len(min_history)}개)")
-                                else:
-                                    logging.debug(f"📊 대시보드: {code} 차트 데이터 캐시가 없어 백그라운드 수집을 기다립니다.")
+                                from utils import create_fire_and_forget_task
+                                create_fire_and_forget_task(_fetch_and_send(websocket, code, app.chart_cache))
 
             except Exception as inner_ex:
                 logging.error(f"대시보드 웹소켓 메시지 처리 오류: {inner_ex}", exc_info=True)
