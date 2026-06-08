@@ -767,10 +767,15 @@ class AutoTrader:
             
             codes = list(self.parent.chart_cache.cache.keys())
             if codes:
-                await asyncio.gather(
-                    *[self._analyze_and_execute_trading_async(code) for code in codes],
-                    return_exceptions=True
-                )
+                # GIL(Global Interpreter Lock) 경합 방지 및 이벤트 루프(웹소켓 등) 반응성 확보를 위해
+                # asyncio.gather 동시 실행 대신 순차 실행 + 짧은 sleep 적용
+                for code in codes:
+                    try:
+                        await self._analyze_and_execute_trading_async(code)
+                        # 다른 비동기 태스크(웹소켓 수신, API 응답 등)에 제어권 양보
+                        await asyncio.sleep(0.01)
+                    except Exception as e:
+                        self.logger.error(f"종목 {code} 매매 판단 중 오류: {e}")
         except Exception as ex:
             self.logger.error(f"주기적 매매 판단 중 오류: {ex}", exc_info=True)
     

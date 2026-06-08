@@ -576,9 +576,9 @@ class KiwoomRestClient:
                 try:
                     response = await self.client.post(url, headers=headers, json=data, timeout=60.0)
                     break 
-                except (httpx.ReadTimeout, httpx.ConnectTimeout, httpx.ReadError) as timeout_err:
+                except httpx.RequestError as timeout_err:
                      if attempt < max_retries:
-                         self.logger.warning(f"틱 차트 조회 타임아웃/오류 ({attempt+1}/{max_retries}), 재시도 중... {code}")
+                         self.logger.warning(f"틱 차트 조회 타임아웃/네트워크 오류 ({attempt+1}/{max_retries}), 재시도 중... {code}")
                          await asyncio.sleep(1) # 잠시 대기
                          # 마지막 카운트 전에 클라이언트 리셋 시도
                          if attempt == max_retries - 1:
@@ -601,7 +601,7 @@ class KiwoomRestClient:
                 
                 return tic_data
             else:
-                self.logger.error(f"틱 차트 데이터 조회 실패: {response.status_code}", exc_info=True)
+                self.logger.error(f"🚨 [API 오류 확인용] 틱 차트 데이터 조회 실패: HTTP {response.status_code} - 키움 서버가 요청을 거부했습니다. (429 에러일 가능성 높음)", exc_info=True)
                 try:
                     error_data = response.json()
                     self.logger.error(f"오류 상세: {error_data}", exc_info=True)
@@ -656,9 +656,9 @@ class KiwoomRestClient:
                 try:
                     response = await self.client.post(url, headers=headers, json=data, timeout=60.0)
                     break
-                except (httpx.ReadTimeout, httpx.ConnectTimeout, httpx.ReadError) as timeout_err:
+                except httpx.RequestError as timeout_err:
                      if attempt < max_retries:
-                         self.logger.warning(f"분봉 차트 조회 타임아웃/오류 ({attempt+1}/{max_retries}), 재시도 중... {code}")
+                         self.logger.warning(f"분봉 차트 조회 타임아웃/네트워크 오류 ({attempt+1}/{max_retries}), 재시도 중... {code}")
                          await asyncio.sleep(1)
                          if attempt == max_retries - 1:
                              await self._reset_client()

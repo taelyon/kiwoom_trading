@@ -256,6 +256,8 @@ class ApiLimitManager:
             
             # 락을 해제한 상태에서 비동기 대기
             if wait_time > 0:
+                if wait_time > 1.0:
+                    cls.logger.warning(f"⏳ [API제한] {operation_name} 요청이 {wait_time:.1f}초 대기 중 (큐: {queue_key}, 간격: {interval}초)")
                 await asyncio.sleep(wait_time)
             
             return True
