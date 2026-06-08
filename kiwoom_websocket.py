@@ -1686,6 +1686,12 @@ class KiwoomWebSocketClient:
 
                 if 'LAST_TIC_CNT' in tic_data:
                      tic_data['LAST_TIC_CNT'][last_index] = last_tic_cnt + 1
+
+                # 최대 데이터 수 제한
+                max_data = 1500
+                for key in ['time', 'open', 'high', 'low', 'close', 'volume', 'buy_volume', 'sell_volume', 'strength', 'TICK_VELOCITY', 'ORDER_BOOK_IMBALANCE', 'LAST_TIC_CNT']:
+                    if key in tic_data and len(tic_data[key]) > max_data:
+                        tic_data[key] = tic_data[key][-max_data:]
                 
         except Exception as e:
             self.logger.error(f"틱 차트 실시간 데이터 추가 실패: {e}", exc_info=True)
@@ -1778,8 +1784,8 @@ class KiwoomWebSocketClient:
                 # 새로운 3분봉 생성 시 마지막 봉 데이터 로그 표시
                 self._log_last_minute_bar_data(stock_code, min_data, -1)                    
             
-            # 최대 데이터 수 제한 (150개)
-            max_data = 150
+            # 최대 데이터 수 제한 (1500개)
+            max_data = 1500
             for key in ['time', 'open', 'high', 'low', 'close', 'volume']:
                 if key in min_data and len(min_data[key]) > max_data:
                     min_data[key] = min_data[key][-max_data:]
