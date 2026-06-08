@@ -466,6 +466,8 @@ class MonitoringManager:
         self.logger = logging.getLogger(self.__class__.__name__)
         self.parent = parent_app
         self.monitored_stocks = set()  # 모니터링할 종목코드 집합
+        self.stock_added_time = {}     # 종목 편입 시간 기록 (TTL 체크용)
+        self.monitoring_ttl_minutes = 60  # 기본 TTL 60분
     
     async def add_stock_to_monitoring(self, code, name=None):
         """모니터링 종목 추가"""
@@ -476,6 +478,7 @@ class MonitoringManager:
             
             # 집합에 추가
             self.monitored_stocks.add(code)
+            self.stock_added_time[code] = datetime.now()
             self.logger.debug(f"✅ 모니터링 종목 추가: {code}")
             
             # 차트 캐시에 추가
@@ -509,6 +512,7 @@ class MonitoringManager:
                 return True
             
             self.monitored_stocks.add(code)
+            self.stock_added_time[code] = datetime.now()
             self.logger.debug(f"✅ 모니터링 종목 추가: {code}")
             
             if hasattr(self.parent, 'chart_cache') and self.parent.chart_cache:
@@ -542,6 +546,7 @@ class MonitoringManager:
             # 집합에서 제거
             if code in self.monitored_stocks:
                 self.monitored_stocks.discard(code)
+                self.stock_added_time.pop(code, None)
                 self.logger.debug(f"✅ 모니터링 종목 제거: {code}")
 
             if hasattr(self.parent, 'chart_cache') and self.parent.chart_cache:
@@ -653,6 +658,42 @@ class MonitoringManager:
                     pass
         except Exception as ex:
             self.logger.error(f"❌ 실시간 체결 데이터 구독 해제 실패: {code} - {ex}")
+
+    async def cleanup_stale_monitored_stocks(self):
+        """설정된 TTL을 초과한 감시종목 자동 삭제 루프"""
+        self.logger.info(f"🧹 감시종목 TTL({self.monitoring_ttl_minutes}분) 자동 정리 백그라운드 태스크 시작")
+        while True:
+            try:
+                await asyncio.sleep(60) # 1분마다 체크
+                
+                if not self.monitored_stocks:
+                    continue
+                
+                now = datetime.now()
+                # 딕셔너리 크기가 변경될 수 있으므로 리스트로 복사하여 순회
+                for code in list(self.monitored_stocks):
+                    added_time = self.stock_added_time.get(code)
+                    if added_time:
+                        elapsed = (now - added_time).total_seconds() / 60.0
+                        if elapsed > self.monitoring_ttl_minutes:
+                            # 보유 여부 재확인
+                            is_held = False
+                            trader = getattr(self.parent, 'trader', None)
+                            if trader and hasattr(trader, 'holdings'):
+                                if code in trader.holdings and trader.holdings[code].get('quantity', 0) > 0:
+                                    is_held = True
+                            
+                            if is_held:
+                                # 보유 종목은 TTL 적용 제외, 편입 시간을 갱신하여 불필요한 로그 방지
+                                self.stock_added_time[code] = now
+                            else:
+                                self.logger.info(f"⏳ TTL 만료({elapsed:.1f}분 경과): 종목 {code} 자동 삭제")
+                                await self.remove_stock_from_monitoring(code)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.logger.error(f"감시종목 TTL 정리 중 오류: {e}", exc_info=True)
+                await asyncio.sleep(60)
 
 
 # ==========================================
@@ -811,6 +852,11 @@ class StrategyManager:
         # 모니터링 종목 초기화 (보유 종목 제외) - 기존 set 레퍼런스를 유지하기 위해 intersection_update 사용
         if monitoring_mgr:
             monitoring_mgr.monitored_stocks.intersection_update(holding_codes)
+            
+            # TTL 시간 기록도 함께 정리
+            keys_to_remove = [k for k in list(monitoring_mgr.stock_added_time.keys()) if k not in holding_codes]
+            for k in keys_to_remove:
+                monitoring_mgr.stock_added_time.pop(k, None)
         
         # 실시간 주식체결 데이터 구독 해제 전송 (UNREG)
         if codes_to_unsubscribe:

@@ -187,14 +187,21 @@ class TradingApp:
             except Exception as cache_ex:
                 self.logger.error(f"❌ 전체 종목 코드 캐싱 실패: {cache_ex}", exc_info=True)
 
-            # 5. 계좌 잔고조회 (즉시 실행)
+            # 5. 감시종목 TTL 자동 삭제 루프 기동
+            try:
+                create_fire_and_forget_task(self.monitoring_manager.cleanup_stale_monitored_stocks())
+                self.logger.debug("✅ 감시종목 TTL 자동 삭제 루프 시작")
+            except Exception as ttl_ex:
+                self.logger.error(f"❌ 감시종목 TTL 루프 시작 실패: {ttl_ex}", exc_info=True)
+
+            # 6. 계좌 잔고조회 (즉시 실행)
             try:
                 await self.account_manager.handle_acnt_balance_query_async()
                 self.logger.debug("✅ 계좌 잔고조회 즉시 실행 완료 (비동기)")
             except Exception as balance_ex:
                 self.logger.error(f"❌ 계좌 잔고조회 실행 실패: {balance_ex}", exc_info=True)
 
-            # 6. 대기 중인 API 큐 처리
+            # 7. 대기 중인 API 큐 처리
             try:
                 if self.chart_cache and hasattr(self.chart_cache, 'api_request_queue'):
                     queue_size = len(self.chart_cache.api_request_queue)
