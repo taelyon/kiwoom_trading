@@ -3475,6 +3475,17 @@ def on_chart_data_updated(code):
     if not cache_data:
         return
         
+    # [스로틀링] 프론트엔드 UI 렌더링 과부하 방지를 위해 초당 최대 10번(0.1초)만 전송
+    import time
+    if not hasattr(main_window_ref, 'last_ws_tick_sent'):
+        main_window_ref.last_ws_tick_sent = {}
+        
+    now = time.time()
+    if now - main_window_ref.last_ws_tick_sent.get(code, 0) < 0.1:
+        return
+    main_window_ref.last_ws_tick_sent[code] = now
+
+        
     # 역사적 데이터 및 틱 데이터 추출
     tic_data = cache_data.get('tic_data', {})
     min_data = cache_data.get('min_data', {})
