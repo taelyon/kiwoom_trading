@@ -96,7 +96,8 @@ class KiwoomWebSocketClient:
                 self.uri, 
                 ping_interval=None, 
                 ping_timeout=None, 
-                max_size=None
+                max_size=None,
+                compression=None  # 키움증권 서버와의 압축 확장 프로토콜 오류(1002 reserved bits must be 0) 방지
             )
             self.connected = True
             
