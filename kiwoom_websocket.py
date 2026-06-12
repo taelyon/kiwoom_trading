@@ -375,6 +375,14 @@ class KiwoomWebSocketClient:
                                     await self.subscribe_stock_execution_data(monitoring_codes, 'monitoring')
                         except Exception as sync_err:
                             self.logger.error(f"모니터링 종목 재구독 실패: {sync_err}", exc_info=True)
+                            
+                        # [추가] 조건검색 실시간 재요청: 끊어지기 전 실행 중이던 조건검색 자동 재시작
+                        try:
+                            if hasattr(self.parent, 'current_strategy') and getattr(self.parent, 'current_strategy', None):
+                                self.logger.info("🔄 웹소켓 복구 상태 동기화: 조건검색 목록 재조회 및 자동 실행 요청")
+                                await self.parent.handle_condition_search_list_query()
+                        except Exception as cnsr_err:
+                            self.logger.error(f"조건검색 재구독 실패: {cnsr_err}", exc_info=True)
 
                 # 메시지 유형이 PING일 경우 수신값 그대로 송신 (키움증권 예시코드 기반)
                 if response.get('trnm') == 'PING':
