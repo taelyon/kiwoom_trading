@@ -208,12 +208,13 @@ class AsyncDatabaseManager:
                 # min_target_indicators = [...] # 삭제됨
                 
                 # 동적으로 컬럼명과 플레이스홀더 생성
-                # tic_ 컬럼은 filtered_tic에 있는 것만 생성
+                # tic_ 컬럼은 filtered_tic에 있는 것만 생성 (기본 컬럼 중복 생성 방지)
+                base_indicators = {'CLOSE', 'HIGH', 'LOW', 'OPEN', 'VOLUME', 'STRENGTH'}
+                filtered_tic = [col for col in filtered_tic if col not in base_indicators]
                 filtered_tic.sort()
                 tic_indicator_cols = ", ".join([f"tic_{col.lower()}" for col in filtered_tic])
                 
                 # min_ 컬럼은 min_target_indicators에 있고 all_indicators(현재 데이터에 존재하는 지표)에 포함된 것만 생성
-                # 여기서는 filtered_min을 사용하는 것이 더 정확할 수 있으나, 기존 로직(min_target 확인) 유지
                 valid_min_indicators = [col for col in all_indicators if col in self.min_target_indicators]
                 min_indicator_cols = ", ".join([f"min3_{col.lower()}" for col in valid_min_indicators])
                 

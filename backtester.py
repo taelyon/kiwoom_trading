@@ -40,6 +40,9 @@ class Backtester:
         df = pd.read_sql(query, conn)
         conn.close()
         
+        # SQLite에 중복 컬럼이 저장되었을 경우(예: 과거 버그로 인한 중복) 방어
+        df = df.loc[:, ~df.columns.duplicated()]
+        
         # 호환성을 위한 컬럼 변환 (DB -> DataFrame)
         # strategy_utils에서 volume 컬럼을 사용하므로 tic_volume을 volume으로 매핑
         if 'tic_volume' in df.columns and 'volume' not in df.columns:
