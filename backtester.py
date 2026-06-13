@@ -323,6 +323,7 @@ class Backtester:
                         locals_dict['datetime'] = datetime.now()
                         locals_dict['current_price'] = current_price
                         locals_dict['profit_pct'] = real_profit_pct
+                        locals_dict['current_profit_pct'] = real_profit_pct
                         locals_dict['buy_price'] = pos['buy_price']
                         locals_dict['buy_time'] = pos['buy_time']
                         locals_dict['holding_amount'] = pos['buy_price'] * pos['qty']
