@@ -3305,8 +3305,9 @@ async def websocket_handler(websocket):
                         if app and hasattr(app, 'loop') and app.loop:
                             main_loop = app.loop
                     
-                    q = mp.Queue()
-                    p = mp.Process(target=run_backtest_process_worker, args=(q, start_date, end_date, code), daemon=True)
+                    ctx = mp.get_context('spawn')
+                    q = ctx.Queue()
+                    p = ctx.Process(target=run_backtest_process_worker, args=(q, start_date, end_date, code), daemon=True)
                     p.start()
                     
                     async def monitor_backtest_process():

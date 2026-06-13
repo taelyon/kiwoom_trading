@@ -158,7 +158,7 @@ class Backtester:
                         else:
                             mat = np.zeros((n, num_features))
                         
-                        group_df['AI_SCORE'] = LGBM_MODEL.predict(mat)
+                        group_df['AI_SCORE'] = LGBM_MODEL.predict(mat, num_threads=1)
                     except Exception as e:
                         logger.error(f"AI_SCORE 배치 계산 오류 ({current_code}): {e}")
                         group_df['AI_SCORE'] = 0.0
