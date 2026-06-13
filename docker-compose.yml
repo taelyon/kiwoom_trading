@@ -24,5 +24,6 @@ services:
       - ./kiwoom_token.json:/app/kiwoom_token.json
       # 필요 시 로그 폴더 마운트
       - ./logs:/app/logs
+      - ./lgbm_model.txt:/app/lgbm_model.txt
     environment:
       - TZ=Asia/Seoul
