@@ -440,7 +440,9 @@ def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, realtime_m
         # ==========================================================
         # AI 실시간 추론 (LightGBM Inference)
         # ==========================================================
-        if skip_ai:
+        if not tic_chart_data.empty and 'AI_SCORE' in tic_chart_data.columns:
+            locals_dict['AI_SCORE'] = float(tic_chart_data['AI_SCORE'].iloc[-1])
+        elif skip_ai:
             locals_dict['AI_SCORE'] = 0.0
         elif LGBM_MODEL and 'TICK_VELOCITY' in locals_dict:
             try:
@@ -684,7 +686,9 @@ def prepare_sell_strategy_locals(code, tic_chart_data, min_chart_data, buy_price
         # ==========================================================
         # AI 실시간 추론 (LightGBM Inference)
         # ==========================================================
-        if skip_ai:
+        if not tic_chart_data.empty and 'AI_SCORE' in tic_chart_data.columns:
+            locals_dict['AI_SCORE'] = float(tic_chart_data['AI_SCORE'].iloc[-1])
+        elif skip_ai:
             locals_dict['AI_SCORE'] = 0.0
         elif LGBM_MODEL and 'TICK_VELOCITY' in locals_dict:
             try:

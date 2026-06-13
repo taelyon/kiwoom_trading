@@ -101,7 +101,7 @@ class Backtester:
             max_capital = capital
             mdd = 0.0
 
-            from strategy_utils import KiwoomIndicatorExtractor
+            from strategy_utils import KiwoomIndicatorExtractor, LGBM_MODEL
             
             for current_code, group_df in grouped:
                 code_idx += 1
@@ -122,6 +122,54 @@ class Backtester:
                     logger.error(f"지표 사전 계산 오류 ({current_code}): {e}")
                     
                 n = len(group_df)
+                
+                # 3. AI_SCORE Batch 연산 (추론 시간이 오래 걸리는 것 방지)
+                if uses_ai and LGBM_MODEL:
+                    try:
+                        f_strength = group_df['strength'].values if 'strength' in group_df.columns else np.zeros(n)
+                        f_velocity = group_df['TICK_VELOCITY'].values if 'TICK_VELOCITY' in group_df.columns else np.full(n, 999999.0)
+                        f_imbalance = group_df['ORDER_BOOK_IMBALANCE'].values if 'ORDER_BOOK_IMBALANCE' in group_df.columns else np.zeros(n)
+                        f_relative = np.zeros(n) # min3_relative_position 대체값
+                        
+                        vol = group_df['volume'].values
+                        f_spike = np.zeros(n)
+                        if n > 10:
+                            prev_10_avg = group_df['volume'].rolling(window=10).mean().shift(1).fillna(1).values
+                            prev_10_avg = np.where(prev_10_avg == 0, 1, prev_10_avg)
+                            f_spike = vol / prev_10_avg
+                            
+                        f_vi_dist = group_df['VI_DISTANCE'].values if 'VI_DISTANCE' in group_df.columns else np.full(n, 999.0)
+                        f_kosdaq_change = group_df['kosdaq_change'].values if 'kosdaq_change' in group_df.columns else np.zeros(n)
+                        
+                        close_vals = group_df['close'].values
+                        vwap_vals = group_df['VWAP'].values if 'VWAP' in group_df.columns else close_vals
+                        vwap_vals_safe = np.where(vwap_vals == 0, 1e-9, vwap_vals)
+                        f_vwap_dist = (close_vals - vwap_vals) / vwap_vals_safe
+                        
+                        f_bb_pos = group_df['BB_POSITION'].values if 'BB_POSITION' in group_df.columns else np.zeros(n)
+                        f_macd_hist = group_df['MACD_HIST'].values if 'MACD_HIST' in group_df.columns else np.zeros(n)
+                        f_rsi = group_df['RSI'].values if 'RSI' in group_df.columns else np.full(n, 50.0)
+                        
+                        dt_series = pd.to_datetime(group_df['datetime'])
+                        f_time = (dt_series.dt.hour * 60 + dt_series.dt.minute) - (9 * 60)
+                        f_time = np.clip(f_time.values, 0, 390)
+                        
+                        num_features = LGBM_MODEL.num_feature()
+                        if num_features == 11:
+                            input_matrix = np.column_stack((f_strength, f_velocity, f_relative, f_spike, f_vi_dist, f_kosdaq_change, f_vwap_dist, f_bb_pos, f_macd_hist, f_rsi, f_time))
+                        elif num_features == 10:
+                            input_matrix = np.column_stack((f_strength, f_velocity, f_relative, f_spike, f_vi_dist, f_kosdaq_change, f_vwap_dist, f_bb_pos, f_macd_hist, f_rsi))
+                        elif num_features == 6:
+                            input_matrix = np.column_stack((f_strength, f_velocity, f_relative, f_spike, f_vi_dist, f_kosdaq_change))
+                        elif num_features == 5:
+                            input_matrix = np.column_stack((f_strength, f_velocity, f_imbalance, f_relative, f_spike))
+                        else:
+                            input_matrix = np.zeros((n, num_features))
+                            
+                        group_df['AI_SCORE'] = LGBM_MODEL.predict(input_matrix)
+                    except Exception as e:
+                        logger.error(f"AI_SCORE Batch 계산 오류 ({current_code}): {e}")
+                        group_df['AI_SCORE'] = 0.0
                 
                 # 매 종목마다 프로그레스 업데이트 (멈춘 것처럼 보이지 않게)
                 progress_msg = f"시뮬레이션 진행 중... ({code_idx}/{total_codes}) - {current_code}"
