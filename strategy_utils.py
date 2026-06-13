@@ -362,6 +362,18 @@ def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_
         for key, value in min_indicators.items():
             if isinstance(value, np.ndarray):
                 locals_dict[f'min3_{key}'] = value
+                
+        # 기본 OHLCV 등 원본 컬럼명 소문자로 그대로 주입 (tic_ 및 min3_ 접두사 추가)
+        base_columns = ['open', 'high', 'low', 'close', 'volume', 'strength']
+        if not tic_chart_data.empty:
+            for col in tic_chart_data.columns:
+                if col in base_columns:
+                    locals_dict[f'tic_{col}'] = tic_chart_data[col].values
+        
+        if not min_chart_data.empty:
+            for col in min_chart_data.columns:
+                if col in base_columns:
+                    locals_dict[f'min3_{col}'] = min_chart_data[col].values
         
         # 포트폴리오 정보 추가
         if portfolio_info:
@@ -570,6 +582,18 @@ def prepare_sell_strategy_locals(code, tic_chart_data, min_chart_data, buy_price
             for key, value in min_indicators.items():
                 if isinstance(value, np.ndarray):
                     locals_dict[f'min3_{key}'] = value
+                    
+            # 기본 OHLCV 등 원본 컬럼명 소문자로 그대로 주입 (tic_ 및 min3_ 접두사 추가)
+            base_columns = ['open', 'high', 'low', 'close', 'volume', 'strength']
+            if not tic_chart_data.empty:
+                for col in tic_chart_data.columns:
+                    if col in base_columns:
+                        locals_dict[f'tic_{col}'] = tic_chart_data[col].values
+            
+            if not min_chart_data.empty:
+                for col in min_chart_data.columns:
+                    if col in base_columns:
+                        locals_dict[f'min3_{col}'] = min_chart_data[col].values
             
             # 기존 데이터프레임 컬럼 추가 (백테스팅 호환성)
             for col in tic_chart_data.columns:
