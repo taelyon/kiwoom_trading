@@ -1352,13 +1352,6 @@ HTML_CONTENT = """
                                 <div style="display:flex; justify-content:space-between;"><span>예상 누적 수익금:</span> <span id="btTotalProfit" style="font-weight:bold;">0원</span></div>
                                 <div style="display:flex; justify-content:space-between;"><span>최대 낙폭 (MDD):</span> <span id="btMdd" style="font-weight:bold; color:var(--primary);">0%</span></div>
                             </div>
-                            <div id="btLogsBox" style="display:none; margin-top:12px; border-top:1px solid rgba(255,255,255,0.1); padding-top:8px;">
-                                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-                                    <span style="font-weight:bold; color:var(--text-secondary);">⚙️ 백테스트 디버그 로그</span>
-                                    <button class="btn-secondary" style="padding:2px 6px; font-size:10px; cursor:pointer;" onclick="toggleBtLogs()">접기/펼치기</button>
-                                </div>
-                                <pre id="btLogsContent" style="max-height:180px; overflow-y:auto; background:rgba(0,0,0,0.5); padding:8px; border-radius:4px; font-family:monospace; font-size:10px; color:#ccc; white-space:pre-wrap; word-break:break-all; margin:0;"></pre>
-                            </div>
                         </div>
                     </div>
                 </div>
@@ -1622,7 +1615,6 @@ HTML_CONTENT = """
                     document.getElementById('btResultBox').style.display = 'block';
                     document.getElementById('btStatsBox').style.display = 'none';
                     document.getElementById('btWarningText').style.display = 'none';
-                    document.getElementById('btLogsBox').style.display = 'none';
                     document.getElementById('btProgressText').innerText = `[${data.progress}%] ${data.msg}`;
                 } else if (data.type === 'backtest_result') {
                     document.getElementById('btnRunBacktest').disabled = false;
@@ -1632,10 +1624,6 @@ HTML_CONTENT = """
                         document.getElementById('btProgressText').innerText = `오류 발생: ${data.data.error}`;
                         document.getElementById('btProgressText').style.color = 'var(--primary)';
                         document.getElementById('btWarningText').style.display = 'none';
-                        if (data.data.debug_logs && data.data.debug_logs.length > 0) {
-                            document.getElementById('btLogsBox').style.display = 'block';
-                            document.getElementById('btLogsContent').innerText = data.data.debug_logs.join('\n');
-                        }
                         return;
                     }
                     
@@ -1649,13 +1637,6 @@ HTML_CONTENT = """
                         warningElem.style.display = 'block';
                     } else {
                         warningElem.style.display = 'none';
-                    }
-                    
-                    if (data.data.debug_logs && data.data.debug_logs.length > 0) {
-                        document.getElementById('btLogsBox').style.display = 'block';
-                        document.getElementById('btLogsContent').innerText = data.data.debug_logs.join('\n');
-                    } else {
-                        document.getElementById('btLogsBox').style.display = 'none';
                     }
                     
                     document.getElementById('btTotalTrades').innerText = data.data.total_trades + '회';
@@ -1790,15 +1771,10 @@ HTML_CONTENT = """
                 }
             };
 
-             ws.onclose = () => {
+            ws.onclose = () => {
                 clearInterval(heartbeatTimer); // 하트비트 종료
                 document.getElementById('connectionStatus').className = "status-badge disconnected";
                 document.getElementById('connectionStatus').innerHTML = '<span style="width: 8px; height: 8px; border-radius: 50%; background-color: var(--danger); box-shadow: 0 0 8px var(--danger);"></span>DISCONNECTED';
-                
-                // 로그인 완료 전이고 비밀번호 인증을 시도한 상태에서 끊긴 경우 화면에 경고 출력
-                if (document.getElementById('dashboardContainer').style.display !== "flex") {
-                    showAuthError("⚠️ 웹소켓 연결이 종료되었습니다. 포트 포워딩 또는 네트워크 상태를 확인해주세요.");
-                }
                 
                 // 인증에 성공했던 비밀번호가 저장되어 있을 때만 자동 재연결 시도
                 const savedPass = localStorage.getItem('dashboard_password');
@@ -1811,9 +1787,6 @@ HTML_CONTENT = """
 
             ws.onerror = (err) => {
                 console.error("웹소켓 에러: ", err);
-                if (document.getElementById('dashboardContainer').style.display !== "flex") {
-                    showAuthError("❌ 웹소켓 접속 오류가 발생했습니다. (Reverse Proxy의 WebSocket 업그레이드 헤더 설정을 점검해 보세요.)");
-                }
             };
         }
 
@@ -2754,15 +2727,6 @@ HTML_CONTENT = """
                 alert("서버와 연결되어 있지 않습니다.");
                 const loadingRow = document.getElementById('kiwoomLoading');
                 if (loadingRow) loadingRow.remove();
-            }
-        }
-
-        function toggleBtLogs() {
-            const content = document.getElementById('btLogsContent');
-            if (content.style.display === 'none') {
-                content.style.display = 'block';
-            } else {
-                content.style.display = 'none';
             }
         }
 
