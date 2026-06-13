@@ -1083,6 +1083,42 @@ HTML_CONTENT = """
                 width: 100%;
             }
         }
+    
+        /* 뷰 컨트롤 (SPA) */
+        .nav-tabs {
+            display: flex;
+            gap: 16px;
+            margin: 0 auto;
+            max-width: 1600px;
+            padding: 0 24px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        .nav-tab {
+            padding: 12px 24px;
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s ease;
+        }
+        .nav-tab:hover {
+            color: var(--text-primary);
+        }
+        .nav-tab.active {
+            color: var(--accent-cyan);
+            border-bottom-color: var(--accent-cyan);
+        }
+        .view-container {
+            display: flex;
+            flex-direction: column;
+            width: 100%;
+            height: 100%;
+            animation: fadeIn 0.3s ease;
+        }
+        .view-hidden {
+            display: none !important;
+        }
     </style>
 </head>
 <body>
@@ -1135,7 +1171,15 @@ HTML_CONTENT = """
             </div>
         </header>
 
-        <div class="dashboard-layout">
+        
+        <div class="nav-tabs">
+            <div id="tabLive" class="nav-tab active" onclick="switchTab('live')">📡 실시간 트레이딩</div>
+            <div id="tabBacktest" class="nav-tab" onclick="switchTab('backtest')">🧪 백테스팅 시뮬레이터</div>
+        </div>
+
+        <div id="liveView" class="view-container">
+            <div class="dashboard-layout">
+
             <!-- 좌측 메인 영역 -->
             <div class="main-column">
                 <!-- 요약 계좌 현황 (총 자산, 매수가능 현금, 총 매입금액) -->
@@ -1322,7 +1366,17 @@ HTML_CONTENT = """
                     </div>
                 </div>
 
-                <!-- 백테스팅 시뮬레이터 -->
+                
+            </div>
+        </div>
+    </div> <!-- /liveView -->
+
+    <!-- 백테스팅 시뮬레이터 전용 뷰 -->
+    <div id="backtestView" class="view-container view-hidden">
+        <div style="max-width: 1200px; margin: 24px auto; width: 100%; display: flex; flex-direction: column; gap: 24px; padding: 0 24px;">
+            <div class="glass-card">
+                <div class="section-title" style="margin-bottom:16px; font-size: 20px; color: var(--accent-cyan); border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 12px;">🧪 백테스팅 파라미터 설정 및 실행</div>
+
                 <div class="glass-card">
                     <div class="section-title" style="margin-bottom:16px;">백테스팅 시뮬레이터 (과거 데이터 검증)</div>
                     <div class="order-panel">
@@ -1360,14 +1414,12 @@ HTML_CONTENT = """
                                 <pre id="btLogsContent" style="max-height:180px; overflow-y:auto; background:rgba(0,0,0,0.5); padding:8px; border-radius:4px; font-family:monospace; font-size:10px; color:#ccc; white-space:pre-wrap; word-break:break-all; margin:0;"></pre>
                             </div>
                         </div>
-                    </div>
-                </div>
-
+                    
             </div>
         </div>
     </div>
-    
-    <!-- 매매내역 모달 -->
+
+    <!-- 매매내역 모달 -->    <!-- 매매내역 모달 -->
     <div id="tradeHistoryModal" class="modal-overlay" style="display:none; z-index: 9999;">
         <div class="modal-container">
             <div class="modal-header" style="flex-direction: column; align-items: stretch; gap: 12px;">
@@ -2074,6 +2126,23 @@ HTML_CONTENT = """
         }
 
         // 콘솔 비밀번호 단독 변경 요청
+        
+        function switchTab(tabId) {
+            document.getElementById('tabLive').classList.remove('active');
+            document.getElementById('tabBacktest').classList.remove('active');
+            
+            document.getElementById('liveView').classList.add('view-hidden');
+            document.getElementById('backtestView').classList.add('view-hidden');
+            
+            if (tabId === 'live') {
+                document.getElementById('tabLive').classList.add('active');
+                document.getElementById('liveView').classList.remove('view-hidden');
+            } else if (tabId === 'backtest') {
+                document.getElementById('tabBacktest').classList.add('active');
+                document.getElementById('backtestView').classList.remove('view-hidden');
+            }
+        }
+
         function changePassword() {
             const passwordField = document.getElementById('cfgPassword');
             const password = passwordField.value.trim();
