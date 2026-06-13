@@ -1200,9 +1200,12 @@ HTML_CONTENT = """
 
             <!-- 우측 제어/설정/로그 영역 -->
             <div class="main-column">
-                <!-- 매매 환경 설정 -->
+                <!-- API 인증키 설정 -->
                 <div class="glass-card">
-                    <div class="section-title" style="margin-bottom:16px;">매매 파라미터 제어 (.env)</div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                        <div class="section-title" style="margin-bottom: 0;">API 인증키 설정</div>
+                        <button class="btn-primary" style="padding: 6px 12px; font-size: 13px;" onclick="saveSettings()">인증키 저장</button>
+                    </div>
                     <div class="settings-panel">
                         <div class="order-row">
                             <div class="form-field">
@@ -1224,6 +1227,13 @@ HTML_CONTENT = """
                                 <input type="password" id="cfgMockSecret" placeholder="모의 App Secret">
                             </div>
                         </div>
+                    </div>
+                </div>
+
+                <!-- 매매 환경 설정 -->
+                <div class="glass-card">
+                    <div class="section-title" style="margin-bottom:16px;">매매 파라미터 제어 (.env)</div>
+                    <div class="settings-panel">
                         <div class="order-row">
                             <div class="form-field">
                                 <label for="cfgBuyCount">최대 매수종목수 (buycount)</label>
