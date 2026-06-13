@@ -107,41 +107,55 @@ class Backtester:
                 # 1. 컬럼명 일괄 변경
                 group_df = group_df.rename(columns={
                     'tic_open': 'open', 'tic_high': 'high', 'tic_low': 'low', 
-                    'tic_close': 'close', 'tic_volume': 'volume', 'tic_strength': 'strength'
+                    'tic_close': 'close', 'tic_volume': 'volume'
                 })
                 
-                # 1.5 3분봉 데이터 에뮬레이션 (DB 저장 여부와 무관하게 실시간과 동일한 환경 제공)
+                # 1.5 3분봉 데이터 처리
+                # DB에 실시간 누적 스냅샷(min3_volume 등)이 이미 있으면 그대로 사용
+                # 없으면 resample로 재집계 (과거 데이터 호환)
                 try:
                     group_df['datetime'] = pd.to_datetime(group_df['datetime'])
-                    # 중복 인덱스 방지를 위해 임시 인덱스 설정
-                    temp_df = group_df.set_index('datetime')
                     
-                    # 3분봉 집계 (ohlcv)
-                    min3_df = temp_df.resample('3min').agg({
-                        'open': 'first',
-                        'high': 'max',
-                        'low': 'min',
-                        'close': 'last',
-                        'volume': 'sum'
-                    }).ffill()
+                    # DB에 min3_ 기본 OHLCV 컬럼이 존재하는지 확인
+                    has_db_min3 = all(
+                        col in group_df.columns 
+                        for col in ['min3_open', 'min3_close', 'min3_volume']
+                    )
                     
-                    # 분봉 지표 계산
-                    min3_inds = KiwoomIndicatorExtractor.extract_chart_indicators(min3_df)
-                    for k, v in min3_inds.items():
-                        min3_df[k] = v
+                    if has_db_min3 and group_df['min3_volume'].notna().sum() > 0:
+                        # DB의 실시간 누적 스냅샷을 그대로 사용 (실시간 매매와 동일한 환경)
+                        logger.debug(f"📊 {current_code}: DB의 실시간 min3_ 스냅샷 데이터 사용")
+                    else:
+                        # DB에 min3_ 데이터가 없는 경우: resample로 재집계 (과거 데이터 호환)
+                        logger.debug(f"📊 {current_code}: min3_ 데이터 없음, resample로 재집계")
+                        temp_df = group_df.set_index('datetime')
                         
-                    # 컬럼명에 min3_ 접두사 추가 및 소문자 변환
-                    min3_df.columns = [f'min3_{c.lower()}' for c in min3_df.columns]
-                    
-                    # 기존에 DB에 부분적으로 저장되어 있던 min3_ 컬럼들(min3_ma5 등)과 충돌 방지를 위해 제거
-                    existing_min3 = [c for c in temp_df.columns if c.startswith('min3_')]
-                    temp_df = temp_df.drop(columns=existing_min3)
-                    
-                    # 병합 (backward 매핑)
-                    group_df = pd.merge_asof(temp_df, min3_df, left_index=True, right_index=True, direction='backward')
-                    group_df = group_df.reset_index()
+                        # 3분봉 집계 (ohlcv)
+                        min3_df = temp_df.resample('3min').agg({
+                            'open': 'first',
+                            'high': 'max',
+                            'low': 'min',
+                            'close': 'last',
+                            'volume': 'sum'
+                        }).ffill()
+                        
+                        # 분봉 지표 계산
+                        min3_inds = KiwoomIndicatorExtractor.extract_chart_indicators(min3_df)
+                        for k, v in min3_inds.items():
+                            min3_df[k] = v
+                            
+                        # 컬럼명에 min3_ 접두사 추가 및 소문자 변환
+                        min3_df.columns = [f'min3_{c.lower()}' for c in min3_df.columns]
+                        
+                        # 기존 min3_ 컬럼 제거 후 재집계 데이터로 교체
+                        existing_min3 = [c for c in temp_df.columns if c.startswith('min3_')]
+                        temp_df = temp_df.drop(columns=existing_min3)
+                        
+                        # 병합 (backward 매핑)
+                        group_df = pd.merge_asof(temp_df, min3_df, left_index=True, right_index=True, direction='backward')
+                        group_df = group_df.reset_index()
                 except Exception as e:
-                    logger.error(f"3분봉 에뮬레이션 오류 ({current_code}): {e}")
+                    logger.error(f"3분봉 데이터 처리 오류 ({current_code}): {e}")
                     
                 # 2. 기술적 지표 1회 일괄(Batch) 계산
                 try:
@@ -157,7 +171,7 @@ class Backtester:
                 # 3. AI_SCORE 배치 계산 (전략에 AI_SCORE가 포함된 경우만)
                 if uses_ai and LGBM_MODEL:
                     try:
-                        f_strength = group_df['strength'].values if 'strength' in group_df.columns else np.zeros(n)
+                        f_strength = np.zeros(n)  # tic_strength 삭제됨 (AI 모델 호환용 0.0 주입)
                         f_velocity = group_df['TICK_VELOCITY'].values if 'TICK_VELOCITY' in group_df.columns else np.full(n, 999999.0)
                         f_relative = np.zeros(n)
                         
