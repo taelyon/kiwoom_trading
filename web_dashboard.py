@@ -1150,12 +1150,14 @@ HTML_CONTENT = """
 
                 <!-- 감시 종목 관리 -->
                 <div class="glass-card">
-                    <div class="section-title" style="margin-bottom:16px;">자동매매 실시간 감시 종목</div>
-                    <div class="monitoring-box">
-                        <div class="monitoring-input-row">
-                            <input type="text" id="monitorInput" placeholder="종목코드 입력 (6자리)">
-                            <button class="btn-add" onclick="addMonitoringStock()">감시 추가</button>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                        <div class="section-title" style="margin-bottom: 0;">자동매매 실시간 감시 종목</div>
+                        <div class="monitoring-input-row" style="margin-bottom: 0;">
+                            <input type="text" id="monitorInput" placeholder="종목코드 입력 (6자리)" style="width: 180px; flex-grow: 0; padding: 6px 10px; font-size: 13px;">
+                            <button class="btn-add" onclick="addMonitoringStock()" style="padding: 6px 12px; font-size: 13px;">감시 추가</button>
                         </div>
+                    </div>
+                    <div class="monitoring-box" style="gap: 0;">
                         <div id="monitoringBadges" class="monitoring-badges">
                             <div class="no-data">감시 중인 종목이 없습니다.</div>
                         </div>
