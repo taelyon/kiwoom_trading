@@ -3834,7 +3834,7 @@ async def start_web_dashboard(main_window, host="0.0.0.0", http_port=8081, ws_po
     main_window_ref = main_window
     
     # 차트 데이터 업데이트 통지를 웹 브로드캐스트 함수와 동기화 바인딩
-    if main_window.chart_cache:
+    if main_window and hasattr(main_window, 'chart_cache') and main_window.chart_cache:
         main_window.chart_cache.data_updated.connect(on_chart_data_updated)
     
     # WebSocket 및 HTTP 통합 포트 기동
