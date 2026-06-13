@@ -90,6 +90,7 @@ class Backtester:
             
             max_capital = capital
             mdd = 0.0
+            eval_errors = 0
 
             from strategy_utils import KiwoomIndicatorExtractor, LGBM_MODEL
             
@@ -109,6 +110,39 @@ class Backtester:
                     'tic_close': 'close', 'tic_volume': 'volume', 'tic_strength': 'strength'
                 })
                 
+                # 1.5 3분봉 데이터 에뮬레이션 (DB 저장 여부와 무관하게 실시간과 동일한 환경 제공)
+                try:
+                    group_df['datetime'] = pd.to_datetime(group_df['datetime'])
+                    # 중복 인덱스 방지를 위해 임시 인덱스 설정
+                    temp_df = group_df.set_index('datetime')
+                    
+                    # 3분봉 집계 (ohlcv)
+                    min3_df = temp_df.resample('3min').agg({
+                        'open': 'first',
+                        'high': 'max',
+                        'low': 'min',
+                        'close': 'last',
+                        'volume': 'sum'
+                    }).ffill()
+                    
+                    # 분봉 지표 계산
+                    min3_inds = KiwoomIndicatorExtractor.extract_chart_indicators(min3_df)
+                    for k, v in min3_inds.items():
+                        min3_df[k] = v
+                        
+                    # 컬럼명에 min3_ 접두사 추가 및 소문자 변환
+                    min3_df.columns = [f'min3_{c.lower()}' for c in min3_df.columns]
+                    
+                    # 기존에 DB에 부분적으로 저장되어 있던 min3_ 컬럼들(min3_ma5 등)과 충돌 방지를 위해 제거
+                    existing_min3 = [c for c in temp_df.columns if c.startswith('min3_')]
+                    temp_df = temp_df.drop(columns=existing_min3)
+                    
+                    # 병합 (backward 매핑)
+                    group_df = pd.merge_asof(temp_df, min3_df, left_index=True, right_index=True, direction='backward')
+                    group_df = group_df.reset_index()
+                except Exception as e:
+                    logger.error(f"3분봉 에뮬레이션 오류 ({current_code}): {e}")
+                    
                 # 2. 기술적 지표 1회 일괄(Batch) 계산
                 try:
                     indicators = KiwoomIndicatorExtractor.extract_chart_indicators(group_df)
@@ -118,6 +152,7 @@ class Backtester:
                     logger.error(f"지표 사전 계산 오류 ({current_code}): {e}")
                 
                 n = len(group_df)
+                group_df['AI_SCORE'] = 0.0
                 
                 # 3. AI_SCORE 배치 계산 (전략에 AI_SCORE가 포함된 경우만)
                 if uses_ai and LGBM_MODEL:
@@ -228,8 +263,10 @@ class Backtester:
                                     buy_signal = True
                                     matched_stg_name = stg_name_str
                                     break
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                eval_errors += 1
+                                if eval_errors <= 5:
+                                    logger.error(f"매수 전략 평가 오류 ({stg_name_str}): {e}")
                                 
                         if buy_signal:
                             qty = int(invested_per_trade / current_price)
@@ -278,8 +315,10 @@ class Backtester:
                                     sell_ratio = stg_ratio
                                     matched_sell_stg = stg_name_str
                                     break
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                eval_errors += 1
+                                if eval_errors <= 5:
+                                    logger.error(f"매도 전략 평가 오류 ({stg_name_str}): {e}")
                                 
                         # 장 마감 직전 (15:18:00 이후) 강제 청산
                         time_part = current_time_str[8:14] if len(current_time_str) >= 14 else ""
