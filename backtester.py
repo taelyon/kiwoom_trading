@@ -7,13 +7,6 @@ import json
 import logging
 from config_manager import EnvConfigParser
 
-def parse_strategies(stg_str):
-    try:
-        if not stg_str or stg_str.strip() == '': return []
-        return json.loads(stg_str)
-    except Exception:
-        return []
-
 logger = logging.getLogger("Backtester")
 if not logger.handlers:
     handler = logging.StreamHandler()
@@ -67,14 +60,22 @@ class Backtester:
             if progress_callback: progress_callback(30, f"데이터 로딩 완료: {len(df):,} 틱. 시뮬레이션 준비 중...")
 
             # 전략 로드
-            buy_strategies = parse_strategies(self.config.get('SETTINGS_BUY_STRATEGY', '[]'))
-            sell_strategies = parse_strategies(self.config.get('SETTINGS_SELL_STRATEGY', '[]'))
+            from strategy_utils import load_strategies_from_config
             
-            if not buy_strategies:
-                stg_name = self.config.get('SETTINGS_LAST_STRATEGY', '기본_돌파')
-                buy_strategies = parse_strategies(self.config.get(f'STRATEGY_{stg_name}_BUY_STG', '[]'))
-                sell_strategies = parse_strategies(self.config.get(f'STRATEGY_{stg_name}_SELL_STG', '[]'))
-
+            # config.get은 (section, option) 두 개의 인자를 받습니다.
+            stg_name = self.config.get('SETTINGS', 'LAST_STRATEGY', '기본_돌파')
+            
+            buy_strategies = []
+            sell_strategies = []
+            
+            all_strategies = load_strategies_from_config()
+            
+            if stg_name in all_strategies:
+                buy_strategies = all_strategies[stg_name]['buy_strategies']
+                sell_strategies = all_strategies[stg_name]['sell_strategies']
+            else:
+                logger.warning(f"설정된 전략 '{stg_name}'을 찾을 수 없어 빈 전략으로 실행합니다.")
+            
             portfolio = {} # code -> {'buy_price': float, 'qty': int, 'buy_time': str}
             trades = []
             
