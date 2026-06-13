@@ -329,7 +329,7 @@ class KiwoomIndicatorExtractor:
             return {}
 
 # ==================== 전략 평가용 로컬 변수 빌더 ====================
-def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_info=None, realtime_metrics=None):
+def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, realtime_metrics=None, portfolio_info=None, skip_ai=False):
     """매수 전략 평가를 위한 로컬 변수 생성"""
     logger = logging.getLogger(__name__)
     try:
@@ -440,7 +440,9 @@ def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_
         # ==========================================================
         # AI 실시간 추론 (LightGBM Inference)
         # ==========================================================
-        if LGBM_MODEL and 'TICK_VELOCITY' in locals_dict:
+        if skip_ai:
+            locals_dict['AI_SCORE'] = 0.0
+        elif LGBM_MODEL and 'TICK_VELOCITY' in locals_dict:
             try:
                 # 입력 벡터 준비 (학습 때와 동일한 순서여야 함: strength, velocity, imbalance, relative_pos)
                 # 데이터가 없으면 기본값 0 처리
@@ -538,7 +540,7 @@ def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_
         logger.error(f"백테스팅 매수 로컬 변수 생성 실패 ({code}): {ex}", exc_info=True)
         return {}
 
-def prepare_sell_strategy_locals(code, tic_chart_data, min_chart_data, buy_price, buy_time, portfolio_info=None, current_price=None, commission_rate=0.00015, tax_rate=0.0018, realtime_metrics=None):
+def prepare_sell_strategy_locals(code, tic_chart_data, min_chart_data, buy_price, buy_time, portfolio_info=None, current_price=None, commission_rate=0.00015, tax_rate=0.0018, realtime_metrics=None, skip_ai=False):
     """매도 전략 평가를 위한 로컬 변수 생성"""
     logger = logging.getLogger(__name__)
     try:
@@ -682,7 +684,9 @@ def prepare_sell_strategy_locals(code, tic_chart_data, min_chart_data, buy_price
         # ==========================================================
         # AI 실시간 추론 (LightGBM Inference)
         # ==========================================================
-        if LGBM_MODEL and 'TICK_VELOCITY' in locals_dict:
+        if skip_ai:
+            locals_dict['AI_SCORE'] = 0.0
+        elif LGBM_MODEL and 'TICK_VELOCITY' in locals_dict:
             try:
                 # 입력 벡터 준비
                 feature_strength = locals_dict.get('tic_strength', [0])[-1] if isinstance(locals_dict.get('tic_strength'), (list, np.ndarray)) else 0

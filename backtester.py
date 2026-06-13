@@ -76,6 +76,14 @@ class Backtester:
                 buy_strategies = parse_strategies(self.config.get(f'STRATEGY_{stg_name}_BUY_STG', '[]'))
                 sell_strategies = parse_strategies(self.config.get(f'STRATEGY_{stg_name}_SELL_STG', '[]'))
 
+            uses_ai = False
+            for stg in buy_strategies + sell_strategies:
+                if 'AI_SCORE' in stg.get('content', ''):
+                    uses_ai = True
+                    break
+            if uses_ai:
+                logger.info("⚠️ 백테스팅 전략에 AI_SCORE가 포함되어 있어 추론 시간이 길어질 수 있습니다.")
+
             portfolio = {} # code -> {'buy_price': float, 'qty': int, 'buy_time': str}
             trades = []
             
@@ -136,7 +144,10 @@ class Backtester:
                         start_idx = max(0, i - 300)
                         api_df = group_df.iloc[start_idx:i+1]
                         
-                        locals_dict = prepare_buy_strategy_locals(current_code, api_df, pd.DataFrame(), realtime_metrics=None)
+                        locals_dict = prepare_buy_strategy_locals(
+                            current_code, api_df, pd.DataFrame(), 
+                            realtime_metrics=None, skip_ai=not uses_ai
+                        )
                         
                         # 강제 호환성
                         if 'datetime' not in locals_dict:
@@ -183,7 +194,8 @@ class Backtester:
                             'strategy': pos['stg']
                         }
                         locals_dict = prepare_sell_strategy_locals(
-                            current_code, api_df, pd.DataFrame(), buy_record, real_profit_pct, current_price, realtime_metrics=None
+                            current_code, api_df, pd.DataFrame(), buy_record, real_profit_pct, current_price, 
+                            realtime_metrics=None, skip_ai=not uses_ai
                         )
                         
                         if 'datetime' not in locals_dict:
