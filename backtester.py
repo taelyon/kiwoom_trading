@@ -6,7 +6,6 @@ from datetime import datetime
 import json
 import logging
 from config_manager import EnvConfigParser
-from strategy_utils import prepare_buy_strategy_locals, prepare_sell_strategy_locals, LGBM_MODEL
 
 def parse_strategies(stg_str):
     try:
@@ -93,51 +92,120 @@ class Backtester:
             max_capital = capital
             mdd = 0.0
 
-            from strategy_utils import KiwoomIndicatorExtractor
+            from strategy_utils import KiwoomIndicatorExtractor, LGBM_MODEL
+            
+            # AI_SCORE 사용 여부 판단
+            uses_ai = False
+            for stg in buy_strategies + sell_strategies:
+                if 'AI_SCORE' in stg.get('content', ''):
+                    uses_ai = True
+                    break
             
             for current_code, group_df in grouped:
                 code_idx += 1
                 group_df = group_df.reset_index(drop=True)
                 
-                # 1. 컬럼명 일괄 변경 (rename 오버헤드 제거)
+                # 1. 컬럼명 일괄 변경
                 group_df = group_df.rename(columns={
                     'tic_open': 'open', 'tic_high': 'high', 'tic_low': 'low', 
                     'tic_close': 'close', 'tic_strength': 'strength'
                 })
                 
-                # 2. 기술적 지표 1회 일괄(Batch) 계산 (루프 내 talib 재계산 방지)
+                # 2. 기술적 지표 1회 일괄(Batch) 계산
                 try:
                     indicators = KiwoomIndicatorExtractor.extract_chart_indicators(group_df)
                     for k, v in indicators.items():
                         group_df[k] = v
                 except Exception as e:
                     logger.error(f"지표 사전 계산 오류 ({current_code}): {e}")
-                    
+                
                 n = len(group_df)
                 
-                # 매 10종목마다 프로그레스 업데이트
-                if progress_callback and code_idx % max(1, total_codes // 20) == 0:
+                # 3. AI_SCORE 배치 계산 (전략에 AI_SCORE가 포함된 경우만)
+                if uses_ai and LGBM_MODEL:
+                    try:
+                        f_strength = group_df['strength'].values if 'strength' in group_df.columns else np.zeros(n)
+                        f_velocity = group_df['TICK_VELOCITY'].values if 'TICK_VELOCITY' in group_df.columns else np.full(n, 999999.0)
+                        f_relative = np.zeros(n)
+                        
+                        vol = group_df['volume'].values if 'volume' in group_df.columns else np.ones(n)
+                        f_spike = np.zeros(n)
+                        if n > 10:
+                            roll_avg = pd.Series(vol).rolling(window=10).mean().shift(1).fillna(1).values
+                            roll_avg = np.where(roll_avg == 0, 1, roll_avg)
+                            f_spike = vol / roll_avg
+                        
+                        f_vi_dist = group_df['VI_DISTANCE'].values if 'VI_DISTANCE' in group_df.columns else np.full(n, 999.0)
+                        f_kosdaq_change = group_df['kosdaq_change'].values if 'kosdaq_change' in group_df.columns else np.zeros(n)
+                        
+                        close_vals = group_df['close'].values
+                        vwap_vals = group_df['VWAP'].values if 'VWAP' in group_df.columns else close_vals.copy()
+                        vwap_safe = np.where(vwap_vals == 0, 1e-9, vwap_vals)
+                        f_vwap_dist = (close_vals - vwap_vals) / vwap_safe
+                        
+                        f_bb_pos = group_df['BB_POSITION'].values if 'BB_POSITION' in group_df.columns else np.full(n, 0.5)
+                        f_macd_hist = group_df['MACD_HIST'].values if 'MACD_HIST' in group_df.columns else np.zeros(n)
+                        f_rsi = group_df['RSI'].values if 'RSI' in group_df.columns else np.full(n, 50.0)
+                        
+                        dt_series = pd.to_datetime(group_df['datetime'], errors='coerce')
+                        f_time = np.clip((dt_series.dt.hour * 60 + dt_series.dt.minute).values - 540, 0, 390)
+                        
+                        num_features = LGBM_MODEL.num_feature()
+                        if num_features == 11:
+                            mat = np.column_stack((f_strength, f_velocity, f_relative, f_spike, f_vi_dist, f_kosdaq_change, f_vwap_dist, f_bb_pos, f_macd_hist, f_rsi, f_time))
+                        elif num_features == 10:
+                            mat = np.column_stack((f_strength, f_velocity, f_relative, f_spike, f_vi_dist, f_kosdaq_change, f_vwap_dist, f_bb_pos, f_macd_hist, f_rsi))
+                        elif num_features == 6:
+                            mat = np.column_stack((f_strength, f_velocity, f_relative, f_spike, f_vi_dist, f_kosdaq_change))
+                        else:
+                            mat = np.zeros((n, num_features))
+                        
+                        group_df['AI_SCORE'] = LGBM_MODEL.predict(mat)
+                    except Exception as e:
+                        logger.error(f"AI_SCORE 배치 계산 오류 ({current_code}): {e}")
+                        group_df['AI_SCORE'] = 0.0
+                
+                # 4. numpy 배열 사전 추출 (루프 내 iloc 호출 최소화)
+                close_arr = group_df['close'].values
+                datetime_arr = group_df['datetime'].values
+                
+                # 전략 eval에 사용할 모든 컬럼을 numpy 배열로 미리 추출
+                precomputed = {}
+                for col in group_df.columns:
+                    try:
+                        precomputed[col] = group_df[col].values
+                    except Exception:
+                        pass
+                
+                # 매 종목마다 프로그레스 업데이트
+                if progress_callback:
                     prog = 30 + int((code_idx / total_codes) * 60)
-                    progress_callback(prog, f"시뮬레이션 진행 중... ({code_idx}/{total_codes})")
-
+                    progress_callback(prog, f"시뮬레이션 진행 중... ({code_idx}/{total_codes}) - {current_code}")
+                
                 for i in range(10, n):
-                    # 현재 틱 정보
-                    current_row = group_df.iloc[i]
-                    current_price = current_row['close'] # renamed from tic_close
-                    current_time_str = current_row['datetime']
+                    current_price = float(close_arr[i])
+                    current_time_str = str(datetime_arr[i])
                     
                     # 1. 매수 평가 (포지션이 없을 때)
                     if current_code not in portfolio:
-                        # 300 틱 윈도우 슬라이싱 (copy 생략으로 속도 극대화)
+                        # 경량 locals_dict 구성 (numpy 슬라이싱 = 메모리 복사 없음)
                         start_idx = max(0, i - 300)
-                        api_df = group_df.iloc[start_idx:i+1]
+                        locals_dict = {}
+                        for col_name, col_arr in precomputed.items():
+                            arr_slice = col_arr[start_idx:i+1]
+                            locals_dict[col_name] = arr_slice
+                            # tic_ 접두사 호환
+                            if not col_name.startswith('tic_') and not col_name.startswith('min3_'):
+                                locals_dict[f'tic_{col_name}'] = arr_slice
                         
-                        locals_dict = prepare_buy_strategy_locals(current_code, api_df, pd.DataFrame(), realtime_metrics=None)
+                        # AI_SCORE는 스칼라로 제공
+                        if 'AI_SCORE' in precomputed:
+                            locals_dict['AI_SCORE'] = float(precomputed['AI_SCORE'][i])
                         
-                        # 강제 호환성
-                        if 'datetime' not in locals_dict:
-                            locals_dict['datetime'] = datetime.now()
-                            
+                        locals_dict['code'] = current_code
+                        locals_dict['datetime'] = datetime.now()
+                        locals_dict['current_price'] = current_price
+                        
                         buy_signal = False
                         matched_stg_name = ""
                         
@@ -151,7 +219,6 @@ class Backtester:
                                 pass
                                 
                         if buy_signal:
-                            # 매수 체결
                             qty = int(invested_per_trade / current_price)
                             if qty > 0:
                                 portfolio[current_code] = {
@@ -165,25 +232,27 @@ class Backtester:
                     else:
                         pos = portfolio[current_code]
                         profit_pct = (current_price - pos['buy_price']) / pos['buy_price'] * 100.0
-                        # 수수료/세금 대략 0.2% 차감 적용
                         real_profit_pct = profit_pct - 0.2
                         
+                        # 경량 locals_dict 구성
                         start_idx = max(0, i - 300)
-                        api_df = group_df.iloc[start_idx:i+1]
+                        locals_dict = {}
+                        for col_name, col_arr in precomputed.items():
+                            arr_slice = col_arr[start_idx:i+1]
+                            locals_dict[col_name] = arr_slice
+                            if not col_name.startswith('tic_') and not col_name.startswith('min3_'):
+                                locals_dict[f'tic_{col_name}'] = arr_slice
                         
-                        buy_record = {
-                            'buy_price': pos['buy_price'],
-                            'qty': pos['qty'],
-                            'amount': pos['buy_price'] * pos['qty'],
-                            'datetime': pos['buy_time'],
-                            'strategy': pos['stg']
-                        }
-                        locals_dict = prepare_sell_strategy_locals(
-                            current_code, api_df, pd.DataFrame(), buy_record, real_profit_pct, current_price, realtime_metrics=None
-                        )
+                        if 'AI_SCORE' in precomputed:
+                            locals_dict['AI_SCORE'] = float(precomputed['AI_SCORE'][i])
                         
-                        if 'datetime' not in locals_dict:
-                            locals_dict['datetime'] = datetime.now()
+                        locals_dict['code'] = current_code
+                        locals_dict['datetime'] = datetime.now()
+                        locals_dict['current_price'] = current_price
+                        locals_dict['profit_pct'] = real_profit_pct
+                        locals_dict['buy_price'] = pos['buy_price']
+                        locals_dict['buy_time'] = pos['buy_time']
+                        locals_dict['holding_amount'] = pos['buy_price'] * pos['qty']
 
                         sell_signal = False
                         sell_ratio = 1.0
@@ -199,7 +268,7 @@ class Backtester:
                             except Exception:
                                 pass
                                 
-                        # 장 마감 직전 (15:18:00 이후) 강제 청산 조건 추가
+                        # 장 마감 직전 (15:18:00 이후) 강제 청산
                         time_part = current_time_str[8:14] if len(current_time_str) >= 14 else ""
                         if time_part >= "151800":
                             sell_signal = True
@@ -207,11 +276,10 @@ class Backtester:
                             matched_sell_stg = "장마감 강제청산"
                                 
                         if sell_signal:
-                            # 매도 체결
                             sell_qty = int(pos['qty'] * sell_ratio)
                             if sell_qty > 0:
                                 trade_profit = (current_price - pos['buy_price']) * sell_qty
-                                trade_profit -= (pos['buy_price'] * sell_qty * 0.002) # 수수료/세금
+                                trade_profit -= (pos['buy_price'] * sell_qty * 0.002)
                                 
                                 total_profit += trade_profit
                                 capital += trade_profit
