@@ -159,7 +159,7 @@ class KiwoomIndicatorExtractor:
                 'MA5', 'MA10', 'MA20', 'MA60', 'RSI', 'MACD', 'MACD_SIGNAL', 'MACD_HIST',
                 'STOCHK', 'STOCHD', 'WILLIAMS_R', 'ROC', 'OBV', 'OBV_MA20',
                 'BB_UPPER', 'BB_MIDDLE', 'BB_LOWER', 'ATR',
-                'TICK_VELOCITY', 'ORDER_BOOK_IMBALANCE', 'LAST_TIC_CNT'
+                'TICK_VELOCITY', 'LAST_TIC_CNT'
             ]
             for key in cached_indicator_keys:
                 if is_target(key) and key in chart_data.columns:
@@ -393,14 +393,8 @@ def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_
         locals_dict['TICK_VELOCITY'] = tv_array
         locals_dict['tic_velocity'] = tv_array
 
-        # ORDER_BOOK_IMBALANCE (배열 보장 및 Alias 설정)
-        obi_array = None
-        if not tic_chart_data.empty and 'ORDER_BOOK_IMBALANCE' in tic_chart_data.columns:
-            obi_array = tic_chart_data['ORDER_BOOK_IMBALANCE'].values
-        elif realtime_metrics and 'order_book_imbalance' in realtime_metrics:
-            obi_array = np.array([realtime_metrics['order_book_imbalance']])
-        else:
-            obi_array = np.array([0.0])
+        # ORDER_BOOK_IMBALANCE는 삭제되었으나, 이전 AI 모델 하위 호환성을 위해 0.0 고정 배열 주입
+        obi_array = np.array([0.0])
             
         locals_dict['ORDER_BOOK_IMBALANCE'] = obi_array
         locals_dict['tic_order_book_imbalance'] = obi_array
@@ -672,14 +666,8 @@ def prepare_sell_strategy_locals(code, tic_chart_data, min_chart_data, buy_price
         locals_dict['TICK_VELOCITY'] = tv_array
         locals_dict['tic_velocity'] = tv_array
 
-        # ORDER_BOOK_IMBALANCE (배열 보장 및 Alias 설정)
-        obi_array = None
-        if not tic_chart_data.empty and 'ORDER_BOOK_IMBALANCE' in tic_chart_data.columns:
-            obi_array = tic_chart_data['ORDER_BOOK_IMBALANCE'].values
-        elif realtime_metrics and 'order_book_imbalance' in realtime_metrics:
-            obi_array = np.array([realtime_metrics['order_book_imbalance']])
-        else:
-            obi_array = np.array([0.0])
+        # ORDER_BOOK_IMBALANCE는 삭제되었으나, 이전 AI 모델 하위 호환성을 위해 0.0 고정 배열 주입
+        obi_array = np.array([0.0])
             
         locals_dict['ORDER_BOOK_IMBALANCE'] = obi_array
         locals_dict['tic_order_book_imbalance'] = obi_array

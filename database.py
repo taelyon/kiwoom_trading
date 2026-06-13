@@ -18,7 +18,7 @@ class AsyncDatabaseManager:
         self.indicator_list = [
             'MA5', 'MA10', 'MA20', 'MA60', 'MA120', 
             'RSI', 'RSI_SIGNAL',
-            'VELOCITY', 'ORDER_BOOK_IMBALANCE', 'RELATIVE_POSITION', 'LAST_TIC_CNT'
+            'VELOCITY', 'RELATIVE_POSITION', 'LAST_TIC_CNT'
         ]
         # 3분봉 저장 대상 지표 (DB 스키마 및 저장 시 사용)
         self.min_target_indicators = [
@@ -86,7 +86,7 @@ class AsyncDatabaseManager:
                         'MA5', 'MA10', 'MA20', 'MA60', 'MA120',
                         'RSI', 'RSI_SIGNAL',
                         'LAST_TIC_CNT',
-                        'VELOCITY', 'ORDER_BOOK_IMBALANCE'
+                        'VELOCITY'
                     ]
                     tic_indicator_cols = ", ".join([f"tic_{col.lower()} REAL" for col in tic_indicators])
                     
@@ -162,7 +162,7 @@ class AsyncDatabaseManager:
                     'MA5', 'MA10', 'MA20', 'MA60', 'MA120',
                     'RSI', 'RSI_SIGNAL',
                     'LAST_TIC_CNT',
-                    'VELOCITY', 'ORDER_BOOK_IMBALANCE', 'RELATIVE_POSITION',
+                    'VELOCITY', 'RELATIVE_POSITION',
                     'TURNOVER', 'VI_DISTANCE',
                     'SELL_HOGA_SIZE_1', 'SELL_HOGA_SIZE_2', 'SELL_HOGA_SIZE_3',
                     'BUY_HOGA_SIZE_1', 'BUY_HOGA_SIZE_2', 'BUY_HOGA_SIZE_3',

@@ -1559,7 +1559,7 @@ class KiwoomWebSocketClient:
             
             # 필수 키가 없으면 초기화
             required_keys = ['time', 'open', 'high', 'low', 'close', 'volume', 'strength', 'buy_volume', 'sell_volume', 
-                             'TICK_VELOCITY', 'ORDER_BOOK_IMBALANCE', 'LAST_TIC_CNT', 'TURNOVER', 'SELL_HOGA_SIZE_1', 
+                             'TICK_VELOCITY', 'LAST_TIC_CNT', 'TURNOVER', 'SELL_HOGA_SIZE_1', 
                              'SELL_HOGA_SIZE_2', 'SELL_HOGA_SIZE_3', 'BUY_HOGA_SIZE_1', 'BUY_HOGA_SIZE_2', 'BUY_HOGA_SIZE_3', 'VI_DISTANCE']
             current_len = len(tic_data.get('close', []))
             for key in required_keys:
@@ -1573,7 +1573,7 @@ class KiwoomWebSocketClient:
             # 실시간 지표 가져오기
             realtime_metrics = cached_data.get('realtime_metrics', {})
             tick_velocity = realtime_metrics.get('tick_velocity', 0.0)
-            order_book_imbalance = realtime_metrics.get('order_book_imbalance', 0.0)
+            # 삭제됨: order_book_imbalance = realtime_metrics.get('order_book_imbalance', 0.0)
             
             # 최신 호가창 뎁스 데이터 가져오기 (실시간 지표 또는 차트 데이터 갱신)
             sell_hoga_1 = realtime_metrics.get('sell_hoga_1', 0)
@@ -1647,7 +1647,7 @@ class KiwoomWebSocketClient:
                 
                 # ML 학습용 데이터 저장
                 tic_data['TICK_VELOCITY'].append(tick_velocity)
-                tic_data['ORDER_BOOK_IMBALANCE'].append(order_book_imbalance)
+                # 삭제됨: tic_data['ORDER_BOOK_IMBALANCE'].append(order_book_imbalance)
                 tic_data['LAST_TIC_CNT'].append(1)
                 
                 if len(tic_data.get('close', [])) == 1:
@@ -1690,15 +1690,14 @@ class KiwoomWebSocketClient:
                 # ML 학습용 데이터 업데이트 (최신값으로 덮어쓰기)
                 if 'TICK_VELOCITY' in tic_data:
                     tic_data['TICK_VELOCITY'][last_index] = tick_velocity
-                if 'ORDER_BOOK_IMBALANCE' in tic_data:
-                    tic_data['ORDER_BOOK_IMBALANCE'][last_index] = order_book_imbalance
+                # 삭제됨: ORDER_BOOK_IMBALANCE 업데이트
 
                 if 'LAST_TIC_CNT' in tic_data:
                      tic_data['LAST_TIC_CNT'][last_index] = last_tic_cnt + 1
 
                 # 최대 데이터 수 제한
                 max_data = 1500
-                for key in ['time', 'open', 'high', 'low', 'close', 'volume', 'buy_volume', 'sell_volume', 'strength', 'TICK_VELOCITY', 'ORDER_BOOK_IMBALANCE', 'LAST_TIC_CNT']:
+                for key in ['time', 'open', 'high', 'low', 'close', 'volume', 'buy_volume', 'sell_volume', 'strength', 'TICK_VELOCITY', 'LAST_TIC_CNT']:
                     if key in tic_data and len(tic_data[key]) > max_data:
                         tic_data[key] = tic_data[key][-max_data:]
                 

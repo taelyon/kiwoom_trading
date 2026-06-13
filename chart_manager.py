@@ -896,7 +896,7 @@ class ChartDataCache:
             tic_allowed = [
                 'MA5', 'MA10', 'MA20', 'MA60', 'MA120', 
                 'RSI', 'RSI_SIGNAL', 
-                'VELOCITY', 'ORDER_BOOK_IMBALANCE', 'LAST_TIC_CNT'
+                'VELOCITY', 'LAST_TIC_CNT'
             ]
             tic_indicators = strategy_utils.KiwoomIndicatorExtractor.extract_chart_indicators(tic_df, allowed_indicators=tic_allowed)
             base_cols = {'open', 'high', 'low', 'close', 'volume'}
@@ -1126,16 +1126,6 @@ class ChartDataCache:
                     else:
                         indicators['LAST_TIC_CNT'] = backfill_cnt
 
-                    # 3. ORDER_BOOK_IMBALANCE (호가 불균형)
-                    # 기존 데이터가 있으면 길이만 맞추고(필수 아님), 없으면 0으로 초기화
-                    # 덮어쓰지 않음 (indicators에 넣지 않으면 원본 유지됨... 단, 길이 맞추기를 위해 넣음)
-                    existing_obi = np.array(data.get('ORDER_BOOK_IMBALANCE', []), dtype=float)
-                    if len(existing_obi) >= min_len:
-                         indicators['ORDER_BOOK_IMBALANCE'] = existing_obi[:min_len]
-                    else:
-                         # 없으면 0으로 생성
-                         indicators['ORDER_BOOK_IMBALANCE'] = np.zeros(min_len, dtype=float)
-
                 except Exception as vel_ex:
                     logging.debug(f"틱 지표 백필/병합 실패: {vel_ex}")
 
@@ -1326,7 +1316,6 @@ class ChartDataCache:
             if 'realtime_metrics' not in cached_data:
                 cached_data['realtime_metrics'] = {}
             
-            cached_data['realtime_metrics']['order_book_imbalance'] = imbalance
             cached_data['realtime_metrics']['total_sell_hoga'] = total_sell_hoga
             cached_data['realtime_metrics']['total_buy_hoga'] = total_buy_hoga
             
