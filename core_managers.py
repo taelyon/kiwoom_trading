@@ -468,6 +468,7 @@ class MonitoringManager:
         self.monitored_stocks = set()  # 모니터링할 종목코드 집합
         self.stock_added_time = {}     # 종목 편입 시간 기록 (TTL 체크용)
         self.monitoring_ttl_minutes = 60  # 기본 TTL 60분
+        self.max_monitored_stocks = 50  # 최대 감시 종목 수 제한
     
     async def add_stock_to_monitoring(self, code, name=None):
         """모니터링 종목 추가"""
@@ -475,6 +476,25 @@ class MonitoringManager:
             if code in self.monitored_stocks:
                 self.logger.debug(f"종목이 이미 모니터링 목록에 있습니다: {code}")
                 return True
+            
+            # 최대 감시 종목 수 제한 체크 및 오래된 종목 밀어내기
+            if len(self.monitored_stocks) >= self.max_monitored_stocks:
+                # 보유 종목은 밀어내기 대상에서 제외
+                holding_codes = set()
+                if hasattr(self.parent, 'account_manager') and self.parent.account_manager:
+                    holding_codes = set(self.parent.account_manager.holdings.keys())
+                
+                # 보유 종목이 아닌 종목 중 가장 오래된 종목 찾기
+                removable_stocks = [c for c in self.monitored_stocks if c not in holding_codes]
+                
+                if removable_stocks:
+                    # 추가된 시간이 가장 오래된 종목 정렬
+                    oldest_code = min(removable_stocks, key=lambda c: self.stock_added_time.get(c, datetime.min))
+                    self.logger.info(f"🔄 최대 감시 종목({self.max_monitored_stocks}개) 초과로 가장 오래된 종목 자동 밀어내기: {oldest_code}")
+                    await self.remove_stock_from_monitoring(oldest_code)
+                else:
+                    self.logger.warning(f"⚠️ 모든 감시 종목이 보유 종목이어서 밀어낼 수 없습니다. 추가 취소: {code}")
+                    return False
             
             # 집합에 추가
             self.monitored_stocks.add(code)
