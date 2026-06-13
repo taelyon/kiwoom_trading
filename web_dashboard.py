@@ -15,6 +15,8 @@ import multiprocessing as mp
 import queue
 import traceback
 
+ACTIVE_BACKTEST_PROCESS = None
+
 def run_backtest_process_worker(q, s_date, e_date, c):
     """독립된 프로세스에서 백테스터를 실행하고 큐를 통해 상태를 보고하는 워커 함수"""
     try:
@@ -1340,7 +1342,10 @@ HTML_CONTENT = """
                             <label for="btCode">종목코드 (전체는 ALL)</label>
                             <input type="text" id="btCode" value="ALL" placeholder="005930 또는 ALL">
                         </div>
-                        <button id="btnRunBacktest" class="btn-primary" style="width: 100%;" onclick="startBacktest()">🚀 백테스트 실행</button>
+                        <div style="display: flex; gap: 10px;">
+                            <button id="btnRunBacktest" class="btn-primary" style="flex: 1;" onclick="startBacktest()">🚀 백테스트 실행</button>
+                            <button id="btnStopBacktest" class="btn-danger" style="flex: 1; display: none;" onclick="stopBacktest()">🛑 중단</button>
+                        </div>
                         
                         <!-- 결과/진행률 영역 -->
                         <div id="btResultBox" style="margin-top:16px; display:none; background:rgba(0,0,0,0.3); padding:12px; border-radius:8px; font-size:12px;">
@@ -1617,6 +1622,8 @@ HTML_CONTENT = """
                 } else if (data.type === 'backtest_result') {
                     document.getElementById('btnRunBacktest').disabled = false;
                     document.getElementById('btnRunBacktest').innerText = '🚀 백테스트 실행';
+                    document.getElementById('btnRunBacktest').style.display = 'block';
+                    document.getElementById('btnStopBacktest').style.display = 'none';
                     
                     if (data.data.error) {
                         document.getElementById('btProgressText').innerText = `오류 발생: ${data.data.error}`;
@@ -2730,8 +2737,8 @@ HTML_CONTENT = """
                 return;
             }
             
-            document.getElementById('btnRunBacktest').disabled = true;
-            document.getElementById('btnRunBacktest').innerText = '실행 중...';
+            document.getElementById('btnRunBacktest').style.display = 'none';
+            document.getElementById('btnStopBacktest').style.display = 'block';
             document.getElementById('btResultBox').style.display = 'block';
             document.getElementById('btStatsBox').style.display = 'none';
             document.getElementById('btProgressText').innerText = "요청을 전송 중입니다...";
@@ -2743,6 +2750,12 @@ HTML_CONTENT = """
                 end_date: endDate,
                 code: code || 'ALL'
             }));
+        }
+
+        function stopBacktest() {
+            if (confirm("실행 중인 백테스팅을 강제로 중단하시겠습니까?")) {
+                ws.send(JSON.stringify({ type: 'stop_backtest' }));
+            }
         }
         
         // 날짜 기본값 설정 (오늘 ~ 최근 7일)
@@ -3291,6 +3304,24 @@ async def websocket_handler(websocket):
                                 "error": str(ex)
                             }))
 
+                elif msg_type == 'stop_backtest':
+                    global ACTIVE_BACKTEST_PROCESS
+                    if ACTIVE_BACKTEST_PROCESS and ACTIVE_BACKTEST_PROCESS.is_alive():
+                        ACTIVE_BACKTEST_PROCESS.terminate()
+                        ACTIVE_BACKTEST_PROCESS = None
+                        logging.info("🛑 백테스팅이 사용자에 의해 중단되었습니다.")
+                        await safe_send(websocket, json.dumps({
+                            "type": "backtest_progress",
+                            "progress": 100,
+                            "msg": "백테스팅 강제 중단 완료."
+                        }))
+                    else:
+                        await safe_send(websocket, json.dumps({
+                            "type": "backtest_progress",
+                            "progress": 100,
+                            "msg": "현재 실행 중인 백테스팅이 없습니다."
+                        }))
+
                 elif msg_type == 'run_backtest':
                     start_date = data.get('start_date')
                     end_date = data.get('end_date')
@@ -3305,8 +3336,13 @@ async def websocket_handler(websocket):
                         if app and hasattr(app, 'loop') and app.loop:
                             main_loop = app.loop
                     
+                    global ACTIVE_BACKTEST_PROCESS
+                    if ACTIVE_BACKTEST_PROCESS and ACTIVE_BACKTEST_PROCESS.is_alive():
+                        ACTIVE_BACKTEST_PROCESS.terminate()
+                        
                     q = mp.Queue()
                     p = mp.Process(target=run_backtest_process_worker, args=(q, start_date, end_date, code), daemon=True)
+                    ACTIVE_BACKTEST_PROCESS = p
                     p.start()
                     
                     async def monitor_backtest_process():
