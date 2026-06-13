@@ -115,7 +115,12 @@ class Backtester:
                         start_idx = max(0, i - 300)
                         history_df = group_df.iloc[start_idx:i+1].copy()
                         
-                        locals_dict = prepare_buy_strategy_locals(current_code, history_df, realtime_metrics=None)
+                        # 컬럼 이름 맞추기 (DB 컬럼을 API 포맷으로)
+                        api_df = history_df.rename(columns={
+                            'tic_open': 'open', 'tic_high': 'high', 'tic_low': 'low', 
+                            'tic_close': 'close', 'tic_volume': 'volume', 'tic_strength': 'strength'
+                        })
+                        locals_dict = prepare_buy_strategy_locals(current_code, api_df, pd.DataFrame(), realtime_metrics=None)
                         
                         # 강제 호환성
                         if 'datetime' not in locals_dict:
@@ -162,8 +167,12 @@ class Backtester:
                             'strategy': pos['stg']
                         }
                         
+                        api_df = history_df.rename(columns={
+                            'tic_open': 'open', 'tic_high': 'high', 'tic_low': 'low', 
+                            'tic_close': 'close', 'tic_volume': 'volume', 'tic_strength': 'strength'
+                        })
                         locals_dict = prepare_sell_strategy_locals(
-                            current_code, history_df, buy_record, real_profit_pct, current_price, realtime_metrics=None
+                            current_code, api_df, pd.DataFrame(), buy_record, real_profit_pct, current_price, realtime_metrics=None
                         )
                         
                         if 'datetime' not in locals_dict:

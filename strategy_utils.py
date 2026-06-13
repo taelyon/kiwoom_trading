@@ -415,8 +415,8 @@ def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_
         if not tic_chart_data.empty:
             volume_series = tic_chart_data['volume']
             if len(volume_series) > 0:
-                locals_dict['avg_volume'] = volume_series.mean()
-                locals_dict['volume_ratio'] = volume_series.iloc[-1] / locals_dict['avg_volume'] if locals_dict['avg_volume'] > 0 else 1
+                locals_dict['avg_volume'] = float(volume_series.mean())
+                locals_dict['volume_ratio'] = float(volume_series.iloc[-1]) / locals_dict['avg_volume'] if locals_dict['avg_volume'] > 0 else 1.0
                 
                 # 최근 10개 틱의 평균 거래량 (현재 포함)
                 if len(volume_series) >= 10:
