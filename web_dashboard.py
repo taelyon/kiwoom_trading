@@ -1345,6 +1345,7 @@ HTML_CONTENT = """
                         <!-- 결과/진행률 영역 -->
                         <div id="btResultBox" style="margin-top:16px; display:none; background:rgba(0,0,0,0.3); padding:12px; border-radius:8px; font-size:12px;">
                             <div id="btProgressText" style="color:var(--accent-cyan); margin-bottom:8px; font-weight:bold;">대기 중...</div>
+                            <div id="btWarningText" style="display:none; color:#ff5252; border:1px solid #ff5252; padding:8px; border-radius:6px; background:rgba(255, 82, 82, 0.1); margin-bottom:8px; line-height:1.4;"></div>
                             <div id="btStatsBox" style="display:none; flex-direction:column; gap:6px;">
                                 <div style="display:flex; justify-content:space-between;"><span>총 거래 횟수:</span> <span id="btTotalTrades" style="font-weight:bold;">0</span></div>
                                 <div style="display:flex; justify-content:space-between;"><span>승률:</span> <span id="btWinRate" style="font-weight:bold; color:var(--danger);">0%</span></div>
@@ -1613,6 +1614,7 @@ HTML_CONTENT = """
                 } else if (data.type === 'backtest_progress') {
                     document.getElementById('btResultBox').style.display = 'block';
                     document.getElementById('btStatsBox').style.display = 'none';
+                    document.getElementById('btWarningText').style.display = 'none';
                     document.getElementById('btProgressText').innerText = `[${data.progress}%] ${data.msg}`;
                 } else if (data.type === 'backtest_result') {
                     document.getElementById('btnRunBacktest').disabled = false;
@@ -1621,12 +1623,21 @@ HTML_CONTENT = """
                     if (data.data.error) {
                         document.getElementById('btProgressText').innerText = `오류 발생: ${data.data.error}`;
                         document.getElementById('btProgressText').style.color = 'var(--primary)';
+                        document.getElementById('btWarningText').style.display = 'none';
                         return;
                     }
                     
                     document.getElementById('btProgressText').innerText = '✅ 시뮬레이션 완료!';
                     document.getElementById('btProgressText').style.color = 'var(--success)';
                     document.getElementById('btStatsBox').style.display = 'flex';
+                    
+                    const warningElem = document.getElementById('btWarningText');
+                    if (data.data.uses_ai && !data.data.lgbm_model_loaded) {
+                        warningElem.innerHTML = "⚠️ <b>경고:</b> 전략에 AI_SCORE 조건이 포함되어 있으나, LightGBM 모델(lgbm_model.txt)이 로드되지 않았습니다. 모델 파일이 올바른 경로에 배치되었는지, NAS Docker 컨테이너에 정상적으로 마운트되었는지 확인해주세요. (현재 AI_SCORE는 모두 0.0으로 계산되어 거래가 발생하지 않습니다.)";
+                        warningElem.style.display = 'block';
+                    } else {
+                        warningElem.style.display = 'none';
+                    }
                     
                     document.getElementById('btTotalTrades').innerText = data.data.total_trades + '회';
                     document.getElementById('btWinRate').innerText = data.data.win_rate + '%';

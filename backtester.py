@@ -386,7 +386,9 @@ class Backtester:
                 "total_profit": round(total_profit, 0),
                 "final_capital": round(capital, 0),
                 "mdd": round(mdd, 2),
-                "trades": trades[-50:] # 최근 50개만 프론트로 전달 (용량 방지)
+                "trades": trades[-50:], # 최근 50개만 프론트로 전달 (용량 방지)
+                "uses_ai": uses_ai,
+                "lgbm_model_loaded": LGBM_MODEL is not None
             }
             
             if progress_callback: progress_callback(100, "시뮬레이션 완료!")
