@@ -116,9 +116,13 @@ class Backtester:
                 n = len(group_df)
                 
                 # 매 종목마다 프로그레스 업데이트 (멈춘 것처럼 보이지 않게)
+                progress_msg = f"시뮬레이션 진행 중... ({code_idx}/{total_codes}) - {current_code}"
+                if code_idx % max(1, total_codes // 10) == 0:
+                    logger.info(progress_msg)
+                
                 if progress_callback:
                     prog = 30 + int((code_idx / total_codes) * 60)
-                    progress_callback(prog, f"시뮬레이션 진행 중... ({code_idx}/{total_codes}) - {current_code}")
+                    progress_callback(prog, progress_msg)
 
                 for i in range(10, n):
                     # 현재 틱 정보
