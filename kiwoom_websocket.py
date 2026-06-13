@@ -1557,7 +1557,7 @@ class KiwoomWebSocketClient:
                 logging.debug(f"⚠️ 틱 차트 업데이트 건너뜀: {stock_code} (틱 데이터 없음)")
                 return
             
-            required_keys = ['time', 'open', 'high', 'low', 'close', 'volume', 'strength', 'buy_volume', 'sell_volume', 
+            required_keys = ['time', 'open', 'high', 'low', 'close', 'volume', 'buy_volume', 'sell_volume', 
                              'TICK_VELOCITY', 'LAST_TIC_CNT']
             current_len = len(tic_data.get('close', []))
             for key in required_keys:
@@ -1637,11 +1637,7 @@ class KiwoomWebSocketClient:
                 tic_data['buy_volume'].append(cur_buy_vol)
                 tic_data['sell_volume'].append(cur_sell_vol)
                 
-                # 체결강도 계산
-                if cur_sell_vol > 0:
-                    tic_data['strength'].append((cur_buy_vol / cur_sell_vol) * 100)
-                else:
-                    tic_data['strength'].append(100.0 if cur_buy_vol > 0 else 0.0)
+                # 체결강도 계산 제거 (항상 0.0이거나 100.0이라 불필요)
                 
                 # ML 학습용 데이터 저장
                 tic_data['TICK_VELOCITY'].append(tick_velocity)
@@ -1677,13 +1673,7 @@ class KiwoomWebSocketClient:
                 tic_data['buy_volume'][last_index] += cur_buy_vol
                 tic_data['sell_volume'][last_index] += cur_sell_vol
                 
-                # 강도 재계산
-                total_buy = tic_data['buy_volume'][last_index]
-                total_sell = tic_data['sell_volume'][last_index]
-                if total_sell > 0:
-                    tic_data['strength'][last_index] = (total_buy / total_sell) * 100
-                else:
-                    tic_data['strength'][last_index] = 100.0 if total_buy > 0 else 0.0
+                # 체결강도 재계산 제거
 
                 # ML 학습용 데이터 업데이트 (최신값으로 덮어쓰기)
                 if 'TICK_VELOCITY' in tic_data:
@@ -1695,7 +1685,7 @@ class KiwoomWebSocketClient:
 
                 # 최대 데이터 수 제한
                 max_data = 1500
-                for key in ['time', 'open', 'high', 'low', 'close', 'volume', 'buy_volume', 'sell_volume', 'strength', 'TICK_VELOCITY', 'LAST_TIC_CNT']:
+                for key in ['time', 'open', 'high', 'low', 'close', 'volume', 'buy_volume', 'sell_volume', 'TICK_VELOCITY', 'LAST_TIC_CNT']:
                     if key in tic_data and len(tic_data[key]) > max_data:
                         tic_data[key] = tic_data[key][-max_data:]
                 

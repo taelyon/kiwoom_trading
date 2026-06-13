@@ -86,6 +86,9 @@ class MLTrainingWorker(threading.Thread):
                 self.finished_signal.emit(False, "[ML] 학습할 데이터가 부족하여 학습을 건너뜁니다.")
                 return
 
+            # 이전 AI 모델 하위 호환성을 위해 삭제된 컬럼을 0.0으로 주입
+            df['tic_strength'] = 0.0
+
             self.progress_signal.emit(f"🔍 [ML] 데이터 전처리 중... (Rows: {len(df)})")
 
             # === Feature Engineering (비율/속도 변환) ===
