@@ -60,8 +60,8 @@ class Backtester:
             # 전략 로드
             from strategy_utils import load_strategies_from_config
             
-            # config.get은 (section, option) 두 개의 인자를 받습니다.
-            stg_name = self.config.get('SETTINGS', 'LAST_STRATEGY', '기본_돌파')
+            # config.get은 (section, option) 두 개의 인자를 받습니다. fallback은 키워드로 전달해야 합니다.
+            stg_name = self.config.get('SETTINGS', 'LAST_STRATEGY', fallback='기본_돌파')
             
             buy_strategies = []
             sell_strategies = []
