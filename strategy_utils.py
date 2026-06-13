@@ -764,11 +764,21 @@ def load_strategies_from_config(config_file='.env'):
         
         strategies = {}
         
-        # 전략 섹션들 처리
-        strategy_sections = ['VI 발동', '급등주', '갭상승']
+        # 동적으로 전략 섹션 추출 (STRATEGIES_STG_x 에서 섹션명 가져오기)
+        strategy_sections = []
+        if config.has_section('STRATEGIES'):
+            for opt in config.options('STRATEGIES'):
+                val = config.get('STRATEGIES', opt)
+                if val and val not in strategy_sections:
+                    strategy_sections.append(val)
+                    
+        # 기본값 (하위 호환성용)
+        if not strategy_sections:
+            strategy_sections = ['VI 발동', '급등주', '갭상승']
         
         for section in strategy_sections:
-            if config.has_section(section):
+            # 섹션이 존재하는지 확인 (STRATEGY_섹션명_... 키가 하나라도 있는지)
+            if config.has_section(section) or any(k.startswith(f"STRATEGY_{section}_") for k in config._data):
                 strategies[section] = {
                     'buy_strategies': [],
                     'sell_strategies': []
