@@ -1267,6 +1267,39 @@ HTML_CONTENT = """
                     </div>
                 </div>
 
+                <!-- 백테스팅 시뮬레이터 -->
+                <div class="glass-card">
+                    <div class="section-title" style="margin-bottom:16px;">백테스팅 시뮬레이터 (과거 데이터 검증)</div>
+                    <div class="order-panel">
+                        <div class="order-row">
+                            <div class="form-field">
+                                <label for="btStartDate">시작일</label>
+                                <input type="date" id="btStartDate" style="color-scheme: dark;">
+                            </div>
+                            <div class="form-field">
+                                <label for="btEndDate">종료일</label>
+                                <input type="date" id="btEndDate" style="color-scheme: dark;">
+                            </div>
+                        </div>
+                        <div class="form-field" style="margin-bottom: 12px;">
+                            <label for="btCode">종목코드 (전체는 ALL)</label>
+                            <input type="text" id="btCode" value="ALL" placeholder="005930 또는 ALL">
+                        </div>
+                        <button id="btnRunBacktest" class="btn-primary" style="width: 100%;" onclick="startBacktest()">🚀 백테스트 실행</button>
+                        
+                        <!-- 결과/진행률 영역 -->
+                        <div id="btResultBox" style="margin-top:16px; display:none; background:rgba(0,0,0,0.3); padding:12px; border-radius:8px; font-size:12px;">
+                            <div id="btProgressText" style="color:var(--accent-cyan); margin-bottom:8px; font-weight:bold;">대기 중...</div>
+                            <div id="btStatsBox" style="display:none; flex-direction:column; gap:6px;">
+                                <div style="display:flex; justify-content:space-between;"><span>총 거래 횟수:</span> <span id="btTotalTrades" style="font-weight:bold;">0</span></div>
+                                <div style="display:flex; justify-content:space-between;"><span>승률:</span> <span id="btWinRate" style="font-weight:bold; color:var(--danger);">0%</span></div>
+                                <div style="display:flex; justify-content:space-between;"><span>예상 누적 수익금:</span> <span id="btTotalProfit" style="font-weight:bold;">0원</span></div>
+                                <div style="display:flex; justify-content:space-between;"><span>최대 낙폭 (MDD):</span> <span id="btMdd" style="font-weight:bold; color:var(--primary);">0%</span></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- 감시 종목 관리 -->
                 <div class="glass-card">
                     <div class="section-title" style="margin-bottom:16px;">자동매매 실시간 감시 종목</div>
@@ -1535,6 +1568,34 @@ HTML_CONTENT = """
                     renderChartHistory(data);
                 } else if (data.type === 'chart_tick') {
                     renderChartTick(data);
+                } else if (data.type === 'backtest_progress') {
+                    document.getElementById('btResultBox').style.display = 'block';
+                    document.getElementById('btStatsBox').style.display = 'none';
+                    document.getElementById('btProgressText').innerText = `[${data.progress}%] ${data.msg}`;
+                } else if (data.type === 'backtest_result') {
+                    document.getElementById('btnRunBacktest').disabled = false;
+                    document.getElementById('btnRunBacktest').innerText = '🚀 백테스트 실행';
+                    
+                    if (data.data.error) {
+                        document.getElementById('btProgressText').innerText = `오류 발생: ${data.data.error}`;
+                        document.getElementById('btProgressText').style.color = 'var(--primary)';
+                        return;
+                    }
+                    
+                    document.getElementById('btProgressText').innerText = '✅ 시뮬레이션 완료!';
+                    document.getElementById('btProgressText').style.color = 'var(--success)';
+                    document.getElementById('btStatsBox').style.display = 'flex';
+                    
+                    document.getElementById('btTotalTrades').innerText = data.data.total_trades + '회';
+                    document.getElementById('btWinRate').innerText = data.data.win_rate + '%';
+                    
+                    const pAmt = data.data.total_profit;
+                    const pElem = document.getElementById('btTotalProfit');
+                    pElem.innerText = (pAmt > 0 ? '+' : '') + pAmt.toLocaleString() + '원';
+                    pElem.style.color = pAmt > 0 ? 'var(--danger)' : 'var(--primary)';
+                    
+                    document.getElementById('btMdd').innerText = data.data.mdd + '%';
+                    
                 } else if (data.type === 'trade_history_data') {
                     const thead = document.getElementById('tradeHistoryHead');
                     if (thead) {
@@ -2616,6 +2677,42 @@ HTML_CONTENT = """
             }
         }
 
+        // 백테스팅 함수
+        function startBacktest() {
+            const startDate = document.getElementById('btStartDate').value;
+            const endDate = document.getElementById('btEndDate').value;
+            const code = document.getElementById('btCode').value;
+            
+            if (!startDate || !endDate) {
+                alert("시작일과 종료일을 모두 선택해주세요.");
+                return;
+            }
+            
+            document.getElementById('btnRunBacktest').disabled = true;
+            document.getElementById('btnRunBacktest').innerText = '실행 중...';
+            document.getElementById('btResultBox').style.display = 'block';
+            document.getElementById('btStatsBox').style.display = 'none';
+            document.getElementById('btProgressText').innerText = "요청을 전송 중입니다...";
+            document.getElementById('btProgressText').style.color = "var(--accent-cyan)";
+            
+            ws.send(JSON.stringify({
+                type: 'run_backtest',
+                start_date: startDate,
+                end_date: endDate,
+                code: code || 'ALL'
+            }));
+        }
+        
+        // 날짜 기본값 설정 (오늘 ~ 최근 7일)
+        window.addEventListener('DOMContentLoaded', () => {
+            const today = new Date();
+            const lastWeek = new Date(today);
+            lastWeek.setDate(lastWeek.getDate() - 7);
+            
+            const fmt = (d) => d.toISOString().split('T')[0];
+            document.getElementById('btEndDate').value = fmt(today);
+            document.getElementById('btStartDate').value = fmt(lastWeek);
+        });
     </script>
 </body>
 </html>
@@ -3145,6 +3242,55 @@ async def websocket_handler(websocket):
                                 "data": [],
                                 "error": str(ex)
                             }))
+
+                elif msg_type == 'run_backtest':
+                    start_date = data.get('start_date')
+                    end_date = data.get('end_date')
+                    code = data.get('code', 'ALL')
+                    
+                    logging.info(f"📊 대시보드 제어: 백테스팅 요청 ({start_date} ~ {end_date}, 종목: {code})")
+                    
+                    def run_backtest_thread(ws, s_date, e_date, c):
+                        try:
+                            from backtester import Backtester
+                            bt = Backtester()
+                            
+                            # 진행 상황 업데이트용 콜백
+                            def progress_cb(prog, msg):
+                                async def _send():
+                                    try:
+                                        await safe_send(ws, json.dumps({
+                                            "type": "backtest_progress",
+                                            "progress": prog,
+                                            "msg": msg
+                                        }))
+                                    except: pass
+                                # app.loop이 없으면 현재 루프 사용 (threading이므로 run_coroutine_threadsafe 필수)
+                                loop = asyncio.get_event_loop()
+                                if app and hasattr(app, 'loop') and app.loop:
+                                    loop = app.loop
+                                asyncio.run_coroutine_threadsafe(_send(), loop)
+                            
+                            result = bt.run(s_date, e_date, c, progress_callback=progress_cb)
+                            
+                            # 최종 결과 전송
+                            async def _send_result():
+                                try:
+                                    await safe_send(ws, json.dumps({
+                                        "type": "backtest_result",
+                                        "data": result
+                                    }))
+                                except: pass
+                            loop = asyncio.get_event_loop()
+                            if app and hasattr(app, 'loop') and app.loop:
+                                loop = app.loop
+                            asyncio.run_coroutine_threadsafe(_send_result(), loop)
+                                
+                        except Exception as e:
+                            logging.error(f"백테스팅 스레드 오류: {e}", exc_info=True)
+                    
+                    # 스레드에서 백테스트 실행 (메인 이벤트 루프 차단 방지)
+                    threading.Thread(target=run_backtest_thread, args=(websocket, start_date, end_date, code), daemon=True).start()
 
                 elif msg_type == 'get_trade_history':
                     start_date = data.get('start_date')
