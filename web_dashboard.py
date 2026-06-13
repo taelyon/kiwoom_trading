@@ -3316,6 +3316,7 @@ async def websocket_handler(websocket):
                                     # 큐에서 메시지를 논블로킹으로 가져옴
                                     msg = q.get_nowait()
                                     if msg["type"] == "backtest_progress":
+                                        logging.info(f"📊 [백테스트] {msg['msg']}")
                                         await safe_send(websocket, json.dumps(msg))
                                     elif msg["type"] == "backtest_result":
                                         await safe_send(websocket, json.dumps(msg))

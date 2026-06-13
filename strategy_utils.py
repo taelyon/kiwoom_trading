@@ -137,9 +137,16 @@ class KiwoomIndicatorExtractor:
                 low = pd.to_numeric(chart_data['low'], errors='coerce').fillna(0).values.astype(np.float64)
                 open_price = pd.to_numeric(chart_data['open'], errors='coerce').fillna(0).values.astype(np.float64)
                 volume = pd.to_numeric(chart_data['volume'], errors='coerce').fillna(0).values.astype(np.float64)
-                # 'strength' 컬럼이 없을 경우를 안전하게 처리
                 strength_series = chart_data['strength'] if 'strength' in chart_data.columns else pd.Series([0] * len(close))
                 strength = pd.to_numeric(strength_series, errors='coerce').fillna(0).values.astype(np.float64)
+
+            # inf, nan 등 이상값 정제 (talib C 확장 모듈의 segfault/무한루프 방지)
+            close = np.nan_to_num(close, nan=0.0, posinf=0.0, neginf=0.0)
+            high = np.nan_to_num(high, nan=0.0, posinf=0.0, neginf=0.0)
+            low = np.nan_to_num(low, nan=0.0, posinf=0.0, neginf=0.0)
+            open_price = np.nan_to_num(open_price, nan=0.0, posinf=0.0, neginf=0.0)
+            volume = np.nan_to_num(volume, nan=0.0, posinf=0.0, neginf=0.0)
+            strength = np.nan_to_num(strength, nan=0.0, posinf=0.0, neginf=0.0)
 
             indicators = {}
 
