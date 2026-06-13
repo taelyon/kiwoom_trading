@@ -1820,7 +1820,9 @@ HTML_CONTENT = """
                     document.getElementById('btProgressText').innerText = '✅ 시뮬레이션 완료!';
                     document.getElementById('btProgressText').style.color = 'var(--success)';
                     
-                    
+                    if (data.data.history && data.data.history.length > 0) {
+                        renderBacktestChart(data.data.history);
+                    }
                     const warningElem = document.getElementById('btWarningText');
                     if (data.data.uses_ai && !data.data.lgbm_model_loaded) {
                         warningElem.innerHTML = "⚠️ <b>경고:</b> 전략에 AI_SCORE 조건이 포함되어 있으나, LightGBM 모델(lgbm_model.txt)이 로드되지 않았습니다. 모델 파일이 올바른 경로에 배치되었는지, NAS Docker 컨테이너에 정상적으로 마운트되었는지 확인해주세요. (현재 AI_SCORE는 모두 0.0으로 계산되어 거래가 발생하지 않습니다.)";
