@@ -91,6 +91,7 @@ class Backtester:
             max_capital = capital
             mdd = 0.0
             eval_errors = 0
+            debug_logs = []
 
             from strategy_utils import KiwoomIndicatorExtractor, LGBM_MODEL
             
@@ -104,6 +105,7 @@ class Backtester:
             for current_code, group_df in grouped:
                 code_idx += 1
                 group_df = group_df.reset_index(drop=True)
+                first_eval_logged = False
                 # 1. 컬럼명 일괄 변경
                 group_df = group_df.rename(columns={
                     'tic_open': 'open', 'tic_high': 'high', 'tic_low': 'low', 
@@ -280,8 +282,14 @@ class Backtester:
                             except Exception as e:
                                 eval_errors += 1
                                 if eval_errors <= 5:
-                                    logger.error(f"매수 전략 평가 오류 ({stg_name_str}): {e}")
+                                    err_msg = f"매수 평가 오류 ({stg_name_str}): {e}"
+                                    logger.error(err_msg)
+                                    debug_logs.append(f"[{current_time_str}] {current_code} {err_msg}")
                                 
+                        if not first_eval_logged:
+                            debug_logs.append(f"[{current_code}] 첫 평가 샘플 - 시간: {current_time_str}, 가격: {current_price}, AI_SCORE: {locals_dict.get('AI_SCORE', 0.0)}")
+                            first_eval_logged = True
+
                         if buy_signal:
                             qty = int(invested_per_trade / current_price)
                             if qty > 0:
@@ -332,11 +340,13 @@ class Backtester:
                             except Exception as e:
                                 eval_errors += 1
                                 if eval_errors <= 5:
-                                    logger.error(f"매도 전략 평가 오류 ({stg_name_str}): {e}")
+                                    err_msg = f"매도 평가 오류 ({stg_name_str}): {e}"
+                                    logger.error(err_msg)
+                                    debug_logs.append(f"[{current_time_str}] {current_code} {err_msg}")
                                 
-                        # 장 마감 직전 (15:18:00 이후) 강제 청산
-                        time_part = current_time_str[8:14] if len(current_time_str) >= 14 else ""
-                        if time_part >= "151800":
+                        # 장 마감 직전 (15:18:00 이후) 강제 청산 (포맷: YYYY-MM-DD HH:MM:SS)
+                        time_part = current_time_str[11:16].replace(":", "") if len(current_time_str) >= 16 else ""
+                        if time_part >= "1518":
                             sell_signal = True
                             sell_ratio = 1.0
                             matched_sell_stg = "장마감 강제청산"
@@ -388,7 +398,8 @@ class Backtester:
                 "mdd": round(mdd, 2),
                 "trades": trades[-50:], # 최근 50개만 프론트로 전달 (용량 방지)
                 "uses_ai": uses_ai,
-                "lgbm_model_loaded": LGBM_MODEL is not None
+                "lgbm_model_loaded": LGBM_MODEL is not None,
+                "debug_logs": debug_logs[-200:] # 프론트엔드 과부하 방지
             }
             
             if progress_callback: progress_callback(100, "시뮬레이션 완료!")
@@ -396,7 +407,7 @@ class Backtester:
             
         except Exception as e:
             logger.error(f"백테스팅 오류: {e}", exc_info=True)
-            return {"error": str(e)}
+            return {"error": str(e), "debug_logs": [f"치명적 오류: {e}"]}
 
 if __name__ == '__main__':
     bt = Backtester()
