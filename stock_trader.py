@@ -301,23 +301,9 @@ async def main():
     setup_logging()
     logging.info("🚀 Antigravity Kiwoom Headless CLI 프로그램 구동 시작")
 
-    # 전역 예외 처리기 (Task 내 unhandled exception 발생 시 프로그램 종료 방지)
-    loop = asyncio.get_running_loop()
-    def global_exception_handler(loop, context):
-        msg = context.get("exception", context["message"])
-        logging.error(f"⚠️ 백그라운드 태스크 전역 오류 발생 (무시됨): {msg}")
-    loop.set_exception_handler(global_exception_handler)
-
-    app = None
+    app = TradingApp()
     
-    # 1단계: TradingApp 생성 (실패해도 대시보드는 띄움)
-    try:
-        app = TradingApp()
-    except Exception as init_ex:
-        logging.critical(f"❌ TradingApp 초기화 실패: {init_ex}", exc_info=True)
-        logging.info("⚠️ 대시보드만 기동하여 에러 내용을 확인할 수 있도록 합니다.")
-    
-    # 2단계: 웹 대시보드 서버 구동 (최우선, 무조건 실행)
+    # 실시간 웹 대시보드 서버 구동 (8081 포트, 백그라운드 태스크)
     try:
         from web_dashboard import start_web_dashboard
         create_fire_and_forget_task(start_web_dashboard(app, host="0.0.0.0", http_port=8081, ws_port=8082))
@@ -325,15 +311,12 @@ async def main():
     except Exception as dashboard_err:
         logging.error(f"❌ 웹 대시보드 기동 실패: {dashboard_err}", exc_info=True)
 
-    # 3단계: TradingApp 시작 (실패해도 대시보드는 계속 유지)
-    if app:
-        try:
-            await app.start()
-        except Exception as start_ex:
-            logging.critical(f"❌ 자동매매 핵심 모듈 실행 중 치명적 오류 발생: {start_ex}", exc_info=True)
-            logging.info("⚠️ 시스템 복구를 위해 대시보드 접근을 유지하며, 프로그램을 강제 종료하지 않습니다.")
+    # TradingApp 시작
+    await app.start()
     
     # 종료 시그널 핸들러 설정 (Graceful Shutdown)
+    loop = asyncio.get_running_loop()
+    
     stop_event = asyncio.Event()
     
     def shutdown_signal_handler():
@@ -359,8 +342,7 @@ async def main():
         logging.info("⚠️ 키보드 인터럽트 또는 태스크 취소 발생")
     finally:
         # 리소스 안전 정리
-        if app:
-            await app._shutdown_async()
+        await app._shutdown_async()
         logging.info("👋 프로그램이 정상적으로 종료되었습니다.")
 
 if __name__ == "__main__":
@@ -368,4 +350,4 @@ if __name__ == "__main__":
         asyncio.run(main())
     except Exception as e:
         logging.critical(f"메인 실행 중 치명적인 오류 발생: {e}", exc_info=True)
-        sys.exit(1)
+        sys.exit(1)
