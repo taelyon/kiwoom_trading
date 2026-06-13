@@ -459,17 +459,8 @@ def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_
                 # Volume Spike (스칼라 값)
                 feature_spike = locals_dict.get('tic_volume_spike', 0.0)
                 
-                # 추가 피처 (신규 모델용)
-                feature_turnover = locals_dict.get('tic_turnover', [0])[-1] if isinstance(locals_dict.get('tic_turnover'), (list, np.ndarray)) else 0
+                # VI Distance
                 feature_vi_dist = locals_dict.get('tic_vi_distance', [999])[-1] if isinstance(locals_dict.get('tic_vi_distance'), (list, np.ndarray)) else 999.0
-                
-                # 호가 잔량
-                sell_1 = locals_dict.get('tic_sell_hoga_size_1', [0])[-1] if isinstance(locals_dict.get('tic_sell_hoga_size_1'), (list, np.ndarray)) else 0
-                sell_2 = locals_dict.get('tic_sell_hoga_size_2', [0])[-1] if isinstance(locals_dict.get('tic_sell_hoga_size_2'), (list, np.ndarray)) else 0
-                sell_3 = locals_dict.get('tic_sell_hoga_size_3', [0])[-1] if isinstance(locals_dict.get('tic_sell_hoga_size_3'), (list, np.ndarray)) else 0
-                buy_1 = locals_dict.get('tic_buy_hoga_size_1', [0])[-1] if isinstance(locals_dict.get('tic_buy_hoga_size_1'), (list, np.ndarray)) else 0
-                buy_2 = locals_dict.get('tic_buy_hoga_size_2', [0])[-1] if isinstance(locals_dict.get('tic_buy_hoga_size_2'), (list, np.ndarray)) else 0
-                buy_3 = locals_dict.get('tic_buy_hoga_size_3', [0])[-1] if isinstance(locals_dict.get('tic_buy_hoga_size_3'), (list, np.ndarray)) else 0
                 
                 # 시장 지수 (KOSPI/KOSDAQ 등락률)
                 feature_kospi_change = 0.0
@@ -481,23 +472,42 @@ def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_
                     feature_kospi_change = locals_dict.get('tic_kospi_change', [0])[-1] if isinstance(locals_dict.get('tic_kospi_change'), (list, np.ndarray)) else locals_dict.get('tic_kospi_change', 0.0)
                     feature_kosdaq_change = locals_dict.get('tic_kosdaq_change', [0])[-1] if isinstance(locals_dict.get('tic_kosdaq_change'), (list, np.ndarray)) else locals_dict.get('tic_kosdaq_change', 0.0)
                 
+                # 추가 피처 4개 (VWAP, BB, MACD, RSI)
+                vwap_val = locals_dict.get('tic_VWAP', [0])
+                vwap_last = vwap_val[-1] if isinstance(vwap_val, (list, np.ndarray)) and len(vwap_val) > 0 else 0.0
+                close_val = locals_dict.get('tic_close', [0])
+                close_last = close_val[-1] if isinstance(close_val, (list, np.ndarray)) and len(close_val) > 0 else 0.0
+                feature_vwap_dist = (close_last - vwap_last) / vwap_last if vwap_last > 0 else 0.0
+                
+                bb_pos_val = locals_dict.get('tic_BB_POSITION', [0.5])
+                feature_bb_pos = bb_pos_val[-1] if isinstance(bb_pos_val, (list, np.ndarray)) and len(bb_pos_val) > 0 else 0.5
+                
+                macd_hist_val = locals_dict.get('tic_MACD_HIST', [0.0])
+                feature_macd_hist = macd_hist_val[-1] if isinstance(macd_hist_val, (list, np.ndarray)) and len(macd_hist_val) > 0 else 0.0
+                
+                rsi_val = locals_dict.get('tic_RSI', [50.0])
+                feature_rsi = rsi_val[-1] if isinstance(rsi_val, (list, np.ndarray)) and len(rsi_val) > 0 else 50.0
+                
                 # 모델 학습 시 사용된 피처 개수에 맞춰 동적으로 차원 맞추기
                 num_features = LGBM_MODEL.num_feature()
-                if num_features == 5:
+                if num_features == 10:
+                    # 최신 10개 피처
+                    input_vector = np.array([[
+                        feature_strength, feature_velocity, feature_relative, feature_spike,
+                        feature_vi_dist, feature_kosdaq_change,
+                        feature_vwap_dist, feature_bb_pos, feature_macd_hist, feature_rsi
+                    ]])
+                elif num_features == 6:
+                    # 직전 6개 피처
+                    input_vector = np.array([[
+                        feature_strength, feature_velocity, feature_relative, feature_spike,
+                        feature_vi_dist, feature_kosdaq_change
+                    ]])
+                elif num_features == 5:
                     input_vector = np.array([[feature_strength, feature_velocity, feature_imbalance, feature_relative, feature_spike]])
-                elif num_features == 15:
-                    # 15개 피처 (기본 5 + 신규 8 + 시장지수 2)
-                    input_vector = np.array([[
-                        feature_strength, feature_velocity, feature_imbalance, feature_relative, feature_spike,
-                        feature_turnover, feature_vi_dist, sell_1, sell_2, sell_3, buy_1, buy_2, buy_3,
-                        feature_kospi_change, feature_kosdaq_change
-                    ]])
                 else:
-                    # 13개 피처 (기본 5 + 신규 8)
-                    input_vector = np.array([[
-                        feature_strength, feature_velocity, feature_imbalance, feature_relative, feature_spike,
-                        feature_turnover, feature_vi_dist, sell_1, sell_2, sell_3, buy_1, buy_2, buy_3
-                    ]])
+                    # 예외 발생 시 안전하게 0 리턴 처리 (크래시 방지)
+                    input_vector = np.zeros((1, num_features))
                 
                 # 추론 실행
                 ai_score = LGBM_MODEL.predict(input_vector)[0]

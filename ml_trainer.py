@@ -111,6 +111,46 @@ class MLTrainingWorker(threading.Thread):
             # 2. Spike 계산 (0으로 나누기 방지)
             df['tic_volume_spike'] = np.where(df['prev_10_vol_avg'] > 0, df['tic_volume'] / df['prev_10_vol_avg'], 0)
             
+            import talib
+            def calc_new_indicators(g):
+                close = g['tic_close'].values
+                high = g['tic_high'].values
+                low = g['tic_low'].values
+                vol = g['tic_volume'].values
+                
+                # VWAP Distance
+                typ = (high + low + close) / 3
+                cum_pv = np.cumsum(typ * vol)
+                cum_v = np.cumsum(vol)
+                vwap = np.where(cum_v > 0, cum_pv / cum_v, close)
+                g['tic_vwap_distance'] = np.where(vwap > 0, (close - vwap) / vwap, 0)
+                
+                # BB Position
+                if len(close) >= 20:
+                    u, m, l = talib.BBANDS(close, timeperiod=20)
+                    r = u - l
+                    bb_pos = np.where(r > 0, (close - l) / r, 0.5)
+                    g['tic_bb_position'] = pd.Series(bb_pos).fillna(0.5).values
+                else:
+                    g['tic_bb_position'] = 0.5
+                    
+                # MACD Hist
+                if len(close) >= 26:
+                    _, _, h = talib.MACD(close)
+                    g['tic_macd_hist'] = pd.Series(h).fillna(0.0).values
+                else:
+                    g['tic_macd_hist'] = 0.0
+                    
+                # RSI
+                if len(close) >= 14:
+                    g['tic_rsi'] = pd.Series(talib.RSI(close, timeperiod=14)).fillna(50.0).values
+                else:
+                    g['tic_rsi'] = 50.0
+                    
+                return g
+            
+            df = df.groupby('code', group_keys=False).apply(calc_new_indicators)
+            
             # Feature 목록 정의
             base_features = [
                 'tic_strength', 
@@ -121,7 +161,11 @@ class MLTrainingWorker(threading.Thread):
             
             new_features = [
                 'tic_vi_distance', 
-                'tic_kosdaq_change'
+                'tic_kosdaq_change',
+                'tic_vwap_distance',
+                'tic_bb_position',
+                'tic_macd_hist',
+                'tic_rsi'
             ]
             
             features = base_features + new_features
