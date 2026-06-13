@@ -115,14 +115,13 @@ class MLTrainingWorker(threading.Thread):
             base_features = [
                 'tic_strength', 
                 'tic_velocity', 
-                'tic_order_book_imbalance', 
                 'min3_relative_position',
                 'tic_volume_spike'
             ]
             
             new_features = [
-                'tic_turnover', 'tic_vi_distance', 
-                'tic_kospi_change', 'tic_kosdaq_change'
+                'tic_vi_distance', 
+                'tic_kosdaq_change'
             ]
             
             features = base_features + new_features
