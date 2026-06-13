@@ -11,6 +11,35 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 import websockets
 import math
+import multiprocessing as mp
+import queue
+import traceback
+
+def run_backtest_process_worker(q, s_date, e_date, c):
+    """독립된 프로세스에서 백테스터를 실행하고 큐를 통해 상태를 보고하는 워커 함수"""
+    try:
+        from backtester import Backtester
+        bt = Backtester()
+        
+        def progress_cb(prog, msg):
+            q.put({
+                "type": "backtest_progress",
+                "progress": prog,
+                "msg": msg
+            })
+            
+        result = bt.run(s_date, e_date, c, progress_callback=progress_cb)
+        
+        q.put({
+            "type": "backtest_result",
+            "data": result
+        })
+    except Exception as e:
+        q.put({
+            "type": "backtest_error",
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        })
 
 def datetime_to_timestamp(dt_val):
     """다양한 형식의 날짜/시간 값을 Unix 타임스탬프(초, 정수)로 변환 (Lightweight Charts v4 호환용)"""
@@ -3276,42 +3305,39 @@ async def websocket_handler(websocket):
                         if app and hasattr(app, 'loop') and app.loop:
                             main_loop = app.loop
                     
-                    def run_backtest_thread(ws, s_date, e_date, c, loop):
-                        try:
-                            from backtester import Backtester
-                            bt = Backtester()
-                            
-                            # 진행 상황 업데이트용 콜백
-                            def progress_cb(prog, msg):
-                                async def _send():
-                                    try:
-                                        await safe_send(ws, json.dumps({
-                                            "type": "backtest_progress",
-                                            "progress": prog,
-                                            "msg": msg
-                                        }))
-                                    except: pass
-                                if loop:
-                                    asyncio.run_coroutine_threadsafe(_send(), loop)
-                            
-                            result = bt.run(s_date, e_date, c, progress_callback=progress_cb)
-                            
-                            # 최종 결과 전송
-                            async def _send_result():
-                                try:
-                                    await safe_send(ws, json.dumps({
-                                        "type": "backtest_result",
-                                        "data": result
-                                    }))
-                                except: pass
-                            if loop:
-                                asyncio.run_coroutine_threadsafe(_send_result(), loop)
-                                
-                        except Exception as e:
-                            logging.error(f"백테스팅 스레드 오류: {e}", exc_info=True)
+                    q = mp.Queue()
+                    p = mp.Process(target=run_backtest_process_worker, args=(q, start_date, end_date, code), daemon=True)
+                    p.start()
                     
-                    # 스레드에서 백테스트 실행 (메인 이벤트 루프 차단 방지)
-                    threading.Thread(target=run_backtest_thread, args=(websocket, start_date, end_date, code, main_loop), daemon=True).start()
+                    async def monitor_backtest_process():
+                        try:
+                            while p.is_alive() or not q.empty():
+                                try:
+                                    # 큐에서 메시지를 논블로킹으로 가져옴
+                                    msg = q.get_nowait()
+                                    if msg["type"] == "backtest_progress":
+                                        await safe_send(websocket, json.dumps(msg))
+                                    elif msg["type"] == "backtest_result":
+                                        await safe_send(websocket, json.dumps(msg))
+                                        break
+                                    elif msg["type"] == "backtest_error":
+                                        logging.error(f"백테스팅 프로세스 오류: {msg['error']}")
+                                        break
+                                except queue.Empty:
+                                    # 메인 루프를 블로킹하지 않도록 제어권 양보
+                                    await asyncio.sleep(0.1)
+                            
+                            p.join(timeout=1.0)
+                            if p.is_alive():
+                                p.terminate()
+                        except Exception as e:
+                            logging.error(f"백테스팅 모니터링 태스크 오류: {e}", exc_info=True)
+                    
+                    # 비동기 모니터링 태스크 실행
+                    if main_loop:
+                        main_loop.create_task(monitor_backtest_process())
+                    else:
+                        asyncio.create_task(monitor_backtest_process())
 
                 elif msg_type == 'get_trade_history':
                     start_date = data.get('start_date')
