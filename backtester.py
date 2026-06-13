@@ -389,6 +389,20 @@ class Backtester:
             total_trades = win_count + loss_count
             win_rate = (win_count / total_trades * 100.0) if total_trades > 0 else 0.0
             
+            # 매도 시간(sell_time) 기준으로 거래 내역 정렬
+            trades = sorted(trades, key=lambda x: x['sell_time'])
+            
+            # 시계열 자산(Equity Curve) 생성 (초기 자본: 10,000,000 기준)
+            equity_history = []
+            current_equity = 10000000
+            
+            for t in trades:
+                current_equity += t['profit_amount']
+                equity_history.append({
+                    'time': t['sell_time'],
+                    'equity': current_equity
+                })
+            
             result = {
                 "total_trades": total_trades,
                 "win_count": win_count,
@@ -397,7 +411,8 @@ class Backtester:
                 "total_profit": round(total_profit, 0),
                 "final_capital": round(capital, 0),
                 "mdd": round(mdd, 2),
-                "trades": trades[-50:], # 최근 50개만 프론트로 전달 (용량 방지)
+                "trades": trades, # 전체 내역 프론트로 전달
+                "history": equity_history, # 자산 곡선 데이터
                 "uses_ai": uses_ai,
                 "lgbm_model_loaded": LGBM_MODEL is not None,
                 "debug_logs": debug_logs[-200:] # 프론트엔드 과부하 방지

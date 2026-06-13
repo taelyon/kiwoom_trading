@@ -1194,6 +1194,7 @@ HTML_CONTENT = """
             height: 100%;
         }
     </style>
+    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
 
@@ -1505,6 +1506,15 @@ HTML_CONTENT = """
                                 <div class="bt-summary-label">MAX DRAWDOWN</div>
                                 <div id="btMdd" class="bt-summary-value" style="color: var(--text-primary);">0%</div>
                             </div>
+                        </div>
+
+                        
+                        <!-- Equity Curve Chart -->
+                        <div id="btChartContainerWrapper" class="glass-card" style="display:none; padding: 16px; margin-top: 4px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+                                <span style="font-weight:bold; color:var(--text-secondary); font-size: 14px; text-transform: uppercase; letter-spacing: 1px;">📊 Equity Curve</span>
+                            </div>
+                            <div id="btChartContainer" style="width: 100%; height: 280px; position: relative;"></div>
                         </div>
 
                         <!-- 디버그 및 에러 영역 -->
@@ -2243,6 +2253,75 @@ HTML_CONTENT = """
 
         // 콘솔 비밀번호 단독 변경 요청
         
+        
+        // 백테스트 차트 (TradingView Lightweight Charts)
+        let btChart = null;
+        let btLineSeries = null;
+
+        function renderBacktestChart(historyData) {
+            document.getElementById('btChartContainerWrapper').style.display = 'block';
+            const container = document.getElementById('btChartContainer');
+            
+            if (!btChart) {
+                btChart = LightweightCharts.createChart(container, {
+                    width: container.clientWidth,
+                    height: 280,
+                    layout: {
+                        background: { type: 'solid', color: 'transparent' },
+                        textColor: '#94a3b8',
+                    },
+                    grid: {
+                        vertLines: { color: 'rgba(255, 255, 255, 0.05)' },
+                        horzLines: { color: 'rgba(255, 255, 255, 0.05)' },
+                    },
+                    rightPriceScale: {
+                        borderVisible: false,
+                    },
+                    timeScale: {
+                        borderVisible: false,
+                        timeVisible: true,
+                        secondsVisible: false,
+                    },
+                });
+                
+                btLineSeries = btChart.addAreaSeries({
+                    lineColor: '#00f2fe',
+                    topColor: 'rgba(0, 242, 254, 0.4)',
+                    bottomColor: 'rgba(0, 242, 254, 0.0)',
+                    lineWidth: 2,
+                });
+                
+                // 창 크기 조절 시 대응
+                window.addEventListener('resize', () => {
+                    btChart.applyOptions({ width: container.clientWidth });
+                });
+            }
+            
+            // 데이터 포맷 변환 및 중복 시간 제거 로직
+            const chartData = [];
+            let lastTime = 0;
+            
+            for (let i = 0; i < historyData.length; i++) {
+                const item = historyData[i];
+                // KST 문자열 -> Timestamp 변환 (초 단위)
+                const dateObj = new Date(item.time.replace(' ', 'T') + '+09:00');
+                const t = dateObj.getTime() / 1000;
+                
+                if (t > lastTime) {
+                    chartData.push({ time: t, value: item.equity });
+                    lastTime = t;
+                } else if (t === lastTime) {
+                    // 동일한 시간대면 가장 마지막 체결 기준으로 업데이트
+                    chartData[chartData.length - 1].value = item.equity;
+                }
+            }
+            
+            if (chartData.length > 0) {
+                btLineSeries.setData(chartData);
+                btChart.timeScale().fitContent();
+            }
+        }
+
         function switchTab(tabId) {
             document.getElementById('tabLive').classList.remove('active');
             document.getElementById('tabBacktest').classList.remove('active');
