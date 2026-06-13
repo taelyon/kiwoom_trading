@@ -481,8 +481,8 @@ class MonitoringManager:
             if len(self.monitored_stocks) >= self.max_monitored_stocks:
                 # 보유 종목은 밀어내기 대상에서 제외
                 holding_codes = set()
-                if hasattr(self.parent, 'account_manager') and self.parent.account_manager:
-                    holding_codes = set(self.parent.account_manager.holdings.keys())
+                if hasattr(self.parent, 'trader') and self.parent.trader and hasattr(self.parent.trader, 'holdings'):
+                    holding_codes = set(self.parent.trader.holdings.keys())
                 
                 # 보유 종목이 아닌 종목 중 가장 오래된 종목 찾기
                 removable_stocks = [c for c in self.monitored_stocks if c not in holding_codes]
