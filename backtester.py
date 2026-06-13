@@ -105,11 +105,10 @@ class Backtester:
             for current_code, group_df in grouped:
                 code_idx += 1
                 group_df = group_df.reset_index(drop=True)
-                
                 # 1. 컬럼명 일괄 변경
                 group_df = group_df.rename(columns={
                     'tic_open': 'open', 'tic_high': 'high', 'tic_low': 'low', 
-                    'tic_close': 'close', 'tic_strength': 'strength'
+                    'tic_close': 'close', 'tic_volume': 'volume', 'tic_strength': 'strength'
                 })
                 
                 # 2. 기술적 지표 1회 일괄(Batch) 계산
@@ -178,6 +177,21 @@ class Backtester:
                     except Exception:
                         pass
                 
+                # 5. 전략 문자열 사전 컴파일 (루프 내 속도 최적화)
+                buy_compiled = []
+                for stg in buy_strategies:
+                    try:
+                        buy_compiled.append((stg['name'], compile(stg['content'], '<string>', 'eval')))
+                    except Exception as e:
+                        logger.error(f"매수 전략 컴파일 오류 ({stg['name']}): {e}")
+                
+                sell_compiled = []
+                for stg in sell_strategies:
+                    try:
+                        sell_compiled.append((stg['name'], float(stg.get('partial_sell_ratio', 1.0)), compile(stg['content'], '<string>', 'eval')))
+                    except Exception as e:
+                        logger.error(f"매도 전략 컴파일 오류 ({stg['name']}): {e}")
+                
                 # 매 종목마다 프로그레스 업데이트
                 if progress_callback:
                     prog = 30 + int((code_idx / total_codes) * 60)
@@ -210,11 +224,11 @@ class Backtester:
                         buy_signal = False
                         matched_stg_name = ""
                         
-                        for stg in buy_strategies:
+                        for stg_name_str, stg_code in buy_compiled:
                             try:
-                                if eval(stg['content'], globals(), locals_dict):
+                                if eval(stg_code, globals(), locals_dict):
                                     buy_signal = True
-                                    matched_stg_name = stg['name']
+                                    matched_stg_name = stg_name_str
                                     break
                             except Exception:
                                 pass
@@ -230,9 +244,10 @@ class Backtester:
                                 }
                     
                     # 2. 매도 평가 (포지션이 있을 때)
-                    else:
+                    elif current_code in portfolio:
                         pos = portfolio[current_code]
-                        profit_pct = (current_price - pos['buy_price']) / pos['buy_price'] * 100.0
+                        buy_price = pos['buy_price']
+                        profit_pct = (current_price - buy_price) / buy_price * 100.0
                         real_profit_pct = profit_pct - 0.2
                         
                         # 경량 locals_dict 구성
@@ -258,13 +273,12 @@ class Backtester:
                         sell_signal = False
                         sell_ratio = 1.0
                         matched_sell_stg = ""
-                        
-                        for stg in sell_strategies:
+                        for stg_name_str, stg_ratio, stg_code in sell_compiled:
                             try:
-                                if eval(stg['content'], globals(), locals_dict):
+                                if eval(stg_code, globals(), locals_dict):
                                     sell_signal = True
-                                    sell_ratio = stg.get('partial_sell_ratio', 1.0)
-                                    matched_sell_stg = stg['name']
+                                    sell_ratio = stg_ratio
+                                    matched_sell_stg = stg_name_str
                                     break
                             except Exception:
                                 pass

@@ -3322,6 +3322,11 @@ async def websocket_handler(websocket):
                                         break
                                     elif msg["type"] == "backtest_error":
                                         logging.error(f"백테스팅 프로세스 오류: {msg['error']}")
+                                        await safe_send(websocket, json.dumps({
+                                            "type": "backtest_error",
+                                            "error": msg["error"],
+                                            "traceback": msg.get("traceback", "")
+                                        }))
                                         break
                                 except queue.Empty:
                                     # 메인 루프를 블로킹하지 않도록 제어권 양보
