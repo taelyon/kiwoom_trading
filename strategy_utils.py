@@ -488,8 +488,7 @@ def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_
                 rsi_val = locals_dict.get('tic_RSI', [50.0])
                 feature_rsi = rsi_val[-1] if isinstance(rsi_val, (list, np.ndarray)) and len(rsi_val) > 0 else 50.0
                 
-                # 시간 지표
-                from datetime import datetime
+                # 시간 지표 (글로벌 datetime 활용)
                 now = datetime.now()
                 feature_time = max(0, min(390, (now.hour * 60 + now.minute) - (9 * 60)))
                 
