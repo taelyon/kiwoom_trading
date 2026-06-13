@@ -93,9 +93,26 @@ class Backtester:
             max_capital = capital
             mdd = 0.0
 
+            from strategy_utils import KiwoomIndicatorExtractor
+            
             for current_code, group_df in grouped:
                 code_idx += 1
                 group_df = group_df.reset_index(drop=True)
+                
+                # 1. 컬럼명 일괄 변경 (rename 오버헤드 제거)
+                group_df = group_df.rename(columns={
+                    'tic_open': 'open', 'tic_high': 'high', 'tic_low': 'low', 
+                    'tic_close': 'close', 'tic_strength': 'strength'
+                })
+                
+                # 2. 기술적 지표 1회 일괄(Batch) 계산 (루프 내 talib 재계산 방지)
+                try:
+                    indicators = KiwoomIndicatorExtractor.extract_chart_indicators(group_df)
+                    for k, v in indicators.items():
+                        group_df[k] = v
+                except Exception as e:
+                    logger.error(f"지표 사전 계산 오류 ({current_code}): {e}")
+                    
                 n = len(group_df)
                 
                 # 매 10종목마다 프로그레스 업데이트
@@ -106,19 +123,14 @@ class Backtester:
                 for i in range(10, n):
                     # 현재 틱 정보
                     current_row = group_df.iloc[i]
-                    current_price = current_row['tic_close']
+                    current_price = current_row['close'] # renamed from tic_close
                     current_time_str = current_row['datetime']
                     
                     # 1. 매수 평가 (포지션이 없을 때)
                     if current_code not in portfolio:
-                        # 300 틱 윈도우 슬라이싱
+                        # 300 틱 윈도우 슬라이싱 (copy 생략으로 속도 극대화)
                         start_idx = max(0, i - 300)
-                        history_df = group_df.iloc[start_idx:i+1].copy()
-                        
-                        api_df = history_df.rename(columns={
-                            'tic_open': 'open', 'tic_high': 'high', 'tic_low': 'low', 
-                            'tic_close': 'close', 'tic_strength': 'strength'
-                        })
+                        api_df = group_df.iloc[start_idx:i+1]
                         
                         locals_dict = prepare_buy_strategy_locals(current_code, api_df, pd.DataFrame(), realtime_metrics=None)
                         
@@ -157,7 +169,7 @@ class Backtester:
                         real_profit_pct = profit_pct - 0.2
                         
                         start_idx = max(0, i - 300)
-                        history_df = group_df.iloc[start_idx:i+1].copy()
+                        api_df = group_df.iloc[start_idx:i+1]
                         
                         buy_record = {
                             'buy_price': pos['buy_price'],
@@ -166,11 +178,6 @@ class Backtester:
                             'datetime': pos['buy_time'],
                             'strategy': pos['stg']
                         }
-                        
-                        api_df = history_df.rename(columns={
-                            'tic_open': 'open', 'tic_high': 'high', 'tic_low': 'low', 
-                            'tic_close': 'close', 'tic_strength': 'strength'
-                        })
                         locals_dict = prepare_sell_strategy_locals(
                             current_code, api_df, pd.DataFrame(), buy_record, real_profit_pct, current_price, realtime_metrics=None
                         )
