@@ -1148,6 +1148,20 @@ HTML_CONTENT = """
                     </div>
                 </div>
 
+                <!-- 감시 종목 관리 -->
+                <div class="glass-card">
+                    <div class="section-title" style="margin-bottom:16px;">자동매매 실시간 감시 종목</div>
+                    <div class="monitoring-box">
+                        <div class="monitoring-input-row">
+                            <input type="text" id="monitorInput" placeholder="종목코드 입력 (6자리)">
+                            <button class="btn-add" onclick="addMonitoringStock()">감시 추가</button>
+                        </div>
+                        <div id="monitoringBadges" class="monitoring-badges">
+                            <div class="no-data">감시 중인 종목이 없습니다.</div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- 실시간 보유종목 포트폴리오 -->
                 <div class="glass-card">
                     <div class="section-header">
@@ -1300,19 +1314,6 @@ HTML_CONTENT = """
                     </div>
                 </div>
 
-                <!-- 감시 종목 관리 -->
-                <div class="glass-card">
-                    <div class="section-title" style="margin-bottom:16px;">자동매매 실시간 감시 종목</div>
-                    <div class="monitoring-box">
-                        <div class="monitoring-input-row">
-                            <input type="text" id="monitorInput" placeholder="종목코드 입력 (6자리)">
-                            <button class="btn-add" onclick="addMonitoringStock()">감시 추가</button>
-                        </div>
-                        <div id="monitoringBadges" class="monitoring-badges">
-                            <div class="no-data">감시 중인 종목이 없습니다.</div>
-                        </div>
-                    </div>
-                </div>
             </div>
         </div>
     </div>
