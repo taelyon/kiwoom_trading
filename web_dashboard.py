@@ -2799,7 +2799,13 @@ def get_current_status_data():
         # 4. 감시 중인 종목 리스트 추출 (monitoring_manager에서 직접 추출)
         monitored_stocks = []
         if hasattr(app, 'monitoring_manager') and app.monitoring_manager:
-            for code in app.monitoring_manager.monitored_stocks:
+            from datetime import datetime
+            # 추가된 시간(stock_added_time) 기준으로 오름차순 정렬하여 뒤쪽에 추가되도록 함
+            sorted_codes = sorted(
+                app.monitoring_manager.monitored_stocks,
+                key=lambda c: app.monitoring_manager.stock_added_time.get(c, datetime.min)
+            )
+            for code in sorted_codes:
                 name = "분석 대기"
                 if hasattr(app, 'data_manager') and app.data_manager:
                     name = app.data_manager.get_stock_name_by_code(code)
