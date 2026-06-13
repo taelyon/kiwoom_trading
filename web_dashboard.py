@@ -3250,7 +3250,14 @@ async def websocket_handler(websocket):
                     
                     logging.info(f"📊 대시보드 제어: 백테스팅 요청 ({start_date} ~ {end_date}, 종목: {code})")
                     
-                    def run_backtest_thread(ws, s_date, e_date, c):
+                    main_loop = None
+                    try:
+                        main_loop = asyncio.get_running_loop()
+                    except RuntimeError:
+                        if app and hasattr(app, 'loop') and app.loop:
+                            main_loop = app.loop
+                    
+                    def run_backtest_thread(ws, s_date, e_date, c, loop):
                         try:
                             from backtester import Backtester
                             bt = Backtester()
@@ -3265,11 +3272,8 @@ async def websocket_handler(websocket):
                                             "msg": msg
                                         }))
                                     except: pass
-                                # app.loop이 없으면 현재 루프 사용 (threading이므로 run_coroutine_threadsafe 필수)
-                                loop = asyncio.get_event_loop()
-                                if app and hasattr(app, 'loop') and app.loop:
-                                    loop = app.loop
-                                asyncio.run_coroutine_threadsafe(_send(), loop)
+                                if loop:
+                                    asyncio.run_coroutine_threadsafe(_send(), loop)
                             
                             result = bt.run(s_date, e_date, c, progress_callback=progress_cb)
                             
@@ -3281,16 +3285,14 @@ async def websocket_handler(websocket):
                                         "data": result
                                     }))
                                 except: pass
-                            loop = asyncio.get_event_loop()
-                            if app and hasattr(app, 'loop') and app.loop:
-                                loop = app.loop
-                            asyncio.run_coroutine_threadsafe(_send_result(), loop)
+                            if loop:
+                                asyncio.run_coroutine_threadsafe(_send_result(), loop)
                                 
                         except Exception as e:
                             logging.error(f"백테스팅 스레드 오류: {e}", exc_info=True)
                     
                     # 스레드에서 백테스트 실행 (메인 이벤트 루프 차단 방지)
-                    threading.Thread(target=run_backtest_thread, args=(websocket, start_date, end_date, code), daemon=True).start()
+                    threading.Thread(target=run_backtest_thread, args=(websocket, start_date, end_date, code, main_loop), daemon=True).start()
 
                 elif msg_type == 'get_trade_history':
                     start_date = data.get('start_date')
