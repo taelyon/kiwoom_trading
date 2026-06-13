@@ -1790,10 +1790,15 @@ HTML_CONTENT = """
                 }
             };
 
-            ws.onclose = () => {
+             ws.onclose = () => {
                 clearInterval(heartbeatTimer); // 하트비트 종료
                 document.getElementById('connectionStatus').className = "status-badge disconnected";
                 document.getElementById('connectionStatus').innerHTML = '<span style="width: 8px; height: 8px; border-radius: 50%; background-color: var(--danger); box-shadow: 0 0 8px var(--danger);"></span>DISCONNECTED';
+                
+                // 로그인 완료 전이고 비밀번호 인증을 시도한 상태에서 끊긴 경우 화면에 경고 출력
+                if (document.getElementById('dashboardContainer').style.display !== "flex") {
+                    showAuthError("⚠️ 웹소켓 연결이 종료되었습니다. 포트 포워딩 또는 네트워크 상태를 확인해주세요.");
+                }
                 
                 // 인증에 성공했던 비밀번호가 저장되어 있을 때만 자동 재연결 시도
                 const savedPass = localStorage.getItem('dashboard_password');
@@ -1806,6 +1811,9 @@ HTML_CONTENT = """
 
             ws.onerror = (err) => {
                 console.error("웹소켓 에러: ", err);
+                if (document.getElementById('dashboardContainer').style.display !== "flex") {
+                    showAuthError("❌ 웹소켓 접속 오류가 발생했습니다. (Reverse Proxy의 WebSocket 업그레이드 헤더 설정을 점검해 보세요.)");
+                }
             };
         }
 
