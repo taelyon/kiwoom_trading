@@ -488,10 +488,23 @@ def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_
                 rsi_val = locals_dict.get('tic_RSI', [50.0])
                 feature_rsi = rsi_val[-1] if isinstance(rsi_val, (list, np.ndarray)) and len(rsi_val) > 0 else 50.0
                 
+                # 시간 지표
+                from datetime import datetime
+                now = datetime.now()
+                feature_time = max(0, min(390, (now.hour * 60 + now.minute) - (9 * 60)))
+                
                 # 모델 학습 시 사용된 피처 개수에 맞춰 동적으로 차원 맞추기
                 num_features = LGBM_MODEL.num_feature()
-                if num_features == 10:
-                    # 최신 10개 피처
+                if num_features == 11:
+                    # 최신 11개 피처 (시간 지표 포함)
+                    input_vector = np.array([[
+                        feature_strength, feature_velocity, feature_relative, feature_spike,
+                        feature_vi_dist, feature_kosdaq_change,
+                        feature_vwap_dist, feature_bb_pos, feature_macd_hist, feature_rsi,
+                        feature_time
+                    ]])
+                elif num_features == 10:
+                    # 직전 10개 피처
                     input_vector = np.array([[
                         feature_strength, feature_velocity, feature_relative, feature_spike,
                         feature_vi_dist, feature_kosdaq_change,
