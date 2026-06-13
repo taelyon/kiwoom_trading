@@ -163,9 +163,6 @@ class AsyncDatabaseManager:
                     'RSI', 'RSI_SIGNAL',
                     'LAST_TIC_CNT',
                     'VELOCITY', 'RELATIVE_POSITION',
-                    'TURNOVER', 'VI_DISTANCE',
-                    'SELL_HOGA_SIZE_1', 'SELL_HOGA_SIZE_2', 'SELL_HOGA_SIZE_3',
-                    'BUY_HOGA_SIZE_1', 'BUY_HOGA_SIZE_2', 'BUY_HOGA_SIZE_3',
                     'KOSPI_CHANGE', 'KOSDAQ_CHANGE',
                     # 필요시 주석 해제하여 사용
                     # 'MACD', 'MACD_SIGNAL', 'MACD_HIST',

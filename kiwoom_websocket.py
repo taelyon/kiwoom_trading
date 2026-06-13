@@ -1557,10 +1557,8 @@ class KiwoomWebSocketClient:
                 logging.debug(f"⚠️ 틱 차트 업데이트 건너뜀: {stock_code} (틱 데이터 없음)")
                 return
             
-            # 필수 키가 없으면 초기화
             required_keys = ['time', 'open', 'high', 'low', 'close', 'volume', 'strength', 'buy_volume', 'sell_volume', 
-                             'TICK_VELOCITY', 'LAST_TIC_CNT', 'TURNOVER', 'SELL_HOGA_SIZE_1', 
-                             'SELL_HOGA_SIZE_2', 'SELL_HOGA_SIZE_3', 'BUY_HOGA_SIZE_1', 'BUY_HOGA_SIZE_2', 'BUY_HOGA_SIZE_3', 'VI_DISTANCE']
+                             'TICK_VELOCITY', 'LAST_TIC_CNT']
             current_len = len(tic_data.get('close', []))
             for key in required_keys:
                 if key not in tic_data:
