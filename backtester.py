@@ -46,33 +46,45 @@ class Backtester:
         return df
 
     def run(self, start_date, end_date, code='ALL', progress_callback=None):
+        debug_logs = []
+        def log_dbg(msg):
+            logger.info(msg)
+            debug_logs.append(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")
+            
         try:
-            logger.info(f"백테스트 데이터 로딩 시작: {start_date} ~ {end_date} (종목: {code})")
+            log_dbg(f"백테스트 데이터 로딩 시작: {start_date} ~ {end_date} (종목: {code})")
             if progress_callback: progress_callback(10, "데이터를 로딩 중입니다...")
                 
             df = self.load_data(start_date, end_date, code)
             if df.empty:
+                log_dbg("❌ 해당 기간에 데이터가 없습니다.")
                 if progress_callback: progress_callback(100, "해당 기간에 데이터가 없습니다.")
-                return {"error": "해당 기간에 데이터가 없습니다."}
+                return {"error": "해당 기간에 데이터가 없습니다.", "debug_logs": debug_logs}
                 
             if progress_callback: progress_callback(30, f"데이터 로딩 완료: {len(df):,} 틱. 시뮬레이션 준비 중...")
+            log_dbg(f"데이터 로드 완료. 총 {len(df):,}개 틱 데이터.")
 
             # 전략 로드
             from strategy_utils import load_strategies_from_config
-            
-            # config.get은 (section, option) 두 개의 인자를 받습니다. fallback은 키워드로 전달해야 합니다.
             stg_name = self.config.get('SETTINGS', 'LAST_STRATEGY', fallback='기본_돌파')
+            log_dbg(f"설정된 마지막 전략 이름: {stg_name}")
             
             buy_strategies = []
             sell_strategies = []
             
             all_strategies = load_strategies_from_config()
+            log_dbg(f"로드 가능한 전체 전략 목록: {list(all_strategies.keys())}")
             
             if stg_name in all_strategies:
                 buy_strategies = all_strategies[stg_name]['buy_strategies']
                 sell_strategies = all_strategies[stg_name]['sell_strategies']
+                log_dbg(f"매수 전략 조건 수: {len(buy_strategies)}개, 매도 전략 조건 수: {len(sell_strategies)}개")
+                for s in buy_strategies:
+                    log_dbg(f" -> 매수 조건: '{s.get('name')}' -> {s.get('content')}")
+                for s in sell_strategies:
+                    log_dbg(f" -> 매도 조건: '{s.get('name')}' -> {s.get('content')}")
             else:
-                logger.warning(f"설정된 전략 '{stg_name}'을 찾을 수 없어 빈 전략으로 실행합니다.")
+                log_dbg(f"⚠️ 경고: 설정된 전략 '{stg_name}'을 찾을 수 없어 빈 전략으로 실행합니다.")
             
             portfolio = {} # code -> {'buy_price': float, 'qty': int, 'buy_time': str}
             trades = []
@@ -93,6 +105,7 @@ class Backtester:
             eval_errors = 0
 
             from strategy_utils import KiwoomIndicatorExtractor, LGBM_MODEL
+            log_dbg(f"LightGBM 모델 로딩 여부: {LGBM_MODEL is not None}")
             
             # AI_SCORE 사용 여부 판단
             uses_ai = False
@@ -100,6 +113,7 @@ class Backtester:
                 if 'AI_SCORE' in stg.get('content', ''):
                     uses_ai = True
                     break
+            log_dbg(f"AI_SCORE 사용 전략 여부: {uses_ai}")
             
             for current_code, group_df in grouped:
                 code_idx += 1
@@ -155,7 +169,7 @@ class Backtester:
                         group_df = pd.merge_asof(temp_df, min3_df, left_index=True, right_index=True, direction='backward')
                         group_df = group_df.reset_index()
                 except Exception as e:
-                    logger.error(f"3분봉 데이터 처리 오류 ({current_code}): {e}")
+                    log_dbg(f"❌ 3분봉 데이터 처리 오류 ({current_code}): {e}")
                     
                 # 2. 기술적 지표 1회 일괄(Batch) 계산
                 try:
@@ -163,7 +177,7 @@ class Backtester:
                     for k, v in indicators.items():
                         group_df[k] = v
                 except Exception as e:
-                    logger.error(f"지표 사전 계산 오류 ({current_code}): {e}")
+                    log_dbg(f"❌ 지표 사전 계산 오류 ({current_code}): {e}")
                 
                 n = len(group_df)
                 group_df['AI_SCORE'] = 0.0
@@ -208,9 +222,12 @@ class Backtester:
                             mat = np.zeros((n, num_features))
                         
                         group_df['AI_SCORE'] = LGBM_MODEL.predict(mat, num_threads=1)
+                        log_dbg(f" -> {current_code}: AI_SCORE 계산 성공. (평균: {group_df['AI_SCORE'].mean():.4f}, 최대: {group_df['AI_SCORE'].max():.4f}, 최소: {group_df['AI_SCORE'].min():.4f})")
                     except Exception as e:
-                        logger.error(f"AI_SCORE 배치 계산 오류 ({current_code}): {e}")
+                        log_dbg(f"❌ AI_SCORE 배치 계산 오류 ({current_code}): {e}")
                         group_df['AI_SCORE'] = 0.0
+                elif uses_ai:
+                    log_dbg(f"⚠️ {current_code}: AI_SCORE가 전략에 있으나 LGBM_MODEL 로드되지 않음 (AI_SCORE = 0.0)")
                 
                 # 4. numpy 배열 사전 추출 (루프 내 iloc 호출 최소화)
                 close_arr = group_df['close'].values
@@ -230,7 +247,7 @@ class Backtester:
                     try:
                         buy_compiled.append((stg['name'], compile(stg['content'], '<string>', 'eval')))
                     except Exception as e:
-                        logger.error(f"매수 전략 컴파일 오류 ({stg['name']}): {e}")
+                        log_dbg(f"❌ 매수 전략 컴파일 오류 ({stg['name']}): {e}")
                 
                 sell_compiled = []
                 for stg in sell_strategies:
@@ -279,8 +296,8 @@ class Backtester:
                                     break
                             except Exception as e:
                                 eval_errors += 1
-                                if eval_errors <= 5:
-                                    logger.error(f"매수 전략 평가 오류 ({stg_name_str}): {e}")
+                                if eval_errors <= 10:
+                                    log_dbg(f"❌ 매수 전략 평가 오류 ({stg_name_str}): {e}")
                                 
                         if buy_signal:
                             qty = int(invested_per_trade / current_price)
@@ -291,6 +308,9 @@ class Backtester:
                                     'buy_time': current_time_str,
                                     'stg': matched_stg_name
                                 }
+                                log_dbg(f"📥 [매수 체결] {current_code} | 시간: {current_time_str} | 가격: {current_price:,}원 | 수량: {qty}주 | 전략: {matched_stg_name}")
+                            else:
+                                log_dbg(f"⚠️ [매수 실패] {current_code} | 수량이 0입니다. (투자금: {invested_per_trade}, 가격: {current_price})")
                     
                     # 2. 매도 평가 (포지션이 있을 때)
                     elif current_code in portfolio:
@@ -331,8 +351,8 @@ class Backtester:
                                     break
                             except Exception as e:
                                 eval_errors += 1
-                                if eval_errors <= 5:
-                                    logger.error(f"매도 전략 평가 오류 ({stg_name_str}): {e}")
+                                if eval_errors <= 10:
+                                    log_dbg(f"❌ 매도 전략 평가 오류 ({stg_name_str}): {e}")
                                 
                         # 장 마감 직전 (15:18:00 이후) 강제 청산
                         time_part = current_time_str[8:14] if len(current_time_str) >= 14 else ""
@@ -344,6 +364,7 @@ class Backtester:
                         if sell_signal:
                             sell_qty = int(pos['qty'] * sell_ratio)
                             if sell_qty > 0:
+                                log_dbg(f"📤 [매도 체결] {current_code} | 시간: {current_time_str} | 가격: {current_price:,}원 | 수량: {sell_qty}주 | 손익률: {real_profit_pct:.2f}% | 전략: {matched_sell_stg}")
                                 trade_profit = (current_price - pos['buy_price']) * sell_qty
                                 trade_profit -= (pos['buy_price'] * sell_qty * 0.002)
                                 
@@ -374,9 +395,11 @@ class Backtester:
                                 else:
                                     portfolio[current_code]['qty'] -= sell_qty
 
-            # 결과 요약
+             # 결과 요약
             total_trades = win_count + loss_count
             win_rate = (win_count / total_trades * 100.0) if total_trades > 0 else 0.0
+            
+            log_dbg(f"시뮬레이션 완료. 총 거래: {total_trades}회 | 수익금: {total_profit:,.0f}원 | 승률: {win_rate:.2f}% | MDD: {mdd:.2f}%")
             
             result = {
                 "total_trades": total_trades,
@@ -388,15 +411,18 @@ class Backtester:
                 "mdd": round(mdd, 2),
                 "trades": trades[-50:], # 최근 50개만 프론트로 전달 (용량 방지)
                 "uses_ai": uses_ai,
-                "lgbm_model_loaded": LGBM_MODEL is not None
+                "lgbm_model_loaded": LGBM_MODEL is not None,
+                "debug_logs": debug_logs
             }
             
             if progress_callback: progress_callback(100, "시뮬레이션 완료!")
             return result
             
         except Exception as e:
-            logger.error(f"백테스팅 오류: {e}", exc_info=True)
-            return {"error": str(e)}
+            err_msg = f"백테스팅 오류: {e}"
+            logger.error(err_msg, exc_info=True)
+            debug_logs.append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ 치명적 오류 발생: {e}")
+            return {"error": str(e), "debug_logs": debug_logs}
 
 if __name__ == '__main__':
     bt = Backtester()
@@ -404,5 +430,5 @@ if __name__ == '__main__':
     res = bt.run('2026-06-01', '2026-06-13', progress_callback=p)
     print("\n[백테스트 결과]")
     for k, v in res.items():
-        if k != 'trades':
+        if k not in ['trades', 'debug_logs']:
             print(f"{k}: {v}")
