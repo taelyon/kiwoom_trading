@@ -31,9 +31,9 @@ class Backtester:
     def load_data(self, start_date_str, end_date_str, code=None):
         conn = sqlite3.connect(self.db_path)
         
-        # 14자리 datetime 처리 (YYYYMMDDHHMMSS)
-        start_datetime = f"{start_date_str.replace('-', '')}000000"
-        end_datetime = f"{end_date_str.replace('-', '')}235959"
+        # DB 저장 포맷 (YYYY-MM-DD HH:MM:SS) 처리를 위해 변환
+        start_datetime = f"{start_date_str} 00:00:00"
+        end_datetime = f"{end_date_str} 23:59:59"
         
         query = f"""
         SELECT *
