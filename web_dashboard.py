@@ -1119,6 +1119,80 @@ HTML_CONTENT = """
         .view-hidden {
             display: none !important;
         }
+    
+        /* 백테스팅 전용 레이아웃 */
+        .bt-grid-layout {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 24px;
+            width: 100%;
+        }
+        @media (min-width: 1024px) {
+            .bt-grid-layout {
+                grid-template-columns: 4fr 8fr;
+            }
+        }
+        .bt-sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .bt-main {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .bt-summary-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 16px;
+        }
+        @media (min-width: 1280px) {
+            .bt-summary-grid {
+                grid-template-columns: repeat(4, 1fr);
+            }
+        }
+        .bt-summary-card {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            transition: transform 0.2s ease;
+        }
+        .bt-summary-card:hover {
+            transform: translateY(-2px);
+        }
+        .bt-summary-label {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 12px;
+        }
+        .bt-summary-value {
+            font-family: 'Outfit', 'Noto Sans KR', monospace;
+            font-size: 26px;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+        }
+        .bt-placeholder {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            min-height: 400px;
+            background: rgba(255, 255, 255, 0.02);
+            border: 2px dashed rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            color: var(--text-secondary);
+            height: 100%;
+        }
     </style>
 </head>
 <body>
@@ -1373,49 +1447,90 @@ HTML_CONTENT = """
 
     <!-- 백테스팅 시뮬레이터 전용 뷰 -->
     <div id="backtestView" class="view-container view-hidden">
-        <div style="max-width: 1200px; margin: 24px auto; width: 100%; display: flex; flex-direction: column; gap: 24px; padding: 0 24px;">
-            <div class="glass-card">
-                <div class="section-title" style="margin-bottom:16px; font-size: 20px; color: var(--accent-cyan); border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 12px;">🧪 백테스팅 파라미터 설정 및 실행</div>
-
-                <div class="glass-card">
-                    <div class="section-title" style="margin-bottom:16px;">백테스팅 시뮬레이터 (과거 데이터 검증)</div>
-                    <div class="order-panel">
-                        <div class="order-row">
-                            <div class="form-field">
-                                <label for="btStartDate">시작일</label>
-                                <input type="date" id="btStartDate" style="color-scheme: dark;">
-                            </div>
-                            <div class="form-field">
-                                <label for="btEndDate">종료일</label>
-                                <input type="date" id="btEndDate" style="color-scheme: dark;">
-                            </div>
-                        </div>
-                        <div class="form-field" style="margin-bottom: 12px;">
-                            <label for="btCode">종목코드 (전체는 ALL)</label>
-                            <input type="text" id="btCode" value="ALL" placeholder="005930 또는 ALL">
-                        </div>
-                        <button id="btnRunBacktest" class="btn-primary" style="width: 100%;" onclick="startBacktest()">🚀 백테스트 실행</button>
+        <div style="max-width: 1400px; margin: 24px auto; width: 100%; display: flex; flex-direction: column; gap: 24px; padding: 0 24px;">
+            <div class="bt-grid-layout">
+                <!-- Sidebar Controls -->
+                <div class="bt-sidebar">
+                    <div class="glass-card">
+                        <h3 style="font-size: 14px; font-weight: bold; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 24px; display: flex; align-items: center; gap: 8px;">
+                            ⚙️ Strategy Parameters
+                        </h3>
                         
-                        <!-- 결과/진행률 영역 -->
-                        <div id="btResultBox" style="margin-top:16px; display:none; background:rgba(0,0,0,0.3); padding:12px; border-radius:8px; font-size:12px;">
-                            <div id="btProgressText" style="color:var(--accent-cyan); margin-bottom:8px; font-weight:bold;">대기 중...</div>
-                            <div id="btWarningText" style="display:none; color:#ff5252; border:1px solid #ff5252; padding:8px; border-radius:6px; background:rgba(255, 82, 82, 0.1); margin-bottom:8px; line-height:1.4;"></div>
-                            <div id="btStatsBox" style="display:none; flex-direction:column; gap:6px;">
-                                <div style="display:flex; justify-content:space-between;"><span>총 거래 횟수:</span> <span id="btTotalTrades" style="font-weight:bold;">0</span></div>
-                                <div style="display:flex; justify-content:space-between;"><span>승률:</span> <span id="btWinRate" style="font-weight:bold; color:var(--danger);">0%</span></div>
-                                <div style="display:flex; justify-content:space-between;"><span>예상 누적 수익금:</span> <span id="btTotalProfit" style="font-weight:bold;">0원</span></div>
-                                <div style="display:flex; justify-content:space-between;"><span>최대 낙폭 (MDD):</span> <span id="btMdd" style="font-weight:bold; color:var(--primary);">0%</span></div>
+                        <div class="form-field" style="margin-bottom: 16px;">
+                            <label for="btCode">TICKER SYMBOL (전체는 ALL)</label>
+                            <input type="text" id="btCode" value="ALL" placeholder="e.g. 005930 또는 ALL" style="font-family: monospace; font-weight: bold; text-transform: uppercase;">
+                        </div>
+
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
+                            <div class="form-field">
+                                <label for="btStartDate">START DATE</label>
+                                <input type="date" id="btStartDate" style="color-scheme: dark; font-family: monospace;">
                             </div>
-                            <div id="btLogsBox" style="display:none; margin-top:12px; border-top:1px solid rgba(255,255,255,0.1); padding-top:8px;">
-                                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-                                    <span style="font-weight:bold; color:var(--text-secondary);">⚙️ 백테스트 디버그 로그</span>
-                                    <button class="btn-secondary" style="padding:2px 6px; font-size:10px; cursor:pointer;" onclick="toggleBtLogs()">접기/펼치기</button>
-                                </div>
-                                <pre id="btLogsContent" style="max-height:180px; overflow-y:auto; background:rgba(0,0,0,0.5); padding:8px; border-radius:4px; font-family:monospace; font-size:10px; color:#ccc; white-space:pre-wrap; word-break:break-all; margin:0;"></pre>
+                            <div class="form-field">
+                                <label for="btEndDate">END DATE</label>
+                                <input type="date" id="btEndDate" style="color-scheme: dark; font-family: monospace;">
                             </div>
                         </div>
-                    
+
+                        <div class="form-field" style="margin-bottom: 16px;">
+                            <label for="btInitialCapital">INITIAL CAPITAL (KRW)</label>
+                            <input type="number" id="btInitialCapital" value="10000000" style="font-family: monospace; font-weight: bold; opacity: 0.7;" readonly title="기본 투자금 (현재 고정)">
+                        </div>
+
+                        <div style="margin-top: 32px;">
+                            <button id="btnRunBacktest" class="btn-primary" style="width: 100%; padding: 14px; font-size: 15px; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 8px; box-shadow: 0 4px 16px rgba(0, 242, 254, 0.2);" onclick="startBacktest()">🚀 Run Backtest</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Main Content Area -->
+                <div class="bt-main">
+                    <!-- 결과 뷰 (기본적으로 숨김) -->
+                    <div id="btResultContent" style="display: none; flex-direction: column; gap: 20px; height: 100%;">
+                        <!-- Summary Cards -->
+                        <div class="bt-summary-grid">
+                            <div class="bt-summary-card">
+                                <div class="bt-summary-label">TOTAL RETURN</div>
+                                <div id="btTotalProfit" class="bt-summary-value" style="color: var(--text-primary);">0원</div>
+                            </div>
+                            <div class="bt-summary-card">
+                                <div class="bt-summary-label">TOTAL TRADES</div>
+                                <div id="btTotalTrades" class="bt-summary-value" style="color: var(--text-primary);">0</div>
+                            </div>
+                            <div class="bt-summary-card">
+                                <div class="bt-summary-label">WIN RATE</div>
+                                <div id="btWinRate" class="bt-summary-value" style="color: var(--text-primary);">0%</div>
+                            </div>
+                            <div class="bt-summary-card">
+                                <div class="bt-summary-label">MAX DRAWDOWN</div>
+                                <div id="btMdd" class="bt-summary-value" style="color: var(--text-primary);">0%</div>
+                            </div>
+                        </div>
+
+                        <!-- 디버그 및 에러 영역 -->
+                        <div id="btWarningText" style="display:none; color:#ff5252; border:1px solid #ff5252; padding:12px; border-radius:8px; background:rgba(255, 82, 82, 0.1); line-height:1.5; font-size: 13px;"></div>
+                        
+                        <div class="glass-card" style="flex-grow: 1; min-height: 300px; display: flex; flex-direction: column;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                                <span style="font-weight:bold; color:var(--text-secondary); font-size: 12px; text-transform: uppercase; letter-spacing: 1px;">⚙️ Execution Logs & Debug</span>
+                                <div id="btProgressText" style="color:var(--accent-cyan); font-weight:bold; font-size: 13px;">대기 중...</div>
+                            </div>
+                            <div id="btLogsBox" style="display:none; flex-grow: 1;">
+                                <pre id="btLogsContent" style="height: 100%; min-height: 250px; overflow-y:auto; background:rgba(0,0,0,0.5); padding:16px; border-radius:8px; font-family: 'JetBrains Mono', monospace; font-size:12px; color:#ccc; white-space:pre-wrap; word-break:break-all; margin:0; border: 1px solid rgba(255,255,255,0.05);"></pre>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Placeholder (초기 화면) -->
+                    <div id="btPlaceholder" class="bt-placeholder">
+                        <div style="font-size: 48px; opacity: 0.2; margin-bottom: 16px;">📈</div>
+                        <p style="font-weight: bold; color: var(--text-secondary); margin-bottom: 8px; font-size: 18px;">Ready to test</p>
+                        <p style="font-size: 13px; opacity: 0.7;">Configure your parameters on the left and hit Run to simulate historical performance.</p>
+                    </div>
+                </div>
             </div>
+        </div>
+    </div>
         </div>
     </div>
 
@@ -1671,8 +1786,9 @@ HTML_CONTENT = """
                 } else if (data.type === 'chart_tick') {
                     renderChartTick(data);
                 } else if (data.type === 'backtest_progress') {
-                    document.getElementById('btResultBox').style.display = 'block';
-                    document.getElementById('btStatsBox').style.display = 'none';
+                    document.getElementById('btPlaceholder').style.display = 'none';
+                    document.getElementById('btResultContent').style.display = 'flex';
+                    
                     document.getElementById('btWarningText').style.display = 'none';
                     document.getElementById('btLogsBox').style.display = 'none';
                     document.getElementById('btProgressText').innerText = `[${data.progress}%] ${data.msg}`;
@@ -1693,7 +1809,7 @@ HTML_CONTENT = """
                     
                     document.getElementById('btProgressText').innerText = '✅ 시뮬레이션 완료!';
                     document.getElementById('btProgressText').style.color = 'var(--success)';
-                    document.getElementById('btStatsBox').style.display = 'flex';
+                    
                     
                     const warningElem = document.getElementById('btWarningText');
                     if (data.data.uses_ai && !data.data.lgbm_model_loaded) {
@@ -2840,8 +2956,9 @@ HTML_CONTENT = """
             
             document.getElementById('btnRunBacktest').disabled = true;
             document.getElementById('btnRunBacktest').innerText = '실행 중...';
-            document.getElementById('btResultBox').style.display = 'block';
-            document.getElementById('btStatsBox').style.display = 'none';
+            document.getElementById('btPlaceholder').style.display = 'none';
+                    document.getElementById('btResultContent').style.display = 'flex';
+            
             document.getElementById('btProgressText').innerText = "요청을 전송 중입니다...";
             document.getElementById('btProgressText').style.color = "var(--accent-cyan)";
             
