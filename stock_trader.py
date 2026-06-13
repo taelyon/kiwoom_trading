@@ -312,10 +312,20 @@ async def main():
         logging.error(f"❌ 웹 대시보드 기동 실패: {dashboard_err}", exc_info=True)
 
     # TradingApp 시작
-    await app.start()
+    try:
+        await app.start()
+    except Exception as start_ex:
+        logging.critical(f"❌ 자동매매 핵심 모듈 실행 중 치명적 오류 발생: {start_ex}", exc_info=True)
+        logging.info("⚠️ 시스템 복구를 위해 대시보드 접근을 유지하며, 프로그램을 강제 종료하지 않습니다.")
     
     # 종료 시그널 핸들러 설정 (Graceful Shutdown)
     loop = asyncio.get_running_loop()
+    
+    # 전역 예외 처리기 (Task 내 unhandled exception 발생 시 프로그램 종료 방지)
+    def global_exception_handler(loop, context):
+        msg = context.get("exception", context["message"])
+        logging.error(f"⚠️ 백그라운드 태스크 전역 오류 발생 (무시됨): {msg}")
+    loop.set_exception_handler(global_exception_handler)
     
     stop_event = asyncio.Event()
     
