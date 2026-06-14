@@ -1250,12 +1250,12 @@ class ChartDataCache:
             chart_cache.cache[stock_code] = cached_data
 
             # 실시간 데이터를 틱/분봉 데이터에 추가
-            self.parent.login_handler.websocket_client._update_tic_chart_with_realtime(stock_code, cached_data, realtime_data)
+            is_new_candle = self.parent.login_handler.websocket_client._update_tic_chart_with_realtime(stock_code, cached_data, realtime_data)
             self.parent.login_handler.websocket_client._update_minute_chart_with_realtime(stock_code, cached_data, realtime_data)
 
-            # 실시간 기술적 지표 계산 (비동기, ThreadPoolExecutor 사용 - 단, 1초 스로틀링 적용)
+            # 실시간 기술적 지표 계산 (비동기, ThreadPoolExecutor 사용 - 단, 1초 스로틀링 적용 또는 새 봉 생성 시 강제 업데이트)
             current_time = time.time()
-            if current_time - self.last_indicator_calc_time.get(stock_code, 0) >= 1.0:
+            if current_time - self.last_indicator_calc_time.get(stock_code, 0) >= 1.0 or is_new_candle:
                 self.last_indicator_calc_time[stock_code] = current_time
                 loop = asyncio.get_running_loop()
                 tasks = []
@@ -1279,6 +1279,14 @@ class ChartDataCache:
                         logging.error(f"분봉 지표 계산 실패: {results[1]}")
 
                     chart_cache.cache[stock_code] = cached_data
+
+            # 새 캔들이 완성되었을 경우 매수 신호 평가 이벤트를 비동기로 백그라운드 발생 (하이브리드 아키텍처)
+            if is_new_candle and hasattr(self.parent, 'autotrader') and self.parent.autotrader:
+                try:
+                    from core.utils import create_fire_and_forget_task
+                    create_fire_and_forget_task(self.parent.autotrader._analyze_and_execute_trading_async(stock_code, is_buy_check_allowed=True))
+                except Exception as eval_ex:
+                    self.logger.error(f"매수 평가 비동기 이벤트 발생 실패: {eval_ex}")
 
             # 데이터 업데이트 시그널 발생
             self.data_updated.emit(stock_code)

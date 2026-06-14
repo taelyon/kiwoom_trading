@@ -1411,7 +1411,7 @@ HTML_CONTENT = """
                         <div class="order-row">
                             <div class="form-field">
                                 <label for="cfgBuyCount">최대 매수종목수 (buycount)</label>
-                                <input type="number" id="cfgBuyCount" value="3">
+                                <input type="number" id="cfgBuyCount" value="5">
                             </div>
                             <div class="form-field">
                                 <label for="cfgStrategy">대표 매매 전략</label>
@@ -1506,7 +1506,7 @@ HTML_CONTENT = """
                             </div>
                             <div class="form-field">
                                 <label for="btBuyCount">최대 매수종목수 (buycount)</label>
-                                <input type="number" id="btBuyCount" value="3" style="font-family: monospace; font-weight: bold;" title="최대 동시 보유 종목 수">
+                                <input type="number" id="btBuyCount" value="5" style="font-family: monospace; font-weight: bold;" title="최대 동시 보유 종목 수">
                             </div>
                         </div>
                         

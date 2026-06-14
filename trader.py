@@ -779,14 +779,14 @@ class AutoTrader:
         except Exception as ex:
             self.logger.error(f"주기적 매매 판단 중 오류: {ex}", exc_info=True)
     
-    async def _analyze_and_execute_trading_async(self, code):
+    async def _analyze_and_execute_trading_async(self, code, is_buy_check_allowed=False):
         """매매 판단 및 실행 (비동기)"""
         try:
-            await self.analyze_and_execute_trading(code)
+            await self.analyze_and_execute_trading(code, is_buy_check_allowed=is_buy_check_allowed)
         except Exception as ex:
             self.logger.error(f"비동기 매매 판단 실패 ({code}): {ex}", exc_info=True)
     
-    async def analyze_and_execute_trading(self, code):
+    async def analyze_and_execute_trading(self, code, is_buy_check_allowed=False):
         """매매 판단 실행"""
         try:
             if self.auto_liquidation_executed:
@@ -842,7 +842,7 @@ class AutoTrader:
                 'previous_close': previous_close
             }
             
-            await self.parent.objstg.evaluate_strategy(code, market_data)
+            await self.parent.objstg.evaluate_strategy(code, market_data, is_buy_check_allowed=is_buy_check_allowed)
             return True
         except Exception as ex:
             self.logger.error(f"매매 판단 및 실행 실패 ({code}): {ex}", exc_info=True)

@@ -1546,16 +1546,17 @@ class KiwoomWebSocketClient:
 
     def _update_tic_chart_with_realtime(self, stock_code, cached_data, realtime_data):
         """틱 차트에 실시간 데이터 추가 (30틱 = 1봉) - 통합된 함수"""
+        is_new_candle = False
         try:
             # cached_data가 None이거나 dict가 아니면 리턴
             if not cached_data or not isinstance(cached_data, dict):
                 logging.debug(f"⚠️ 틱 차트 업데이트 건너뜀: {stock_code} (캐시 데이터 없음)")
-                return
+                return False
             
             tic_data = cached_data.get('tic_data', {})
             if not tic_data:
                 logging.debug(f"⚠️ 틱 차트 업데이트 건너뜀: {stock_code} (틱 데이터 없음)")
-                return
+                return False
             
             required_keys = ['time', 'open', 'high', 'low', 'close', 'volume', 'buy_volume', 'sell_volume', 
                              'TICK_VELOCITY', 'LAST_TIC_CNT']
@@ -1587,7 +1588,7 @@ class KiwoomWebSocketClient:
             # 실시간 데이터에서 시간 파싱
             execution_time = realtime_data.get('execution_time', '')
             if not execution_time:
-                return
+                return False
             
             # 시간을 datetime 객체로 변환
             try:
@@ -1623,6 +1624,7 @@ class KiwoomWebSocketClient:
             
             # 기존 봉이 없는 경우 (초기 상태) 또는 60틱이 찬 경우 (새 봉 생성)
             if len(tic_data.get('close', [])) == 0 or last_tic_cnt >= 60:
+                is_new_candle = True
                 # 새 봉 생성
                 tic_data['time'].append(dt) # type: ignore
                 tic_data['open'].append(current_price)
@@ -1689,8 +1691,11 @@ class KiwoomWebSocketClient:
                     if key in tic_data and len(tic_data[key]) > max_data:
                         tic_data[key] = tic_data[key][-max_data:]
                 
+            return is_new_candle
+                        
         except Exception as e:
             self.logger.error(f"틱 차트 실시간 데이터 추가 실패: {e}", exc_info=True)
+            return False
     
     def _update_minute_chart_with_realtime(self, stock_code, cached_data, realtime_data):
         """분봉 차트에 실시간 데이터 추가 (3분 = 1봉)"""
