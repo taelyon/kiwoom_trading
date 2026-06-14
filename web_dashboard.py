@@ -1479,6 +1479,13 @@ HTML_CONTENT = """
                         </div>
                         
                         <div class="form-field" style="margin-bottom: 16px;">
+                            <label for="btStrategy">대표 매매 전략 (빠른 불러오기)</label>
+                            <select id="btStrategy" onchange="onBtStrategyChange(this.value)">
+                                <option value="">전략 선택...</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-field" style="margin-bottom: 16px;">
                             <label for="btBuyStrategy">매수 전략 편집기 (JSON)</label>
                             <textarea id="btBuyStrategy" rows="5" style="width: 100%; font-family: monospace; font-size: 12px; background: rgba(0,0,0,0.3); color: #00f2fe; border: 1px solid var(--border-color); border-radius: 8px; padding: 10px; resize: vertical;"></textarea>
                         </div>
@@ -2126,6 +2133,16 @@ HTML_CONTENT = """
             // 로컬 스토리지 기능은 실시간 동기화를 위해 제거되었습니다.
         }
         // 전략 선택 박스 변경 핸들러
+        function onBtStrategyChange(strategyName) {
+            if (window.globalStrategies && window.globalStrategies[strategyName]) {
+                const stg = window.globalStrategies[strategyName];
+                const bBuy = document.getElementById('btBuyStrategy');
+                const bSell = document.getElementById('btSellStrategy');
+                if (bBuy) bBuy.value = JSON.stringify(stg.buy_strategies || [], null, 2);
+                if (bSell) bSell.value = JSON.stringify(stg.sell_strategies || [], null, 2);
+            }
+        }
+
         function onStrategyChange(strategy) {
             const buyTextarea = document.getElementById('cfgBuyStrategy');
             const sellTextarea = document.getElementById('cfgSellStrategy');
