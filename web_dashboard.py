@@ -1454,11 +1454,11 @@ HTML_CONTENT = """
                 <div class="bt-sidebar">
                     <div class="glass-card">
                         <h3 style="font-size: 14px; font-weight: bold; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 24px; display: flex; align-items: center; gap: 8px;">
-                            ⚙️ Strategy Parameters
+                            ⚙️ 전략 파라미터
                         </h3>
                         
                         <div class="form-field" style="margin-bottom: 16px;">
-                            <label for="btCode">TICKER SYMBOL (전체는 ALL)</label>
+                            <label for="btCode">종목 코드 (전체는 ALL)</label>
                             <input type="text" id="btCode" value="ALL" placeholder="e.g. 005930 또는 ALL" style="font-family: monospace; font-weight: bold; text-transform: uppercase;">
                         </div>
 
@@ -1500,7 +1500,7 @@ HTML_CONTENT = """
                         <!-- Summary Cards -->
                         <div class="bt-summary-grid">
                             <div class="bt-summary-card">
-                                <div class="bt-summary-label">TOTAL RETURN</div>
+                                <div class="bt-summary-label">총 수익률 (Return)</div>
                                 <div id="btTotalProfit" class="bt-summary-value" style="color: var(--text-primary);">0원</div>
                             </div>
                             <div class="bt-summary-card">
@@ -1518,10 +1518,10 @@ HTML_CONTENT = """
                         </div>
 
                         
-                        <!-- Equity Curve Chart -->
+                        <!-- 수익률 곡선 Chart -->
                         <div id="btChartContainerWrapper" class="glass-card" style="display:block; padding: 16px; margin-top: 4px; min-height: 330px;">
                             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
-                                <span style="font-weight:bold; color:var(--text-secondary); font-size: 14px; text-transform: uppercase; letter-spacing: 1px;">📊 Equity Curve</span>
+                                <span style="font-weight:bold; color:var(--text-secondary); font-size: 14px; text-transform: uppercase; letter-spacing: 1px;">📊 수익률 곡선</span>
                             </div>
                             <div id="btChartContainer" style="width: 100%; height: 280px; position: relative;"></div>
                         </div>
@@ -1531,7 +1531,7 @@ HTML_CONTENT = """
                         
                         <div class="glass-card" style="flex-grow: 1; min-height: 300px; display: flex; flex-direction: column;">
                             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-                                <span style="font-weight:bold; color:var(--text-secondary); font-size: 12px; text-transform: uppercase; letter-spacing: 1px;">⚙️ Execution Logs & Debug</span>
+                                <span style="font-weight:bold; color:var(--text-secondary); font-size: 12px; text-transform: uppercase; letter-spacing: 1px;">⚙️ 매매 로그 및 디버그</span>
                                 <div id="btProgressText" style="color:var(--accent-cyan); font-weight:bold; font-size: 13px;">대기 중...</div>
                             </div>
                             <div id="btLogsBox" style="display:none; flex-grow: 1;">
