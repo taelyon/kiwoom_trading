@@ -1556,8 +1556,8 @@ HTML_CONTENT = """
                             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
                                 <span style="font-weight:bold; color:var(--text-secondary); font-size: 14px; text-transform: uppercase; letter-spacing: 1px;">📊 Equity Curve</span>
                                 <div style="font-size: 12px; display: flex; gap: 12px; font-weight: bold;">
-                                    <span style="color: #00f2fe;">─ 매매 전략</span>
-                                    <span style="color: rgba(255, 193, 7, 0.8);">-- Buy & Hold</span>
+                                    <span style="color: #00f2fe;">─ 매매 전략 (자본금)</span>
+                                    <span style="color: rgba(255, 193, 7, 0.8);">-- 실제 주가</span>
                                 </div>
                             </div>
                             <div id="btChartContainer" style="width: 100%; height: 280px; position: relative;"></div>
@@ -2460,6 +2460,10 @@ HTML_CONTENT = """
                         rightPriceScale: {
                             borderVisible: false,
                         },
+                        leftPriceScale: {
+                            visible: true,
+                            borderVisible: false,
+                        },
                         timeScale: {
                             borderVisible: false,
                             timeVisible: true,
@@ -2477,7 +2481,8 @@ HTML_CONTENT = """
                     btBnhSeries = btChart.addLineSeries({
                         color: 'rgba(255, 193, 7, 0.8)',
                         lineWidth: 2,
-                        lineStyle: LightweightCharts.LineStyle.Dashed
+                        lineStyle: LightweightCharts.LineStyle.Dashed,
+                        priceScaleId: 'left'
                     });
                     
                     window.addEventListener('resize', () => {

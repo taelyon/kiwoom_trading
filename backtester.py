@@ -458,13 +458,13 @@ class Backtester:
                 close_col = 'tic_close' if 'tic_close' in df_bnh.columns else 'close'
                 
                 daily_close = df_bnh.groupby(['date', 'code'])[close_col].last().reset_index()
-                daily_close['return'] = daily_close.groupby('code')[close_col].transform(lambda x: x / x.iloc[0])
-                daily_bnh = daily_close.groupby('date')['return'].mean().reset_index()
+                # 수익률 대신 실제 종가들의 평균을 구함 (단일 종목일 경우 그대로 해당 종목의 주가가 됨)
+                daily_bnh = daily_close.groupby('date')[close_col].mean().reset_index()
                 
                 for _, row in daily_bnh.iterrows():
                     bnh_history.append({
                         'time': f"{row['date'].strftime('%Y-%m-%d')} 15:30:00",
-                        'equity': 10000000 * row['return']
+                        'equity': row[close_col] # 프론트 파싱 호환을 위해 키는 equity 사용
                     })
             except Exception as e:
                 logger.error(f"Buy&Hold 벤치마크 생성 오류: {e}")
