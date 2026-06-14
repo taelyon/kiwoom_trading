@@ -295,6 +295,10 @@ class Backtester:
                         matched_sell_stg = ""
                         
                         for stg_name_str, stg_ratio, stg_code in sell_compiled:
+                            # 이미 발동된 이력이 있는 매도 룰은 평가에서 제외 (중복 방지)
+                            if stg_name_str in pos.get('executed_sell_rules', set()):
+                                continue
+                                
                             try:
                                 if eval(stg_code, globals(), locals_dict):
                                     sell_signal = True
@@ -341,6 +345,7 @@ class Backtester:
                                     del portfolio[current_code]
                                 else:
                                     portfolio[current_code]['qty'] -= sell_qty
+                                    portfolio[current_code].setdefault('executed_sell_rules', set()).add(matched_sell_stg)
                                     
                 # 2. 매수 평가 (보유 슬롯이 비어있을 때만)
                 if not is_market_close:
@@ -400,7 +405,8 @@ class Backtester:
                                         'buy_price': current_price,
                                         'qty': qty,
                                         'buy_time': current_time_str,
-                                        'stg': matched_stg_name
+                                        'stg': matched_stg_name,
+                                        'executed_sell_rules': set()
                                     }
                 
                 # 3. 현재 틱(time) 처리가 끝났으므로 해당 종목들의 내부 idx 1 증가

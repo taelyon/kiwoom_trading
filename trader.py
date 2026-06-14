@@ -40,6 +40,9 @@ class KiwoomTrader:
         # 임시 매도 요청 기록 (주문번호 발급 전 웹소켓 수신 대비)
         self.temp_sell_logs = {} # {code: {'quantity': qty, 'timestamp': datetime}}
 
+        # 이미 발동된 매도 룰 추적 (중복 매도 방지, {code: set(['룰이름1', ...])})
+        self.executed_sell_rules = {}
+
         # 매수 주문 진행 중인 종목 추적 (중복 매수 방지)
         self.pending_buy_orders = set()
         
@@ -341,6 +344,9 @@ class KiwoomTrader:
                         del self.buy_prices[code]
                     if code in self.buy_times:
                         del self.buy_times[code]
+                    if code in self.executed_sell_rules:
+                        del self.executed_sell_rules[code]
+                        self.logger.debug(f"🧹 [{code}] 전량 매도로 분할 매도 이력 초기화")
                     
                     self.sold_blacklist[code] = datetime.now()
                     self.logger.debug(f"🚫 [{code}] 최근 전량 매도 목록에 추가 (10초간 UI 재출현 방지)")
@@ -400,6 +406,7 @@ class KiwoomTrader:
                         del merged_holdings[code]
                         if code in merged_buy_prices: del merged_buy_prices[code]
                         if code in merged_buy_times: del merged_buy_times[code]
+                        # self.executed_sell_rules는 여기서 삭제하지 않음 (실제 holdings 갱신은 _sync에서 함)
                     
                     for code, balance_info in ws_balance_data.items():
                         if code == 'available_cash':
@@ -471,6 +478,7 @@ class KiwoomTrader:
                 if code in self.buy_prices: del self.buy_prices[code]
                 if code in self.buy_times: del self.buy_times[code]
                 if code in self.highest_prices: del self.highest_prices[code]
+                if code in self.executed_sell_rules: del self.executed_sell_rules[code]
 
             for code, balance_info in ws_balance_data.items():
                 if code == 'available_cash':
@@ -497,6 +505,7 @@ class KiwoomTrader:
                     if code in self.buy_prices: del self.buy_prices[code]
                     if code in self.buy_times: del self.buy_times[code]
                     if code in self.highest_prices: del self.highest_prices[code]
+                    if code in self.executed_sell_rules: del self.executed_sell_rules[code]
         except Exception as ex:
             self.logger.warning(f"self.holdings와 웹소켓 잔고 동기화 실패: {ex}", exc_info=True)
 

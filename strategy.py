@@ -615,10 +615,15 @@ class KiwoomStrategy:
                 sell_stg_items = [(key, value) for key, value in strategy_conf.items() if key.startswith('sell_stg_')]
                 # 숫자 순서로 정렬 (sell_stg_1, sell_stg_2, ... 순서)
                 sell_stg_items.sort(key=lambda x: int(x[0].split('_')[-1]) if x[0].split('_')[-1].isdigit() else 999)
+                executed_rules = self.trader.executed_sell_rules.get(code, set())
                 
                 for key, value in sell_stg_items:
                     try:
                         strategy_data = json.loads(value)
+                        rule_name = strategy_data.get('name', '')
+                        # 이미 발동된 이력이 있는 매도 룰은 전략 리스트에서 제외 (중복 방지)
+                        if rule_name and rule_name in executed_rules:
+                            continue
                         sell_strategies.append(strategy_data)
                     except json.JSONDecodeError:
                         self.logger.debug(f"매도 전략 파싱 실패 ({code}): {key}", exc_info=True)
@@ -808,6 +813,11 @@ class KiwoomStrategy:
                 
                 if success:
                     self.logger.debug(f"✅ [{code}] 매도 주문 성공: {signal['strategy']} - {final_quantity}주")
+                    
+                    # 방어 로직: 실행 성공한 매도 룰의 이름을 기록하여 해당 보유 턴에서 중복 발동 방지
+                    if code not in self.trader.executed_sell_rules:
+                        self.trader.executed_sell_rules[code] = set()
+                    self.trader.executed_sell_rules[code].add(signal['strategy'])
                     
                     self.signal_strategy_result.emit(
                         code, 
