@@ -375,6 +375,7 @@ class Backtester:
                                     'sell_time': current_time_str,
                                     'buy_price': pos['buy_price'],
                                     'sell_price': current_price,
+                                    'qty': sell_qty,
                                     'profit_pct': real_profit_pct,
                                     'profit_amount': trade_profit,
                                     'buy_stg': pos['stg'],
@@ -410,6 +411,7 @@ class Backtester:
                         'sell_time': current_time_str,
                         'buy_price': pos['buy_price'],
                         'sell_price': current_price,
+                        'qty': sell_qty,
                         'profit_pct': real_profit_pct,
                         'profit_amount': trade_profit,
                         'buy_stg': pos['stg'],
@@ -432,10 +434,18 @@ class Backtester:
             equity_history = []
             current_equity = 10000000
             
+            events = []
             for t in trades:
-                current_equity += t['profit_amount']
+                events.append({'time': t['buy_time'], 'type': 'buy'})
+                events.append({'time': t['sell_time'], 'type': 'sell', 'profit': t['profit_amount']})
+                
+            events = sorted(events, key=lambda x: x['time'])
+            
+            for e in events:
+                if e['type'] == 'sell':
+                    current_equity += e['profit']
                 equity_history.append({
-                    'time': t['sell_time'],
+                    'time': e['time'],
                     'equity': current_equity
                 })
             

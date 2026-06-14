@@ -287,7 +287,7 @@ HTML_CONTENT = """
         /* --- 대시보드 메인 레이아웃 (Dashboard screen) --- */
         #dashboardContainer {
             width: 100%;
-            max-width: 1600px;
+            max-width: 100%;
             padding: 24px;
             display: none; /* 인증 완료 전 비노출 */
             flex-direction: column;
@@ -1088,9 +1088,10 @@ HTML_CONTENT = """
         /* 뷰 컨트롤 (SPA) */
         .nav-tabs {
             display: flex;
-            gap: 4px;
+            gap: 8px;
             align-items: center;
-            margin-left: 12px;
+            justify-content: center;
+            flex-grow: 1;
         }
         .nav-tab {
             padding: 6px 16px;
@@ -1196,6 +1197,25 @@ HTML_CONTENT = """
             color: var(--text-secondary);
             height: 100%;
         }
+        .bt-trade-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        .bt-trade-table th, .bt-trade-table td {
+            padding: 8px;
+            text-align: right;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .bt-trade-table th {
+            color: var(--text-secondary);
+            font-weight: 600;
+            background: rgba(0,0,0,0.3);
+            text-align: center;
+        }
+        .bt-trade-table td.text-center {
+            text-align: center;
+        }
     </style>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js" crossorigin="anonymous"></script>
 </head>
@@ -1223,10 +1243,10 @@ HTML_CONTENT = """
                     <input type="password" id="cfgPassword" class="header-pw-input" placeholder="유지 시 공란">
                     <button class="btn-pw-apply" onclick="changePassword()">적용</button>
                 </div>
-                <div class="nav-tabs">
-                    <div id="tabLive" class="nav-tab active" onclick="switchTab('live')">📡 실시간 트레이딩</div>
-                    <div id="tabBacktest" class="nav-tab" onclick="switchTab('backtest')">🧪 백테스팅 시뮬레이터</div>
-                </div>
+            </div>
+            <div class="nav-tabs">
+                <div id="tabLive" class="nav-tab active" onclick="switchTab('live')">📡 실시간 트레이딩</div>
+                <div id="tabBacktest" class="nav-tab" onclick="switchTab('backtest')">🧪 백테스팅</div>
             </div>
             <div class="header-controls">
                 <!-- 자동매매 구동 스위치 -->
@@ -1530,7 +1550,7 @@ HTML_CONTENT = """
                         <!-- 수익률 곡선 Chart -->
                         <div id="btChartContainerWrapper" class="glass-card" style="display:block; padding: 16px; margin-top: 4px; min-height: 330px;">
                             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
-                                <span style="font-weight:bold; color:var(--text-secondary); font-size: 14px; text-transform: uppercase; letter-spacing: 1px;">📊 수익률 곡선</span>
+                                <span style="font-weight:bold; color:var(--text-secondary); font-size: 14px; text-transform: uppercase; letter-spacing: 1px;">📊 Equity Curve</span>
                             </div>
                             <div id="btChartContainer" style="width: 100%; height: 280px; position: relative;"></div>
                         </div>
@@ -1540,11 +1560,23 @@ HTML_CONTENT = """
                         
                         <div class="glass-card" style="flex-grow: 1; min-height: 300px; display: flex; flex-direction: column;">
                             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-                                <span style="font-weight:bold; color:var(--text-secondary); font-size: 12px; text-transform: uppercase; letter-spacing: 1px;">⚙️ 매매 로그 및 디버그</span>
+                                <span style="font-weight:bold; color:var(--text-secondary); font-size: 12px; text-transform: uppercase; letter-spacing: 1px;">⚙️ 백테스팅 매매 로그</span>
                                 <div id="btProgressText" style="color:var(--accent-cyan); font-weight:bold; font-size: 13px;">대기 중...</div>
                             </div>
-                            <div id="btLogsBox" style="display:none; flex-grow: 1;">
-                                <pre id="btLogsContent" style="height: 100%; min-height: 250px; overflow-y:auto; background:rgba(0,0,0,0.5); padding:16px; border-radius:8px; font-family: 'JetBrains Mono', monospace; font-size:12px; color:#ccc; white-space:pre-wrap; word-break:break-all; margin:0; border: 1px solid rgba(255,255,255,0.05);"></pre>
+                            <div id="btLogsBox" style="display:none; flex-grow: 1; overflow-y:auto; background:rgba(0,0,0,0.5); padding:0; border-radius:8px; border: 1px solid rgba(255,255,255,0.05);">
+                                <table class="bt-trade-table">
+                                    <thead>
+                                        <tr>
+                                            <th>날짜시간</th>
+                                            <th>종목코드</th>
+                                            <th>구분</th>
+                                            <th>가격</th>
+                                            <th>수량</th>
+                                            <th>금액</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="btTradeTableBody"></tbody>
+                                </table>
                             </div>
                         </div>
                     </div>
@@ -1834,7 +1866,10 @@ HTML_CONTENT = """
                     document.getElementById('btProgressText').style.color = 'var(--success)';
                     
                     if (data.data.history && data.data.history.length > 0) {
-                        renderBacktestChart(data.data.history);
+                        renderBacktestChart(data.data.history, data.data.trades);
+                    }
+                    if (data.data.trades && data.data.trades.length > 0) {
+                        renderBacktestTrades(data.data.trades);
                     }
                     const warningElem = document.getElementById('btWarningText');
                     if (data.data.uses_ai && !data.data.lgbm_model_loaded) {
@@ -2313,7 +2348,43 @@ HTML_CONTENT = """
         let btChart = null;
         let btLineSeries = null;
 
-        function renderBacktestChart(historyData) {
+        function renderBacktestTrades(trades) {
+            const tbody = document.getElementById('btTradeTableBody');
+            if (!tbody) return;
+            
+            let html = '';
+            // trades는 {code, buy_time, sell_time, buy_price, sell_price, qty, profit_amount} 구조
+            trades.forEach(t => {
+                // 매수 행
+                const buyAmt = t.buy_price * t.qty;
+                html += `
+                    <tr>
+                        <td class="text-center" style="color: #ccc;">${t.buy_time.substring(5, 19)}</td>
+                        <td class="text-center">${t.code}</td>
+                        <td class="text-center" style="color: #ff5252; font-weight: bold;">매수</td>
+                        <td style="color: #ff5252;">${t.buy_price.toLocaleString()}</td>
+                        <td>${t.qty.toLocaleString()}</td>
+                        <td>${buyAmt.toLocaleString()}</td>
+                    </tr>
+                `;
+                // 매도 행
+                const sellAmt = t.sell_price * t.qty;
+                html += `
+                    <tr>
+                        <td class="text-center" style="color: #ccc;">${t.sell_time.substring(5, 19)}</td>
+                        <td class="text-center">${t.code}</td>
+                        <td class="text-center" style="color: #00f2fe; font-weight: bold;">매도</td>
+                        <td style="color: #00f2fe;">${t.sell_price.toLocaleString()}</td>
+                        <td>${t.qty.toLocaleString()}</td>
+                        <td>${sellAmt.toLocaleString()}</td>
+                    </tr>
+                `;
+            });
+            tbody.innerHTML = html;
+            document.getElementById('btLogsBox').style.display = 'block';
+        }
+
+        function renderBacktestChart(historyData, trades = []) {
             try {
                 const wrapper = document.getElementById('btChartContainerWrapper');
                 // 강제 리플로우를 발생시켜 clientWidth가 0이 되는 현상 방지
@@ -2389,6 +2460,49 @@ HTML_CONTENT = """
                 if (chartData.length > 0) {
                     btLineSeries.setData(chartData);
                     btChart.timeScale().fitContent();
+                    
+                    // 마커 추가 로직
+                    if (trades && trades.length > 0) {
+                        const markersMap = new Map();
+                        const validTimes = new Set(chartData.map(d => d.time));
+                        
+                        const addMarker = (timeStr, isBuy) => {
+                            if(!timeStr) return;
+                            let tSec = 0;
+                            try {
+                                const dateStr = timeStr.replace(' ', 'T');
+                                const dateObj = new Date(dateStr + '+09:00');
+                                tSec = Math.floor(dateObj.getTime() / 1000);
+                                if(isNaN(tSec)) tSec = Math.floor(new Date(timeStr).getTime() / 1000);
+                            } catch(e) { return; }
+                            
+                            if (isNaN(tSec) || !validTimes.has(tSec)) return;
+                            
+                            // 동일 시간에 매수/매도가 겹칠 경우
+                            if (markersMap.has(tSec)) {
+                                const existing = markersMap.get(tSec);
+                                existing.text = 'B/S';
+                                existing.color = '#e2e8f0';
+                            } else {
+                                markersMap.set(tSec, {
+                                    time: tSec,
+                                    position: isBuy ? 'belowBar' : 'aboveBar',
+                                    color: isBuy ? '#ff5252' : '#00f2fe',
+                                    shape: isBuy ? 'arrowUp' : 'arrowDown',
+                                    text: isBuy ? 'B' : 'S',
+                                    size: 1
+                                });
+                            }
+                        };
+                        
+                        trades.forEach(t => {
+                            addMarker(t.buy_time, true);
+                            addMarker(t.sell_time, false);
+                        });
+                        
+                        const markers = Array.from(markersMap.values()).sort((a,b) => a.time - b.time);
+                        btLineSeries.setMarkers(markers);
+                    }
                 }
             } catch (err) {
                 console.error("Chart rendering error:", err);
