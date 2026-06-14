@@ -1887,12 +1887,8 @@ HTML_CONTENT = """
                     document.getElementById('btProgressText').innerText = '✅ 시뮬레이션 완료!';
                     document.getElementById('btProgressText').style.color = 'var(--success)';
                     
-                    if (data.data.history && data.data.history.length > 0) {
-                        renderBacktestChart(data.data.history, data.data.trades, data.data.bnh_history);
-                    }
-                    if (data.data.trades && data.data.trades.length > 0) {
-                        renderBacktestTrades(data.data.trades);
-                    }
+                    renderBacktestChart(data.data.history || [], data.data.trades || [], data.data.bnh_history || []);
+                    renderBacktestTrades(data.data.trades || []);
                     const warningElem = document.getElementById('btWarningText');
                     if (data.data.uses_ai && !data.data.lgbm_model_loaded) {
                         warningElem.innerHTML = "⚠️ <b>경고:</b> 전략에 AI_SCORE 조건이 포함되어 있으나, LightGBM 모델(lgbm_model.txt)이 로드되지 않았습니다. 모델 파일이 올바른 경로에 배치되었는지, NAS Docker 컨테이너에 정상적으로 마운트되었는지 확인해주세요. (현재 AI_SCORE는 모두 0.0으로 계산되어 거래가 발생하지 않습니다.)";
@@ -1901,13 +1897,7 @@ HTML_CONTENT = """
                         warningElem.style.display = 'none';
                     }
                     
-                    document.getElementById('btTotalTrades').innerText = data.data.total_trades + '회';
-                    document.getElementById('btWinRate').innerText = data.data.win_rate + '%';
-                    
-                    const pAmt = data.data.total_profit;
-                    const pElem = document.getElementById('btTotalProfit');
-                    pElem.innerText = (pAmt > 0 ? '+' : '') + pAmt.toLocaleString() + '원';
-                    pElem.style.color = pAmt > 0 ? 'var(--danger)' : 'var(--primary)';
+                    // 프론트엔드 자체 계산 요약 카드는 renderBacktestTrades 내부에서 갱신됨
                     
                     document.getElementById('btMdd').innerText = data.data.mdd + '%';
                     
