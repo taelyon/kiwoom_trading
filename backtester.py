@@ -453,17 +453,18 @@ class Backtester:
             bnh_history = []
             try:
                 df_bnh = df.copy()
-                df_bnh['date'] = pd.to_datetime(df_bnh['datetime']).dt.date
+                df_bnh['datetime'] = pd.to_datetime(df_bnh['datetime'])
+                df_bnh['min3_time'] = df_bnh['datetime'].dt.floor('3min')
                 # group_df 루프 내에서 rename 되었을 수 있으므로 tic_close 가 없으면 close 로 처리
                 close_col = 'tic_close' if 'tic_close' in df_bnh.columns else 'close'
                 
-                daily_close = df_bnh.groupby(['date', 'code'])[close_col].last().reset_index()
-                # 수익률 대신 실제 종가들의 평균을 구함 (단일 종목일 경우 그대로 해당 종목의 주가가 됨)
-                daily_bnh = daily_close.groupby('date')[close_col].mean().reset_index()
+                min3_close = df_bnh.groupby(['min3_time', 'code'])[close_col].last().reset_index()
+                # 실제 종가들의 평균을 구함 (단일 종목일 경우 그대로 해당 종목의 주가가 됨)
+                min3_bnh = min3_close.groupby('min3_time')[close_col].mean().reset_index()
                 
-                for _, row in daily_bnh.iterrows():
+                for _, row in min3_bnh.iterrows():
                     bnh_history.append({
-                        'time': f"{row['date'].strftime('%Y-%m-%d')} 15:30:00",
+                        'time': row['min3_time'].strftime('%Y-%m-%d %H:%M:%S'),
                         'equity': row[close_col] # 프론트 파싱 호환을 위해 키는 equity 사용
                     })
             except Exception as e:
