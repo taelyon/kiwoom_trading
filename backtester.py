@@ -389,8 +389,39 @@ class Backtester:
                                     del portfolio[current_code]
                                 else:
                                     portfolio[current_code]['qty'] -= sell_qty
+                                    
+                # 해당 종목의 틱 루프(for i in range(10, n))가 모두 종료된 후 잔여 포지션이 있다면 강제 청산
+                if current_code in portfolio:
+                    pos = portfolio[current_code]
+                    sell_qty = pos['qty']
+                    trade_profit = (current_price - pos['buy_price']) * sell_qty
+                    trade_profit -= (pos['buy_price'] * sell_qty * 0.002)
+                    total_profit += trade_profit
+                    capital += trade_profit
+                    
+                    if trade_profit > 0: win_count += 1
+                    else: loss_count += 1
+                    
+                    real_profit_pct = (current_price - pos['buy_price']) / pos['buy_price'] * 100.0 - 0.2
+                    
+                    trades.append({
+                        'code': current_code,
+                        'buy_time': pos['buy_time'],
+                        'sell_time': current_time_str,
+                        'buy_price': pos['buy_price'],
+                        'sell_price': current_price,
+                        'profit_pct': real_profit_pct,
+                        'profit_amount': trade_profit,
+                        'buy_stg': pos['stg'],
+                        'sell_stg': "백테스트 종료 강제청산"
+                    })
+                    
+                    max_capital = max(max_capital, capital)
+                    current_dd = (max_capital - capital) / max_capital * 100.0
+                    mdd = max(mdd, current_dd)
+                    del portfolio[current_code]
 
-            # 결과 요약
+            # 모든 종목 루프 종료 후 결과 요약
             total_trades = win_count + loss_count
             win_rate = (win_count / total_trades * 100.0) if total_trades > 0 else 0.0
             
