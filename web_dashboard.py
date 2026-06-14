@@ -1581,6 +1581,8 @@ HTML_CONTENT = """
                                             <th>가격</th>
                                             <th>수량</th>
                                             <th>금액</th>
+                                            <th>누적 총손익</th>
+                                            <th>자본금</th>
                                         </tr>
                                     </thead>
                                     <tbody id="btTradeTableBody"></tbody>
@@ -2362,33 +2364,70 @@ HTML_CONTENT = """
             if (!tbody) return;
             
             let html = '';
-            // trades는 {code, buy_time, sell_time, buy_price, sell_price, qty, profit_amount} 구조
+            let currentCapital = 10000000; // 초기 자본금
+            let totalProfit = 0;
+            
+            // 매수/매도 이벤트를 분리하여 시간순 정렬
+            let events = [];
             trades.forEach(t => {
-                // 매수 행
-                const buyAmt = t.buy_price * t.qty;
-                html += `
-                    <tr>
-                        <td class="text-center" style="color: #ccc;">${t.buy_time.substring(5, 19)}</td>
-                        <td class="text-center">${t.code}</td>
-                        <td class="text-center" style="color: #ff5252; font-weight: bold;">매수</td>
-                        <td style="color: #ff5252;">${t.buy_price.toLocaleString()}</td>
-                        <td>${t.qty.toLocaleString()}</td>
-                        <td>${buyAmt.toLocaleString()}</td>
-                    </tr>
-                `;
-                // 매도 행
-                const sellAmt = t.sell_price * t.qty;
-                html += `
-                    <tr>
-                        <td class="text-center" style="color: #ccc;">${t.sell_time.substring(5, 19)}</td>
-                        <td class="text-center">${t.code}</td>
-                        <td class="text-center" style="color: #00f2fe; font-weight: bold;">매도</td>
-                        <td style="color: #00f2fe;">${t.sell_price.toLocaleString()}</td>
-                        <td>${t.qty.toLocaleString()}</td>
-                        <td>${sellAmt.toLocaleString()}</td>
-                    </tr>
-                `;
+                events.push({
+                    time: t.buy_time,
+                    type: 'buy',
+                    code: t.code,
+                    price: t.buy_price,
+                    qty: t.qty,
+                    profit: 0
+                });
+                events.push({
+                    time: t.sell_time,
+                    type: 'sell',
+                    code: t.code,
+                    price: t.sell_price,
+                    qty: t.qty,
+                    profit: t.profit_amount
+                });
             });
+            
+            events.sort((a, b) => {
+                const ta = new Date(a.time.replace(' ', 'T')).getTime();
+                const tb = new Date(b.time.replace(' ', 'T')).getTime();
+                return ta - tb;
+            });
+            
+            events.forEach(e => {
+                const amt = e.price * e.qty;
+                if (e.type === 'buy') {
+                    html += `
+                        <tr>
+                            <td class="text-center" style="color: #ccc;">${e.time.substring(5, 19)}</td>
+                            <td class="text-center">${e.code}</td>
+                            <td class="text-center" style="color: #ff5252; font-weight: bold;">매수</td>
+                            <td style="color: #ff5252;">${e.price.toLocaleString()}</td>
+                            <td>${e.qty.toLocaleString()}</td>
+                            <td>${amt.toLocaleString()}</td>
+                            <td style="color: #a0aec0;">${Math.round(totalProfit).toLocaleString()}</td>
+                            <td style="color: #a0aec0;">${Math.round(currentCapital).toLocaleString()}</td>
+                        </tr>
+                    `;
+                } else {
+                    totalProfit += e.profit;
+                    currentCapital += e.profit;
+                    const profitColor = totalProfit >= 0 ? '#ff5252' : '#00f2fe';
+                    html += `
+                        <tr>
+                            <td class="text-center" style="color: #ccc;">${e.time.substring(5, 19)}</td>
+                            <td class="text-center">${e.code}</td>
+                            <td class="text-center" style="color: #00f2fe; font-weight: bold;">매도</td>
+                            <td style="color: #00f2fe;">${e.price.toLocaleString()}</td>
+                            <td>${e.qty.toLocaleString()}</td>
+                            <td>${amt.toLocaleString()}</td>
+                            <td style="color: ${profitColor}; font-weight: bold;">${Math.round(totalProfit).toLocaleString()}</td>
+                            <td style="color: #fff; font-weight: bold;">${Math.round(currentCapital).toLocaleString()}</td>
+                        </tr>
+                    `;
+                }
+            });
+            
             tbody.innerHTML = html;
             document.getElementById('btLogsBox').style.display = 'block';
         }
