@@ -1563,7 +1563,7 @@ HTML_CONTENT = """
                                 <div class="section-title" style="margin-bottom: 0;">📊 Equity Curve</div>
                                 <div style="font-size: 12px; display: flex; gap: 12px; font-weight: bold;">
                                     <span style="color: #00f2fe;">─ 자본금</span>
-                                    <span style="color: rgba(255, 193, 7, 0.8);">─ 주가/span>
+                                    <span style="color: rgba(255, 193, 7, 0.8);">─ 주가</span>
                                 </div>
                             </div>
                             <div id="btChartContainer" style="width: 100%; height: 280px; position: relative;">
