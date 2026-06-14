@@ -2367,18 +2367,27 @@ HTML_CONTENT = """
             let currentCapital = 10000000; // 초기 자본금
             let totalProfit = 0;
             
-            // 매수/매도 이벤트를 분리하여 시간순 정렬
-            let events = [];
+            // 매수 이벤트를 병합(그룹화)하고 매도 이벤트를 분리하여 수집
+            let buyMap = {}; // "time|code|price" 기준 병합
+            let sellEvents = [];
+            
             trades.forEach(t => {
-                events.push({
-                    time: t.buy_time,
-                    type: 'buy',
-                    code: t.code,
-                    price: t.buy_price,
-                    qty: t.qty,
-                    profit: 0
-                });
-                events.push({
+                // 매수 행은 동일 시간/종목/가격이면 수량을 병합
+                const buyKey = `${t.buy_time}|${t.code}|${t.buy_price}`;
+                if (!buyMap[buyKey]) {
+                    buyMap[buyKey] = {
+                        time: t.buy_time,
+                        type: 'buy',
+                        code: t.code,
+                        price: t.buy_price,
+                        qty: 0,
+                        profit: 0
+                    };
+                }
+                buyMap[buyKey].qty += t.qty;
+                
+                // 매도 행은 분할 매도별로 개별 기록
+                sellEvents.push({
                     time: t.sell_time,
                     type: 'sell',
                     code: t.code,
@@ -2387,6 +2396,9 @@ HTML_CONTENT = """
                     profit: t.profit_amount
                 });
             });
+            
+            // 모든 이벤트를 병합
+            let events = Object.values(buyMap).concat(sellEvents);
             
             events.sort((a, b) => {
                 const ta = new Date(a.time.replace(' ', 'T')).getTime();
