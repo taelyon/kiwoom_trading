@@ -46,7 +46,7 @@ class Backtester:
         
         return df
 
-    def run(self, start_date, end_date, code='ALL', progress_callback=None, custom_buy=None, custom_sell=None):
+    def run(self, start_date, end_date, code='ALL', progress_callback=None, custom_buy=None, custom_sell=None, initial_capital=10000000):
         try:
             logger.info(f"백테스트 데이터 로딩 시작: {start_date} ~ {end_date} (종목: {code})")
             if progress_callback: progress_callback(10, "데이터를 로딩 중입니다...")
@@ -90,8 +90,8 @@ class Backtester:
             total_profit = 0.0
             win_count = 0
             loss_count = 0
-            capital = 10000000 # 초기 자본금 1000만원 가정
-            invested_per_trade = 1000000 # 1회 진입 금액 100만원
+            capital = initial_capital
+            invested_per_trade = capital * 0.1 # 1회 진입 비중 (10%)
             
             max_capital = capital
             mdd = 0.0
@@ -430,9 +430,9 @@ class Backtester:
             # 매도 시간(sell_time) 기준으로 거래 내역 정렬
             trades = sorted(trades, key=lambda x: x['sell_time'])
             
-            # 시계열 자산(Equity Curve) 생성 (초기 자본: 10,000,000 기준)
+            # 시계열 자산(Equity Curve) 생성
             equity_history = []
-            current_equity = 10000000
+            current_equity = initial_capital
             
             events = []
             for t in trades:

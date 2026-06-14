@@ -15,7 +15,7 @@ import multiprocessing as mp
 import queue
 import traceback
 
-def run_backtest_process_worker(q, s_date, e_date, c, buy_stg=None, sell_stg=None):
+def run_backtest_process_worker(q, s_date, e_date, c, buy_stg=None, sell_stg=None, initial_capital=10000000):
     """독립된 프로세스에서 백테스터를 실행하고 큐를 통해 상태를 보고하는 워커 함수"""
     try:
         from backtester import Backtester
@@ -28,7 +28,7 @@ def run_backtest_process_worker(q, s_date, e_date, c, buy_stg=None, sell_stg=Non
                 "msg": msg
             })
             
-        result = bt.run(s_date, e_date, c, progress_callback=progress_cb, custom_buy=buy_stg, custom_sell=sell_stg)
+        result = bt.run(s_date, e_date, c, progress_callback=progress_cb, custom_buy=buy_stg, custom_sell=sell_stg, initial_capital=initial_capital)
         
         q.put({
             "type": "backtest_result",
@@ -1480,7 +1480,7 @@ HTML_CONTENT = """
                 <div class="bt-sidebar" style="height: 100%;">
                     <div class="glass-card" style="height: 100%; display: flex; flex-direction: column;">
                         <div class="section-title" style="margin-bottom: 24px; display: flex; align-items: center; gap: 8px;">
-                            ⚙️ 전략 파라미터
+                            ⚙️ 백테스팅 파라미터
                         </div>
                         
                         <div class="form-field" style="margin-bottom: 16px;">
@@ -1500,8 +1500,9 @@ HTML_CONTENT = """
                         </div>
 
                         <div class="form-field" style="margin-bottom: 16px;">
+                        <div class="form-field" style="margin-bottom: 16px;">
                             <label for="btInitialCapital">초기 자본금 (KRW)</label>
-                            <input type="number" id="btInitialCapital" value="10000000" style="font-family: monospace; font-weight: bold; opacity: 0.7;" readonly title="기본 투자금 (현재 고정)">
+                            <input type="number" id="btInitialCapital" value="10000000" style="font-family: monospace; font-weight: bold;" title="백테스팅 시뮬레이션 시작 자본금">
                         </div>
                         
                         <div class="form-field" style="margin-bottom: 16px;">
@@ -2364,7 +2365,7 @@ HTML_CONTENT = """
             if (!tbody) return;
             
             let html = '';
-            let currentCapital = 10000000; // 초기 자본금
+            let currentCapital = parseFloat(document.getElementById('btInitialCapital').value) || 10000000; // 입력된 자본금 동적 반영
             let totalProfit = 0;
             
             // 매수 이벤트를 병합(그룹화)하고 매도 이벤트를 분리하여 수집
@@ -3343,7 +3344,8 @@ HTML_CONTENT = """
                 type: 'run_backtest',
                 start_date: startDate,
                 end_date: endDate,
-                code: code || 'ALL'
+                code: code || 'ALL',
+                initial_capital: parseFloat(document.getElementById('btInitialCapital').value) || 10000000
             };
             if (customBuy !== null) payload.custom_buy = customBuy;
             if (customSell !== null) payload.custom_sell = customSell;
@@ -3903,6 +3905,7 @@ async def websocket_handler(websocket):
                     code = data.get('code', 'ALL')
                     custom_buy = data.get('custom_buy')
                     custom_sell = data.get('custom_sell')
+                    initial_capital = data.get('initial_capital', 10000000)
                     
                     logging.debug(f"📊 대시보드 제어: 백테스팅 요청 ({start_date} ~ {end_date}, 종목: {code})")
                     
@@ -3915,7 +3918,7 @@ async def websocket_handler(websocket):
                     
                     ctx = mp.get_context('spawn')
                     q = ctx.Queue()
-                    p = ctx.Process(target=run_backtest_process_worker, args=(q, start_date, end_date, code, custom_buy, custom_sell), daemon=True)
+                    p = ctx.Process(target=run_backtest_process_worker, args=(q, start_date, end_date, code, custom_buy, custom_sell, initial_capital), daemon=True)
                     p.start()
                     
                     async def monitor_backtest_process():
