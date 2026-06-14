@@ -2125,15 +2125,17 @@ HTML_CONTENT = """
             if (skipStorage) return;
             // 로컬 스토리지 기능은 실시간 동기화를 위해 제거되었습니다.
         }
-        // 전략 선택 박스 변경 핸들러
+        // 전략 선택 박스 변경 핸들러 (백테스트)
         function onBtStrategyChange(strategyName) {
-            if (window.globalStrategies && window.globalStrategies[strategyName]) {
-                const stg = window.globalStrategies[strategyName];
-                const bBuy = document.getElementById('btBuyStrategy');
-                const bSell = document.getElementById('btSellStrategy');
-                if (bBuy) bBuy.value = JSON.stringify(stg.buy_strategies || [], null, 2);
-                if (bSell) bSell.value = JSON.stringify(stg.sell_strategies || [], null, 2);
-            }
+            const bBuy = document.getElementById('btBuyStrategy');
+            const bSell = document.getElementById('btSellStrategy');
+            if (bBuy) bBuy.value = "불러오는 중...";
+            if (bSell) bSell.value = "불러오는 중...";
+            
+            ws.send(JSON.stringify({
+                type: "get_strategy_detail",
+                strategy: strategyName
+            }));
         }
 
         function onStrategyChange(strategy) {
@@ -2167,6 +2169,9 @@ HTML_CONTENT = """
             // 기본 옵션 목록 초기화
             selectEl.innerHTML = '';
             
+            const btSelectEl = document.getElementById('btStrategy');
+            if (btSelectEl) btSelectEl.innerHTML = '';
+            
             // 전달받은 조건식 목록이 있으면 옵션에 동적 추가
             if (settings.condition_list && settings.condition_list.length > 0) {
                 settings.condition_list.forEach(cond => {
@@ -2174,12 +2179,25 @@ HTML_CONTENT = """
                     option.value = cond.title;
                     option.textContent = cond.title;
                     selectEl.appendChild(option);
+                    
+                    if (btSelectEl) {
+                        const btOption = document.createElement('option');
+                        btOption.value = cond.title;
+                        btOption.textContent = cond.title;
+                        btSelectEl.appendChild(btOption);
+                    }
                 });
             } else {
                 const option = document.createElement('option');
                 option.value = "";
                 option.textContent = "(등록된 조건검색식 없음)";
                 selectEl.appendChild(option);
+                if (btSelectEl) {
+                    const btOption = document.createElement('option');
+                    btOption.value = "";
+                    btOption.textContent = "(등록된 조건검색식 없음)";
+                    btSelectEl.appendChild(btOption);
+                }
             }
             
             let lastStrategy = settings.last_strategy;
@@ -2190,6 +2208,7 @@ HTML_CONTENT = """
                 lastStrategy = selectEl.options[0].value;
             }
             selectEl.value = lastStrategy || "";
+            if (btSelectEl) btSelectEl.value = lastStrategy || "";
             
             // 전략별 매수/매도 리스트 가져오기 호출
             onStrategyChange(selectEl.value);
@@ -2214,13 +2233,24 @@ HTML_CONTENT = """
         function handleStrategyDetail(data) {
             const buyTextarea = document.getElementById('cfgBuyStrategy');
             const sellTextarea = document.getElementById('cfgSellStrategy');
+            const btBuyTextarea = document.getElementById('btBuyStrategy');
+            const btSellTextarea = document.getElementById('btSellStrategy');
             
             try {
-                buyTextarea.value = JSON.stringify(data.buy, null, 4);
-                sellTextarea.value = JSON.stringify(data.sell, null, 4);
+                const buyStr = JSON.stringify(data.buy, null, 4);
+                const sellStr = JSON.stringify(data.sell, null, 4);
+                
+                if (buyTextarea) buyTextarea.value = buyStr;
+                if (sellTextarea) sellTextarea.value = sellStr;
+                
+                if (btBuyTextarea) btBuyTextarea.value = buyStr;
+                if (btSellTextarea) btSellTextarea.value = sellStr;
             } catch (e) {
-                buyTextarea.value = "데이터 파싱 에러: " + e;
-                sellTextarea.value = "데이터 파싱 에러: " + e;
+                const errStr = "데이터 파싱 에러: " + e;
+                if (buyTextarea) buyTextarea.value = errStr;
+                if (sellTextarea) sellTextarea.value = errStr;
+                if (btBuyTextarea) btBuyTextarea.value = errStr;
+                if (btSellTextarea) btSellTextarea.value = errStr;
             }
         }
 
