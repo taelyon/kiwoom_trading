@@ -1562,11 +1562,17 @@ HTML_CONTENT = """
                             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
                                 <div class="section-title" style="margin-bottom: 0;">📊 Equity Curve</div>
                                 <div style="font-size: 12px; display: flex; gap: 12px; font-weight: bold;">
-                                    <span style="color: #00f2fe;">─ 매매 전략 (자본금)</span>
-                                    <span style="color: rgba(255, 193, 7, 0.8);">─ 실제 주가</span>
+                                    <span style="color: #00f2fe;">─ 자본금</span>
+                                    <span style="color: rgba(255, 193, 7, 0.8);">─ 주가/span>
                                 </div>
                             </div>
-                            <div id="btChartContainer" style="width: 100%; height: 280px; position: relative;"></div>
+                            <div id="btChartContainer" style="width: 100%; height: 280px; position: relative;">
+                                <div id="btChartTooltip" style="position: absolute; display: none; padding: 10px; box-sizing: border-box; font-size: 13px; text-align: left; z-index: 1000; top: 12px; left: 12px; pointer-events: none; border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 6px; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(4px); box-shadow: 0 4px 6px rgba(0,0,0,0.3); color: white; min-width: 140px;">
+                                    <div id="btTooltipDate" style="color: #94a3b8; margin-bottom: 6px; font-weight: bold; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px;"></div>
+                                    <div style="color: #00f2fe; margin-bottom: 4px; display: flex; justify-content: space-between;"><span>자본금:</span> <span id="btTooltipEquity" style="font-weight: bold; margin-left: 10px;"></span></div>
+                                    <div style="color: rgba(255, 193, 7, 0.9); display: flex; justify-content: space-between;"><span>주가:</span> <span id="btTooltipPrice" style="font-weight: bold; margin-left: 10px;"></span></div>
+                                </div>
+                            </div>
                         </div>
 
                         <!-- 디버그 및 에러 영역 -->
@@ -2505,6 +2511,54 @@ HTML_CONTENT = """
                     
                     window.addEventListener('resize', () => {
                         if (btChart) btChart.applyOptions({ width: container.clientWidth });
+                    });
+                    
+                    const toolTip = document.getElementById('btChartTooltip');
+                    const toolTipDate = document.getElementById('btTooltipDate');
+                    const toolTipEquity = document.getElementById('btTooltipEquity');
+                    const toolTipPrice = document.getElementById('btTooltipPrice');
+                    
+                    btChart.subscribeCrosshairMove(param => {
+                        if (param.point === undefined || !param.time || param.point.x < 0 || param.point.x > container.clientWidth || param.point.y < 0 || param.point.y > 280) {
+                            toolTip.style.display = 'none';
+                        } else {
+                            toolTip.style.display = 'block';
+                            
+                            // Unix Timestamp 보정 (서버시간 기준)
+                            const dt = new Date(param.time * 1000);
+                            const y = dt.getFullYear();
+                            const m = String(dt.getMonth() + 1).padStart(2, '0');
+                            const d = String(dt.getDate()).padStart(2, '0');
+                            const h = String(dt.getHours()).padStart(2, '0');
+                            const mn = String(dt.getMinutes()).padStart(2, '0');
+                            toolTipDate.innerHTML = `${y}-${m}-${d} ${h}:${mn}`;
+                            
+                            const equity = param.seriesData.get(btLineSeries);
+                            if (equity !== undefined) {
+                                toolTipEquity.innerHTML = Math.round(equity.value).toLocaleString() + '원';
+                            } else {
+                                toolTipEquity.innerHTML = "-";
+                            }
+                            
+                            const price = param.seriesData.get(btBnhSeries);
+                            if (price !== undefined) {
+                                toolTipPrice.innerHTML = Math.round(price.value).toLocaleString() + '원';
+                            } else {
+                                toolTipPrice.innerHTML = "-";
+                            }
+                            
+                            // 툴팁 위치가 마우스를 가리지 않도록 조정
+                            let left = param.point.x + 15;
+                            if (left > container.clientWidth - 160) {
+                                left = param.point.x - 160;
+                            }
+                            let top = param.point.y + 15;
+                            if (top > 280 - 100) {
+                                top = param.point.y - 100;
+                            }
+                            toolTip.style.left = left + 'px';
+                            toolTip.style.top = top + 'px';
+                        }
                     });
                 }
                 
