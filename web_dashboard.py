@@ -1088,27 +1088,29 @@ HTML_CONTENT = """
         /* 뷰 컨트롤 (SPA) */
         .nav-tabs {
             display: flex;
-            gap: 16px;
-            margin: 0 auto;
-            max-width: 1600px;
-            padding: 0 24px;
-            border-bottom: 1px solid rgba(255,255,255,0.1);
+            gap: 4px;
+            align-items: center;
+            margin-left: 12px;
         }
         .nav-tab {
-            padding: 12px 24px;
-            font-size: 15px;
+            padding: 6px 16px;
+            font-size: 13px;
             font-weight: 600;
             color: var(--text-secondary);
             cursor: pointer;
-            border-bottom: 3px solid transparent;
-            transition: all 0.3s ease;
+            border-radius: 8px;
+            border: 1px solid transparent;
+            transition: all 0.25s ease;
+            white-space: nowrap;
         }
         .nav-tab:hover {
             color: var(--text-primary);
+            background: rgba(255,255,255,0.06);
         }
         .nav-tab.active {
             color: var(--accent-cyan);
-            border-bottom-color: var(--accent-cyan);
+            background: rgba(0, 242, 254, 0.1);
+            border-color: rgba(0, 242, 254, 0.3);
         }
         .view-container {
             display: flex;
@@ -1221,6 +1223,10 @@ HTML_CONTENT = """
                     <input type="password" id="cfgPassword" class="header-pw-input" placeholder="유지 시 공란">
                     <button class="btn-pw-apply" onclick="changePassword()">적용</button>
                 </div>
+                <div class="nav-tabs">
+                    <div id="tabLive" class="nav-tab active" onclick="switchTab('live')">📡 실시간 트레이딩</div>
+                    <div id="tabBacktest" class="nav-tab" onclick="switchTab('backtest')">🧪 백테스팅 시뮬레이터</div>
+                </div>
             </div>
             <div class="header-controls">
                 <!-- 자동매매 구동 스위치 -->
@@ -1248,11 +1254,6 @@ HTML_CONTENT = """
         </header>
 
         
-        <div class="nav-tabs">
-            <div id="tabLive" class="nav-tab active" onclick="switchTab('live')">📡 실시간 트레이딩</div>
-            <div id="tabBacktest" class="nav-tab" onclick="switchTab('backtest')">🧪 백테스팅 시뮬레이터</div>
-        </div>
-
         <div id="liveView" class="view-container">
             <div class="dashboard-layout">
 
