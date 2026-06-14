@@ -2261,66 +2261,81 @@ HTML_CONTENT = """
         let btLineSeries = null;
 
         function renderBacktestChart(historyData) {
-            document.getElementById('btChartContainerWrapper').style.display = 'block';
-            const container = document.getElementById('btChartContainer');
-            
-            if (!btChart) {
-                btChart = LightweightCharts.createChart(container, {
-                    width: container.clientWidth,
-                    height: 280,
-                    layout: {
-                        background: { type: 'solid', color: 'transparent' },
-                        textColor: '#94a3b8',
-                    },
-                    grid: {
-                        vertLines: { color: 'rgba(255, 255, 255, 0.05)' },
-                        horzLines: { color: 'rgba(255, 255, 255, 0.05)' },
-                    },
-                    rightPriceScale: {
-                        borderVisible: false,
-                    },
-                    timeScale: {
-                        borderVisible: false,
-                        timeVisible: true,
-                        secondsVisible: false,
-                    },
-                });
+            try {
+                document.getElementById('btChartContainerWrapper').style.display = 'block';
+                const container = document.getElementById('btChartContainer');
                 
-                btLineSeries = btChart.addAreaSeries({
-                    lineColor: '#00f2fe',
-                    topColor: 'rgba(0, 242, 254, 0.4)',
-                    bottomColor: 'rgba(0, 242, 254, 0.0)',
-                    lineWidth: 2,
-                });
-                
-                // 창 크기 조절 시 대응
-                window.addEventListener('resize', () => {
-                    btChart.applyOptions({ width: container.clientWidth });
-                });
-            }
-            
-            // 데이터 포맷 변환 및 중복 시간 제거 로직
-            const chartData = [];
-            let lastTime = 0;
-            
-            for (let i = 0; i < historyData.length; i++) {
-                const item = historyData[i];
-                // KST 문자열 -> Timestamp 변환 (초 단위)
-                const dateObj = new Date(item.time.replace(' ', 'T') + '+09:00');
-                const t = dateObj.getTime() / 1000;
-                
-                if (t > lastTime) {
-                    chartData.push({ time: t, value: item.equity });
-                    lastTime = t;
-                } else if (t === lastTime) {
-                    // 동일한 시간대면 가장 마지막 체결 기준으로 업데이트
-                    chartData[chartData.length - 1].value = item.equity;
+                if (!window.LightweightCharts) {
+                    console.error("LightweightCharts is not loaded.");
+                    return;
                 }
-            }
-            
-            if (chartData.length > 0) {
-                btLineSeries.setData(chartData);
-                btChart.timeScale().fitContent();
+                
+                if (!btChart) {
+                    btChart = LightweightCharts.createChart(container, {
+                        width: container.clientWidth,
+                        height: 280,
+                        layout: {
+                            background: { type: 'solid', color: 'transparent' },
+                            textColor: '#94a3b8',
+                        },
+                        grid: {
+                            vertLines: { color: 'rgba(255, 255, 255, 0.05)' },
+                            horzLines: { color: 'rgba(255, 255, 255, 0.05)' },
+                        },
+                        rightPriceScale: {
+                            borderVisible: false,
+                        },
+                        timeScale: {
+                            borderVisible: false,
+                            timeVisible: true,
+                            secondsVisible: false,
+                        },
+                    });
+                    
+                    btLineSeries = btChart.addAreaSeries({
+                        lineColor: '#00f2fe',
+                        topColor: 'rgba(0, 242, 254, 0.4)',
+                        bottomColor: 'rgba(0, 242, 254, 0.0)',
+                        lineWidth: 2,
+                    });
+                    
+                    window.addEventListener('resize', () => {
+                        if (btChart) btChart.applyOptions({ width: container.clientWidth });
+                    });
+                }
+                
+                const chartData = [];
+                let lastTime = 0;
+                
+                for (let i = 0; i < historyData.length; i++) {
+                    const item = historyData[i];
+                    let t = 0;
+                    try {
+                        const dateStr = item.time.replace(' ', 'T');
+                        const dateObj = new Date(dateStr + '+09:00');
+                        t = Math.floor(dateObj.getTime() / 1000);
+                        if (isNaN(t)) {
+                            // Safari fallback
+                            t = Math.floor(new Date(item.time).getTime() / 1000);
+                        }
+                    } catch (e) { continue; }
+                    
+                    if (isNaN(t)) continue;
+                    
+                    if (t > lastTime) {
+                        chartData.push({ time: t, value: item.equity });
+                        lastTime = t;
+                    } else if (t === lastTime) {
+                        chartData[chartData.length - 1].value = item.equity;
+                    }
+                }
+                
+                if (chartData.length > 0) {
+                    btLineSeries.setData(chartData);
+                    btChart.timeScale().fitContent();
+                }
+            } catch (err) {
+                console.error("Chart rendering error:", err);
             }
         }
 
