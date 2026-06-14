@@ -1500,7 +1500,6 @@ HTML_CONTENT = """
                         </div>
 
                         <div class="form-field" style="margin-bottom: 16px;">
-                        <div class="form-field" style="margin-bottom: 16px;">
                             <label for="btInitialCapital">초기 자본금 (KRW)</label>
                             <input type="number" id="btInitialCapital" value="10000000" style="font-family: monospace; font-weight: bold;" title="백테스팅 시뮬레이션 시작 자본금">
                         </div>
