@@ -140,6 +140,9 @@ class WebDashboardLogHandler(logging.Handler):
             # 웹소켓 및 asyncio 내부 로그는 피드백 루프 방지를 위해 대시보드 로깅 대상에서 제외
             if record.name.startswith('websockets') or record.name.startswith('asyncio'):
                 return
+            # 백테스터 로그는 실시간 자동매매 로그 창에 표시하지 않음 (백테스팅 전용 디버그 창으로만 출력)
+            if record.name == 'Backtester':
+                return
             if record.levelno < logging.INFO:
                 return
             formatted_msg = self.format(record)
@@ -3691,7 +3694,7 @@ async def websocket_handler(websocket):
                     custom_buy = data.get('custom_buy')
                     custom_sell = data.get('custom_sell')
                     
-                    logging.info(f"📊 대시보드 제어: 백테스팅 요청 ({start_date} ~ {end_date}, 종목: {code})")
+                    logging.debug(f"📊 대시보드 제어: 백테스팅 요청 ({start_date} ~ {end_date}, 종목: {code})")
                     
                     main_loop = None
                     try:
@@ -3712,7 +3715,7 @@ async def websocket_handler(websocket):
                                     # 큐에서 메시지를 논블로킹으로 가져옴
                                     msg = q.get_nowait()
                                     if msg["type"] == "backtest_progress":
-                                        logging.info(f"📊 [백테스트] {msg['msg']}")
+                                        logging.debug(f"📊 [백테스트] {msg['msg']}")
                                         await safe_send(websocket, json.dumps(msg))
                                     elif msg["type"] == "backtest_result":
                                         await safe_send(websocket, json.dumps(msg))
