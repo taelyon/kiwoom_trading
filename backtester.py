@@ -46,7 +46,7 @@ class Backtester:
         
         return df
 
-    def run(self, start_date, end_date, code='ALL', progress_callback=None, custom_buy=None, custom_sell=None, initial_capital=10000000):
+    def run(self, start_date, end_date, code='ALL', progress_callback=None, custom_buy=None, custom_sell=None, initial_capital=10000000, buycount=3):
         try:
             logger.info(f"백테스트 데이터 로딩 시작: {start_date} ~ {end_date} (종목: {code})")
             if progress_callback: progress_callback(10, "데이터를 로딩 중입니다...")
