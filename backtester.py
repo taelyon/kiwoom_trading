@@ -463,13 +463,23 @@ class Backtester:
                     close_col = 'close'
                 
                 min3_close_df = df_bnh.groupby(['min3_time', 'code'])[close_col].last().reset_index()
-                # 실제 종가(또는 3분봉 종가)들의 평균을 구함
-                min3_bnh = min3_close_df.groupby('min3_time')[close_col].mean().reset_index()
                 
-                for _, row in min3_bnh.iterrows():
+                # 각 종목별 최초 가격 및 누적 수익률 계산 (매수 금액 동일 비중 포트폴리오 가이드)
+                initial_prices = min3_close_df.groupby('code')[close_col].first()
+                min3_close_df = min3_close_df.join(initial_prices.rename('initial_price'), on='code')
+                min3_close_df['return'] = min3_close_df[close_col] / min3_close_df['initial_price']
+                
+                # 시간대별 등금액 비중 평균 수익률 
+                min3_bnh_return = min3_close_df.groupby('min3_time')['return'].mean().reset_index()
+                
+                # 스케일을 '주가' 단위로 표시하기 위해 최초 가격 평균치를 베이스로 삼음
+                base_price = initial_prices.mean()
+                min3_bnh_return['equity'] = min3_bnh_return['return'] * base_price
+                
+                for _, row in min3_bnh_return.iterrows():
                     bnh_history.append({
                         'time': row['min3_time'].strftime('%Y-%m-%d %H:%M:%S'),
-                        'equity': row[close_col] # 프론트 파싱 호환을 위해 키는 equity 사용
+                        'equity': row['equity'] # 프론트 파싱 호환을 위해 키는 equity 사용
                     })
             except Exception as e:
                 logger.error(f"Buy&Hold 벤치마크 생성 오류: {e}")
