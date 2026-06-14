@@ -232,6 +232,9 @@ class Backtester:
                 
                 processed_dfs.append(group_df)
                 
+                if progress_callback:
+                    prog = 10 + int((code_idx / total_codes) * 20)
+                    progress_callback(prog, f"데이터 전처리 중... ({code_idx}/{total_codes}) - {current_code}")
             if not processed_dfs:
                 return {"error": "처리할 수 있는 정상 데이터가 없습니다."}
                 
