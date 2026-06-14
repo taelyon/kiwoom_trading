@@ -1547,12 +1547,7 @@ HTML_CONTENT = """
                         </div>
                     </div>
 
-                    <!-- Placeholder (초기 화면) -->
-                    <div id="btPlaceholder" class="bt-placeholder">
-                        <div style="font-size: 48px; opacity: 0.2; margin-bottom: 16px;">📈</div>
-                        <p style="font-weight: bold; color: var(--text-secondary); margin-bottom: 8px; font-size: 18px;">백테스트 대기 중</p>
-                        <p style="font-size: 13px; opacity: 0.7;">Configure your parameters on the left and hit Run to simulate historical performance.</p>
-                    </div>
+
                 </div>
             </div>
         </div>
@@ -1812,7 +1807,7 @@ HTML_CONTENT = """
                 } else if (data.type === 'chart_tick') {
                     renderChartTick(data);
                 } else if (data.type === 'backtest_progress') {
-                    document.getElementById('btPlaceholder').style.display = 'none';
+                    
                     document.getElementById('btResultContent').style.display = 'flex';
                     
                     document.getElementById('btWarningText').style.display = 'none';
@@ -3081,7 +3076,7 @@ HTML_CONTENT = """
             
             document.getElementById('btnRunBacktest').disabled = true;
             document.getElementById('btnRunBacktest').innerText = '실행 중...';
-            document.getElementById('btPlaceholder').style.display = 'none';
+            
                     document.getElementById('btResultContent').style.display = 'flex';
             
             document.getElementById('btProgressText').innerText = "요청을 전송 중입니다...";
