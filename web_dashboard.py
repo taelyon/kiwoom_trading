@@ -2454,6 +2454,19 @@ HTML_CONTENT = """
             
             tbody.innerHTML = html;
             document.getElementById('btLogsBox').style.display = 'block';
+            
+            // 프론트엔드 자체 계산 요약 카드 갱신
+            const sellEventsArr = events.filter(e => e.type === 'sell');
+            const tTrades = sellEventsArr.length;
+            const wTrades = sellEventsArr.filter(e => e.profit > 0).length;
+            const wRate = tTrades > 0 ? ((wTrades / tTrades) * 100).toFixed(2) : 0;
+            
+            document.getElementById('btTotalTrades').innerText = tTrades + '회';
+            document.getElementById('btWinRate').innerText = wRate + '%';
+            
+            const pElem = document.getElementById('btTotalProfit');
+            pElem.innerText = (totalProfit > 0 ? '+' : '') + Math.round(totalProfit).toLocaleString() + '원';
+            pElem.style.color = totalProfit > 0 ? 'var(--danger)' : 'var(--text-primary)';
         }
 
         function renderBacktestChart(historyData, trades = [], bnhData = []) {
