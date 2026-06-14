@@ -170,8 +170,6 @@ HTML_CONTENT = """
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Kiwoom trading</title>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=Noto+Sans+KR:wght@300;400;700&display=swap" rel="stylesheet">
-    <!-- TradingView Lightweight Charts CDN (버전을 v4.1.1로 고정하여 v5 API 충돌 방지 및 국내 로딩 속도 최적화) -->
-    <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js" crossorigin="anonymous"></script>
     <style>
         :root {
             --bg-color: #080710;
@@ -1194,7 +1192,7 @@ HTML_CONTENT = """
             height: 100%;
         }
     </style>
-    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+    <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js" crossorigin="anonymous"></script>
 </head>
 <body>
 
