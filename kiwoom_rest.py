@@ -65,6 +65,8 @@ class KiwoomRestClient:
         
         # 연결 상태
         self.is_connected = False
+        import asyncio
+        self._order_lock = getattr(self, '_order_lock', asyncio.Lock())
         self.connection_lock = Lock()
         
         # 계좌평가현황 캐시 (API 호출 빈도 제한)
