@@ -287,7 +287,7 @@ HTML_CONTENT = """
         /* --- 대시보드 메인 레이아웃 (Dashboard screen) --- */
         #dashboardContainer {
             width: 100%;
-            max-width: 100%;
+            max-width: 1600px;
             padding: 24px;
             display: none; /* 인증 완료 전 비노출 */
             flex-direction: column;
