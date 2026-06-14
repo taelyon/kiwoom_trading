@@ -3110,12 +3110,32 @@ HTML_CONTENT = """
             document.getElementById('btProgressText').innerText = "요청을 전송 중입니다...";
             document.getElementById('btProgressText').style.color = "var(--accent-cyan)";
             
-            ws.send(JSON.stringify({
+            // 매수/매도 전략 JSON 파싱
+            let customBuy = null;
+            let customSell = null;
+            try {
+                const buyText = document.getElementById('btBuyStrategy').value;
+                if (buyText && buyText.trim()) customBuy = JSON.parse(buyText);
+            } catch (e) {
+                console.warn("매수 전략 JSON 파싱 실패, 기본 전략 사용:", e);
+            }
+            try {
+                const sellText = document.getElementById('btSellStrategy').value;
+                if (sellText && sellText.trim()) customSell = JSON.parse(sellText);
+            } catch (e) {
+                console.warn("매도 전략 JSON 파싱 실패, 기본 전략 사용:", e);
+            }
+            
+            const payload = {
                 type: 'run_backtest',
                 start_date: startDate,
                 end_date: endDate,
                 code: code || 'ALL'
-            }));
+            };
+            if (customBuy !== null) payload.custom_buy = customBuy;
+            if (customSell !== null) payload.custom_sell = customSell;
+            
+            ws.send(JSON.stringify(payload));
         }
         
         // 날짜 기본값 설정 (오늘 ~ 최근 7일)
