@@ -1464,22 +1464,22 @@ HTML_CONTENT = """
 
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
                             <div class="form-field">
-                                <label for="btStartDate">START DATE</label>
+                                <label for="btStartDate">시작 일자</label>
                                 <input type="date" id="btStartDate" style="color-scheme: dark; font-family: monospace;">
                             </div>
                             <div class="form-field">
-                                <label for="btEndDate">END DATE</label>
+                                <label for="btEndDate">종료 일자</label>
                                 <input type="date" id="btEndDate" style="color-scheme: dark; font-family: monospace;">
                             </div>
                         </div>
 
                         <div class="form-field" style="margin-bottom: 16px;">
-                            <label for="btInitialCapital">INITIAL CAPITAL (KRW)</label>
+                            <label for="btInitialCapital">초기 자본금 (KRW)</label>
                             <input type="number" id="btInitialCapital" value="10000000" style="font-family: monospace; font-weight: bold; opacity: 0.7;" readonly title="기본 투자금 (현재 고정)">
                         </div>
 
                         <div style="margin-top: 32px;">
-                            <button id="btnRunBacktest" class="btn-primary" style="width: 100%; padding: 14px; font-size: 15px; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 8px; box-shadow: 0 4px 16px rgba(0, 242, 254, 0.2);" onclick="startBacktest()">🚀 Run Backtest</button>
+                            <button id="btnRunBacktest" class="btn-primary" style="width: 100%; padding: 14px; font-size: 15px; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 8px; box-shadow: 0 4px 16px rgba(0, 242, 254, 0.2);" onclick="startBacktest()">🚀 백테스트 실행</button>
                         </div>
                     </div>
                 </div>
@@ -1495,15 +1495,15 @@ HTML_CONTENT = """
                                 <div id="btTotalProfit" class="bt-summary-value" style="color: var(--text-primary);">0원</div>
                             </div>
                             <div class="bt-summary-card">
-                                <div class="bt-summary-label">TOTAL TRADES</div>
+                                <div class="bt-summary-label">총 거래횟수</div>
                                 <div id="btTotalTrades" class="bt-summary-value" style="color: var(--text-primary);">0</div>
                             </div>
                             <div class="bt-summary-card">
-                                <div class="bt-summary-label">WIN RATE</div>
+                                <div class="bt-summary-label">승률</div>
                                 <div id="btWinRate" class="bt-summary-value" style="color: var(--text-primary);">0%</div>
                             </div>
                             <div class="bt-summary-card">
-                                <div class="bt-summary-label">MAX DRAWDOWN</div>
+                                <div class="bt-summary-label">최대 낙폭 (MDD)</div>
                                 <div id="btMdd" class="bt-summary-value" style="color: var(--text-primary);">0%</div>
                             </div>
                         </div>
@@ -1534,7 +1534,7 @@ HTML_CONTENT = """
                     <!-- Placeholder (초기 화면) -->
                     <div id="btPlaceholder" class="bt-placeholder">
                         <div style="font-size: 48px; opacity: 0.2; margin-bottom: 16px;">📈</div>
-                        <p style="font-weight: bold; color: var(--text-secondary); margin-bottom: 8px; font-size: 18px;">Ready to test</p>
+                        <p style="font-weight: bold; color: var(--text-secondary); margin-bottom: 8px; font-size: 18px;">백테스트 대기 중</p>
                         <p style="font-size: 13px; opacity: 0.7;">Configure your parameters on the left and hit Run to simulate historical performance.</p>
                     </div>
                 </div>
@@ -2262,7 +2262,11 @@ HTML_CONTENT = """
 
         function renderBacktestChart(historyData) {
             try {
-                document.getElementById('btChartContainerWrapper').style.display = 'block';
+                const wrapper = document.getElementById('btChartContainerWrapper');
+                wrapper.style.display = 'block';
+                // 강제 리플로우를 발생시켜 clientWidth가 0이 되는 현상 방지
+                wrapper.offsetHeight; 
+                
                 const container = document.getElementById('btChartContainer');
                 
                 if (!window.LightweightCharts) {
@@ -2272,7 +2276,7 @@ HTML_CONTENT = """
                 
                 if (!btChart) {
                     btChart = LightweightCharts.createChart(container, {
-                        width: container.clientWidth,
+                        width: container.clientWidth || 800,
                         height: 280,
                         layout: {
                             background: { type: 'solid', color: 'transparent' },
