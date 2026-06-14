@@ -8,9 +8,10 @@ import logging
 from config_manager import EnvConfigParser
 
 logger = logging.getLogger("Backtester")
+logger.propagate = False
 if not logger.handlers:
     handler = logging.StreamHandler()
-    formatter = logging.Formatter('[%(asctime)s] %(levelname)s %(message)s')
+    formatter = logging.Formatter('[%(asctime)s] %(levelname)s: [백테스터] %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
     handler.setFormatter(formatter)
     logger.addHandler(handler)
     logger.setLevel(logging.INFO)
@@ -45,7 +46,7 @@ class Backtester:
         
         return df
 
-    def run(self, start_date, end_date, code='ALL', progress_callback=None):
+    def run(self, start_date, end_date, code='ALL', progress_callback=None, custom_buy=None, custom_sell=None):
         try:
             logger.info(f"백테스트 데이터 로딩 시작: {start_date} ~ {end_date} (종목: {code})")
             if progress_callback: progress_callback(10, "데이터를 로딩 중입니다...")
