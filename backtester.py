@@ -457,29 +457,35 @@ class Backtester:
                 df_bnh['min3_time'] = df_bnh['datetime'].dt.floor('3min')
                 if 'min3_close' in df_bnh.columns:
                     close_col = 'min3_close'
+                    vol_col = 'min3_volume' if 'min3_volume' in df_bnh.columns else 'volume'
                 elif 'tic_close' in df_bnh.columns:
                     close_col = 'tic_close'
+                    vol_col = 'tic_volume' if 'tic_volume' in df_bnh.columns else 'volume'
                 else:
                     close_col = 'close'
+                    vol_col = 'volume'
                 
-                min3_close_df = df_bnh.groupby(['min3_time', 'code'])[close_col].last().reset_index()
+                # 가중 평균 지수 계산을 위한 데이터 스냅샷
+                min3_snap = df_bnh.groupby(['min3_time', 'code']).last().reset_index()
                 
-                # 각 종목별 최초 가격 및 누적 수익률 계산 (매수 금액 동일 비중 포트폴리오 가이드)
-                initial_prices = min3_close_df.groupby('code')[close_col].first()
-                min3_close_df = min3_close_df.join(initial_prices.rename('initial_price'), on='code')
-                min3_close_df['return'] = min3_close_df[close_col] / min3_close_df['initial_price']
+                # 가중치 설정 (거래대금 = 주가 * 거래량)
+                # 거래량이 없거나 누락된 경우 최소 가중치(1) 부여
+                min3_snap['weight'] = min3_snap[close_col] * min3_snap[vol_col].fillna(0)
+                min3_snap['weight'] = min3_snap['weight'].replace(0, 1)
                 
-                # 시간대별 등금액 비중 평균 수익률 
-                min3_bnh_return = min3_close_df.groupby('min3_time')['return'].mean().reset_index()
+                def weighted_avg(g):
+                    total_w = g['weight'].sum()
+                    if total_w == 0:
+                        return g[close_col].mean()
+                    return (g[close_col] * g['weight']).sum() / total_w
                 
-                # 스케일을 '주가' 단위로 표시하기 위해 최초 가격 평균치를 베이스로 삼음
-                base_price = initial_prices.mean()
-                min3_bnh_return['equity'] = min3_bnh_return['return'] * base_price
+                # 시점별 가중 평균 지수 산출
+                min3_bnh = min3_snap.groupby('min3_time').apply(weighted_avg).reset_index(name='weighted_close')
                 
-                for _, row in min3_bnh_return.iterrows():
+                for _, row in min3_bnh.iterrows():
                     bnh_history.append({
                         'time': row['min3_time'].strftime('%Y-%m-%d %H:%M:%S'),
-                        'equity': row['equity'] # 프론트 파싱 호환을 위해 키는 equity 사용
+                        'equity': row['weighted_close'] # 프론트 파싱 호환을 위해 키는 equity 사용
                     })
             except Exception as e:
                 logger.error(f"Buy&Hold 벤치마크 생성 오류: {e}")
