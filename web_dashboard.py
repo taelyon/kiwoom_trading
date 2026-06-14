@@ -1210,8 +1210,12 @@ HTML_CONTENT = """
         .bt-trade-table th {
             color: var(--text-secondary);
             font-weight: 600;
-            background: rgba(0,0,0,0.3);
+            background: rgba(10, 10, 15, 0.95);
             text-align: center;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            backdrop-filter: blur(4px);
         }
         .bt-trade-table td.text-center {
             text-align: center;
@@ -1567,7 +1571,7 @@ HTML_CONTENT = """
                                 <span style="font-weight:bold; color:var(--text-secondary); font-size: 12px; text-transform: uppercase; letter-spacing: 1px;">⚙️ 백테스팅 매매 로그</span>
                                 <div id="btProgressText" style="color:var(--accent-cyan); font-weight:bold; font-size: 13px;">대기 중...</div>
                             </div>
-                            <div id="btLogsBox" style="display:none; flex-grow: 1; overflow-y:auto; background:rgba(0,0,0,0.5); padding:0; border-radius:8px; border: 1px solid rgba(255,255,255,0.05);">
+                            <div id="btLogsBox" style="display:none; flex-grow: 1; max-height: 400px; overflow-y:auto; background:rgba(0,0,0,0.5); padding:0; border-radius:8px; border: 1px solid rgba(255,255,255,0.05);">
                                 <table class="bt-trade-table">
                                     <thead>
                                         <tr>
