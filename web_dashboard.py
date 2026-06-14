@@ -1551,6 +1551,10 @@ HTML_CONTENT = """
                         <div id="btChartContainerWrapper" class="glass-card" style="display:block; padding: 16px; margin-top: 4px; min-height: 330px;">
                             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
                                 <span style="font-weight:bold; color:var(--text-secondary); font-size: 14px; text-transform: uppercase; letter-spacing: 1px;">📊 Equity Curve</span>
+                                <div style="font-size: 12px; display: flex; gap: 12px; font-weight: bold;">
+                                    <span style="color: #00f2fe;">─ 매매 전략</span>
+                                    <span style="color: rgba(255, 193, 7, 0.8);">-- Buy & Hold</span>
+                                </div>
                             </div>
                             <div id="btChartContainer" style="width: 100%; height: 280px; position: relative;"></div>
                         </div>
@@ -1866,7 +1870,7 @@ HTML_CONTENT = """
                     document.getElementById('btProgressText').style.color = 'var(--success)';
                     
                     if (data.data.history && data.data.history.length > 0) {
-                        renderBacktestChart(data.data.history, data.data.trades);
+                        renderBacktestChart(data.data.history, data.data.trades, data.data.bnh_history);
                     }
                     if (data.data.trades && data.data.trades.length > 0) {
                         renderBacktestTrades(data.data.trades);
@@ -2347,6 +2351,7 @@ HTML_CONTENT = """
         // 백테스트 차트 (TradingView Lightweight Charts)
         let btChart = null;
         let btLineSeries = null;
+        let btBnhSeries = null;
 
         function renderBacktestTrades(trades) {
             const tbody = document.getElementById('btTradeTableBody');
@@ -2384,7 +2389,7 @@ HTML_CONTENT = """
             document.getElementById('btLogsBox').style.display = 'block';
         }
 
-        function renderBacktestChart(historyData, trades = []) {
+        function renderBacktestChart(historyData, trades = [], bnhData = []) {
             try {
                 const wrapper = document.getElementById('btChartContainerWrapper');
                 // 강제 리플로우를 발생시켜 clientWidth가 0이 되는 현상 방지
@@ -2426,6 +2431,12 @@ HTML_CONTENT = """
                         lineWidth: 2,
                     });
                     
+                    btBnhSeries = btChart.addLineSeries({
+                        color: 'rgba(255, 193, 7, 0.8)',
+                        lineWidth: 2,
+                        lineStyle: LightweightCharts.LineStyle.Dashed
+                    });
+                    
                     window.addEventListener('resize', () => {
                         if (btChart) btChart.applyOptions({ width: container.clientWidth });
                     });
@@ -2452,13 +2463,37 @@ HTML_CONTENT = """
                     if (t > lastTime) {
                         chartData.push({ time: t, value: item.equity });
                         lastTime = t;
-                    } else if (t === lastTime) {
+                    } else if (t === lastTime && chartData.length > 0) {
                         chartData[chartData.length - 1].value = item.equity;
+                    }
+                }
+                
+                const bnhChartData = [];
+                if (bnhData) {
+                    let lastBnhTime = 0;
+                    for (let i = 0; i < bnhData.length; i++) {
+                        const item = bnhData[i];
+                        let t = 0;
+                        try {
+                            const dateStr = item.time.replace(' ', 'T');
+                            const dateObj = new Date(dateStr + '+09:00');
+                            t = Math.floor(dateObj.getTime() / 1000);
+                            if (isNaN(t)) t = Math.floor(new Date(item.time).getTime() / 1000);
+                        } catch (e) { continue; }
+                        
+                        if (isNaN(t)) continue;
+                        if (t > lastBnhTime) {
+                            bnhChartData.push({ time: t, value: item.equity });
+                            lastBnhTime = t;
+                        } else if (t === lastBnhTime && bnhChartData.length > 0) {
+                            bnhChartData[bnhChartData.length - 1].value = item.equity;
+                        }
                     }
                 }
                 
                 if (chartData.length > 0) {
                     btLineSeries.setData(chartData);
+                    if (bnhChartData.length > 0) btBnhSeries.setData(bnhChartData);
                     btChart.timeScale().fitContent();
                     
                     // 마커 추가 로직

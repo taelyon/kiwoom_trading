@@ -449,6 +449,26 @@ class Backtester:
                     'equity': current_equity
                 })
             
+            # --- Buy & Hold 벤치마크 (동일 비중 포트폴리오) 자산 시계열 생성 ---
+            bnh_history = []
+            try:
+                df_bnh = df.copy()
+                df_bnh['date'] = pd.to_datetime(df_bnh['datetime']).dt.date
+                # group_df 루프 내에서 rename 되었을 수 있으므로 tic_close 가 없으면 close 로 처리
+                close_col = 'tic_close' if 'tic_close' in df_bnh.columns else 'close'
+                
+                daily_close = df_bnh.groupby(['date', 'code'])[close_col].last().reset_index()
+                daily_close['return'] = daily_close.groupby('code')[close_col].transform(lambda x: x / x.iloc[0])
+                daily_bnh = daily_close.groupby('date')['return'].mean().reset_index()
+                
+                for _, row in daily_bnh.iterrows():
+                    bnh_history.append({
+                        'time': f"{row['date'].strftime('%Y-%m-%d')} 15:30:00",
+                        'equity': 10000000 * row['return']
+                    })
+            except Exception as e:
+                logger.error(f"Buy&Hold 벤치마크 생성 오류: {e}")
+            
             result = {
                 "total_trades": total_trades,
                 "win_count": win_count,
@@ -459,6 +479,8 @@ class Backtester:
                 "mdd": round(mdd, 2),
                 "trades": trades, # 전체 내역 프론트로 전달
                 "history": equity_history, # 자산 곡선 데이터
+                "bnh_history": bnh_history, # Buy&Hold 벤치마크
+
                 "uses_ai": uses_ai,
                 "lgbm_model_loaded": LGBM_MODEL is not None,
                 "debug_logs": debug_logs[-200:] # 프론트엔드 과부하 방지
