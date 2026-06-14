@@ -57,22 +57,26 @@ class Backtester:
                 
             if progress_callback: progress_callback(30, f"데이터 로딩 완료: {len(df):,} 틱. 시뮬레이션 준비 중...")
 
-            # 전략 로드
-            from strategy_utils import load_strategies_from_config
-            
-            # config.get은 (section, option) 두 개의 인자를 받습니다. fallback은 키워드로 전달해야 합니다.
-            stg_name = self.config.get('SETTINGS', 'LAST_STRATEGY', fallback='기본_돌파')
-            
             buy_strategies = []
             sell_strategies = []
             
-            all_strategies = load_strategies_from_config()
-            
-            if stg_name in all_strategies:
-                buy_strategies = all_strategies[stg_name]['buy_strategies']
-                sell_strategies = all_strategies[stg_name]['sell_strategies']
+            # 1. 커스텀 전략이 명시적으로 제공된 경우 (웹 대시보드에서 동적 주입)
+            if custom_buy is not None and custom_sell is not None:
+                buy_strategies = custom_buy
+                sell_strategies = custom_sell
+                logger.info("웹 대시보드에서 전달된 커스텀 전략을 적용합니다.")
             else:
-                logger.warning(f"설정된 전략 '{stg_name}'을 찾을 수 없어 빈 전략으로 실행합니다.")
+                # 2. 제공되지 않은 경우 settings.json의 기본값 로드
+                from strategy_utils import load_strategies_from_config
+                stg_name = self.config.get('SETTINGS', 'LAST_STRATEGY', fallback='기본_돌파')
+                
+                all_strategies = load_strategies_from_config()
+                
+                if stg_name in all_strategies:
+                    buy_strategies = all_strategies[stg_name]['buy_strategies']
+                    sell_strategies = all_strategies[stg_name]['sell_strategies']
+                else:
+                    logger.warning(f"설정된 전략 '{stg_name}'을 찾을 수 없어 빈 전략으로 실행합니다.")
             
             portfolio = {} # code -> {'buy_price': float, 'qty': int, 'buy_time': str}
             trades = []

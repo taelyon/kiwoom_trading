@@ -15,7 +15,7 @@ import multiprocessing as mp
 import queue
 import traceback
 
-def run_backtest_process_worker(q, s_date, e_date, c):
+def run_backtest_process_worker(q, s_date, e_date, c, buy_stg=None, sell_stg=None):
     """독립된 프로세스에서 백테스터를 실행하고 큐를 통해 상태를 보고하는 워커 함수"""
     try:
         from backtester import Backtester
@@ -28,7 +28,7 @@ def run_backtest_process_worker(q, s_date, e_date, c):
                 "msg": msg
             })
             
-        result = bt.run(s_date, e_date, c, progress_callback=progress_cb)
+        result = bt.run(s_date, e_date, c, progress_callback=progress_cb, custom_buy=buy_stg, custom_sell=sell_stg)
         
         q.put({
             "type": "backtest_result",
@@ -1477,6 +1477,15 @@ HTML_CONTENT = """
                             <label for="btInitialCapital">초기 자본금 (KRW)</label>
                             <input type="number" id="btInitialCapital" value="10000000" style="font-family: monospace; font-weight: bold; opacity: 0.7;" readonly title="기본 투자금 (현재 고정)">
                         </div>
+                        
+                        <div class="form-field" style="margin-bottom: 16px;">
+                            <label for="btBuyStrategy">매수 전략 편집기 (JSON)</label>
+                            <textarea id="btBuyStrategy" rows="5" style="width: 100%; font-family: monospace; font-size: 12px; background: rgba(0,0,0,0.3); color: #00f2fe; border: 1px solid var(--border-color); border-radius: 8px; padding: 10px; resize: vertical;"></textarea>
+                        </div>
+                        <div class="form-field" style="margin-bottom: 16px;">
+                            <label for="btSellStrategy">매도 전략 편집기 (JSON)</label>
+                            <textarea id="btSellStrategy" rows="5" style="width: 100%; font-family: monospace; font-size: 12px; background: rgba(0,0,0,0.3); color: #f48fb1; border: 1px solid var(--border-color); border-radius: 8px; padding: 10px; resize: vertical;"></textarea>
+                        </div>
 
                         <div style="margin-top: 32px;">
                             <button id="btnRunBacktest" class="btn-primary" style="width: 100%; padding: 14px; font-size: 15px; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 8px; box-shadow: 0 4px 16px rgba(0, 242, 254, 0.2);" onclick="startBacktest()">🚀 백테스트 실행</button>
@@ -1510,7 +1519,7 @@ HTML_CONTENT = """
 
                         
                         <!-- Equity Curve Chart -->
-                        <div id="btChartContainerWrapper" class="glass-card" style="display:none; padding: 16px; margin-top: 4px;">
+                        <div id="btChartContainerWrapper" class="glass-card" style="display:block; padding: 16px; margin-top: 4px; min-height: 330px;">
                             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
                                 <span style="font-weight:bold; color:var(--text-secondary); font-size: 14px; text-transform: uppercase; letter-spacing: 1px;">📊 Equity Curve</span>
                             </div>
@@ -2262,8 +2271,7 @@ HTML_CONTENT = """
 
         function renderBacktestChart(historyData) {
             try {
-                const wrapper = document.getElementById('btChartContainerWrapper');
-                wrapper.style.display = 'block';
+                
                 // 강제 리플로우를 발생시켜 clientWidth가 0이 되는 현상 방지
                 wrapper.offsetHeight; 
                 
@@ -3620,6 +3628,8 @@ async def websocket_handler(websocket):
                     start_date = data.get('start_date')
                     end_date = data.get('end_date')
                     code = data.get('code', 'ALL')
+                    custom_buy = data.get('custom_buy')
+                    custom_sell = data.get('custom_sell')
                     
                     logging.info(f"📊 대시보드 제어: 백테스팅 요청 ({start_date} ~ {end_date}, 종목: {code})")
                     
@@ -3632,7 +3642,7 @@ async def websocket_handler(websocket):
                     
                     ctx = mp.get_context('spawn')
                     q = ctx.Queue()
-                    p = ctx.Process(target=run_backtest_process_worker, args=(q, start_date, end_date, code), daemon=True)
+                    p = ctx.Process(target=run_backtest_process_worker, args=(q, start_date, end_date, code, custom_buy, custom_sell), daemon=True)
                     p.start()
                     
                     async def monitor_backtest_process():
