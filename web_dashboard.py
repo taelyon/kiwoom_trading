@@ -1477,8 +1477,8 @@ HTML_CONTENT = """
         <div style="width: 100%; display: flex; flex-direction: column; gap: 24px;">
             <div class="bt-grid-layout">
                 <!-- Sidebar Controls -->
-                <div class="bt-sidebar">
-                    <div class="glass-card">
+                <div class="bt-sidebar" style="height: 100%;">
+                    <div class="glass-card" style="height: 100%; display: flex; flex-direction: column;">
                         <h3 style="font-size: 14px; font-weight: bold; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 24px; display: flex; align-items: center; gap: 8px;">
                             ⚙️ 전략 파라미터
                         </h3>
@@ -1511,16 +1511,16 @@ HTML_CONTENT = """
                             </select>
                         </div>
                         
-                        <div class="form-field" style="margin-bottom: 16px;">
+                        <div class="form-field" style="margin-bottom: 16px; flex-grow: 1; display: flex; flex-direction: column;">
                             <label for="btBuyStrategy">매수 전략(JSON)</label>
-                            <textarea id="btBuyStrategy" rows="5" style="width: 100%; font-family: monospace; font-size: 12px; background: rgba(0,0,0,0.3); color: #00f2fe; border: 1px solid var(--border-color); border-radius: 8px; padding: 10px; resize: vertical;"></textarea>
+                            <textarea id="btBuyStrategy" style="flex-grow: 1; width: 100%; font-family: monospace; font-size: 12px; background: rgba(0,0,0,0.3); color: #00f2fe; border: 1px solid var(--border-color); border-radius: 8px; padding: 10px; resize: none; min-height: 150px;"></textarea>
                         </div>
-                        <div class="form-field" style="margin-bottom: 16px;">
+                        <div class="form-field" style="margin-bottom: 16px; flex-grow: 1; display: flex; flex-direction: column;">
                             <label for="btSellStrategy">매도 전략(JSON)</label>
-                            <textarea id="btSellStrategy" rows="5" style="width: 100%; font-family: monospace; font-size: 12px; background: rgba(0,0,0,0.3); color: #f48fb1; border: 1px solid var(--border-color); border-radius: 8px; padding: 10px; resize: vertical;"></textarea>
+                            <textarea id="btSellStrategy" style="flex-grow: 1; width: 100%; font-family: monospace; font-size: 12px; background: rgba(0,0,0,0.3); color: #f48fb1; border: 1px solid var(--border-color); border-radius: 8px; padding: 10px; resize: none; min-height: 150px;"></textarea>
                         </div>
 
-                        <div style="margin-top: 32px;">
+                        <div style="margin-top: 16px;">
                             <button id="btnRunBacktest" class="btn-primary" style="width: 100%; padding: 14px; font-size: 15px; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 8px; box-shadow: 0 4px 16px rgba(0, 242, 254, 0.2);" onclick="startBacktest()">🚀 백테스트 실행</button>
                         </div>
                     </div>
