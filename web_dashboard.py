@@ -2500,13 +2500,17 @@ HTML_CONTENT = """
                         topColor: 'rgba(0, 242, 254, 0.4)',
                         bottomColor: 'rgba(0, 242, 254, 0.0)',
                         lineWidth: 2,
+                        lastValueVisible: false,
+                        priceLineVisible: false,
                     });
                     
                     btBnhSeries = btChart.addLineSeries({
                         color: 'rgba(255, 193, 7, 0.8)',
                         lineWidth: 2,
                         lineStyle: LightweightCharts.LineStyle.Solid,
-                        priceScaleId: 'left'
+                        priceScaleId: 'left',
+                        lastValueVisible: false,
+                        priceLineVisible: false,
                     });
                     
                     window.addEventListener('resize', () => {
