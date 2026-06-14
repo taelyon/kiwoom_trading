@@ -1502,8 +1502,8 @@ HTML_CONTENT = """
 
                 <!-- Main Content Area -->
                 <div class="bt-main">
-                    <!-- 결과 뷰 (기본적으로 숨김) -->
-                    <div id="btResultContent" style="display: none; flex-direction: column; gap: 20px; height: 100%;">
+                    <!-- 결과 뷰 (기본적으로 표시) -->
+                    <div id="btResultContent" style="display: flex; flex-direction: column; gap: 20px; height: 100%;">
                         <!-- Summary Cards -->
                         <div class="bt-summary-grid">
                             <div class="bt-summary-card">
