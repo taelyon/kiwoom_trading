@@ -1479,9 +1479,9 @@ HTML_CONTENT = """
                 <!-- Sidebar Controls -->
                 <div class="bt-sidebar" style="height: 100%;">
                     <div class="glass-card" style="height: 100%; display: flex; flex-direction: column;">
-                        <h3 style="font-size: 14px; font-weight: bold; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 24px; display: flex; align-items: center; gap: 8px;">
+                        <div class="section-title" style="margin-bottom: 24px; display: flex; align-items: center; gap: 8px;">
                             ⚙️ 전략 파라미터
-                        </h3>
+                        </div>
                         
                         <div class="form-field" style="margin-bottom: 16px;">
                             <label for="btCode">종목 코드 (전체는 ALL)</label>
@@ -1554,7 +1554,7 @@ HTML_CONTENT = """
                         <!-- 수익률 곡선 Chart -->
                         <div id="btChartContainerWrapper" class="glass-card" style="display:block; padding: 16px; margin-top: 4px; min-height: 330px;">
                             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
-                                <span style="font-weight:bold; color:var(--text-secondary); font-size: 14px; text-transform: uppercase; letter-spacing: 1px;">📊 Equity Curve</span>
+                                <div class="section-title" style="margin-bottom: 0;">📊 Equity Curve</div>
                                 <div style="font-size: 12px; display: flex; gap: 12px; font-weight: bold;">
                                     <span style="color: #00f2fe;">─ 매매 전략 (자본금)</span>
                                     <span style="color: rgba(255, 193, 7, 0.8);">-- 실제 주가</span>
@@ -1568,7 +1568,7 @@ HTML_CONTENT = """
                         
                         <div class="glass-card" style="flex-grow: 1; min-height: 300px; display: flex; flex-direction: column;">
                             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-                                <span style="font-weight:bold; color:var(--text-secondary); font-size: 12px; text-transform: uppercase; letter-spacing: 1px;">⚙️ 백테스팅 매매 로그</span>
+                                <div class="section-title" style="margin-bottom: 0;">⚙️ 백테스팅 매매 로그</div>
                                 <div id="btProgressText" style="color:var(--accent-cyan); font-weight:bold; font-size: 13px;">대기 중...</div>
                             </div>
                             <div id="btLogsBox" style="display:none; flex-grow: 1; max-height: 300px; overflow-y:auto; background:rgba(0,0,0,0.5); padding:0; border-radius:8px; border: 1px solid rgba(255,255,255,0.05);">
