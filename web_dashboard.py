@@ -1505,18 +1505,18 @@ HTML_CONTENT = """
                         </div>
                         
                         <div class="form-field" style="margin-bottom: 16px;">
-                            <label for="btStrategy">대표 매매 전략 (빠른 불러오기)</label>
+                            <label for="btStrategy">대표 매매 전략</label>
                             <select id="btStrategy" onchange="onBtStrategyChange(this.value)">
                                 <option value="">전략 선택...</option>
                             </select>
                         </div>
                         
                         <div class="form-field" style="margin-bottom: 16px;">
-                            <label for="btBuyStrategy">매수 전략 편집기 (JSON)</label>
+                            <label for="btBuyStrategy">매수 전략(JSON)</label>
                             <textarea id="btBuyStrategy" rows="5" style="width: 100%; font-family: monospace; font-size: 12px; background: rgba(0,0,0,0.3); color: #00f2fe; border: 1px solid var(--border-color); border-radius: 8px; padding: 10px; resize: vertical;"></textarea>
                         </div>
                         <div class="form-field" style="margin-bottom: 16px;">
-                            <label for="btSellStrategy">매도 전략 편집기 (JSON)</label>
+                            <label for="btSellStrategy">매도 전략(JSON)</label>
                             <textarea id="btSellStrategy" rows="5" style="width: 100%; font-family: monospace; font-size: 12px; background: rgba(0,0,0,0.3); color: #f48fb1; border: 1px solid var(--border-color); border-radius: 8px; padding: 10px; resize: vertical;"></textarea>
                         </div>
 
@@ -1571,7 +1571,7 @@ HTML_CONTENT = """
                                 <span style="font-weight:bold; color:var(--text-secondary); font-size: 12px; text-transform: uppercase; letter-spacing: 1px;">⚙️ 백테스팅 매매 로그</span>
                                 <div id="btProgressText" style="color:var(--accent-cyan); font-weight:bold; font-size: 13px;">대기 중...</div>
                             </div>
-                            <div id="btLogsBox" style="display:none; flex-grow: 1; max-height: 400px; overflow-y:auto; background:rgba(0,0,0,0.5); padding:0; border-radius:8px; border: 1px solid rgba(255,255,255,0.05);">
+                            <div id="btLogsBox" style="display:none; flex-grow: 1; max-height: 300px; overflow-y:auto; background:rgba(0,0,0,0.5); padding:0; border-radius:8px; border: 1px solid rgba(255,255,255,0.05);">
                                 <table class="bt-trade-table">
                                     <thead>
                                         <tr>
