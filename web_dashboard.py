@@ -2311,9 +2311,9 @@ HTML_CONTENT = """
 
         function renderBacktestChart(historyData) {
             try {
-                
+                const wrapper = document.getElementById('btChartContainerWrapper');
                 // 강제 리플로우를 발생시켜 clientWidth가 0이 되는 현상 방지
-                wrapper.offsetHeight; 
+                if (wrapper) wrapper.offsetHeight; 
                 
                 const container = document.getElementById('btChartContainer');
                 
