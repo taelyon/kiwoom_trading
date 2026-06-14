@@ -1470,7 +1470,7 @@ HTML_CONTENT = """
 
     <!-- 백테스팅 시뮬레이터 전용 뷰 -->
     <div id="backtestView" class="view-container view-hidden">
-        <div style="max-width: 1400px; margin: 24px auto; width: 100%; display: flex; flex-direction: column; gap: 24px; padding: 0 24px;">
+        <div style="width: 100%; display: flex; flex-direction: column; gap: 24px;">
             <div class="bt-grid-layout">
                 <!-- Sidebar Controls -->
                 <div class="bt-sidebar">
