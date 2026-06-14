@@ -15,7 +15,7 @@ import multiprocessing as mp
 import queue
 import traceback
 
-def run_backtest_process_worker(q, s_date, e_date, c, buy_stg=None, sell_stg=None, initial_capital=10000000):
+def run_backtest_process_worker(q, s_date, e_date, c, buy_stg=None, sell_stg=None, initial_capital=10000000, buycount=3):
     """독립된 프로세스에서 백테스터를 실행하고 큐를 통해 상태를 보고하는 워커 함수"""
     try:
         from backtester import Backtester
@@ -28,7 +28,7 @@ def run_backtest_process_worker(q, s_date, e_date, c, buy_stg=None, sell_stg=Non
                 "msg": msg
             })
             
-        result = bt.run(s_date, e_date, c, progress_callback=progress_cb, custom_buy=buy_stg, custom_sell=sell_stg, initial_capital=initial_capital)
+        result = bt.run(s_date, e_date, c, progress_callback=progress_cb, custom_buy=buy_stg, custom_sell=sell_stg, initial_capital=initial_capital, buycount=buycount)
         
         q.put({
             "type": "backtest_result",
@@ -1499,9 +1499,15 @@ HTML_CONTENT = """
                             </div>
                         </div>
 
-                        <div class="form-field" style="margin-bottom: 16px;">
-                            <label for="btInitialCapital">초기 자본금 (KRW)</label>
-                            <input type="number" id="btInitialCapital" value="10000000" style="font-family: monospace; font-weight: bold;" title="백테스팅 시뮬레이션 시작 자본금">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
+                            <div class="form-field">
+                                <label for="btInitialCapital">초기 자본금 (KRW)</label>
+                                <input type="number" id="btInitialCapital" value="10000000" style="font-family: monospace; font-weight: bold;" title="백테스팅 시뮬레이션 시작 자본금">
+                            </div>
+                            <div class="form-field">
+                                <label for="btBuyCount">최대 매수종목수 (buycount)</label>
+                                <input type="number" id="btBuyCount" value="3" style="font-family: monospace; font-weight: bold;" title="최대 동시 보유 종목 수">
+                            </div>
                         </div>
                         
                         <div class="form-field" style="margin-bottom: 16px;">
@@ -3344,7 +3350,8 @@ HTML_CONTENT = """
                 start_date: startDate,
                 end_date: endDate,
                 code: code || 'ALL',
-                initial_capital: parseFloat(document.getElementById('btInitialCapital').value) || 10000000
+                initial_capital: parseFloat(document.getElementById('btInitialCapital').value) || 10000000,
+                buycount: parseInt(document.getElementById('btBuyCount').value) || 3
             };
             if (customBuy !== null) payload.custom_buy = customBuy;
             if (customSell !== null) payload.custom_sell = customSell;
@@ -3905,6 +3912,7 @@ async def websocket_handler(websocket):
                     custom_buy = data.get('custom_buy')
                     custom_sell = data.get('custom_sell')
                     initial_capital = data.get('initial_capital', 10000000)
+                    buycount = data.get('buycount', 3)
                     
                     logging.debug(f"📊 대시보드 제어: 백테스팅 요청 ({start_date} ~ {end_date}, 종목: {code})")
                     
@@ -3917,7 +3925,7 @@ async def websocket_handler(websocket):
                     
                     ctx = mp.get_context('spawn')
                     q = ctx.Queue()
-                    p = ctx.Process(target=run_backtest_process_worker, args=(q, start_date, end_date, code, custom_buy, custom_sell, initial_capital), daemon=True)
+                    p = ctx.Process(target=run_backtest_process_worker, args=(q, start_date, end_date, code, custom_buy, custom_sell, initial_capital, buycount), daemon=True)
                     p.start()
                     
                     async def monitor_backtest_process():

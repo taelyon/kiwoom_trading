@@ -91,7 +91,7 @@ class Backtester:
             win_count = 0
             loss_count = 0
             capital = initial_capital
-            invested_per_trade = capital * 0.1 # 1회 진입 비중 (10%)
+            invested_per_trade = capital / max(1, buycount) # buycount 등분 분할 투자
             
             max_capital = capital
             mdd = 0.0
@@ -107,10 +107,31 @@ class Backtester:
                     uses_ai = True
                     break
             
+            
+            # --- 전략 문자열 사전 컴파일 ---
+            buy_compiled = []
+            for stg in buy_strategies:
+                try:
+                    buy_compiled.append((stg['name'], compile(stg['content'], '<string>', 'eval')))
+                except Exception as e:
+                    logger.error(f"매수 전략 컴파일 오류 ({stg['name']}): {e}")
+            
+            sell_compiled = []
+            for stg in sell_strategies:
+                try:
+                    sell_compiled.append((stg['name'], float(stg.get('partial_sell_ratio', 1.0)), compile(stg['content'], '<string>', 'eval')))
+                except Exception as e:
+                    logger.error(f"매도 전략 컴파일 오류 ({stg['name']}): {e}")
+
+            # --- Phase 1: Precomputation ---
+            processed_dfs = []
+            stock_data = {}
+            
             for current_code, group_df in grouped:
                 code_idx += 1
                 group_df = group_df.reset_index(drop=True)
                 first_eval_logged = False
+                
                 # 1. 컬럼명 일괄 변경
                 group_df = group_df.rename(columns={
                     'tic_open': 'open', 'tic_high': 'high', 'tic_low': 'low', 
@@ -118,53 +139,31 @@ class Backtester:
                 })
                 
                 # 1.5 3분봉 데이터 처리
-                # DB에 실시간 누적 스냅샷(min3_volume 등)이 이미 있으면 그대로 사용
-                # 없으면 resample로 재집계 (과거 데이터 호환)
                 try:
                     group_df['datetime'] = pd.to_datetime(group_df['datetime'])
-                    
-                    # DB에 min3_ 기본 OHLCV 컬럼이 존재하는지 확인
-                    has_db_min3 = all(
-                        col in group_df.columns 
-                        for col in ['min3_open', 'min3_close', 'min3_volume']
-                    )
-                    
+                    has_db_min3 = all(col in group_df.columns for col in ['min3_open', 'min3_close', 'min3_volume'])
                     if has_db_min3 and group_df['min3_volume'].notna().sum() > 0:
-                        # DB의 실시간 누적 스냅샷을 그대로 사용 (실시간 매매와 동일한 환경)
-                        logger.debug(f"📊 {current_code}: DB의 실시간 min3_ 스냅샷 데이터 사용")
+                        pass
                     else:
-                        # DB에 min3_ 데이터가 없는 경우: resample로 재집계 (과거 데이터 호환)
-                        logger.debug(f"📊 {current_code}: min3_ 데이터 없음, resample로 재집계")
                         temp_df = group_df.set_index('datetime')
-                        
-                        # 3분봉 집계 (ohlcv)
                         min3_df = temp_df.resample('3min').agg({
-                            'open': 'first',
-                            'high': 'max',
-                            'low': 'min',
-                            'close': 'last',
-                            'volume': 'sum'
+                            'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'
                         }).ffill()
                         
-                        # 분봉 지표 계산
                         min3_inds = KiwoomIndicatorExtractor.extract_chart_indicators(min3_df)
                         for k, v in min3_inds.items():
                             min3_df[k] = v
                             
-                        # 컬럼명에 min3_ 접두사 추가 및 소문자 변환
                         min3_df.columns = [f'min3_{c.lower()}' for c in min3_df.columns]
-                        
-                        # 기존 min3_ 컬럼 제거 후 재집계 데이터로 교체
                         existing_min3 = [c for c in temp_df.columns if c.startswith('min3_')]
                         temp_df = temp_df.drop(columns=existing_min3)
                         
-                        # 병합 (backward 매핑)
                         group_df = pd.merge_asof(temp_df, min3_df, left_index=True, right_index=True, direction='backward')
                         group_df = group_df.reset_index()
                 except Exception as e:
                     logger.error(f"3분봉 데이터 처리 오류 ({current_code}): {e}")
                     
-                # 2. 기술적 지표 1회 일괄(Batch) 계산
+                # 2. 기술적 지표 계산
                 try:
                     indicators = KiwoomIndicatorExtractor.extract_chart_indicators(group_df)
                     for k, v in indicators.items():
@@ -175,10 +174,10 @@ class Backtester:
                 n = len(group_df)
                 group_df['AI_SCORE'] = 0.0
                 
-                # 3. AI_SCORE 배치 계산 (전략에 AI_SCORE가 포함된 경우만)
+                # 3. AI_SCORE 배치 계산
                 if uses_ai and LGBM_MODEL:
                     try:
-                        f_strength = np.zeros(n)  # tic_strength 삭제됨 (AI 모델 호환용 0.0 주입)
+                        f_strength = np.zeros(n)
                         f_velocity = group_df['TICK_VELOCITY'].values if 'TICK_VELOCITY' in group_df.columns else np.full(n, 999999.0)
                         f_relative = np.zeros(n)
                         
@@ -217,125 +216,81 @@ class Backtester:
                         group_df['AI_SCORE'] = LGBM_MODEL.predict(mat, num_threads=1)
                     except Exception as e:
                         logger.error(f"AI_SCORE 배치 계산 오류 ({current_code}): {e}")
-                        group_df['AI_SCORE'] = 0.0
                 
-                # 4. numpy 배열 사전 추출 (루프 내 iloc 호출 최소화)
-                close_arr = group_df['close'].values
-                datetime_arr = group_df['datetime'].values
-                
-                # 전략 eval에 사용할 모든 컬럼을 numpy 배열로 미리 추출
+                # 4. precomputed 추출 (numpy 배열)
                 precomputed = {}
                 for col in group_df.columns:
-                    try:
-                        precomputed[col] = group_df[col].values
-                    except Exception:
-                        pass
+                    try: precomputed[col] = group_df[col].values
+                    except: pass
                 
-                # 5. 전략 문자열 사전 컴파일 (루프 내 속도 최적화)
-                buy_compiled = []
-                for stg in buy_strategies:
-                    try:
-                        buy_compiled.append((stg['name'], compile(stg['content'], '<string>', 'eval')))
-                    except Exception as e:
-                        logger.error(f"매수 전략 컴파일 오류 ({stg['name']}): {e}")
+                stock_data[current_code] = {
+                    'precomputed': precomputed,
+                    'current_idx': 0,
+                    'total_len': n,
+                    'first_eval_logged': False
+                }
                 
-                sell_compiled = []
-                for stg in sell_strategies:
-                    try:
-                        sell_compiled.append((stg['name'], float(stg.get('partial_sell_ratio', 1.0)), compile(stg['content'], '<string>', 'eval')))
-                    except Exception as e:
-                        logger.error(f"매도 전략 컴파일 오류 ({stg['name']}): {e}")
+                processed_dfs.append(group_df)
                 
-                # 매 종목마다 프로그레스 업데이트
-                if progress_callback:
-                    prog = 30 + int((code_idx / total_codes) * 60)
-                    progress_callback(prog, f"시뮬레이션 진행 중... ({code_idx}/{total_codes}) - {current_code}")
+            if not processed_dfs:
+                return {"error": "처리할 수 있는 정상 데이터가 없습니다."}
                 
-                for i in range(10, n):
-                    current_price = float(close_arr[i])
-                    current_time_str = str(datetime_arr[i])
-                    
-                    # 1. 매수 평가 (포지션이 없을 때)
-                    if current_code not in portfolio:
-                        # 경량 locals_dict 구성 (numpy 슬라이싱 = 메모리 복사 없음)
-                        start_idx = max(0, i - 300)
-                        locals_dict = {}
-                        for col_name, col_arr in precomputed.items():
-                            arr_slice = col_arr[start_idx:i+1]
-                            locals_dict[col_name] = arr_slice
-                            # tic_ 접두사 호환
-                            if not col_name.startswith('tic_') and not col_name.startswith('min3_'):
-                                locals_dict[f'tic_{col_name}'] = arr_slice
+            # 전체 통합 및 시간순 정렬
+            full_df = pd.concat(processed_dfs, ignore_index=True)
+            full_df = full_df.sort_values(by='datetime').reset_index(drop=True)
+            
+            # --- Phase 2: Event-Driven Simulation ---
+            grouped_by_time = full_df.groupby('datetime', sort=False)
+            total_times = len(grouped_by_time)
+            time_idx = 0
+            
+            for current_time, time_df in grouped_by_time:
+                time_idx += 1
+                if progress_callback and time_idx % max(1, total_times // 20) == 0:
+                    prog = 30 + int((time_idx / total_times) * 60)
+                    progress_callback(prog, f"시뮬레이션 진행 중... ({time_idx}/{total_times}) 틱")
+                
+                current_time_str = str(current_time)
+                time_part = current_time_str[11:16].replace(":", "") if len(current_time_str) >= 16 else ""
+                is_market_close = (time_part >= "1518")
+                
+                # 1. 매도 평가 (현재 보유 종목 중 time_df에 존재하는 것)
+                for _, row in time_df.iterrows():
+                    current_code = row['code']
+                    if current_code in portfolio:
+                        sd = stock_data[current_code]
+                        idx = sd['current_idx']
+                        current_price = float(row['close'])
                         
-                        # AI_SCORE는 스칼라로 제공
-                        if 'AI_SCORE' in precomputed:
-                            locals_dict['AI_SCORE'] = float(precomputed['AI_SCORE'][i])
-                        
-                        locals_dict['code'] = current_code
-                        locals_dict['datetime'] = datetime.now()
-                        locals_dict['current_price'] = current_price
-                        
-                        buy_signal = False
-                        matched_stg_name = ""
-                        
-                        for stg_name_str, stg_code in buy_compiled:
-                            try:
-                                if eval(stg_code, globals(), locals_dict):
-                                    buy_signal = True
-                                    matched_stg_name = stg_name_str
-                                    break
-                            except Exception as e:
-                                eval_errors += 1
-                                if eval_errors <= 5:
-                                    err_msg = f"매수 평가 오류 ({stg_name_str}): {e}"
-                                    logger.error(err_msg)
-                                    debug_logs.append(f"[{current_time_str}] {current_code} {err_msg}")
-                                
-                        if not first_eval_logged:
-                            debug_logs.append(f"[{current_code}] 첫 평가 샘플 - 시간: {current_time_str}, 가격: {current_price}, AI_SCORE: {locals_dict.get('AI_SCORE', 0.0)}")
-                            first_eval_logged = True
-
-                        if buy_signal:
-                            qty = int(invested_per_trade / current_price)
-                            if qty > 0:
-                                portfolio[current_code] = {
-                                    'buy_price': current_price,
-                                    'qty': qty,
-                                    'buy_time': current_time_str,
-                                    'stg': matched_stg_name
-                                }
-                    
-                    # 2. 매도 평가 (포지션이 있을 때)
-                    elif current_code in portfolio:
                         pos = portfolio[current_code]
                         buy_price = pos['buy_price']
-                        profit_pct = (current_price - buy_price) / buy_price * 100.0
-                        real_profit_pct = profit_pct - 0.2
+                        real_profit_pct = (current_price - buy_price) / buy_price * 100.0 - 0.2
                         
-                        # 경량 locals_dict 구성
-                        start_idx = max(0, i - 300)
+                        # eval 호환성 locals_dict 구성
+                        start_idx = max(0, idx - 300)
                         locals_dict = {}
-                        for col_name, col_arr in precomputed.items():
-                            arr_slice = col_arr[start_idx:i+1]
+                        for col_name, col_arr in sd['precomputed'].items():
+                            arr_slice = col_arr[start_idx:idx+1]
                             locals_dict[col_name] = arr_slice
                             if not col_name.startswith('tic_') and not col_name.startswith('min3_'):
                                 locals_dict[f'tic_{col_name}'] = arr_slice
-                        
-                        if 'AI_SCORE' in precomputed:
-                            locals_dict['AI_SCORE'] = float(precomputed['AI_SCORE'][i])
-                        
+                                
+                        if 'AI_SCORE' in sd['precomputed']:
+                            locals_dict['AI_SCORE'] = float(sd['precomputed']['AI_SCORE'][idx])
+                            
                         locals_dict['code'] = current_code
                         locals_dict['datetime'] = datetime.now()
                         locals_dict['current_price'] = current_price
                         locals_dict['profit_pct'] = real_profit_pct
                         locals_dict['current_profit_pct'] = real_profit_pct
-                        locals_dict['buy_price'] = pos['buy_price']
+                        locals_dict['buy_price'] = buy_price
                         locals_dict['buy_time'] = pos['buy_time']
-                        locals_dict['holding_amount'] = pos['buy_price'] * pos['qty']
-
+                        locals_dict['holding_amount'] = buy_price * pos['qty']
+                        
                         sell_signal = False
                         sell_ratio = 1.0
                         matched_sell_stg = ""
+                        
                         for stg_name_str, stg_ratio, stg_code in sell_compiled:
                             try:
                                 if eval(stg_code, globals(), locals_dict):
@@ -346,26 +301,21 @@ class Backtester:
                             except Exception as e:
                                 eval_errors += 1
                                 if eval_errors <= 5:
-                                    err_msg = f"매도 평가 오류 ({stg_name_str}): {e}"
-                                    logger.error(err_msg)
-                                    debug_logs.append(f"[{current_time_str}] {current_code} {err_msg}")
-                                
-                        # 장 마감 직전 (15:18:00 이후) 강제 청산 (포맷: YYYY-MM-DD HH:MM:SS)
-                        time_part = current_time_str[11:16].replace(":", "") if len(current_time_str) >= 16 else ""
-                        if time_part >= "1518":
+                                    logger.error(f"매도 평가 오류 ({stg_name_str}): {e}")
+                        
+                        # 15:18 장마감 강제 청산
+                        if is_market_close:
                             sell_signal = True
                             sell_ratio = 1.0
                             matched_sell_stg = "장마감 강제청산"
-                                
+                            
                         if sell_signal:
                             sell_qty = int(pos['qty'] * sell_ratio)
                             if sell_qty > 0:
-                                trade_profit = (current_price - pos['buy_price']) * sell_qty
-                                trade_profit -= (pos['buy_price'] * sell_qty * 0.002)
-                                
+                                trade_profit = (current_price - buy_price) * sell_qty
+                                trade_profit -= (buy_price * sell_qty * 0.002)
                                 total_profit += trade_profit
                                 capital += trade_profit
-                                
                                 if trade_profit > 0: win_count += 1
                                 else: loss_count += 1
                                 
@@ -373,7 +323,7 @@ class Backtester:
                                     'code': current_code,
                                     'buy_time': pos['buy_time'],
                                     'sell_time': current_time_str,
-                                    'buy_price': pos['buy_price'],
+                                    'buy_price': buy_price,
                                     'sell_price': current_price,
                                     'qty': sell_qty,
                                     'profit_pct': real_profit_pct,
@@ -381,49 +331,111 @@ class Backtester:
                                     'buy_stg': pos['stg'],
                                     'sell_stg': matched_sell_stg
                                 })
-                                
                                 max_capital = max(max_capital, capital)
-                                current_dd = (max_capital - capital) / max_capital * 100.0
-                                mdd = max(mdd, current_dd)
+                                mdd = max(mdd, (max_capital - capital) / max_capital * 100.0)
                                 
                                 if sell_ratio >= 0.99:
                                     del portfolio[current_code]
                                 else:
                                     portfolio[current_code]['qty'] -= sell_qty
                                     
-                # 해당 종목의 틱 루프(for i in range(10, n))가 모두 종료된 후 잔여 포지션이 있다면 강제 청산
-                if current_code in portfolio:
-                    pos = portfolio[current_code]
-                    sell_qty = pos['qty']
-                    trade_profit = (current_price - pos['buy_price']) * sell_qty
-                    trade_profit -= (pos['buy_price'] * sell_qty * 0.002)
-                    total_profit += trade_profit
-                    capital += trade_profit
-                    
-                    if trade_profit > 0: win_count += 1
-                    else: loss_count += 1
-                    
-                    real_profit_pct = (current_price - pos['buy_price']) / pos['buy_price'] * 100.0 - 0.2
-                    
-                    trades.append({
-                        'code': current_code,
-                        'buy_time': pos['buy_time'],
-                        'sell_time': current_time_str,
-                        'buy_price': pos['buy_price'],
-                        'sell_price': current_price,
-                        'qty': sell_qty,
-                        'profit_pct': real_profit_pct,
-                        'profit_amount': trade_profit,
-                        'buy_stg': pos['stg'],
-                        'sell_stg': "백테스트 종료 강제청산"
-                    })
-                    
-                    max_capital = max(max_capital, capital)
-                    current_dd = (max_capital - capital) / max_capital * 100.0
-                    mdd = max(mdd, current_dd)
-                    del portfolio[current_code]
+                # 2. 매수 평가 (보유 슬롯이 비어있을 때만)
+                if not is_market_close:
+                    if 'AI_SCORE' in time_df.columns:
+                        buy_candidates = time_df.sort_values(by='AI_SCORE', ascending=False)
+                    else:
+                        buy_candidates = time_df
+                        
+                    for _, row in buy_candidates.iterrows():
+                        if len(portfolio) >= buycount:
+                            break # 보유 한도 도달
+                            
+                        current_code = row['code']
+                        sd = stock_data[current_code]
+                        idx = sd['current_idx']
+                        
+                        # 데이터가 10건 이상 쌓인 시점(기존의 range(10, n))부터만 매수 평가
+                        if idx >= 10 and current_code not in portfolio:
+                            current_price = float(row['close'])
+                            start_idx = max(0, idx - 300)
+                            locals_dict = {}
+                            for col_name, col_arr in sd['precomputed'].items():
+                                arr_slice = col_arr[start_idx:idx+1]
+                                locals_dict[col_name] = arr_slice
+                                if not col_name.startswith('tic_') and not col_name.startswith('min3_'):
+                                    locals_dict[f'tic_{col_name}'] = arr_slice
+                                    
+                            if 'AI_SCORE' in sd['precomputed']:
+                                locals_dict['AI_SCORE'] = float(sd['precomputed']['AI_SCORE'][idx])
+                                
+                            locals_dict['code'] = current_code
+                            locals_dict['datetime'] = datetime.now()
+                            locals_dict['current_price'] = current_price
+                            
+                            buy_signal = False
+                            matched_stg_name = ""
+                            
+                            for stg_name_str, stg_code in buy_compiled:
+                                try:
+                                    if eval(stg_code, globals(), locals_dict):
+                                        buy_signal = True
+                                        matched_stg_name = stg_name_str
+                                        break
+                                except Exception as e:
+                                    eval_errors += 1
+                                    if eval_errors <= 5:
+                                        logger.error(f"매수 평가 오류 ({stg_name_str}): {e}")
+                                        
+                            if not sd['first_eval_logged']:
+                                debug_logs.append(f"[{current_code}] 첫 평가 샘플 - 시간: {current_time_str}, 가격: {current_price}, AI_SCORE: {locals_dict.get('AI_SCORE', 0.0)}")
+                                sd['first_eval_logged'] = True
+                                
+                            if buy_signal:
+                                qty = int(invested_per_trade / current_price)
+                                if qty > 0:
+                                    portfolio[current_code] = {
+                                        'buy_price': current_price,
+                                        'qty': qty,
+                                        'buy_time': current_time_str,
+                                        'stg': matched_stg_name
+                                    }
+                
+                # 3. 현재 틱(time) 처리가 끝났으므로 해당 종목들의 내부 idx 1 증가
+                for current_code in time_df['code'].unique():
+                    stock_data[current_code]['current_idx'] += 1
 
-            # 모든 종목 루프 종료 후 결과 요약
+            # 4. 잔여 포지션 청산 (장 종료 후 보유 종목)
+            for current_code, pos in list(portfolio.items()):
+                # 마지막 가격은 precomputed 의 마지막 값을 참조
+                sd = stock_data[current_code]
+                last_price = float(sd['precomputed']['close'][-1])
+                last_time = str(sd['precomputed']['datetime'][-1])
+                
+                sell_qty = pos['qty']
+                trade_profit = (last_price - pos['buy_price']) * sell_qty
+                trade_profit -= (pos['buy_price'] * sell_qty * 0.002)
+                total_profit += trade_profit
+                capital += trade_profit
+                if trade_profit > 0: win_count += 1
+                else: loss_count += 1
+                real_profit_pct = (last_price - pos['buy_price']) / pos['buy_price'] * 100.0 - 0.2
+                
+                trades.append({
+                    'code': current_code,
+                    'buy_time': pos['buy_time'],
+                    'sell_time': last_time,
+                    'buy_price': pos['buy_price'],
+                    'sell_price': last_price,
+                    'qty': sell_qty,
+                    'profit_pct': real_profit_pct,
+                    'profit_amount': trade_profit,
+                    'buy_stg': pos['stg'],
+                    'sell_stg': "백테스트 종료 강제청산"
+                })
+                max_capital = max(max_capital, capital)
+                mdd = max(mdd, (max_capital - capital) / max_capital * 100.0)
+            
+# 모든 종목 루프 종료 후 결과 요약
             total_trades = win_count + loss_count
             win_rate = (win_count / total_trades * 100.0) if total_trades > 0 else 0.0
             
