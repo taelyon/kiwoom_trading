@@ -2043,7 +2043,6 @@ HTML_CONTENT = """
         // 대시보드 수신 데이터 바인딩
         function updateDashboard(data) {
             document.getElementById('totalAssets').innerText = Number(data.total_assets).toLocaleString() + '원';
-            document.getElementById('availableCash').innerText = Number(data.available_cash).toLocaleString() + '원';
             document.getElementById('totalPurchase').innerText = Number(data.total_purchase).toLocaleString() + '원';
             
             // 자동매매 스위치 상태 반영 (최초 1회만 혹은 상태 변경 시만 동작하도록)
