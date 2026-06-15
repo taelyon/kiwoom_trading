@@ -1283,7 +1283,8 @@ class AccountManager:
             if not hasattr(parent.trader, 'client') or not parent.trader.client:
                 self.logger.warning("⚠️ API 클라이언트가 연결되지 않았습니다")
                 return
-
+            entr_amount = 0
+            
             # 1. 예수금상세현황 조회 (kt00001)
             self.logger.debug("🔍 예수금상세현황 조회 중...")
             try:
@@ -1317,9 +1318,9 @@ class AccountManager:
                     # lspft_amt가 output2 안에 있거나 최상단에 있을 경우 모두 지원
                     prime_cash = parent.data_manager.safe_int(output2.get('lspft_amt', balance_data.get('lspft_amt', 0)))
                     
-                    # fallback: lspft_amt가 없거나 0일 경우, 기존 deposit_data의 entr 사용
-                    if prime_cash <= 0 and 'deposit_data' in locals() and deposit_data:
-                        prime_cash = parent.data_manager.safe_int(deposit_data.get('entr', 0))
+                    # fallback: lspft_amt가 없거나 0일 경우, 주문가능금액/entr 기반의 entr_amount 사용
+                    if prime_cash <= 0 and entr_amount > 0:
+                        prime_cash = entr_amount
                         
                     if prime_cash > 0:
                         parent.trader.prime_cash = prime_cash
@@ -1349,15 +1350,14 @@ class AccountManager:
             try:
                 deposit_data = await self.parent.trader.client.get_deposit_detail()
                 if deposit_data:
-                    # 투자원금(entr) fallback용 캐싱
-                    prime_cash = self.parent.data_manager.safe_int(deposit_data.get('entr', 0))
-                    if hasattr(self.parent, 'trader') and self.parent.trader and prime_cash > 0:
-                        # 이미 다른 곳에서 lspft_amt 등으로 더 정확한 값이 설정되었다면 덮어쓰지 않음
-                        if not getattr(self.parent.trader, 'prime_cash', 0):
-                            self.parent.trader.prime_cash = prime_cash
-                    
                     # 'ord_alow_amt' (주문가능금액)을 우선 예수금으로 활용하고, 없으면 'entr' 사용
                     entr_amount = self.parent.data_manager.safe_int(deposit_data.get('ord_alow_amt', deposit_data.get('entr', 0)))
+                    
+                    # 투자원금(entr_amount) fallback용 캐싱
+                    if hasattr(self.parent, 'trader') and self.parent.trader and entr_amount > 0:
+                        # 이미 다른 곳에서 lspft_amt 등으로 더 정확한 값이 설정되었다면 덮어쓰지 않음
+                        if not getattr(self.parent.trader, 'prime_cash', 0):
+                            self.parent.trader.prime_cash = entr_amount
                     self.logger.info(f"예수금: {entr_amount:,}원")
                     
                     if hasattr(self.parent, 'trader') and self.parent.trader:
