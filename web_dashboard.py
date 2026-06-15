@@ -521,7 +521,7 @@ HTML_CONTENT = """
         /* 요약 카드 그리드 */
         .summary-grid {
             display: grid;
-            grid-template-columns: repeat(4, 1fr);
+            grid-template-columns: repeat(3, 1fr);
             gap: 20px;
         }
 
@@ -1296,11 +1296,7 @@ HTML_CONTENT = """
                         <div id="totalProfitMainText" class="card-value">0원 (0.00%)</div>
                         <div id="evaluationProfitText" class="card-subtext" style="margin-top: 4px;">평가손익: 0원</div>
                     </div>
-                    <div class="glass-card">
-                        <div class="card-title">매수가능 현금 (예수금)</div>
-                        <div id="availableCash" class="card-value">0원</div>
-                        <div class="card-subtext">실시간 즉시 매수 가능 한도액</div>
-                    </div>
+
                     <div class="glass-card">
                         <div class="card-title">총 매입금액</div>
                         <div id="totalPurchase" class="card-value">0원</div>
