@@ -1289,6 +1289,7 @@ HTML_CONTENT = """
                         <div class="card-title">총 자산</div>
                         <div id="totalAssets" class="card-value">0원</div>
                         <div id="totalProfitText" class="card-subtext">누적 총손익: <span class="up-trend">0원 (0.00%)</span></div>
+                        <div id="primeCashText" class="card-subtext" style="margin-top: 6px; font-size: 12px; color: var(--text-secondary);">최초 투자원금: 조회 중...</div>
                         <button class="btn-primary" style="position: absolute; top: 15px; right: 15px; padding: 6px 10px; font-size: 11px; border-radius: 6px;" onclick="openTradeHistory()">📜 매매내역</button>
                     </div>
                     <div class="glass-card">
@@ -2059,6 +2060,15 @@ HTML_CONTENT = """
                 profitSpan.innerHTML = `누적 총손익: <span class="up-trend">+${Number(totalProfit).toLocaleString()}원 (+${totalProfitRate.toFixed(2)}%)</span>`;
             } else {
                 profitSpan.innerHTML = `누적 총손익: <span class="down-trend">${Number(totalProfit).toLocaleString()}원 (${totalProfitRate.toFixed(2)}%)</span>`;
+            }
+            
+            const primeCashText = document.getElementById('primeCashText');
+            if (primeCashText && data.prime_cash !== undefined) {
+                if (data.prime_cash > 0) {
+                    primeCashText.innerText = `최초 투자원금: ${Number(data.prime_cash).toLocaleString()}원`;
+                } else {
+                    primeCashText.innerText = `최초 투자원금: 집계 중...`;
+                }
             }
 
             const tbody = document.getElementById('portfolioBody');
@@ -3518,6 +3528,7 @@ def get_current_status_data():
             "total_purchase": total_purchase,
             "total_profit": total_profit,
             "total_profit_rate": total_profit_rate,
+            "prime_cash": prime_cash,
             "holdings": holdings,
             "monitored_stocks": monitored_stocks,
             "auto_trading_active": auto_trading_active
@@ -3527,7 +3538,7 @@ def get_current_status_data():
         return {
             "type": "status",
             "total_assets": 0, "available_cash": 0, "total_purchase": 0,
-            "total_profit": 0, "total_profit_rate": 0, "holdings": {}, "monitored_stocks": [],
+            "total_profit": 0, "total_profit_rate": 0, "prime_cash": 0, "holdings": {}, "monitored_stocks": [],
             "auto_trading_active": False
         }
 
