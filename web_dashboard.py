@@ -3758,8 +3758,10 @@ async def websocket_handler(websocket):
                 data = json.loads(message)
                 msg_type = data.get('type')
                 
-                if msg_type != 'ping':
+                if msg_type not in ('ping', 'run_backtest'):
                     logging.info(f"📨 [WS 수신] 메시지 수신됨: type={msg_type}, 전체내용={data}")
+                elif msg_type == 'run_backtest':
+                    logging.debug(f"📨 [WS 수신] 백테스팅 실행 요청 수신: code={data.get('code')}")
                 
                 # 1. 인증 처리
                 if msg_type == 'auth':
@@ -4036,8 +4038,8 @@ async def websocket_handler(websocket):
                     
                     records = []
                     try:
-                        if hasattr(app, 'db_manager') and app.db_manager:
-                            records = await app.db_manager.get_trade_history(limit=500, start_date=start_date, end_date=end_date)
+                        if hasattr(app, 'trader') and app.trader and hasattr(app.trader, 'db_manager') and app.trader.db_manager:
+                            records = await app.trader.db_manager.get_trade_history(limit=500, start_date=start_date, end_date=end_date)
                             # 종목명 매핑
                             for r in records:
                                 code = r.get('code', '')
