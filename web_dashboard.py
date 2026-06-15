@@ -1884,7 +1884,7 @@ HTML_CONTENT = """
                         document.getElementById('btWarningText').style.display = 'none';
                         if (data.data.debug_logs && data.data.debug_logs.length > 0) {
                             document.getElementById('btLogsBox').style.display = 'block';
-                            document.getElementById('btLogsContent').innerText = data.data.debug_logs.join('\n');
+                            document.getElementById('btLogsContent').innerText = data.data.debug_logs.join('\\n');
                         }
                         return;
                     }
@@ -1908,7 +1908,7 @@ HTML_CONTENT = """
                     
                     if (data.data.debug_logs && data.data.debug_logs.length > 0) {
                         document.getElementById('btLogsBox').style.display = 'block';
-                        document.getElementById('btLogsContent').innerText = data.data.debug_logs.join('\n');
+                        document.getElementById('btLogsContent').innerText = data.data.debug_logs.join('\\n');
                     } else {
                         document.getElementById('btLogsBox').style.display = 'none';
                     }
@@ -1980,7 +1980,7 @@ HTML_CONTENT = """
                     }
                     
                     if (data.error) {
-                        alert("키움증권 거래내역 동기화 중 서버 에러가 발생했습니다:\n" + data.error);
+                        alert("키움증권 거래내역 동기화 중 서버 에러가 발생했습니다:\\n" + data.error);
                         return;
                     }
                     
