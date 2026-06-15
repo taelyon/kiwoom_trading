@@ -1283,7 +1283,7 @@ class ChartDataCache:
             # 새 캔들이 완성되었을 경우 매수 신호 평가 이벤트를 비동기로 백그라운드 발생 (하이브리드 아키텍처)
             if is_new_candle and hasattr(self.parent, 'autotrader') and self.parent.autotrader:
                 try:
-                    from core.utils import create_fire_and_forget_task
+                    from utils import create_fire_and_forget_task
                     create_fire_and_forget_task(self.parent.autotrader._analyze_and_execute_trading_async(stock_code, is_buy_check_allowed=True))
                 except Exception as eval_ex:
                     self.logger.error(f"매수 평가 비동기 이벤트 발생 실패: {eval_ex}")
