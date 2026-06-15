@@ -2618,53 +2618,58 @@ HTML_CONTENT = """
                     }
                 }
                 
+                // 1. 무조건 setData 호출하여 데이터가 없으면 차트 리셋
+                if (btLineSeries) btLineSeries.setData(chartData);
+                if (btBnhSeries) btBnhSeries.setData(bnhChartData);
+                
+                // 2. 마커 초기화 (기존 마커 제거)
+                if (btLineSeries) btLineSeries.setMarkers([]);
+                
                 if (chartData.length > 0) {
-                    btLineSeries.setData(chartData);
-                    if (bnhChartData.length > 0) btBnhSeries.setData(bnhChartData);
                     btChart.timeScale().fitContent();
+                }
+                
+                // 3. 마커 추가 로직
+                if (chartData.length > 0 && trades && trades.length > 0) {
+                    const markersMap = new Map();
+                    const validTimes = new Set(chartData.map(d => d.time));
                     
-                    // 마커 추가 로직
-                    if (trades && trades.length > 0) {
-                        const markersMap = new Map();
-                        const validTimes = new Set(chartData.map(d => d.time));
+                    const addMarker = (timeStr, isBuy) => {
+                        if(!timeStr) return;
+                        let tSec = 0;
+                        try {
+                            const dateStr = timeStr.replace(' ', 'T');
+                            const dateObj = new Date(dateStr + '+09:00');
+                            tSec = Math.floor(dateObj.getTime() / 1000);
+                            if(isNaN(tSec)) tSec = Math.floor(new Date(timeStr).getTime() / 1000);
+                        } catch(e) { return; }
                         
-                        const addMarker = (timeStr, isBuy) => {
-                            if(!timeStr) return;
-                            let tSec = 0;
-                            try {
-                                const dateStr = timeStr.replace(' ', 'T');
-                                const dateObj = new Date(dateStr + '+09:00');
-                                tSec = Math.floor(dateObj.getTime() / 1000);
-                                if(isNaN(tSec)) tSec = Math.floor(new Date(timeStr).getTime() / 1000);
-                            } catch(e) { return; }
-                            
-                            if (isNaN(tSec) || !validTimes.has(tSec)) return;
-                            
-                            // 동일 시간에 매수/매도가 겹칠 경우
-                            if (markersMap.has(tSec)) {
-                                const existing = markersMap.get(tSec);
-                                existing.text = 'B/S';
-                                existing.color = '#e2e8f0';
-                            } else {
-                                markersMap.set(tSec, {
-                                    time: tSec,
-                                    position: isBuy ? 'belowBar' : 'aboveBar',
-                                    color: isBuy ? '#ff5252' : '#00f2fe',
-                                    shape: isBuy ? 'arrowUp' : 'arrowDown',
-                                    text: isBuy ? 'B' : 'S',
-                                    size: 1
-                                });
-                            }
-                        };
+                        if (isNaN(tSec) || !validTimes.has(tSec)) return;
                         
-                        trades.forEach(t => {
-                            addMarker(t.buy_time, true);
-                            addMarker(t.sell_time, false);
-                        });
-                        
-                        const markers = Array.from(markersMap.values()).sort((a,b) => a.time - b.time);
-                        btLineSeries.setMarkers(markers);
-                    }
+                        // 동일 시간에 매수/매도가 겹칠 경우
+                        if (markersMap.has(tSec)) {
+                            const existing = markersMap.get(tSec);
+                            existing.text = 'B/S';
+                            existing.color = '#e2e8f0';
+                        } else {
+                            markersMap.set(tSec, {
+                                time: tSec,
+                                position: isBuy ? 'belowBar' : 'aboveBar',
+                                color: isBuy ? '#ff5252' : '#00f2fe',
+                                shape: isBuy ? 'arrowUp' : 'arrowDown',
+                                text: isBuy ? 'B' : 'S',
+                                size: 1
+                            });
+                        }
+                    };
+                    
+                    trades.forEach(t => {
+                        addMarker(t.buy_time, true);
+                        addMarker(t.sell_time, false);
+                    });
+                    
+                    const markers = Array.from(markersMap.values()).sort((a,b) => a.time - b.time);
+                    if (btLineSeries) btLineSeries.setMarkers(markers);
                 }
             } catch (err) {
                 console.error("Chart rendering error:", err);
