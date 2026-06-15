@@ -1309,8 +1309,13 @@ class AccountManager:
             try:
                 balance_data = await parent.trader.client.get_acnt_balance()
                 if balance_data:
-                    # 투자원금(lspft_amt) 캐싱
-                    prime_cash = parent.data_manager.safe_int(balance_data.get('lspft_amt', 0))
+                    # 투자원금(lspft_amt) 파싱: output2 배열 또는 객체 내부에 있을 수 있음
+                    output2 = balance_data.get('output2', {})
+                    if isinstance(output2, list) and len(output2) > 0:
+                        output2 = output2[0]
+                    
+                    # lspft_amt가 output2 안에 있거나 최상단에 있을 경우 모두 지원
+                    prime_cash = parent.data_manager.safe_int(output2.get('lspft_amt', balance_data.get('lspft_amt', 0)))
                     if prime_cash > 0:
                         parent.trader.prime_cash = prime_cash
 

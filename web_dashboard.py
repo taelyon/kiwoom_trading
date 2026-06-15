@@ -521,7 +521,7 @@ HTML_CONTENT = """
         /* 요약 카드 그리드 */
         .summary-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            grid-template-columns: repeat(4, 1fr);
             gap: 20px;
         }
 
@@ -1288,13 +1288,12 @@ HTML_CONTENT = """
                     <div class="glass-card" style="position: relative;">
                         <div class="card-title">총 자산</div>
                         <div id="totalAssets" class="card-value">0원</div>
-                        <div id="primeCashText" class="card-subtext" style="margin-top: 6px; font-size: 12px; color: var(--text-secondary);">최초 투자원금: 조회 중...</div>
+                        <div id="primeCashText" class="card-subtext" style="margin-top: 6px; font-size: 12px; color: var(--text-secondary);">투자원금: 조회 중...</div>
                         <button class="btn-primary" style="position: absolute; top: 15px; right: 15px; padding: 6px 10px; font-size: 11px; border-radius: 6px;" onclick="openTradeHistory()">📜 매매내역</button>
                     </div>
                     <div class="glass-card">
                         <div class="card-title">총손익</div>
                         <div id="totalProfitMainText" class="card-value" style="font-size: 20px;">0원 <span style="font-size: 14px;">(0.00%)</span></div>
-                        <div id="realizedProfitText" class="card-subtext">실현손익: 0원</div>
                         <div id="evaluationProfitText" class="card-subtext" style="margin-top: 4px;">평가손익: 0원</div>
                     </div>
                     <div class="glass-card">
@@ -1885,7 +1884,7 @@ HTML_CONTENT = """
                         document.getElementById('btWarningText').style.display = 'none';
                         if (data.data.debug_logs && data.data.debug_logs.length > 0) {
                             document.getElementById('btLogsBox').style.display = 'block';
-                            document.getElementById('btLogsContent').innerText = data.data.debug_logs.join('\\n');
+                            document.getElementById('btLogsContent').innerText = data.data.debug_logs.join('\n');
                         }
                         return;
                     }
@@ -1909,7 +1908,7 @@ HTML_CONTENT = """
                     
                     if (data.data.debug_logs && data.data.debug_logs.length > 0) {
                         document.getElementById('btLogsBox').style.display = 'block';
-                        document.getElementById('btLogsContent').innerText = data.data.debug_logs.join('\\n');
+                        document.getElementById('btLogsContent').innerText = data.data.debug_logs.join('\n');
                     } else {
                         document.getElementById('btLogsBox').style.display = 'none';
                     }
@@ -1981,7 +1980,7 @@ HTML_CONTENT = """
                     }
                     
                     if (data.error) {
-                        alert("키움증권 거래내역 동기화 중 서버 에러가 발생했습니다:\\n" + data.error);
+                        alert("키움증권 거래내역 동기화 중 서버 에러가 발생했습니다:\n" + data.error);
                         return;
                     }
                     
@@ -2071,12 +2070,7 @@ HTML_CONTENT = """
                 }
             }
             
-            const realSpan = document.getElementById('realizedProfitText');
-            if (realSpan) {
-                const rSign = realizedProfit >= 0 ? '+' : '';
-                realSpan.innerHTML = `실현손익: <span class="${realizedProfit >= 0 ? 'up-trend' : 'down-trend'}">${rSign}${Number(realizedProfit).toLocaleString()}원</span>`;
-            }
-            
+
             const evalSpan = document.getElementById('evaluationProfitText');
             if (evalSpan) {
                 const eSign = evaluationProfit >= 0 ? '+' : '';
@@ -2086,9 +2080,9 @@ HTML_CONTENT = """
             const primeCashText = document.getElementById('primeCashText');
             if (primeCashText && data.prime_cash !== undefined) {
                 if (data.prime_cash > 0) {
-                    primeCashText.innerText = `최초 투자원금: ${Number(data.prime_cash).toLocaleString()}원`;
+                    primeCashText.innerText = `투자원금: ${Number(data.prime_cash).toLocaleString()}원`;
                 } else {
-                    primeCashText.innerText = `최초 투자원금: 집계 중...`;
+                    primeCashText.innerText = `투자원금: 집계 중...`;
                 }
             }
 
