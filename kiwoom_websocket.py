@@ -1071,6 +1071,12 @@ class KiwoomWebSocketClient:
                 self.logger.debug(f"  💰 체결가: {exec_price_float:,.0f}원 | 체결량: {exec_qty_int:,}주")
                 self.logger.debug(f"  📊 미체결수량: {unfilled_qty_int:,}주 / 주문수량: {order_qty_int:,}주")
                 self.logger.debug(f"  ⏰ 체결시간: {exec_time} | 체결번호: {exec_no}")
+                
+                # DB 체결가 업데이트 호출 (0원으로 기록된 시장가 주문의 실제 체결가 반영)
+                if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'trader') and hasattr(self.parent.trader, 'db_manager'):
+                    order_type_str = "buy" if buy_sell_flag == '2' else "sell"
+                    from utils import create_fire_and_forget_task
+                    create_fire_and_forget_task(self.parent.trader.db_manager.update_trade_record_price(stock_code, order_type_str, exec_price_float))
             elif order_status == '접수':
                 self.logger.debug(f"  💵 주문가: {order_price}원 | 주문수량: {order_qty_int:,}주")
             elif order_status == '거부':

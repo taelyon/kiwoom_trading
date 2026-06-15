@@ -566,3 +566,23 @@ class AsyncDatabaseManager:
         except Exception as ex:
             self.logger.error(f"매매 기록 조회 실패: {ex}", exc_info=True)
             return []
+
+    async def update_trade_record_price(self, code, order_type, real_price):
+        """실제 체결가로 매매 기록 업데이트"""
+        try:
+            if self._conn is None:
+                await self.init_database()
+            async with self._db_lock:
+                cursor = await self._conn.cursor()
+                await cursor.execute('''
+                    UPDATE trade_records 
+                    SET price = ? 
+                    WHERE id = (
+                        SELECT id FROM trade_records 
+                        WHERE code = ? AND order_type = ? AND price = 0 
+                        ORDER BY datetime DESC LIMIT 1
+                    )
+                ''', (real_price, code, order_type))
+                await self._conn.commit()
+        except Exception as ex:
+            self.logger.error(f"체결가 업데이트 실패: {ex}")
