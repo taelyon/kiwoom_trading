@@ -1288,9 +1288,14 @@ HTML_CONTENT = """
                     <div class="glass-card" style="position: relative;">
                         <div class="card-title">총 자산</div>
                         <div id="totalAssets" class="card-value">0원</div>
-                        <div id="totalProfitText" class="card-subtext">누적 총손익: <span class="up-trend">0원 (0.00%)</span></div>
                         <div id="primeCashText" class="card-subtext" style="margin-top: 6px; font-size: 12px; color: var(--text-secondary);">최초 투자원금: 조회 중...</div>
                         <button class="btn-primary" style="position: absolute; top: 15px; right: 15px; padding: 6px 10px; font-size: 11px; border-radius: 6px;" onclick="openTradeHistory()">📜 매매내역</button>
+                    </div>
+                    <div class="glass-card">
+                        <div class="card-title">총손익</div>
+                        <div id="totalProfitMainText" class="card-value" style="font-size: 20px;">0원 <span style="font-size: 14px;">(0.00%)</span></div>
+                        <div id="realizedProfitText" class="card-subtext">실현손익: 0원</div>
+                        <div id="evaluationProfitText" class="card-subtext" style="margin-top: 4px;">평가손익: 0원</div>
                     </div>
                     <div class="glass-card">
                         <div class="card-title">매수가능 현금 (예수금)</div>
@@ -2054,12 +2059,28 @@ HTML_CONTENT = """
 
             const totalProfit = data.total_profit;
             const totalProfitRate = data.total_profit_rate;
-            const profitSpan = document.getElementById('totalProfitText');
+            const realizedProfit = data.realized_profit || 0;
+            const evaluationProfit = data.evaluation_profit || 0;
             
-            if (totalProfit >= 0) {
-                profitSpan.innerHTML = `누적 총손익: <span class="up-trend">+${Number(totalProfit).toLocaleString()}원 (+${totalProfitRate.toFixed(2)}%)</span>`;
-            } else {
-                profitSpan.innerHTML = `누적 총손익: <span class="down-trend">${Number(totalProfit).toLocaleString()}원 (${totalProfitRate.toFixed(2)}%)</span>`;
+            const profitSpan = document.getElementById('totalProfitMainText');
+            if (profitSpan) {
+                if (totalProfit >= 0) {
+                    profitSpan.innerHTML = `<span class="up-trend">+${Number(totalProfit).toLocaleString()}원 <span style="font-size: 14px;">(+${totalProfitRate.toFixed(2)}%)</span></span>`;
+                } else {
+                    profitSpan.innerHTML = `<span class="down-trend">${Number(totalProfit).toLocaleString()}원 <span style="font-size: 14px;">(${totalProfitRate.toFixed(2)}%)</span></span>`;
+                }
+            }
+            
+            const realSpan = document.getElementById('realizedProfitText');
+            if (realSpan) {
+                const rSign = realizedProfit >= 0 ? '+' : '';
+                realSpan.innerHTML = `실현손익: <span class="${realizedProfit >= 0 ? 'up-trend' : 'down-trend'}">${rSign}${Number(realizedProfit).toLocaleString()}원</span>`;
+            }
+            
+            const evalSpan = document.getElementById('evaluationProfitText');
+            if (evalSpan) {
+                const eSign = evaluationProfit >= 0 ? '+' : '';
+                evalSpan.innerHTML = `평가손익: <span class="${evaluationProfit >= 0 ? 'up-trend' : 'down-trend'}">${eSign}${Number(evaluationProfit).toLocaleString()}원</span>`;
             }
             
             const primeCashText = document.getElementById('primeCashText');
@@ -3473,14 +3494,18 @@ def get_current_status_data():
         total_assets = available_cash + total_valuation
         
         # 계좌 누적 평가손익 계산 (초기 투자 원금 대비)
+        evaluation_profit = sum(data.get('profit_loss', 0) for data in ws_balance.values() if isinstance(data, dict))
+        
         prime_cash = getattr(app.trader, 'prime_cash', 0) if app.trader else 0
         if prime_cash > 0:
             total_profit = total_assets - prime_cash
             total_profit_rate = (total_profit / prime_cash * 100)
+            realized_profit = total_profit - evaluation_profit
         else:
             # 원금 조회 전에는 기존 보유 종목의 평가손익 합산으로 Fallback
-            total_profit = sum(data.get('profit_loss', 0) for data in ws_balance.values() if isinstance(data, dict))
+            total_profit = evaluation_profit
             total_profit_rate = (total_profit / total_purchase * 100) if total_purchase > 0 else 0.0
+            realized_profit = 0
         t4 = time.perf_counter()
 
         # 3. 보유 종목 리스트 변환
@@ -3528,6 +3553,8 @@ def get_current_status_data():
             "total_purchase": total_purchase,
             "total_profit": total_profit,
             "total_profit_rate": total_profit_rate,
+            "realized_profit": realized_profit,
+            "evaluation_profit": evaluation_profit,
             "prime_cash": prime_cash,
             "holdings": holdings,
             "monitored_stocks": monitored_stocks,
@@ -3538,7 +3565,7 @@ def get_current_status_data():
         return {
             "type": "status",
             "total_assets": 0, "available_cash": 0, "total_purchase": 0,
-            "total_profit": 0, "total_profit_rate": 0, "prime_cash": 0, "holdings": {}, "monitored_stocks": [],
+            "total_profit": 0, "total_profit_rate": 0, "realized_profit": 0, "evaluation_profit": 0, "prime_cash": 0, "holdings": {}, "monitored_stocks": [],
             "auto_trading_active": False
         }
 
