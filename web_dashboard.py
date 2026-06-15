@@ -2098,7 +2098,7 @@ HTML_CONTENT = """
                             <td>${Number(stock.current_price).toLocaleString()}원</td>
                             <td>
                                 <span class="profit-pill ${profitClass}">
-                                    ${sign}${Number(stock.profit_loss).toLocaleString()}원 (${sign}${Number(stock.profit_rate).toFixed(2)}%)
+                                    ${sign}${Math.round(Number(stock.profit_loss)).toLocaleString()}원 (${sign}${Number(stock.profit_rate).toFixed(2)}%)
                                 </span>
                             </td>
                         </tr>

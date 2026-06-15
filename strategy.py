@@ -331,6 +331,14 @@ class KiwoomStrategy:
                 #         self.logger.debug(f"🚫 [{code}] 매수 불가: 당일 매수 금지 목록(Blacklist)에 포함됨")
                 #     return signals
 
+                # 재매수 대기 시간(Cooldown) 체크 (10분 = 600초)
+                if hasattr(self.trader, 'last_sell_times') and code in self.trader.last_sell_times:
+                    elapsed_since_sell = (datetime.now() - self.trader.last_sell_times[code]).total_seconds()
+                    if elapsed_since_sell < 600:  # 10분 이내 재매수 금지
+                        if is_first_check:
+                            self.logger.debug(f"⏳ [{code}] 재매수 대기 중: 매도 후 {int(elapsed_since_sell)}초 경과 (10분 제한)")
+                        return signals
+
                 # '매수 주문 진행 중'인 종목은 매수 신호 생성 건너뛰기 (중복 주문 방지 강화)
                 if hasattr(self.trader, 'pending_buy_orders') and code in self.trader.pending_buy_orders:
                     if is_first_check:
@@ -813,6 +821,11 @@ class KiwoomStrategy:
                 
                 if success:
                     self.logger.debug(f"✅ [{code}] 매도 주문 성공: {signal['strategy']} - {final_quantity}주")
+                    
+                    # 재매수 대기 시간(Cooldown)을 위한 매도 시간 기록 (전량/분할매도 무관하게 타이머 리셋)
+                    if not hasattr(self.trader, 'last_sell_times'):
+                        self.trader.last_sell_times = {}
+                    self.trader.last_sell_times[code] = datetime.now()
                     
                     # 방어 로직: 실행 성공한 매도 룰의 이름을 기록하여 해당 보유 턴에서 중복 발동 방지
                     if code not in self.trader.executed_sell_rules:
