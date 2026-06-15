@@ -1920,28 +1920,23 @@ class KiwoomWebSocketClient:
                         if stock_code in portfolio.get('holdings', {}):
                             is_holding = True
                         
-                        # [추가] 조건검색 이탈 시 차단 목록에 추가 (보유 여부와 무관하게 추가하여 추가 매수 방지)
-                        if stock_code not in self.parent.trader.condition_excluded_stocks:
-                            self.parent.trader.condition_excluded_stocks.add(stock_code)
-                            self.logger.debug(f"🚫 [{stock_code}] 조건검색 이탈로 매수 차단 목록에 추가")
-                    
-                    
-                    # 보유 중인 종목은 모니터링에서 제거하지 않음
+                    # 보유 중인 종목은 모니터링 유지 및 즉시 매도 (기존 로직 유지)
                     if is_holding:
                         self.logger.debug(f"✅ 보유 종목이므로 모니터링 유지: {stock_code}")
                         
-                        # [추가] 조건검색 이탈 시 즉시 매도 실행 (전략: 조건이탈매도)
-                        self.logger.warning(f"📉 조건검색 이탈 감지: {stock_code} (보유 중) -> 즉시 전량 매도 실행")
                         if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'trader') and self.parent.trader:
-                            # 보유 수량 확인
+                            # 차단 목록 추가 (보유 종목은 즉시 차단)
+                            if stock_code not in self.parent.trader.condition_excluded_stocks:
+                                self.parent.trader.condition_excluded_stocks.add(stock_code)
+                                self.logger.debug(f"🚫 [{stock_code}] 조건검색 이탈(보유중)로 매수 차단 목록에 즉시 추가")
+                                
+                            self.logger.warning(f"📉 조건검색 이탈 감지: {stock_code} (보유 중) -> 즉시 전량 매도 실행")
                             qty = portfolio['holdings'][stock_code].get('quantity', 0)
                             if qty > 0:
-                                # 비동기로 매도 주문 실행
                                 create_fire_and_forget_task(self.parent.trader.place_sell_order(stock_code, qty, 0, '조건이탈매도'))
                     else:
-                        # 보유하지 않은 종목만 모니터링에서 제거
-                        if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'monitoring_manager'):
-                            create_fire_and_forget_task(self.parent.monitoring_manager.remove_stock_from_monitoring(stock_code))
+                        # 미보유 종목의 경우 즉시 삭제/차단하지 않고 3분(180초) 지연 삭제 태스크 실행
+                        create_fire_and_forget_task(self._delayed_remove_monitoring(stock_code, 180))
 
                 else:
                     self.logger.warning(f"⚠️ 알 수 없는 조건검색 액션 타입: {stock_code} - 액션: {action_type}") # type: ignore
@@ -2379,3 +2374,40 @@ class KiwoomWebSocketClient:
                     self.logger.debug(f"Keepalive PING 전송 실패: {e}")
         except asyncio.CancelledError:
             pass  # 정상 종료
+
+    async def _delayed_remove_monitoring(self, stock_code, delay_seconds=180):
+        """이탈된 종목을 지정된 시간(초) 동안 대기 후 삭제하는 백그라운드 태스크"""
+        try:
+            self._condition_remove_tasks[stock_code] = True
+            self.logger.info(f"⏳ [{stock_code}] 조건 이탈 감지 - 3분({delay_seconds}초) 쿨타임(유예 기간) 시작")
+            
+            for _ in range(delay_seconds):
+                # 1초 단위로 대기하며 취소 여부 확인
+                if not getattr(self, '_condition_remove_tasks', {}).get(stock_code):
+                    # 취소됨 (재편입)
+                    return
+                await asyncio.sleep(1)
+                
+            # 대기 시간 만료 시점에 여전히 유효하다면 삭제 로직 수행
+            if getattr(self, '_condition_remove_tasks', {}).get(stock_code):
+                self.logger.info(f"⏳ [{stock_code}] 3분 유예 기간 만료 - 모니터링 및 차단 목록에서 최종 삭제 진행")
+                
+                # 차단 목록 추가 (진짜 완전히 이탈한 시점)
+                if hasattr(self, 'parent') and getattr(self.parent, 'trader', None):
+                    if stock_code not in self.parent.trader.condition_excluded_stocks:
+                        self.parent.trader.condition_excluded_stocks.add(stock_code)
+                        self.logger.debug(f"🚫 [{stock_code}] 조건검색 3분 유예 만료로 매수 차단 목록에 최종 추가")
+                
+                # 모니터링 삭제
+                if hasattr(self, 'parent') and getattr(self.parent, 'monitoring_manager', None):
+                    from utils import create_fire_and_forget_task
+                    create_fire_and_forget_task(self.parent.monitoring_manager.remove_stock_from_monitoring(stock_code))
+                
+                # 정리
+                if stock_code in self._condition_remove_tasks:
+                    del self._condition_remove_tasks[stock_code]
+                    
+        except asyncio.CancelledError:
+            self.logger.debug(f"[{stock_code}] 지연 삭제 태스크 취소됨")
+        except Exception as e:
+            self.logger.error(f"[{stock_code}] 지연 삭제 중 오류: {e}")
