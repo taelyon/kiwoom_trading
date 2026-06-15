@@ -1915,13 +1915,10 @@ HTML_CONTENT = """
                             <tr>
                                 <th>일자</th>
                                 <th>종목</th>
-                                <th>매수수량</th>
-                                <th>매도수량</th>
-                                <th class="text-right">매수단가</th>
-                                <th class="text-right">매도단가</th>
-                                <th class="text-right">손익금액</th>
-                                <th class="text-right">수익률</th>
-                                <th class="text-right">수수료/세금</th>
+                                <th>구분</th>
+                                <th>체결수량</th>
+                                <th class="text-right">체결단가</th>
+                                <th>사용전략</th>
                             </tr>
                         `;
                     }
@@ -1929,21 +1926,15 @@ HTML_CONTENT = """
                     tbody.innerHTML = '';
                     
                     if (!data.data || data.data.length === 0) {
-                        tbody.innerHTML = '<tr><td colspan="9" style="padding:20px; text-align:center; color:var(--text-secondary);">매매 내역이 없습니다.</td></tr>';
+                        tbody.innerHTML = '<tr><td colspan="6" style="padding:20px; text-align:center; color:var(--text-secondary);">매매 내역이 없습니다.</td></tr>';
                         return;
                     }
                     
                     data.data.forEach(record => {
                         const row = document.createElement('tr');
                         const isBuy = record.order_type.toLowerCase() === 'buy';
-                        
-                        const buyQty = isBuy ? record.quantity : 0;
-                        const sellQty = !isBuy ? record.quantity : 0;
-                        const buyPrice = isBuy ? record.price : 0;
-                        const sellPrice = !isBuy ? record.price : 0;
-                        
-                        const plAmt = !isBuy && record.profit_loss ? parseInt(record.profit_loss) : 0;
-                        const plColor = plAmt > 0 ? 'var(--danger)' : (plAmt < 0 ? 'var(--primary)' : 'var(--text-secondary)');
+                        const typeStr = isBuy ? '매수' : '매도';
+                        const typeColor = isBuy ? 'var(--danger)' : 'var(--primary)';
                         
                         row.innerHTML = `
                             <td style="font-size: 12px; color: var(--accent-cyan); font-weight: bold;">${record.datetime}</td>
@@ -1951,13 +1942,10 @@ HTML_CONTENT = """
                                 <span style="font-weight: bold; font-size: 14px;">${record.name || '-'}</span>
                                 <span style="font-size: 12px; color: var(--text-secondary);">(${record.code})</span>
                             </td>
-                            <td style="color: var(--danger); font-weight: bold;">${buyQty.toLocaleString()}주</td>
-                            <td style="color: var(--primary); font-weight: bold;">${sellQty.toLocaleString()}주</td>
-                            <td class="text-right">${Math.round(buyPrice).toLocaleString()}원</td>
-                            <td class="text-right">${Math.round(sellPrice).toLocaleString()}원</td>
-                            <td class="text-right" style="color: ${plColor}; font-weight: bold;">${plAmt !== 0 ? (plAmt > 0 ? '+' : '') + plAmt.toLocaleString() + '원' : '-'}</td>
-                            <td class="text-right" style="color: var(--text-secondary); font-weight: bold;">-</td>
-                            <td class="text-right">-</td>
+                            <td style="color: ${typeColor}; font-weight: bold;">${typeStr}</td>
+                            <td style="color: ${typeColor}; font-weight: bold;">${record.quantity.toLocaleString()}주</td>
+                            <td class="text-right">${Math.round(record.price).toLocaleString()}원</td>
+                            <td><span style="font-size: 12px; background: rgba(0, 242, 254, 0.1); padding: 2px 6px; border-radius: 4px; color: var(--accent-cyan);">${record.strategy || '-'}</span></td>
                         `;
                         tbody.appendChild(row);
                     });
