@@ -38,7 +38,13 @@ class KiwoomTrader:
         self.sell_order_details = {}  # {order_no: {'code': str, 'total_qty': int, 'filled_qty': int}}
 
         # 임시 매도 요청 기록 (주문번호 발급 전 웹소켓 수신 대비)
-        self.temp_sell_logs = {} # {code: {'quantity': qty, 'timestamp': datetime}}
+        self.temp_sell_logs = {} # {code: {'quantity': qty, 'timestamp': datetime, 'strategy': str}}
+
+        # 임시 매수 요청 기록
+        self.temp_buy_logs = {} # {code: {'quantity': qty, 'timestamp': datetime, 'strategy': str}}
+        
+        # 주문번호별 전략 매핑 (접수 시 매핑됨)
+        self.order_strategies = {} # {order_no: strategy_name}
 
         # 이미 발동된 매도 룰 추적 (중복 매도 방지, {code: set(['룰이름1', ...])})
         self.executed_sell_rules = {}
@@ -229,11 +235,11 @@ class KiwoomTrader:
                     if code in self.pending_sell_orders:
                         self.pending_sell_orders.discard(code)
                     
-                    try:
-                        asyncio.get_running_loop()
-                        create_fire_and_forget_task(self.db_manager.save_trade_record(code, current_time, "buy", quantity, price, strategy))
-                    except RuntimeError:
-                        self.logger.warning("⚠️ 이벤트 루프가 없어 매수 기록 저장을 건너뜁니다")
+                    self.temp_buy_logs[code] = {
+                        'quantity': quantity,
+                        'timestamp': datetime.now(),
+                        'strategy': strategy
+                    }
                     
                     self.buy_prices[code] = price if price > 0 else await self.get_current_price(code)
                     self.buy_times[code] = datetime.now()
@@ -287,7 +293,8 @@ class KiwoomTrader:
 
             self.temp_sell_logs[code] = {
                 'quantity': quantity,
-                'timestamp': datetime.now()
+                'timestamp': datetime.now(),
+                'strategy': strategy
             }
 
             if code in self.pending_sell_orders:
@@ -301,14 +308,7 @@ class KiwoomTrader:
             
             if success:
                 current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                sell_price = price if price > 0 else await self.get_current_price(code)
-                
-                try:
-                    asyncio.get_running_loop()
-                    create_fire_and_forget_task(self.db_manager.save_trade_record(code, current_time, "sell", quantity, sell_price, strategy))
-                except RuntimeError:
-                    self.logger.warning("⚠️ 이벤트 루프가 없어 매도 기록 저장을 건너뜁니다")
-                
+                # DB 기록은 kiwoom_websocket.py의 체결(Execution) 이벤트에서 처리됩니다.
                 is_full_sell = False
                 remaining_qty = 0
                 
