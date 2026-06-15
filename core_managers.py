@@ -1290,11 +1290,6 @@ class AccountManager:
                 deposit_data = await parent.trader.client.get_deposit_detail()
                 if deposit_data:
                     self.logger.debug("✅ 예수금상세현황 조회 성공")
-                    # 투자원금(entr) 캐싱
-                    prime_cash = parent.data_manager.safe_int(deposit_data.get('entr', 0))
-                    if prime_cash > 0:
-                        parent.trader.prime_cash = prime_cash
-                    
                     # 'ord_alow_amt' (주문가능금액)을 우선 예수금으로 활용하고, 없으면 'entr' 사용
                     entr_amount = parent.data_manager.safe_int(deposit_data.get('ord_alow_amt', deposit_data.get('entr', 0)))
                     parent.trader._cash_cache = entr_amount
@@ -1314,6 +1309,11 @@ class AccountManager:
             try:
                 balance_data = await parent.trader.client.get_acnt_balance()
                 if balance_data:
+                    # 투자원금(lspft_amt) 캐싱
+                    prime_cash = parent.data_manager.safe_int(balance_data.get('lspft_amt', 0))
+                    if prime_cash > 0:
+                        parent.trader.prime_cash = prime_cash
+
                     holdings = balance_data.get('stk_acnt_evlt_prst', balance_data.get('output1', []))
                     if holdings and len(holdings) > 0:
                         self.logger.info(f"📦 보유 종목 수: {len(holdings)}개")
@@ -1339,11 +1339,7 @@ class AccountManager:
             try:
                 deposit_data = await self.parent.trader.client.get_deposit_detail()
                 if deposit_data:
-                    # 투자원금(entr) 캐싱
-                    prime_cash = self.parent.data_manager.safe_int(deposit_data.get('entr', 0))
-                    if hasattr(self.parent, 'trader') and self.parent.trader and prime_cash > 0:
-                        self.parent.trader.prime_cash = prime_cash
-                    
+
                     # 'ord_alow_amt' (주문가능금액)을 우선 예수금으로 활용하고, 없으면 'entr' 사용
                     entr_amount = self.parent.data_manager.safe_int(deposit_data.get('ord_alow_amt', deposit_data.get('entr', 0)))
                     self.logger.info(f"예수금: {entr_amount:,}원")
