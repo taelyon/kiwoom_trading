@@ -1485,6 +1485,15 @@ class AccountManager:
                                 parent.trader.holdings[stock_code]['quantity'] = quantity
                                 if stock_code not in parent.trader.buy_prices or parent.trader.buy_prices[stock_code] == 0:
                                     parent.trader.buy_prices[stock_code] = average_price
+                            
+                            # 매도 이력 복구 (재시작 시 중복 익절 방지)
+                            if hasattr(parent.trader, 'db_manager') and parent.trader.db_manager:
+                                executed_rules = await parent.trader.db_manager.get_recent_sell_strategies_for_holding(stock_code, quantity)
+                                if executed_rules:
+                                    if stock_code not in parent.trader.executed_sell_rules:
+                                        parent.trader.executed_sell_rules[stock_code] = set()
+                                    parent.trader.executed_sell_rules[stock_code].update(executed_rules)
+                                    self.logger.info(f"🔄 [{stock_code}] 과거 매도 이력 복구 완료: {executed_rules}")
                         
                         if hasattr(parent, 'monitoring_manager'):
                             await parent.monitoring_manager.add_stock_to_monitoring_async(stock_code)

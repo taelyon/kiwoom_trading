@@ -586,3 +586,37 @@ class AsyncDatabaseManager:
                 await self._conn.commit()
         except Exception as ex:
             self.logger.error(f"체결가 업데이트 실패: {ex}")
+
+    async def get_recent_sell_strategies_for_holding(self, code, current_qty):
+        """현재 보유 수량을 기준으로 역추적하여 현재 보유 사이클 내에 실행된 매도 전략들을 반환"""
+        executed_strategies = set()
+        try:
+            if self._conn is None:
+                await self.init_database()
+            
+            async with self._db_lock:
+                cursor = await self._conn.cursor()
+                await cursor.execute('''
+                    SELECT order_type, quantity, strategy 
+                    FROM trade_records 
+                    WHERE code = ? 
+                    ORDER BY datetime DESC
+                ''', (code,))
+                records = await cursor.fetchall()
+                
+                past_qty = current_qty
+                for record in records:
+                    order_type, qty, strategy = record
+                    if order_type == '매수':
+                        past_qty -= qty
+                    elif order_type == '매도':
+                        past_qty += qty
+                        if strategy and strategy != 'manual' and not strategy.startswith('손절'):
+                            executed_strategies.add(strategy)
+                    
+                    if past_qty <= 0:
+                        break
+        except Exception as e:
+            self.logger.error(f"매도 전략 이력 복구 실패 ({code}): {e}")
+            
+        return executed_strategies
