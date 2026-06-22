@@ -521,7 +521,7 @@ HTML_CONTENT = """
         /* 요약 카드 그리드 */
         .summary-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            grid-template-columns: repeat(3, 1fr);
             gap: 20px;
         }
 
@@ -1288,20 +1288,15 @@ HTML_CONTENT = """
                     <div class="glass-card" style="position: relative;">
                         <div class="card-title">총 자산</div>
                         <div id="totalAssets" class="card-value">0원</div>
-                        <div id="primeCashText" class="card-subtext" style="margin-top: 6px; font-size: 12px; color: var(--text-secondary);">최초 투자원금: 조회 중...</div>
+                        <div id="primeCashText" class="card-subtext" style="margin-top: 6px; font-size: 12px; color: var(--text-secondary);">투자원금: 조회 중...</div>
                         <button class="btn-primary" style="position: absolute; top: 15px; right: 15px; padding: 6px 10px; font-size: 11px; border-radius: 6px;" onclick="openTradeHistory()">📜 매매내역</button>
                     </div>
                     <div class="glass-card">
                         <div class="card-title">총손익</div>
-                        <div id="totalProfitMainText" class="card-value" style="font-size: 20px;">0원 <span style="font-size: 14px;">(0.00%)</span></div>
-                        <div id="realizedProfitText" class="card-subtext">실현손익: 0원</div>
+                        <div id="totalProfitMainText" class="card-value">0원 (0.00%)</div>
                         <div id="evaluationProfitText" class="card-subtext" style="margin-top: 4px;">평가손익: 0원</div>
                     </div>
-                    <div class="glass-card">
-                        <div class="card-title">매수가능 현금 (예수금)</div>
-                        <div id="availableCash" class="card-value">0원</div>
-                        <div class="card-subtext">실시간 즉시 매수 가능 한도액</div>
-                    </div>
+
                     <div class="glass-card">
                         <div class="card-title">총 매입금액</div>
                         <div id="totalPurchase" class="card-value">0원</div>
@@ -2048,7 +2043,6 @@ HTML_CONTENT = """
         // 대시보드 수신 데이터 바인딩
         function updateDashboard(data) {
             document.getElementById('totalAssets').innerText = Number(data.total_assets).toLocaleString() + '원';
-            document.getElementById('availableCash').innerText = Number(data.available_cash).toLocaleString() + '원';
             document.getElementById('totalPurchase').innerText = Number(data.total_purchase).toLocaleString() + '원';
             
             // 자동매매 스위치 상태 반영 (최초 1회만 혹은 상태 변경 시만 동작하도록)
@@ -2065,18 +2059,13 @@ HTML_CONTENT = """
             const profitSpan = document.getElementById('totalProfitMainText');
             if (profitSpan) {
                 if (totalProfit >= 0) {
-                    profitSpan.innerHTML = `<span class="up-trend">+${Number(totalProfit).toLocaleString()}원 <span style="font-size: 14px;">(+${totalProfitRate.toFixed(2)}%)</span></span>`;
+                    profitSpan.innerHTML = `<span class="up-trend">+${Number(totalProfit).toLocaleString()}원 (+${totalProfitRate.toFixed(2)}%)</span>`;
                 } else {
-                    profitSpan.innerHTML = `<span class="down-trend">${Number(totalProfit).toLocaleString()}원 <span style="font-size: 14px;">(${totalProfitRate.toFixed(2)}%)</span></span>`;
+                    profitSpan.innerHTML = `<span class="down-trend">${Number(totalProfit).toLocaleString()}원 (${totalProfitRate.toFixed(2)}%)</span>`;
                 }
             }
             
-            const realSpan = document.getElementById('realizedProfitText');
-            if (realSpan) {
-                const rSign = realizedProfit >= 0 ? '+' : '';
-                realSpan.innerHTML = `실현손익: <span class="${realizedProfit >= 0 ? 'up-trend' : 'down-trend'}">${rSign}${Number(realizedProfit).toLocaleString()}원</span>`;
-            }
-            
+
             const evalSpan = document.getElementById('evaluationProfitText');
             if (evalSpan) {
                 const eSign = evaluationProfit >= 0 ? '+' : '';
@@ -2086,9 +2075,9 @@ HTML_CONTENT = """
             const primeCashText = document.getElementById('primeCashText');
             if (primeCashText && data.prime_cash !== undefined) {
                 if (data.prime_cash > 0) {
-                    primeCashText.innerText = `최초 투자원금: ${Number(data.prime_cash).toLocaleString()}원`;
+                    primeCashText.innerText = `투자원금: ${Number(data.prime_cash).toLocaleString()}원`;
                 } else {
-                    primeCashText.innerText = `최초 투자원금: 집계 중...`;
+                    primeCashText.innerText = `투자원금: 집계 중...`;
                 }
             }
 

@@ -1954,11 +1954,7 @@ class KiwoomWebSocketClient:
                             if stock_code not in self.parent.trader.condition_excluded_stocks:
                                 self.parent.trader.condition_excluded_stocks.add(stock_code)
                                 self.logger.debug(f"🚫 [{stock_code}] 조건검색 이탈(보유중)로 매수 차단 목록에 즉시 추가")
-                                
-                            self.logger.warning(f"📉 조건검색 이탈 감지: {stock_code} (보유 중) -> 즉시 전량 매도 실행")
-                            qty = portfolio['holdings'][stock_code].get('quantity', 0)
-                            if qty > 0:
-                                create_fire_and_forget_task(self.parent.trader.place_sell_order(stock_code, qty, 0, '조건이탈매도'))
+
                     else:
                         # 미보유 종목의 경우 즉시 삭제/차단하지 않고 3분(180초) 지연 삭제 태스크 실행
                         create_fire_and_forget_task(self._delayed_remove_monitoring(stock_code, 180))

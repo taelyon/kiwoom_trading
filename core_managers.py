@@ -1283,18 +1283,14 @@ class AccountManager:
             if not hasattr(parent.trader, 'client') or not parent.trader.client:
                 self.logger.warning("⚠️ API 클라이언트가 연결되지 않았습니다")
                 return
-
+            entr_amount = 0
+            
             # 1. 예수금상세현황 조회 (kt00001)
             self.logger.debug("🔍 예수금상세현황 조회 중...")
             try:
                 deposit_data = await parent.trader.client.get_deposit_detail()
                 if deposit_data:
                     self.logger.debug("✅ 예수금상세현황 조회 성공")
-                    # 투자원금(entr) 캐싱
-                    prime_cash = parent.data_manager.safe_int(deposit_data.get('entr', 0))
-                    if prime_cash > 0:
-                        parent.trader.prime_cash = prime_cash
-                    
                     # 'ord_alow_amt' (주문가능금액)을 우선 예수금으로 활용하고, 없으면 'entr' 사용
                     entr_amount = parent.data_manager.safe_int(deposit_data.get('ord_alow_amt', deposit_data.get('entr', 0)))
                     parent.trader._cash_cache = entr_amount
@@ -1314,6 +1310,21 @@ class AccountManager:
             try:
                 balance_data = await parent.trader.client.get_acnt_balance()
                 if balance_data:
+                    # 투자원금(lspft_amt) 파싱: output2 배열 또는 객체 내부에 있을 수 있음
+                    output2 = balance_data.get('output2', {})
+                    if isinstance(output2, list) and len(output2) > 0:
+                        output2 = output2[0]
+                    
+                    # lspft_amt가 output2 안에 있거나 최상단에 있을 경우 모두 지원
+                    prime_cash = parent.data_manager.safe_int(output2.get('lspft_amt', balance_data.get('lspft_amt', 0)))
+                    
+                    # fallback: lspft_amt가 없거나 0일 경우, 주문가능금액/entr 기반의 entr_amount 사용
+                    if prime_cash <= 0 and entr_amount > 0:
+                        prime_cash = entr_amount
+                        
+                    if prime_cash > 0:
+                        parent.trader.prime_cash = prime_cash
+                        self.logger.info(f"누적투자원금(kt00004): {prime_cash:,}원")
                     holdings = balance_data.get('stk_acnt_evlt_prst', balance_data.get('output1', []))
                     if holdings and len(holdings) > 0:
                         self.logger.info(f"📦 보유 종목 수: {len(holdings)}개")
@@ -1339,13 +1350,14 @@ class AccountManager:
             try:
                 deposit_data = await self.parent.trader.client.get_deposit_detail()
                 if deposit_data:
-                    # 투자원금(entr) 캐싱
-                    prime_cash = self.parent.data_manager.safe_int(deposit_data.get('entr', 0))
-                    if hasattr(self.parent, 'trader') and self.parent.trader and prime_cash > 0:
-                        self.parent.trader.prime_cash = prime_cash
-                    
                     # 'ord_alow_amt' (주문가능금액)을 우선 예수금으로 활용하고, 없으면 'entr' 사용
                     entr_amount = self.parent.data_manager.safe_int(deposit_data.get('ord_alow_amt', deposit_data.get('entr', 0)))
+                    
+                    # 투자원금(entr_amount) fallback용 캐싱
+                    if hasattr(self.parent, 'trader') and self.parent.trader and entr_amount > 0:
+                        # 이미 다른 곳에서 lspft_amt 등으로 더 정확한 값이 설정되었다면 덮어쓰지 않음
+                        if not getattr(self.parent.trader, 'prime_cash', 0):
+                            self.parent.trader.prime_cash = entr_amount
                     self.logger.info(f"예수금: {entr_amount:,}원")
                     
                     if hasattr(self.parent, 'trader') and self.parent.trader:
@@ -1385,11 +1397,18 @@ class AccountManager:
             # 3. REST API 잔고조회
             try:
                 balance_data = await self.parent.trader.client.get_acnt_balance()
-                if balance_data and 'stk_acnt_evlt_prst' in balance_data:
-                    holdings = balance_data.get('stk_acnt_evlt_prst', [])
-                    await self._initialize_balance_data_from_rest_api(holdings)
-                else:
-                    self.logger.warning("⚠️ 계좌 잔고 조회 실패 또는 보유 종목 없음 (비동기 조회)")
+                if balance_data:
+                    # lspft_amt (누적투자원금) 추출
+                    lspft_amt = self.parent.data_manager.safe_int(balance_data.get('lspft_amt', 0))
+                    if lspft_amt > 0:
+                        self.parent.trader.prime_cash = lspft_amt
+                        self.logger.info(f"누적투자원금(kt00004): {lspft_amt:,}원")
+                        
+                    if 'stk_acnt_evlt_prst' in balance_data:
+                        holdings = balance_data.get('stk_acnt_evlt_prst', [])
+                        await self._initialize_balance_data_from_rest_api(holdings)
+                    else:
+                        self.logger.warning("⚠️ 계좌 잔고 조회 실패 또는 보유 종목 없음 (비동기 조회)")
             except Exception as balance_ex:
                 self.logger.error(f"계좌 잔고 조회 실패 (비동기): {balance_ex}", exc_info=True)
         except Exception as ex:
