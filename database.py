@@ -1,4 +1,4 @@
-import logging
+﻿import logging
 import asyncio
 import aiosqlite
 import pandas as pd
@@ -588,7 +588,7 @@ class AsyncDatabaseManager:
             self.logger.error(f"체결가 업데이트 실패: {ex}")
 
     async def get_recent_sell_strategies_for_holding(self, code, current_qty):
-        """현재 보유 수량을 기준으로 역추적하여 현재 보유 사이클 내에 실행된 매도 전략들을 반환"""
+        """현재 보유 수량을 기준으로 역추적하여 현재 보유 사이클 내에 실행된 매도 로직들을 반환"""
         executed_strategies = set()
         try:
             if self._conn is None:
@@ -617,6 +617,6 @@ class AsyncDatabaseManager:
                     if past_qty <= 0:
                         break
         except Exception as e:
-            self.logger.error(f"매도 전략 이력 복구 실패 ({code}): {e}")
+            self.logger.error(f"매도 로직 이력 복구 실패 ({code}): {e}")
             
         return executed_strategies

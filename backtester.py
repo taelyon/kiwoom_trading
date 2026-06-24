@@ -1,4 +1,4 @@
-import sqlite3
+﻿import sqlite3
 import pandas as pd
 import numpy as np
 import time
@@ -114,14 +114,14 @@ class Backtester:
                 try:
                     buy_compiled.append((stg['name'], compile(stg['content'], '<string>', 'eval')))
                 except Exception as e:
-                    logger.error(f"매수 전략 컴파일 오류 ({stg['name']}): {e}")
+                    logger.error(f"매수 로직 컴파일 오류 ({stg['name']}): {e}")
             
             sell_compiled = []
             for stg in sell_strategies:
                 try:
                     sell_compiled.append((stg['name'], float(stg.get('partial_sell_ratio', 1.0)), compile(stg['content'], '<string>', 'eval')))
                 except Exception as e:
-                    logger.error(f"매도 전략 컴파일 오류 ({stg['name']}): {e}")
+                    logger.error(f"매도 로직 컴파일 오류 ({stg['name']}): {e}")
 
             # --- Phase 1: Precomputation ---
             processed_dfs = []

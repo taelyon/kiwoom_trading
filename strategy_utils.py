@@ -1,4 +1,4 @@
-"""
+﻿"""
 키움 REST API 기반 전략 평가 및 지표 처리 유틸리티 모듈
 크레온 플러스 API를 키움 REST API로 전면 리팩토링
 """
@@ -55,7 +55,7 @@ def evaluate_strategies(strategies, safe_locals, code="", strategy_type=""):
     """
     logger = logging.getLogger(__name__)
 
-    # 백테스팅 중이고, 매도 전략이며, current_profit_pct가 손절 기준 근처인 경우에만 상세 디버그
+    # 백테스팅 중이고, 매도 로직이며, current_profit_pct가 손절 기준 근처인 경우에만 상세 디버그
     is_sell_debug = (strategy_type == "매도" and
                     'current_profit_pct' in safe_locals and 
                     safe_locals.get('current_profit_pct', 0) < -0.6)
@@ -337,7 +337,7 @@ class KiwoomIndicatorExtractor:
 
 # ==================== 전략 평가용 로컬 변수 빌더 ====================
 def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_info=None, realtime_metrics=None):
-    """매수 전략 평가를 위한 로컬 변수 생성"""
+    """매수 로직 평가를 위한 로컬 변수 생성"""
     logger = logging.getLogger(__name__)
     try:
         if tic_chart_data.empty:
@@ -552,7 +552,7 @@ def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_
         return {}
 
 def prepare_sell_strategy_locals(code, tic_chart_data, min_chart_data, buy_price, buy_time, portfolio_info=None, current_price=None, commission_rate=0.00015, tax_rate=0.0018, realtime_metrics=None):
-    """매도 전략 평가를 위한 로컬 변수 생성"""
+    """매도 로직 평가를 위한 로컬 변수 생성"""
     logger = logging.getLogger(__name__)
     try:
         # 로컬 변수 딕셔너리 초기화
@@ -810,14 +810,14 @@ def load_strategies_from_config(config_file='.env'):
                             strategy_data = json.loads(config.get(section, option))
                             strategies[section]['buy_strategies'].append(strategy_data)
                         except json.JSONDecodeError:
-                            logger.warning(f"매수 전략 파싱 실패: {section}.{option}")
+                            logger.warning(f"매수 로직 파싱 실패: {section}.{option}")
                     
                     elif option.startswith('sell_stg_'):
                         try:
                             strategy_data = json.loads(config.get(section, option))
                             strategies[section]['sell_strategies'].append(strategy_data)
                         except json.JSONDecodeError:
-                            logger.warning(f"매도 전략 파싱 실패: {section}.{option}")
+                            logger.warning(f"매도 로직 파싱 실패: {section}.{option}")
         
         return strategies
         
