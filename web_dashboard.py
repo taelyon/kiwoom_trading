@@ -4372,66 +4372,73 @@ def on_chart_data_updated(code):
     if not cache_data:
         return
         
-    # [스로틀링] 프론트엔드 UI 렌더링 과부하 방지를 위해 초당 최대 10번(0.1초)만 전송
-    import time
-    if not hasattr(main_window_ref, 'last_ws_tick_sent'):
-        main_window_ref.last_ws_tick_sent = {}
+    # [디바운싱] 프론트엔드 UI 렌더링 과부하 방지를 위해 0.1초 동안 틱 이벤트를 모아 전송
+    if not hasattr(main_window_ref, 'ws_debounce_tasks'):
+        main_window_ref.ws_debounce_tasks = {}
         
-    now = time.time()
-    if now - main_window_ref.last_ws_tick_sent.get(code, 0) < 0.1:
+    existing_task = main_window_ref.ws_debounce_tasks.get(code)
+    if existing_task and not existing_task.done():
+        # 이미 0.1초 뒤 전송이 예약되어 있으므로, 현재 이벤트는 무시 (예약된 태스크가 0.1초 뒤 최신 캐시를 읽음)
         return
-    main_window_ref.last_ws_tick_sent[code] = now
 
-        
-    # 역사적 데이터 및 틱 데이터 추출
-    tic_data = cache_data.get('tic_data', {})
-    min_data = cache_data.get('min_data', {})
-    
-    # 실시간 틱 데이터 가공 (가장 마지막 데이터 추출, O(1) 연산)
-    tic_candle = None
-    if tic_data and len(tic_data.get('close', [])) > 0:
-        t_time = datetime_to_timestamp(tic_data.get('time', [])[-1])
-        tic_candle = {
-            "time": t_time,
-            "open": float(tic_data.get('open', [])[-1]),
-            "high": float(tic_data.get('high', [])[-1]),
-            "low": float(tic_data.get('low', [])[-1]),
-            "close": float(tic_data.get('close', [])[-1]),
-            "volume": int(tic_data.get('volume', [])[-1])
-        }
-        if 'MA5' in tic_data and tic_data['MA5'] and not math.isnan(float(tic_data['MA5'][-1])): tic_candle['ma5'] = float(tic_data['MA5'][-1])
-        if 'MA10' in tic_data and tic_data['MA10'] and not math.isnan(float(tic_data['MA10'][-1])): tic_candle['ma10'] = float(tic_data['MA10'][-1])
-        if 'MA20' in tic_data and tic_data['MA20'] and not math.isnan(float(tic_data['MA20'][-1])): tic_candle['ma20'] = float(tic_data['MA20'][-1])
-        if 'MA60' in tic_data and tic_data['MA60'] and not math.isnan(float(tic_data['MA60'][-1])): tic_candle['ma60'] = float(tic_data['MA60'][-1])
-        if 'MA120' in tic_data and tic_data['MA120'] and not math.isnan(float(tic_data['MA120'][-1])): tic_candle['ma120'] = float(tic_data['MA120'][-1])
-        if 'RSI21' in tic_data and tic_data['RSI21'] and not math.isnan(float(tic_data['RSI21'][-1])): tic_candle['rsi21'] = float(tic_data['RSI21'][-1])
-        if 'MACD' in tic_data and tic_data['MACD'] and not math.isnan(float(tic_data['MACD'][-1])): tic_candle['macd'] = float(tic_data['MACD'][-1])
-        if 'MACD_SIGNAL' in tic_data and tic_data['MACD_SIGNAL'] and not math.isnan(float(tic_data['MACD_SIGNAL'][-1])): tic_candle['macd_sig'] = float(tic_data['MACD_SIGNAL'][-1])
-        if 'MACD_HIST' in tic_data and tic_data['MACD_HIST'] and not math.isnan(float(tic_data['MACD_HIST'][-1])): tic_candle['macd_hist'] = float(tic_data['MACD_HIST'][-1])
-    
-    min_candle = None
-    if min_data and len(min_data.get('close', [])) > 0:
-        m_time = datetime_to_timestamp(min_data.get('time', [])[-1])
-        min_candle = {
-            "time": m_time,
-            "open": float(min_data.get('open', [])[-1]),
-            "high": float(min_data.get('high', [])[-1]),
-            "low": float(min_data.get('low', [])[-1]),
-            "close": float(min_data.get('close', [])[-1]),
-            "volume": int(min_data.get('volume', [])[-1])
-        }
-        if 'MA5' in min_data and min_data['MA5'] and not math.isnan(float(min_data['MA5'][-1])): min_candle['ma5'] = float(min_data['MA5'][-1])
-        if 'MA10' in min_data and min_data['MA10'] and not math.isnan(float(min_data['MA10'][-1])): min_candle['ma10'] = float(min_data['MA10'][-1])
-        if 'MA20' in min_data and min_data['MA20'] and not math.isnan(float(min_data['MA20'][-1])): min_candle['ma20'] = float(min_data['MA20'][-1])
-        if 'MA60' in min_data and min_data['MA60'] and not math.isnan(float(min_data['MA60'][-1])): min_candle['ma60'] = float(min_data['MA60'][-1])
-        if 'MA120' in min_data and min_data['MA120'] and not math.isnan(float(min_data['MA120'][-1])): min_candle['ma120'] = float(min_data['MA120'][-1])
-        if 'RSI21' in min_data and min_data['RSI21'] and not math.isnan(float(min_data['RSI21'][-1])): min_candle['rsi21'] = float(min_data['RSI21'][-1])
-        if 'MACD' in min_data and min_data['MACD'] and not math.isnan(float(min_data['MACD'][-1])): min_candle['macd'] = float(min_data['MACD'][-1])
-        if 'MACD_SIGNAL' in min_data and min_data['MACD_SIGNAL'] and not math.isnan(float(min_data['MACD_SIGNAL'][-1])): min_candle['macd_sig'] = float(min_data['MACD_SIGNAL'][-1])
-        if 'MACD_HIST' in min_data and min_data['MACD_HIST'] and not math.isnan(float(min_data['MACD_HIST'][-1])): min_candle['macd_hist'] = float(min_data['MACD_HIST'][-1])
-
+    import asyncio
+    import math
     from utils import create_fire_and_forget_task
-    async def send_to_subscribed_clients():
+
+    async def debounce_and_send():
+        await asyncio.sleep(0.1)  # 0.1초 딜레이
+        
+        # 0.1초가 지난 후, 다시 캐시에서 '가장 최신' 데이터를 꺼내옴
+        latest_cache = main_window_ref.chart_cache.cache.get(code)
+        if not latest_cache:
+            return
+            
+        tic_data = latest_cache.get('tic_data', {})
+        min_data = latest_cache.get('min_data', {})
+        
+        # 실시간 틱 데이터 가공 (가장 마지막 데이터 추출, O(1) 연산)
+        tic_candle = None
+        if tic_data and len(tic_data.get('close', [])) > 0:
+            t_time = datetime_to_timestamp(tic_data.get('time', [])[-1])
+            tic_candle = {
+                "time": t_time,
+                "open": float(tic_data.get('open', [])[-1]),
+                "high": float(tic_data.get('high', [])[-1]),
+                "low": float(tic_data.get('low', [])[-1]),
+                "close": float(tic_data.get('close', [])[-1]),
+                "volume": int(tic_data.get('volume', [])[-1])
+            }
+            if 'MA5' in tic_data and tic_data['MA5'] and not math.isnan(float(tic_data['MA5'][-1])): tic_candle['ma5'] = float(tic_data['MA5'][-1])
+            if 'MA10' in tic_data and tic_data['MA10'] and not math.isnan(float(tic_data['MA10'][-1])): tic_candle['ma10'] = float(tic_data['MA10'][-1])
+            if 'MA20' in tic_data and tic_data['MA20'] and not math.isnan(float(tic_data['MA20'][-1])): tic_candle['ma20'] = float(tic_data['MA20'][-1])
+            if 'MA60' in tic_data and tic_data['MA60'] and not math.isnan(float(tic_data['MA60'][-1])): tic_candle['ma60'] = float(tic_data['MA60'][-1])
+            if 'MA120' in tic_data and tic_data['MA120'] and not math.isnan(float(tic_data['MA120'][-1])): tic_candle['ma120'] = float(tic_data['MA120'][-1])
+            if 'RSI21' in tic_data and tic_data['RSI21'] and not math.isnan(float(tic_data['RSI21'][-1])): tic_candle['rsi21'] = float(tic_data['RSI21'][-1])
+            if 'MACD' in tic_data and tic_data['MACD'] and not math.isnan(float(tic_data['MACD'][-1])): tic_candle['macd'] = float(tic_data['MACD'][-1])
+            if 'MACD_SIGNAL' in tic_data and tic_data['MACD_SIGNAL'] and not math.isnan(float(tic_data['MACD_SIGNAL'][-1])): tic_candle['macd_sig'] = float(tic_data['MACD_SIGNAL'][-1])
+            if 'MACD_HIST' in tic_data and tic_data['MACD_HIST'] and not math.isnan(float(tic_data['MACD_HIST'][-1])): tic_candle['macd_hist'] = float(tic_data['MACD_HIST'][-1])
+        
+        min_candle = None
+        if min_data and len(min_data.get('close', [])) > 0:
+            m_time = datetime_to_timestamp(min_data.get('time', [])[-1])
+            min_candle = {
+                "time": m_time,
+                "open": float(min_data.get('open', [])[-1]),
+                "high": float(min_data.get('high', [])[-1]),
+                "low": float(min_data.get('low', [])[-1]),
+                "close": float(min_data.get('close', [])[-1]),
+                "volume": int(min_data.get('volume', [])[-1])
+            }
+            if 'MA5' in min_data and min_data['MA5'] and not math.isnan(float(min_data['MA5'][-1])): min_candle['ma5'] = float(min_data['MA5'][-1])
+            if 'MA10' in min_data and min_data['MA10'] and not math.isnan(float(min_data['MA10'][-1])): min_candle['ma10'] = float(min_data['MA10'][-1])
+            if 'MA20' in min_data and min_data['MA20'] and not math.isnan(float(min_data['MA20'][-1])): min_candle['ma20'] = float(min_data['MA20'][-1])
+            if 'MA60' in min_data and min_data['MA60'] and not math.isnan(float(min_data['MA60'][-1])): min_candle['ma60'] = float(min_data['MA60'][-1])
+            if 'MA120' in min_data and min_data['MA120'] and not math.isnan(float(min_data['MA120'][-1])): min_candle['ma120'] = float(min_data['MA120'][-1])
+            if 'RSI21' in min_data and min_data['RSI21'] and not math.isnan(float(min_data['RSI21'][-1])): min_candle['rsi21'] = float(min_data['RSI21'][-1])
+            if 'MACD' in min_data and min_data['MACD'] and not math.isnan(float(min_data['MACD'][-1])): min_candle['macd'] = float(min_data['MACD'][-1])
+            if 'MACD_SIGNAL' in min_data and min_data['MACD_SIGNAL'] and not math.isnan(float(min_data['MACD_SIGNAL'][-1])): min_candle['macd_sig'] = float(min_data['MACD_SIGNAL'][-1])
+            if 'MACD_HIST' in min_data and min_data['MACD_HIST'] and not math.isnan(float(min_data['MACD_HIST'][-1])): min_candle['macd_hist'] = float(min_data['MACD_HIST'][-1])
+
         for ws, sc_code in list(subscribed_charts.items()):
             if sc_code == code:
                 # 역사적 데이터를 아직 보내지 않았다면 비동기 헬퍼 함수를 통해 히스토리 생성 후 전송
@@ -4439,7 +4446,6 @@ def on_chart_data_updated(code):
                 if not sent_history.get(code):
                     try:
                         logging.info(f"🔔 [시그널경로] {code} data_updated 시그널에서 비동기 헬퍼를 통해 역사적 데이터 전송 개시")
-                        # _send_chart_history_to_ws는 내부에서 배열 변환을 비동기 환경에서 수행하므로 블로킹 방지
                         await _send_chart_history_to_ws(ws, code, main_window_ref.chart_cache)
                     except Exception:
                         continue
@@ -4454,8 +4460,9 @@ def on_chart_data_updated(code):
                     }))
                 except Exception:
                     pass
-                    
-    create_fire_and_forget_task(send_to_subscribed_clients())
+
+    # 태스크 예약 및 추적
+    main_window_ref.ws_debounce_tasks[code] = create_fire_and_forget_task(debounce_and_send())
 
 async def dashboard_data_broadcast_loop():
     """1초마다 실시간으로 모든 인증된 클라이언트에 봇 상태 브로드캐스트"""
