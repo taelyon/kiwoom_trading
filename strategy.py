@@ -1,4 +1,4 @@
-﻿import logging
+import logging
 import asyncio
 from config_manager import EnvConfigParser
 import json
@@ -291,57 +291,6 @@ class KiwoomStrategy:
         except Exception as ex:
             self.logger.error(f"모멘텀 체크 중 오류 ({code}): {ex}", exc_info=True)
             
-
-    def _evaluate_buy_logic_sync(self, code, trimmed_tic_data, min_data_snapshot, portfolio, realtime_metrics, buy_strategies):
-        """[Thread-Pool Worker] 매수 로직 연산 (Pandas 및 지표 계산)"""
-        tic_chart_data = pd.DataFrame()
-        min_chart_data = pd.DataFrame()
-        try:
-            if trimmed_tic_data:
-                tic_chart_data = pd.DataFrame(trimmed_tic_data).dropna().reset_index(drop=True)
-            if min_data_snapshot:
-                min_chart_data = pd.DataFrame(min_data_snapshot).dropna().reset_index(drop=True)
-        except Exception as ex:
-            self.logger.warning(f"백그라운드 매수 차트 데이터 변환 실패 ({code}): {ex}", exc_info=True)
-            
-        if tic_chart_data.empty:
-            return False, None, {}
-
-        safe_locals = strategy_utils.prepare_buy_strategy_locals(
-            code, tic_chart_data, min_chart_data, portfolio, realtime_metrics=realtime_metrics
-        )
-        condition_met, matched_strategy = strategy_utils.evaluate_strategies(
-            buy_strategies, safe_locals, code, "매수"
-        )
-        return condition_met, matched_strategy, safe_locals
-
-    def _evaluate_sell_logic_sync(self, code, trimmed_tic_data, min_data_snapshot, portfolio, realtime_metrics, sell_strategies, buy_price, buy_time, current_price, commission_rate, tax_rate):
-        """[Thread-Pool Worker] 매도 로직 연산 (Pandas 및 지표 계산)"""
-        tic_chart_data = pd.DataFrame()
-        min_chart_data = pd.DataFrame()
-        try:
-            if trimmed_tic_data:
-                tic_chart_data = pd.DataFrame(trimmed_tic_data).dropna().reset_index(drop=True)
-            if min_data_snapshot:
-                min_chart_data = pd.DataFrame(min_data_snapshot).dropna().reset_index(drop=True)
-        except Exception as ex:
-            self.logger.warning(f"백그라운드 매도 차트 데이터 변환 실패 ({code}): {ex}", exc_info=True)
-            
-        if tic_chart_data.empty:
-            return False, None, {}
-
-        safe_locals = strategy_utils.prepare_sell_strategy_locals(
-            code, tic_chart_data, min_chart_data, buy_price, buy_time, portfolio, 
-            current_price=current_price,
-            commission_rate=commission_rate, 
-            tax_rate=tax_rate,
-            realtime_metrics=realtime_metrics
-        )
-        condition_met, matched_strategy = strategy_utils.evaluate_strategies(
-            sell_strategies, safe_locals, code, "매도"
-        )
-        return condition_met, matched_strategy, safe_locals
-
     
     async def get_buy_signals(self, code, market_data, strategy_name):
         """매수 신호 생성 - strategy_utils를 사용한 기술적 지표 기반 평가"""
@@ -403,8 +352,8 @@ class KiwoomStrategy:
                     return signals
                 
                 # 차트 데이터 가져오기 (틱/분봉) - chart_cache에서 직접 가져오기
-                trimmed_tic_data = {}
-                min_data_snapshot = {}
+                tic_chart_data = pd.DataFrame()
+                min_chart_data = pd.DataFrame()
                 realtime_metrics = {}
                 if hasattr(self.parent, 'chart_cache') and self.parent.chart_cache:
                     cache_data = self.parent.chart_cache.get_cached_data(code)
@@ -430,22 +379,23 @@ class KiwoomStrategy:
                             try:
                                 # DataFrame 생성 시 모든 배열 길이가 동일해야 함. 가장 짧은 길이로 맞춤
                                 min_len = min(len(v) for k, v in tic_data.items() if isinstance(v, list))
-                                trimmed_tic_data = {k: list(v[:min_len]) for k, v in tic_data.items() if isinstance(v, list)}
+                                trimmed_tic_data = {k: v[:min_len] for k, v in tic_data.items() if isinstance(v, list)}
+                                tic_chart_data = pd.DataFrame(trimmed_tic_data).dropna().reset_index(drop=True)
                             except Exception as ex:
                                 if is_first_check:
-                                    self.logger.warning(f"차트 데이터 스냅샷 생성 실패 ({code}): {ex}", exc_info=True)
-                                trimmed_tic_data = {}
+                                    self.logger.warning(f"차트 데이터 변환 실패 ({code}): {ex}", exc_info=True)
+                                tic_chart_data = pd.DataFrame()
 
                         if min_data and len(min_data.get('close', [])) > 0:
                             try:
-                                min_data_snapshot = {k: list(v) for k, v in min_data.items() if isinstance(v, list)}
+                                min_chart_data = pd.DataFrame(min_data).dropna().reset_index(drop=True)
                             except Exception as ex:
                                 if is_first_check:
-                                    self.logger.warning(f"분봉 차트 데이터 스냅샷 생성 실패 ({code}): {ex}", exc_info=True)
-                                min_data_snapshot = {}
+                                    self.logger.warning(f"분봉 차트 데이터 변환 실패 ({code}): {ex}", exc_info=True)
+                                min_chart_data = pd.DataFrame()
 
                         if is_first_check:
-                            self.logger.debug(f"✅ [{code}] 차트 데이터 스냅샷 준비 완료")
+                            self.logger.debug(f"✅ [{code}] 차트 데이터 준비 완료: {len(tic_chart_data)}개 틱, {len(min_chart_data)}개 분봉")
                     else:
                         if is_first_check:
                             self.logger.warning(f"⚠️ [{code}] cache_data가 없음")
@@ -453,9 +403,9 @@ class KiwoomStrategy:
                     if is_first_check:
                         self.logger.warning(f"⚠️ [{code}] chart_cache 없음")
                 
-                # 매수 로직 로드
+                # 매수 전략 로드
                 # 차트 데이터가 비어있으면 평가를 건너뜀
-                if not trimmed_tic_data:
+                if tic_chart_data.empty:
                     if is_first_check:
                         self.logger.debug(f"ℹ️ [{code}] 틱 차트 데이터가 비어있어 매수 평가를 건너뜁니다.")
                     return signals
@@ -475,29 +425,29 @@ class KiwoomStrategy:
                             buy_strategies.append(strategy_data)
                         except json.JSONDecodeError:
                             if is_first_check: # type: ignore
-                                self.logger.warning(f"⚠️ [{code}] 매수 로직 파싱 실패: {key}")
+                                self.logger.warning(f"⚠️ [{code}] 매수 전략 파싱 실패: {key}")
                     if buy_strategies and is_first_check:
-                        self.logger.debug(f"✅ [{code}] strategy_config에서 매수 로직 {len(buy_strategies)}개 로드됨: {strategy_name_in_config}")
+                        self.logger.debug(f"✅ [{code}] strategy_config에서 매수 전략 {len(buy_strategies)}개 로드됨: {strategy_name_in_config}")
 
                 # 전략이 없으면 매수 평가를 진행하지 않음
                 if not buy_strategies:
                     if is_first_check:
-                        self.logger.warning(f"⚠️ [{code}] 매수 로직 없음 - 매수 평가를 진행하지 않습니다.")
+                        self.logger.warning(f"⚠️ [{code}] 매수 전략 없음 - 매수 평가를 진행하지 않습니다.")
                     return signals
                 
                 if is_first_check:
-                    self.logger.debug(f"✅ [{code}] 최종 매수 로직 {len(buy_strategies)}개 준비 완료. 스레드 풀 연산 시작")
+                    self.logger.debug(f"✅ [{code}] 최종 매수 전략 {len(buy_strategies)}개 준비 완료")
                 
-                # strategy_utils를 사용하여 매수 로직 평가 (비동기 스레드 풀 위임)
-                loop = asyncio.get_running_loop()
-                condition_met, matched_strategy, safe_locals = await loop.run_in_executor(
-                    None,
-                    self._evaluate_buy_logic_sync,
-                    code, trimmed_tic_data, min_data_snapshot, portfolio, realtime_metrics, buy_strategies
+                # strategy_utils를 사용하여 매수 전략 평가
+                safe_locals = strategy_utils.prepare_buy_strategy_locals(
+                    code, tic_chart_data, min_chart_data, portfolio, realtime_metrics=realtime_metrics
+                )
+                condition_met, matched_strategy = strategy_utils.evaluate_strategies(
+                    buy_strategies, safe_locals, code, "매수"
                 )
                 
                 if is_first_check:
-                    self.logger.debug(f"📊 [{code}] 매수 로직 평가 결과: {condition_met}")
+                    self.logger.debug(f"📊 [{code}] 매수 전략 평가 결과: {condition_met}")
 
                 if condition_met and matched_strategy:
                     self.logger.info(f"📈 매수 신호 발생: {code} - {matched_strategy.get('name', '')}")
@@ -593,7 +543,7 @@ class KiwoomStrategy:
             
             # 매수 시 사용된 전략 확인
             buy_strategy_name = holding_info.get('buy_strategy', strategy_name)
-            # 매수 로직 이름에서 섹션 이름 추출 (예: "[급등주] 2순위..." -> "급등주")
+            # 매수 전략 이름에서 섹션 이름 추출 (예: "[급등주] 2순위..." -> "급등주")
             if buy_strategy_name and buy_strategy_name.startswith('['):
                 try:
                     strategy_name = buy_strategy_name.split(']')[0][1:]
@@ -636,8 +586,8 @@ class KiwoomStrategy:
             # 하드코딩된 이동 손절 로직을 제거하고 .env의 전략 평가로 통합합니다.
 
             # 차트 데이터 가져오기 (틱/분봉)
-            trimmed_tic_data = {}
-            min_data_snapshot = {}
+            tic_chart_data = pd.DataFrame()
+            min_chart_data = pd.DataFrame()
             realtime_metrics = {}
             if hasattr(self.parent, 'chart_cache') and self.parent.chart_cache:
                 cache_data = self.parent.chart_cache.get_cached_data(code)
@@ -647,22 +597,21 @@ class KiwoomStrategy:
                     previous_close = cache_data.get('previous_close', 0)
                     current_open = cache_data.get('current_open', 0)
                     realtime_metrics = cache_data.get('realtime_metrics', {})
-                    
                     if tic_data:
                         try:
                             # DataFrame 생성 시 모든 배열 길이가 동일해야 함.
                             min_len = min(len(v) for k, v in tic_data.items() if isinstance(v, list))
-                            trimmed_tic_data = {k: list(v[:min_len]) for k, v in tic_data.items() if isinstance(v, list)}
+                            trimmed_tic_data = {k: v[:min_len] for k, v in tic_data.items() if isinstance(v, list)}
+                            tic_chart_data = pd.DataFrame(trimmed_tic_data).dropna().reset_index(drop=True)
                         except Exception:
-                            trimmed_tic_data = {}
-                            
+                            tic_chart_data = pd.DataFrame()
                     if min_data:
                         try:
-                            min_data_snapshot = {k: list(v) for k, v in min_data.items() if isinstance(v, list)}
+                            min_chart_data = pd.DataFrame(min_data).dropna().reset_index(drop=True)
                         except Exception:
-                            min_data_snapshot = {}
+                            min_chart_data = pd.DataFrame()
             
-            # 매도 로직 로드
+            # 매도 전략 로드
             sell_strategies = []
 
             strategy_name_in_config = strategy_name
@@ -685,16 +634,16 @@ class KiwoomStrategy:
                             continue
                         sell_strategies.append(strategy_data)
                     except json.JSONDecodeError:
-                        self.logger.debug(f"매도 로직 파싱 실패 ({code}): {key}", exc_info=True)
+                        self.logger.debug(f"매도 전략 파싱 실패 ({code}): {key}", exc_info=True)
             
             # 전략이 없으면 매도 평가를 진행하지 않음
             if not sell_strategies:
                 if is_first_sell_check: # type: ignore
-                    self.logger.warning(f"⚠️ [{code}] 매도 로직 없음 - 매도 평가를 진행하지 않습니다.")
+                    self.logger.warning(f"⚠️ [{code}] 매도 전략 없음 - 매도 평가를 진행하지 않습니다.")
                 return signals
             else:
                 if is_first_sell_check: # type: ignore
-                    self.logger.debug(f"✅ [{code}] 매도 로직 {len(sell_strategies)}개 로드됨: {strategy_name}")
+                    self.logger.debug(f"✅ [{code}] 매도 전략 {len(sell_strategies)}개 로드됨: {strategy_name}")
             
             # 현재 수익률 계산 (전략 평가 전에)
             current_price = market_data.get('current_price', 0)
@@ -703,17 +652,20 @@ class KiwoomStrategy:
             # 손절 조건 도달 시 디버그 로그 (자주 출력되지 않도록 조건부)
             if profit_rate < -0.6:  # 손절 기준 근처일 때만 디버그 # type: ignore
                 self.logger.debug(f"🔍 [{code}] 손절 조건 도달 확인: 수익률={profit_rate:.2f}%, 매입가={buy_price:,}원, 현재가={current_price:,}원")
-                self.logger.debug(f"🔍 [{code}] 로드된 매도 로직 수: {len(sell_strategies)}개")
+                self.logger.debug(f"🔍 [{code}] 로드된 매도 전략 수: {len(sell_strategies)}개")
                 for idx, stg in enumerate(sell_strategies):
                     logging.debug(f"🔍 [{code}] 전략 {idx+1}: {stg.get('name', 'N/A')} - 조건: {stg.get('content', 'N/A')}")
 
-            # strategy_utils를 사용하여 매도 로직 평가 (비동기 스레드 풀 위임)
-            loop = asyncio.get_running_loop()
-            condition_met, matched_strategy, safe_locals = await loop.run_in_executor(
-                None,
-                self._evaluate_sell_logic_sync,
-                code, trimmed_tic_data, min_data_snapshot, portfolio, realtime_metrics, sell_strategies,
-                buy_price, buy_time, current_price, self.trader.commission_rate, self.trader.tax_rate
+            # strategy_utils를 사용하여 매도 전략 평가
+            safe_locals = strategy_utils.prepare_sell_strategy_locals(
+                code, tic_chart_data, min_chart_data, buy_price, buy_time, portfolio, 
+                current_price=current_price,
+                commission_rate=self.trader.commission_rate, 
+                tax_rate=self.trader.tax_rate,
+                realtime_metrics=realtime_metrics
+            )
+            condition_met, matched_strategy = strategy_utils.evaluate_strategies(
+                sell_strategies, safe_locals, code, "매도"
             )
                 
             if condition_met and matched_strategy:
