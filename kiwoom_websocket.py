@@ -2017,6 +2017,9 @@ class KiwoomWebSocketClient:
                 self.logger.info("✅ 장마감전 동시호가 시간입니다.")
             elif market_operation == '3':
                 self.logger.info("✅ KRX 장이 시작되었습니다! 거래 가능합니다.")
+                # 장 시작 시 조건검색 실시간 구독 재요청
+                # (장 시작 전에 보낸 CNSRREQ는 키움 서버에서 실시간 구독으로 등록되지 않으므로 재요청 필요)
+                create_fire_and_forget_task(self._re_request_condition_search_on_market_open())
             elif market_operation == '8':
                 self.logger.info("⏹️ 장마감 시간이 되었습니다. 거래가 종료됩니다.")
                 # 장마감 시 장시작시간 구독 해제
@@ -2051,6 +2054,56 @@ class KiwoomWebSocketClient:
                 self.logger.info(f"ℹ️ 알 수 없는 장운영구분: {market_operation}")
         except Exception as e:
             self.logger.error(f"시장 상태 데이터 처리 실패: {e}", exc_info=True)
+
+    async def _re_request_condition_search_on_market_open(self):
+        """장 시작 시 조건검색 실시간 구독 재요청
+        
+        장 시작 전에 보낸 CNSRREQ는 키움 서버에서 실시간 구독으로 등록되지 않습니다.
+        장이 열리면 기존 구독을 해제(CNSRCLR)하고 새로 요청(CNSRREQ)하여
+        실시간 편입/이탈 알림이 정상적으로 수신되도록 합니다.
+        """
+        try:
+            await asyncio.sleep(2.0)  # 장 시작 직후 서버 안정화를 위해 2초 대기
+
+            if not hasattr(self, 'parent') or not self.parent:
+                return
+
+            # 현재 활성화된 전략이 조건검색식인지 확인
+            current_strategy = getattr(self.parent, 'current_strategy', None)
+            condition_list = getattr(self.parent, 'condition_search_list', None)
+
+            if not current_strategy or not condition_list:
+                self.logger.debug("ℹ️ 장 시작 시 조건검색 재요청 건너뜀: 설정된 조건검색식 없음")
+                return
+
+            # 현재 전략이 조건검색식 목록에 있는지 확인
+            condition_seq = None
+            for cond in condition_list:
+                if cond.get('title') == current_strategy:
+                    condition_seq = cond.get('seq')
+                    break
+
+            if condition_seq is None:
+                self.logger.debug(f"ℹ️ 장 시작 시 조건검색 재요청 건너뜀: '{current_strategy}'은(는) 조건검색식이 아님")
+                return
+
+            self.logger.info(f"🔄 장 시작으로 조건검색 실시간 구독 재요청: {current_strategy} (seq: {condition_seq})")
+
+            # 1. 기존 조건검색 실시간 구독 해제 (CNSRCLR)
+            try:
+                await self.parent.stop_condition_realtime(condition_seq)
+                self.logger.debug(f"✅ 기존 조건검색 구독 해제 완료: seq={condition_seq}")
+            except Exception as clr_ex:
+                self.logger.warning(f"⚠️ 기존 조건검색 구독 해제 중 오류 (무시): {clr_ex}")
+
+            await asyncio.sleep(1.0)  # 해제 후 1초 대기
+
+            # 2. 조건검색 실시간 재요청 (CNSRREQ)
+            await self.parent.start_condition_realtime(condition_seq, current_strategy)
+            self.logger.info(f"✅ 장 시작 후 조건검색 실시간 구독 재요청 완료: {current_strategy}")
+
+        except Exception as e:
+            self.logger.error(f"❌ 장 시작 시 조건검색 재요청 실패: {e}", exc_info=True)
             
     def process_market_index_data(self, data_item):
         """업종 지수 데이터 처리 (0J)"""
