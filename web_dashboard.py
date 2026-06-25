@@ -2074,8 +2074,10 @@ HTML_CONTENT = """
 
             const evalSpan = document.getElementById('evaluationProfitText');
             if (evalSpan) {
-                const eSign = evaluationProfit >= 0 ? '+' : '';
-                evalSpan.innerHTML = `평가손익: <span class="${evaluationProfit >= 0 ? 'up-trend' : 'down-trend'}">${eSign}${Number(evaluationProfit).toLocaleString()}원</span>`;
+                const eSign = evaluationProfit > 0 ? '+' : '';
+                const evalProfitInt = Math.round(evaluationProfit);
+                const evalProfitRate = data.total_purchase > 0 ? (evaluationProfit / data.total_purchase * 100) : 0;
+                evalSpan.innerHTML = `평가손익: <span class="${evaluationProfit >= 0 ? 'up-trend' : 'down-trend'}">${eSign}${evalProfitInt.toLocaleString()}원 (${eSign}${evalProfitRate.toFixed(2)}%)</span>`;
             }
             
             const primeCashText = document.getElementById('primeCashText');
