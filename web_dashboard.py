@@ -1415,6 +1415,12 @@ HTML_CONTENT = """
                                 <input type="number" id="cfgBuyCount" value="5">
                             </div>
                             <div class="form-field">
+                                <label for="cfgPrimeCash">투자원금 (prime_cash)</label>
+                                <input type="number" id="cfgPrimeCash" value="0" style="font-family: monospace; font-weight: bold;" title="최초 투자원금 (수익률 계산 기준)">
+                            </div>
+                        </div>
+                        <div class="order-row">
+                            <div class="form-field">
                                 <label for="cfgStrategy">대표 매매 전략</label>
                                 <select id="cfgStrategy" onchange="onStrategyChange(this.value)">
                                     <!-- 키움증권 조건식 목록이 동적으로 채워집니다 -->
@@ -2217,6 +2223,7 @@ HTML_CONTENT = """
         // 설정 UI 대입
         function applySettingsToUI(settings) {
             document.getElementById('cfgBuyCount').value = settings.buycount || 3;
+            if(document.getElementById('cfgPrimeCash')) document.getElementById('cfgPrimeCash').value = settings.prime_cash || 0;
             if(document.getElementById('cfgRealAppKey')) document.getElementById('cfgRealAppKey').value = settings.real_appkey || '';
             if(document.getElementById('cfgRealSecret')) document.getElementById('cfgRealSecret').value = settings.real_secretkey || '';
             if(document.getElementById('cfgMockAppKey')) document.getElementById('cfgMockAppKey').value = settings.mock_appkey || '';
@@ -2314,6 +2321,8 @@ HTML_CONTENT = """
         // 설정 저장 요청
         function saveSettings() {
             const buycount = document.getElementById('cfgBuyCount').value;
+            const primeCashInput = document.getElementById('cfgPrimeCash');
+            const primeCashVal = primeCashInput ? primeCashInput.value : '0';
             const strategy = document.getElementById('cfgStrategy').value;
             const simulationToggle = document.getElementById('investmentModeToggle');
             const simulation = simulationToggle ? !simulationToggle.checked : true; // checked=LIVE(simulation=false)
@@ -2322,6 +2331,7 @@ HTML_CONTENT = """
                 type: "save_settings",
                 settings: {
                     buycount: buycount,
+                    prime_cash: primeCashVal,
                     last_strategy: strategy,
                     simulation: simulation,
                     real_appkey: document.getElementById('cfgRealAppKey') ? document.getElementById('cfgRealAppKey').value : '',
@@ -4071,6 +4081,7 @@ async def websocket_handler(websocket):
                     config = EnvConfigParser()
                     settings = {
                         "buycount": config.get('SETTINGS', 'buycount', fallback='3'),
+                        "prime_cash": config.get('SETTINGS', 'prime_cash', fallback='0'),
                         "last_strategy": config.get('SETTINGS', 'last_strategy', fallback=''),
                         "simulation": config.getboolean('KIWOOM_API', 'simulation', fallback=False),
                         "condition_list": getattr(app, 'condition_search_list', []) or [],
@@ -4136,6 +4147,15 @@ async def websocket_handler(websocket):
                         
                         if 'buycount' in new_settings:
                             config.set('SETTINGS', 'buycount', str(new_settings['buycount']))
+                        if 'prime_cash' in new_settings:
+                            config.set('SETTINGS', 'prime_cash', str(new_settings['prime_cash']))
+                            # 런타임 trader 객체에도 즉시 반영
+                            if app.trader:
+                                try:
+                                    app.trader.prime_cash = int(new_settings['prime_cash'])
+                                    logging.info(f"💰 투자원금 업데이트: {int(new_settings['prime_cash']):,}원")
+                                except (ValueError, TypeError):
+                                    pass
                         if 'last_strategy' in new_settings:
                             config.set('SETTINGS', 'last_strategy', str(new_settings['last_strategy']))
                         if 'dashboard_password' in new_settings:

@@ -1316,15 +1316,18 @@ class AccountManager:
                         output2 = output2[0]
                     
                     # lspft_amt가 output2 안에 있거나 최상단에 있을 경우 모두 지원
-                    prime_cash = parent.data_manager.safe_int(output2.get('lspft_amt', balance_data.get('lspft_amt', 0)))
+                    api_prime_cash = parent.data_manager.safe_int(output2.get('lspft_amt', balance_data.get('lspft_amt', 0)))
                     
                     # fallback: lspft_amt가 없거나 0일 경우, 주문가능금액/entr 기반의 entr_amount 사용
-                    if prime_cash <= 0 and entr_amount > 0:
-                        prime_cash = entr_amount
+                    if api_prime_cash <= 0 and entr_amount > 0:
+                        api_prime_cash = entr_amount
                         
-                    if prime_cash > 0:
-                        parent.trader.prime_cash = prime_cash
-                        self.logger.info(f"누적투자원금(kt00004): {prime_cash:,}원")
+                    # .env에서 미리 세팅된 값이 있다면 API 값을 무시 (사용자 수동 설정 우선)
+                    if getattr(parent.trader, 'prime_cash', 0) > 0:
+                        self.logger.info(f"누적투자원금(.env 설정 적용됨): {parent.trader.prime_cash:,}원")
+                    elif api_prime_cash > 0:
+                        parent.trader.prime_cash = api_prime_cash
+                        self.logger.info(f"누적투자원금(API/fallback): {api_prime_cash:,}원")
                     holdings = balance_data.get('stk_acnt_evlt_prst', balance_data.get('output1', []))
                     if holdings and len(holdings) > 0:
                         self.logger.info(f"📦 보유 종목 수: {len(holdings)}개")
@@ -1400,7 +1403,9 @@ class AccountManager:
                 if balance_data:
                     # lspft_amt (누적투자원금) 추출
                     lspft_amt = self.parent.data_manager.safe_int(balance_data.get('lspft_amt', 0))
-                    if lspft_amt > 0:
+                    if getattr(self.parent.trader, 'prime_cash', 0) > 0:
+                        pass # .env 수동 설정값 유지
+                    elif lspft_amt > 0:
                         self.parent.trader.prime_cash = lspft_amt
                         self.logger.info(f"누적투자원금(kt00004): {lspft_amt:,}원")
                         
