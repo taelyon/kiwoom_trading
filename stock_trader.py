@@ -138,6 +138,41 @@ class TradingApp:
         """모니터링 종목 코드 추출 (MonitoringManager 위임)"""
         return self.monitoring_manager.extract_monitoring_stock_codes_enhanced()
 
+    async def market_open_condition_trigger(self):
+        """09:00:00(장 시작) 시점에 조건검색을 강제로 재요청하여 실시간 편입 종목을 누락 없이 로드"""
+        from datetime import datetime
+        import asyncio
+        
+        has_triggered_today = False
+        self.logger.info("⏰ 장 시작(09:00) 조건검색 자동 트리거 스케줄러 대기 중...")
+        
+        while True:
+            try:
+                now = datetime.now()
+                # 09시 00분 00초 ~ 09시 00분 05초 사이인지 확인
+                is_market_open_time = now.hour == 9 and now.minute == 0 and now.second <= 5
+                
+                if is_market_open_time and not has_triggered_today:
+                    self.logger.info("🔔 장이 시작되었습니다! 등록된 조건검색을 자동으로 재요청(새로고침)합니다.")
+                    
+                    if hasattr(self, 'current_condition_name') and self.current_condition_name:
+                        # 설정 파라미터 적용 효과를 주기 위해 stg_changed 호출
+                        self.logger.info(f"🔄 자동 새로고침 대상 전략: {self.current_condition_name}")
+                        await self.strategy_manager.stg_changed(self.current_condition_name)
+                    else:
+                        self.logger.info("ℹ️ 현재 활성화된 조건검색 전략이 없습니다.")
+                        
+                    has_triggered_today = True
+                        
+                elif now.hour >= 15 and has_triggered_today:
+                    # 장이 끝난 후 플래그 초기화 (다음 날을 위해)
+                    has_triggered_today = False
+                    
+            except Exception as e:
+                self.logger.error(f"장 시작 트리거 오류: {e}")
+                
+            await asyncio.sleep(1)
+
     async def post_login_setup(self):
         """로그인 후 핵심 거래 관련 객체 초기화 및 백그라운드 태스크 기동"""
         if getattr(self, '_is_initializing', False) or self._post_login_setup_done:
@@ -200,6 +235,13 @@ class TradingApp:
                 self.logger.debug("✅ 계좌 잔고조회 즉시 실행 완료 (비동기)")
             except Exception as balance_ex:
                 self.logger.error(f"❌ 계좌 잔고조회 실행 실패: {balance_ex}", exc_info=True)
+
+            # 6.5. 장 시작시 자동 새로고침 스케줄러 기동
+            try:
+                create_fire_and_forget_task(self.market_open_condition_trigger())
+                self.logger.debug("✅ 장 시작 자동 트리거 스케줄러 기동 완료")
+            except Exception as trig_ex:
+                self.logger.error(f"❌ 장 시작 자동 트리거 스케줄러 시작 실패: {trig_ex}", exc_info=True)
 
             # 7. 대기 중인 API 큐 처리
             try:
