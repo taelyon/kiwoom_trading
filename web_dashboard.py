@@ -1,4 +1,4 @@
-import os
+﻿import os
 import json
 import logging
 import asyncio
@@ -1422,12 +1422,12 @@ HTML_CONTENT = """
                             </div>
                         </div>
                         <div class="form-field">
-                            <label for="cfgBuyStrategy">매수 전략 (JSON)</label>
-                            <textarea id="cfgBuyStrategy" placeholder="매수 전략 조건식 목록 (JSON)" style="font-family: monospace; font-size:11px; width: 100%; min-height: 200px; box-sizing: border-box; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 8px; resize: vertical;"></textarea>
+                            <label for="cfgBuyStrategy">매수 로직 (JSON)</label>
+                            <textarea id="cfgBuyStrategy" placeholder="매수 로직 조건식 목록 (JSON)" style="font-family: monospace; font-size:11px; width: 100%; min-height: 200px; box-sizing: border-box; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 8px; resize: vertical;"></textarea>
                         </div>
                         <div class="form-field">
-                            <label for="cfgSellStrategy">매도 전략 (JSON)</label>
-                            <textarea id="cfgSellStrategy" placeholder="매도 전략 조건식 목록 (JSON)" style="font-family: monospace; font-size:11px; width: 100%; min-height: 200px; box-sizing: border-box; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 8px; resize: vertical;"></textarea>
+                            <label for="cfgSellStrategy">매도 로직 (JSON)</label>
+                            <textarea id="cfgSellStrategy" placeholder="매도 로직 조건식 목록 (JSON)" style="font-family: monospace; font-size:11px; width: 100%; min-height: 200px; box-sizing: border-box; background: rgba(0,0,0,0.3); color: #fff; border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 8px; resize: vertical;"></textarea>
                         </div>
                         <button id="btnSaveSettings" class="btn-primary" onclick="saveSettings()">설정 파라미터 적용</button>
                     </div>
@@ -1519,11 +1519,11 @@ HTML_CONTENT = """
                         </div>
                         
                         <div class="form-field" style="margin-bottom: 16px; flex-grow: 1; display: flex; flex-direction: column;">
-                            <label for="btBuyStrategy">매수 전략(JSON)</label>
+                            <label for="btBuyStrategy">매수 로직(JSON)</label>
                             <textarea id="btBuyStrategy" style="flex-grow: 1; width: 100%; font-family: monospace; font-size: 12px; background: rgba(0,0,0,0.3); color: #00f2fe; border: 1px solid var(--border-color); border-radius: 8px; padding: 10px; resize: none; min-height: 150px;"></textarea>
                         </div>
                         <div class="form-field" style="margin-bottom: 16px; flex-grow: 1; display: flex; flex-direction: column;">
-                            <label for="btSellStrategy">매도 전략(JSON)</label>
+                            <label for="btSellStrategy">매도 로직(JSON)</label>
                             <textarea id="btSellStrategy" style="flex-grow: 1; width: 100%; font-family: monospace; font-size: 12px; background: rgba(0,0,0,0.3); color: #f48fb1; border: 1px solid var(--border-color); border-radius: 8px; padding: 10px; resize: none; min-height: 150px;"></textarea>
                         </div>
 
@@ -2344,7 +2344,7 @@ HTML_CONTENT = """
                         JSON.parse(sellTextarea.value);
                     }
                 } catch (e) {
-                    alert("매수 또는 매도 전략 조건식이 올바른 JSON 포맷이 아닙니다.\\n대괄호 [ ]로 감싸진 JSON 리스트 형식이어야 합니다.\\n오류: " + e.message);
+                    alert("매수 또는 매도 로직 조건식이 올바른 JSON 포맷이 아닙니다.\\n대괄호 [ ]로 감싸진 JSON 리스트 형식이어야 합니다.\\n오류: " + e.message);
                     return;
                 }
                 req.settings.buy_strategy = buyTextarea.value;
@@ -3399,20 +3399,20 @@ HTML_CONTENT = """
             document.getElementById('btProgressText').innerText = "요청을 전송 중입니다...";
             document.getElementById('btProgressText').style.color = "var(--accent-cyan)";
             
-            // 매수/매도 전략 JSON 파싱
+            // 매수/매도 로직 JSON 파싱
             let customBuy = null;
             let customSell = null;
             try {
                 const buyText = document.getElementById('btBuyStrategy').value;
                 if (buyText && buyText.trim()) customBuy = JSON.parse(buyText);
             } catch (e) {
-                console.warn("매수 전략 JSON 파싱 실패, 기본 전략 사용:", e);
+                console.warn("매수 로직 JSON 파싱 실패, 기본 전략 사용:", e);
             }
             try {
                 const sellText = document.getElementById('btSellStrategy').value;
                 if (sellText && sellText.trim()) customSell = JSON.parse(sellText);
             } catch (e) {
-                console.warn("매도 전략 JSON 파싱 실패, 기본 전략 사용:", e);
+                console.warn("매도 로직 JSON 파싱 실패, 기본 전략 사용:", e);
             }
             
             const payload = {

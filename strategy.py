@@ -1,4 +1,4 @@
-import logging
+﻿import logging
 import asyncio
 from config_manager import EnvConfigParser
 import json
@@ -403,7 +403,7 @@ class KiwoomStrategy:
                     if is_first_check:
                         self.logger.warning(f"⚠️ [{code}] chart_cache 없음")
                 
-                # 매수 전략 로드
+                # 매수 로직 로드
                 # 차트 데이터가 비어있으면 평가를 건너뜀
                 if tic_chart_data.empty:
                     if is_first_check:
@@ -425,20 +425,20 @@ class KiwoomStrategy:
                             buy_strategies.append(strategy_data)
                         except json.JSONDecodeError:
                             if is_first_check: # type: ignore
-                                self.logger.warning(f"⚠️ [{code}] 매수 전략 파싱 실패: {key}")
+                                self.logger.warning(f"⚠️ [{code}] 매수 로직 파싱 실패: {key}")
                     if buy_strategies and is_first_check:
-                        self.logger.debug(f"✅ [{code}] strategy_config에서 매수 전략 {len(buy_strategies)}개 로드됨: {strategy_name_in_config}")
+                        self.logger.debug(f"✅ [{code}] strategy_config에서 매수 로직 {len(buy_strategies)}개 로드됨: {strategy_name_in_config}")
 
                 # 전략이 없으면 매수 평가를 진행하지 않음
                 if not buy_strategies:
                     if is_first_check:
-                        self.logger.warning(f"⚠️ [{code}] 매수 전략 없음 - 매수 평가를 진행하지 않습니다.")
+                        self.logger.warning(f"⚠️ [{code}] 매수 로직 없음 - 매수 평가를 진행하지 않습니다.")
                     return signals
                 
                 if is_first_check:
-                    self.logger.debug(f"✅ [{code}] 최종 매수 전략 {len(buy_strategies)}개 준비 완료")
+                    self.logger.debug(f"✅ [{code}] 최종 매수 로직 {len(buy_strategies)}개 준비 완료")
                 
-                # strategy_utils를 사용하여 매수 전략 평가
+                # strategy_utils를 사용하여 매수 로직 평가
                 safe_locals = strategy_utils.prepare_buy_strategy_locals(
                     code, tic_chart_data, min_chart_data, portfolio, realtime_metrics=realtime_metrics
                 )
@@ -447,7 +447,7 @@ class KiwoomStrategy:
                 )
                 
                 if is_first_check:
-                    self.logger.debug(f"📊 [{code}] 매수 전략 평가 결과: {condition_met}")
+                    self.logger.debug(f"📊 [{code}] 매수 로직 평가 결과: {condition_met}")
 
                 if condition_met and matched_strategy:
                     self.logger.info(f"📈 매수 신호 발생: {code} - {matched_strategy.get('name', '')}")
@@ -543,7 +543,7 @@ class KiwoomStrategy:
             
             # 매수 시 사용된 전략 확인
             buy_strategy_name = holding_info.get('buy_strategy', strategy_name)
-            # 매수 전략 이름에서 섹션 이름 추출 (예: "[급등주] 2순위..." -> "급등주")
+            # 매수 로직 이름에서 섹션 이름 추출 (예: "[급등주] 2순위..." -> "급등주")
             if buy_strategy_name and buy_strategy_name.startswith('['):
                 try:
                     strategy_name = buy_strategy_name.split(']')[0][1:]
@@ -611,7 +611,7 @@ class KiwoomStrategy:
                         except Exception:
                             min_chart_data = pd.DataFrame()
             
-            # 매도 전략 로드
+            # 매도 로직 로드
             sell_strategies = []
 
             strategy_name_in_config = strategy_name
@@ -634,16 +634,16 @@ class KiwoomStrategy:
                             continue
                         sell_strategies.append(strategy_data)
                     except json.JSONDecodeError:
-                        self.logger.debug(f"매도 전략 파싱 실패 ({code}): {key}", exc_info=True)
+                        self.logger.debug(f"매도 로직 파싱 실패 ({code}): {key}", exc_info=True)
             
             # 전략이 없으면 매도 평가를 진행하지 않음
             if not sell_strategies:
                 if is_first_sell_check: # type: ignore
-                    self.logger.warning(f"⚠️ [{code}] 매도 전략 없음 - 매도 평가를 진행하지 않습니다.")
+                    self.logger.warning(f"⚠️ [{code}] 매도 로직 없음 - 매도 평가를 진행하지 않습니다.")
                 return signals
             else:
                 if is_first_sell_check: # type: ignore
-                    self.logger.debug(f"✅ [{code}] 매도 전략 {len(sell_strategies)}개 로드됨: {strategy_name}")
+                    self.logger.debug(f"✅ [{code}] 매도 로직 {len(sell_strategies)}개 로드됨: {strategy_name}")
             
             # 현재 수익률 계산 (전략 평가 전에)
             current_price = market_data.get('current_price', 0)
@@ -652,11 +652,11 @@ class KiwoomStrategy:
             # 손절 조건 도달 시 디버그 로그 (자주 출력되지 않도록 조건부)
             if profit_rate < -0.6:  # 손절 기준 근처일 때만 디버그 # type: ignore
                 self.logger.debug(f"🔍 [{code}] 손절 조건 도달 확인: 수익률={profit_rate:.2f}%, 매입가={buy_price:,}원, 현재가={current_price:,}원")
-                self.logger.debug(f"🔍 [{code}] 로드된 매도 전략 수: {len(sell_strategies)}개")
+                self.logger.debug(f"🔍 [{code}] 로드된 매도 로직 수: {len(sell_strategies)}개")
                 for idx, stg in enumerate(sell_strategies):
                     logging.debug(f"🔍 [{code}] 전략 {idx+1}: {stg.get('name', 'N/A')} - 조건: {stg.get('content', 'N/A')}")
 
-            # strategy_utils를 사용하여 매도 전략 평가
+            # strategy_utils를 사용하여 매도 로직 평가
             safe_locals = strategy_utils.prepare_sell_strategy_locals(
                 code, tic_chart_data, min_chart_data, buy_price, buy_time, portfolio, 
                 current_price=current_price,
