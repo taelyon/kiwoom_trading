@@ -265,10 +265,10 @@ class ChartDataCache:
             try:
                 # 비동기 API 직접 호출
                 # (API 제한 확인은 kiwoom_rest.py 내에서 처리됨)
-                data = await self.trader.client.get_stock_tic_chart(code, tic_scope=60)
+                data = await self.trader.client.get_stock_tic_chart(code, tic_scope=30)
                 
                 if data:
-                    return data
+                    return self._aggregate_30_to_60_ticks(data)
                 else:
                     self.logger.warning(f"⚠️ [API 지연 디버깅] 틱 차트 빈 데이터 응답! (시도 {attempt + 1}/{max_retries}) - 키움 서버가 데이터를 주지 않았습니다. 2초 후 재시도합니다.")
                     if attempt < max_retries - 1:
@@ -689,7 +689,7 @@ class ChartDataCache:
                     return None
                     
                 logging.debug(f"✅ 틱 데이터 조회 성공: {code} - 데이터 개수: {len(close_data)}")
-                return data
+                return self._aggregate_30_to_60_ticks(data)
                 
             except Exception as ex:
                 error_msg = str(ex)
@@ -706,6 +706,66 @@ class ChartDataCache:
                     return None
         
         return None
+    
+    def _aggregate_30_to_60_ticks(self, data):
+        """30틱 단위의 차트 데이터를 60틱 단위로 병합"""
+        if not data or not isinstance(data, dict) or 'close' not in data or len(data['close']) == 0:
+            return data
+            
+        n = len(data['close'])
+        agg_data = {
+            'time': [], 'open': [], 'high': [], 'low': [], 'close': [], 
+            'volume': [], 'strength': [], 'last_tic_cnt': []
+        }
+        
+        for i in range(0, n, 2):
+            if i + 1 < n:
+                # 2개의 30틱 캔들을 병합
+                agg_data['time'].append(data['time'][i+1])
+                agg_data['open'].append(data['open'][i])
+                agg_data['high'].append(max(data['high'][i], data['high'][i+1]))
+                agg_data['low'].append(min(data['low'][i], data['low'][i+1]))
+                agg_data['close'].append(data['close'][i+1])
+                agg_data['volume'].append(data['volume'][i] + data['volume'][i+1])
+                
+                s1 = data['strength'][i] if 'strength' in data and len(data['strength']) > i else 0
+                s2 = data['strength'][i+1] if 'strength' in data and len(data['strength']) > i+1 else 0
+                agg_data['strength'].append((s1 + s2) / 2)
+                
+                c1 = data['last_tic_cnt'][i] if 'last_tic_cnt' in data and len(data['last_tic_cnt']) > i else 30
+                c2 = data['last_tic_cnt'][i+1] if 'last_tic_cnt' in data and len(data['last_tic_cnt']) > i+1 else 30
+                
+                try:
+                    c1_val = int(c1) if c1 and str(c1).strip() else 30
+                except (ValueError, TypeError):
+                    c1_val = 30
+                try:
+                    c2_val = int(c2) if c2 and str(c2).strip() else 30
+                except (ValueError, TypeError):
+                    c2_val = 30
+                    
+                agg_data['last_tic_cnt'].append(c1_val + c2_val)
+            else:
+                # 마지막 홀수 캔들 (아직 60틱이 안 된 상태)
+                agg_data['time'].append(data['time'][i])
+                agg_data['open'].append(data['open'][i])
+                agg_data['high'].append(data['high'][i])
+                agg_data['low'].append(data['low'][i])
+                agg_data['close'].append(data['close'][i])
+                agg_data['volume'].append(data['volume'][i])
+                
+                s1 = data['strength'][i] if 'strength' in data and len(data['strength']) > i else 0
+                agg_data['strength'].append(s1)
+                
+                c1 = data['last_tic_cnt'][i] if 'last_tic_cnt' in data and len(data['last_tic_cnt']) > i else 30
+                try:
+                    c1_val = int(c1) if c1 and str(c1).strip() else 30
+                except (ValueError, TypeError):
+                    c1_val = 30
+                agg_data['last_tic_cnt'].append(c1_val)
+                
+        self.logger.debug(f"🔄 30틱 데이터를 60틱으로 병합 완료: {n}개 -> {len(agg_data['close'])}개")
+        return agg_data
     
     def get_min_data_from_api(self, code, max_retries=3):
         """3분봉 데이터 조회 (재시도 로직 포함)"""
