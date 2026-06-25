@@ -553,10 +553,15 @@ class KiwoomRestClient:
             server_url = self.mock_url if self.is_mock else self.base_url
             url = f"{server_url}/api/dostk/chart"
             
+            # 키움 API(ka10079)는 1,3,5,10,30틱만 지원하므로, 60틱 요청 시 30틱으로 조회 후 로컬에서 병합
+            api_tic_scope = tic_scope
+            if tic_scope == 60:
+                api_tic_scope = 30
+                
             # ka10079 요청 데이터 (참고 코드와 동일한 구조)
             data = {
                 "stk_cd": code,                    # 종목코드
-                "tic_scope": str(tic_scope),       # 틱범위: 1,3,5,10,30
+                "tic_scope": str(api_tic_scope),       # 틱범위: 1,3,5,10,30
                 "upd_stkpc_tp": "1"                # 수정주가구분: 0 or 1
             }
             
@@ -594,7 +599,7 @@ class KiwoomRestClient:
                 self.logger.debug(f"틱 차트 API 응답 성공: {code}")
                 
                 # 틱 차트 데이터 파싱
-                tic_data = self._parse_tic_chart_data(response_data)
+                tic_data = self._parse_tic_chart_data(response_data, requested_tic_scope=tic_scope, api_tic_scope=api_tic_scope)
                 
                 # 체결강도 데이터는 제거됨 (ka10046 API 사용 안함)
                 # 체결강도 데이터가 없으면 기본값 0.0으로 설정
@@ -1462,7 +1467,7 @@ class KiwoomRestClient:
             self.logger.error(f"차트 데이터 파싱 오류: {e}", exc_info=True)
             return pd.DataFrame()
     
-    def _parse_tic_chart_data(self, data: dict) -> dict:
+    def _parse_tic_chart_data(self, data: dict, requested_tic_scope: int = 30, api_tic_scope: int = 30) -> dict:
         """틱 차트 데이터 파싱 (ka10079 응답 형식) - 키움 API 문서 참고"""
         try:
             # API 응답 구조 확인
@@ -1601,8 +1606,36 @@ class KiwoomRestClient:
                 parsed_data['strength'].append(0.0)
                 
                 # 마지막틱갯수 (last_tic_cnt) 필드 추가
-                last_tic_cnt = item.get('last_tic_cnt', '')
-                parsed_data['last_tic_cnt'].append(last_tic_cnt)
+                # 실시간 차트 업데이트 로직에서 새 캔들 생성 여부를 판단하기 위해, 
+                # 과거 데이터는 항상 온전한 캔들(requested_tic_scope 개수만큼 채워진 상태)로 간주합니다.
+                parsed_data['last_tic_cnt'].append(requested_tic_scope)
+            
+            # 60틱 요청 시 30틱 데이터를 로컬에서 2개씩 병합하여 60틱으로 만들기
+            if requested_tic_scope == 60 and api_tic_scope == 30 and len(parsed_data['close']) > 0:
+                agg_data = {
+                    'time': [], 'open': [], 'high': [], 'low': [], 'close': [], 
+                    'volume': [], 'strength': [], 'last_tic_cnt': []
+                }
+                # 데이터를 2개씩 묶어서 처리
+                for i in range(0, len(parsed_data['close']), 2):
+                    chunk_slice = slice(i, min(i+2, len(parsed_data['close'])))
+                    time_slice = parsed_data['time'][chunk_slice]
+                    high_slice = parsed_data['high'][chunk_slice]
+                    low_slice = parsed_data['low'][chunk_slice]
+                    close_slice = parsed_data['close'][chunk_slice]
+                    volume_slice = parsed_data['volume'][chunk_slice]
+                    
+                    agg_data['time'].append(time_slice[-1]) # 시간은 마지막 틱의 시간 사용
+                    agg_data['open'].append(parsed_data['open'][i]) # 시가는 첫 번째 틱 시가
+                    agg_data['high'].append(max(high_slice))
+                    agg_data['low'].append(min(low_slice))
+                    agg_data['close'].append(close_slice[-1]) # 종가는 마지막 틱 종가
+                    agg_data['volume'].append(sum(volume_slice))
+                    agg_data['strength'].append(0.0)
+                    agg_data['last_tic_cnt'].append(requested_tic_scope)
+                
+                parsed_data = agg_data
+                self.logger.debug(f"30틱 데이터를 60틱으로 로컬 병합 완료: {len(parsed_data['close'])}개 데이터")
             
             # 틱 차트 데이터 파싱 완료 로그
             self.logger.debug(f"틱 차트 데이터 파싱 완료: {len(parsed_data['close'])}개 데이터")
