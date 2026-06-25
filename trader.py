@@ -58,6 +58,7 @@ class KiwoomTrader:
         
         # 현금 조회 캐시 (API 호출 빈도 제한)
         # 투자원금: .env에 사용자가 설정한 값을 최우선 사용 (API fallback 방지)
+        self.config = EnvConfigParser()
         env_prime_cash = self.config.getint('SETTINGS', 'prime_cash', fallback=0)
         self.prime_cash = env_prime_cash
         self._cash_cache = 0.0
