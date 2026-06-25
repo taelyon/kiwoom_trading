@@ -2065,9 +2065,9 @@ HTML_CONTENT = """
             const profitSpan = document.getElementById('totalProfitMainText');
             if (profitSpan) {
                 if (totalProfit >= 0) {
-                    profitSpan.innerHTML = `<span class="up-trend">+${Number(totalProfit).toLocaleString()}원 (+${totalProfitRate.toFixed(2)}%)</span>`;
+                    profitSpan.innerHTML = `<div style="display: flex; align-items: baseline; gap: 8px; flex-wrap: nowrap; white-space: nowrap;"><span class="up-trend">+${Number(totalProfit).toLocaleString()}원</span><span class="up-trend" style="font-size: 18px; font-weight: normal;">(+${totalProfitRate.toFixed(2)}%)</span></div>`;
                 } else {
-                    profitSpan.innerHTML = `<span class="down-trend">${Number(totalProfit).toLocaleString()}원 (${totalProfitRate.toFixed(2)}%)</span>`;
+                    profitSpan.innerHTML = `<div style="display: flex; align-items: baseline; gap: 8px; flex-wrap: nowrap; white-space: nowrap;"><span class="down-trend">${Number(totalProfit).toLocaleString()}원</span><span class="down-trend" style="font-size: 18px; font-weight: normal;">(${totalProfitRate.toFixed(2)}%)</span></div>`;
                 }
             }
             
