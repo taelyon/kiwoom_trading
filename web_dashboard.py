@@ -1,4 +1,4 @@
-﻿import os
+import os
 import json
 import logging
 import asyncio
@@ -4372,15 +4372,36 @@ def on_chart_data_updated(code):
     if not cache_data:
         return
         
-    # [스로틀링] 프론트엔드 UI 렌더링 과부하 방지를 위해 초당 최대 10번(0.1초)만 전송
+    # [스로틀링] 프론트엔드 UI 렌더링 과부하 방지를 위해 초당 최대 10번(0.1초)만 전송하되, 마지막 데이터가 유실되지 않도록 지연 전송(Debounce) 적용
     import time
+    import asyncio
+    
     if not hasattr(main_window_ref, 'last_ws_tick_sent'):
         main_window_ref.last_ws_tick_sent = {}
+    if not hasattr(main_window_ref, 'pending_ws_ticks'):
+        main_window_ref.pending_ws_ticks = {}
         
     now = time.time()
-    if now - main_window_ref.last_ws_tick_sent.get(code, 0) < 0.1:
+    last_sent = main_window_ref.last_ws_tick_sent.get(code, 0)
+    
+    if now - last_sent < 0.1:
+        # 아직 지연 전송 태스크가 예약되지 않았다면 예약 (가장 마지막 상태 보장)
+        if code not in main_window_ref.pending_ws_ticks:
+            delay = 0.1 - (now - last_sent)
+            from utils import create_fire_and_forget_task
+            
+            async def delayed_send():
+                await asyncio.sleep(delay)
+                if code in main_window_ref.pending_ws_ticks:
+                    del main_window_ref.pending_ws_ticks[code]
+                # 지연 시간이 끝난 후 최신 상태로 다시 호출
+                on_chart_data_updated(code)
+                
+            main_window_ref.pending_ws_ticks[code] = True
+            create_fire_and_forget_task(delayed_send())
         return
-    main_window_ref.last_ws_tick_sent[code] = now
+        
+    main_window_ref.last_ws_tick_sent[code] = time.time()
 
         
     # 역사적 데이터 및 틱 데이터 추출

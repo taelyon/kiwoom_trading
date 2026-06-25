@@ -941,7 +941,9 @@ class ChartDataCache:
             valid_lists = [v for v in original_tic_data.values() if isinstance(v, list) and len(v) > 0]
             if valid_lists:
                 min_len = min(len(v) for v in valid_lists)
-                trimmed_data = {k: v[:min_len] for k, v in original_tic_data.items() if isinstance(v, list)}
+                # GIL 블로킹(과부하) 방지를 위해 최근 1000건만 DataFrame으로 변환
+                slice_len = min(min_len, 1000)
+                trimmed_data = {k: v[min_len-slice_len:min_len] for k, v in original_tic_data.items() if isinstance(v, list)}
                 tic_df = pd.DataFrame(trimmed_data)
 
         min_df = pd.DataFrame()
@@ -949,7 +951,9 @@ class ChartDataCache:
             valid_lists = [v for v in original_min_data.values() if isinstance(v, list) and len(v) > 0]
             if valid_lists:
                 min_len = min(len(v) for v in valid_lists)
-                trimmed_data = {k: v[:min_len] for k, v in original_min_data.items() if isinstance(v, list)}
+                # GIL 블로킹 방지를 위해 최근 300건만 DataFrame으로 변환
+                slice_len = min(min_len, 300)
+                trimmed_data = {k: v[min_len-slice_len:min_len] for k, v in original_min_data.items() if isinstance(v, list)}
                 min_df = pd.DataFrame(trimmed_data)
 
         if not tic_df.empty:

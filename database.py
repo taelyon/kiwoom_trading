@@ -1,4 +1,4 @@
-﻿import logging
+import logging
 import asyncio
 import aiosqlite
 import pandas as pd
@@ -234,9 +234,62 @@ class AsyncDatabaseManager:
                 
                 # 틱봉 데이터 개수만큼 저장할 데이터 준비
                 batch_values = []
+                
+                # --- 최적화: 분봉 시간 미리 파싱 및 인덱스화 ---
+                min_times_raw = min_data.get('time', [])
+                min_times_dt = []
+                min_time_map = {}
+                for idx, m_time in enumerate(min_times_raw):
+                    if hasattr(m_time, 'strftime'):
+                        m_dt = m_time
+                    else:
+                        try:
+                            m_dt = datetime.strptime(str(m_time), '%Y-%m-%d %H:%M:%S')
+                        except ValueError:
+                            continue
+                    min_times_dt.append(m_dt)
+                    key = (m_dt.year, m_dt.month, m_dt.day, m_dt.hour, m_dt.minute)
+                    min_time_map[key] = idx
+                
+                import bisect
+                min_timestamps = [m.timestamp() for m in min_times_dt]
+                
                 for i in range(len(tic_times)):
-                    # 해당 시점의 분봉 데이터 찾기 (시간 기준으로 매칭)
-                    min_idx = self._find_matching_minute_data(tic_times[i], min_data.get('time', []))
+                    tic_t = tic_times[i]
+                    if hasattr(tic_t, 'strftime'):
+                        tic_dt = tic_t
+                    else:
+                        try:
+                            tic_dt = datetime.strptime(str(tic_t), '%Y-%m-%d %H:%M:%S')
+                        except ValueError:
+                            continue
+                    
+                    # 1. 같은 분(minute) 매칭 우선 시도 (O(1))
+                    key = (tic_dt.year, tic_dt.month, tic_dt.day, tic_dt.hour, tic_dt.minute)
+                    min_idx = min_time_map.get(key, -1)
+                    
+                    # 2. 매칭 실패 시 가장 가까운 시간 찾기 (이진 탐색, O(log N))
+                    if min_idx == -1 and min_timestamps:
+                        tic_ts = tic_dt.timestamp()
+                        idx = bisect.bisect_left(min_timestamps, tic_ts)
+                        
+                        best_idx = -1
+                        min_diff = float('inf')
+                        
+                        # idx 확인 (우측)
+                        if idx < len(min_timestamps):
+                            diff = abs(min_timestamps[idx] - tic_ts)
+                            if diff <= 300 and diff < min_diff:
+                                min_diff = diff
+                                best_idx = idx
+                        # idx-1 확인 (좌측)
+                        if idx > 0:
+                            diff = abs(min_timestamps[idx-1] - tic_ts)
+                            if diff <= 300 and diff < min_diff:
+                                min_diff = diff
+                                best_idx = idx - 1
+                                
+                        min_idx = best_idx
                     
                     # datetime 객체를 일반 형식으로 변환
                     datetime_str = tic_times[i].strftime('%Y-%m-%d %H:%M:%S') if hasattr(tic_times[i], 'strftime') else str(tic_times[i])
