@@ -2017,6 +2017,19 @@ class KiwoomWebSocketClient:
                 self.logger.info("✅ 장마감전 동시호가 시간입니다.")
             elif market_operation == '3':
                 self.logger.info("✅ KRX 장이 시작되었습니다! 거래 가능합니다.")
+                
+                # 장 시작 시 조건검색 강제 재구독 (실시간 편입 누락 방지)
+                if hasattr(self.parent, 'current_strategy') and self.parent.current_strategy:
+                    self.logger.info(f"🔄 장 시작 이벤트 감지: '{self.parent.current_strategy}' 조건검색 자동 새로고침(재구독) 요청")
+                    if hasattr(self.parent, 'strategy_manager') and self.parent.strategy_manager:
+                        create_fire_and_forget_task(self.parent.strategy_manager.stg_changed(self.parent.current_strategy))
+                else:
+                    # current_strategy가 없더라도, 혹시 current_condition_name이 있는지 한 번 더 체크 (호환성)
+                    condition_name = getattr(self.parent, 'current_condition_name', None)
+                    if condition_name and hasattr(self.parent, 'strategy_manager') and self.parent.strategy_manager:
+                        self.logger.info(f"🔄 장 시작 이벤트 감지: '{condition_name}' 조건검색 자동 새로고침(재구독) 요청")
+                        create_fire_and_forget_task(self.parent.strategy_manager.stg_changed(condition_name))
+                        
             elif market_operation == '8':
                 self.logger.info("⏹️ 장마감 시간이 되었습니다. 거래가 종료됩니다.")
                 # 장마감 시 장시작시간 구독 해제
