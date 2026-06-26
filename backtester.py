@@ -189,9 +189,12 @@ class Backtester:
                 except Exception as e:
                     logger.error(f"3분봉 데이터 처리 오류 ({current_code}): {e}")
                     
-                # 조건검색 이력 기반 필터링 (IS_MONITORED)
-                group_df['IS_MONITORED'] = False
-                if not condition_history_df.empty:
+                # 감시 이력 기반 필터링 (IS_MONITORED)
+                if condition_history_df.empty:
+                    # 감시 이력 데이터가 아예 없는 경우 (과거 데이터 호환성 유지)
+                    group_df['IS_MONITORED'] = True
+                else:
+                    group_df['IS_MONITORED'] = False
                     histories = condition_history_df[condition_history_df['code'] == current_code]
                     for _, hist_row in histories.iterrows():
                         entry_dt = pd.to_datetime(hist_row['entry_time'])
