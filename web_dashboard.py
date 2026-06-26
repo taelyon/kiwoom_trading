@@ -4098,7 +4098,6 @@ async def websocket_handler(websocket):
                         asyncio.create_task(monitor_backtest_process())
 
                 elif msg_type == 'stop_backtest':
-                    global active_backtests
                     p = active_backtests.pop(websocket, None)
                     if p and p.is_alive():
                         logging.info("사용자 요청으로 백테스트 프로세스 중단")
