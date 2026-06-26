@@ -1908,12 +1908,6 @@ class KiwoomWebSocketClient:
                 if action_type == 'I':  # INSERT (편입) # type: ignore
                     self.logger.info(f"📈 조건검색 실시간 편입: {stock_code} ({condition_name}, seq: {condition_seq})")
                     
-                    # [추가] DB에 조건검색 편입 이력 기록
-                    if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'trader') and self.parent.trader and hasattr(self.parent.trader, 'db_manager'):
-                        from datetime import datetime
-                        entry_time_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                        create_fire_and_forget_task(self.parent.trader.db_manager.record_condition_entry(stock_code, condition_name, entry_time_str))
-                    
                     # 지연 삭제 대기 중인 종목이면 삭제 취소 (핑퐁 방지)
                     if getattr(self, '_condition_remove_tasks', {}).get(stock_code):
                         self._condition_remove_tasks[stock_code] = False
@@ -1941,35 +1935,14 @@ class KiwoomWebSocketClient:
                                 self.logger.debug(f"ℹ️ 조건검색 편입 종목 이미 존재 또는 중복: {stock_code}")
                         else:
                             self.logger.error(f"❌ chart_cache가 없습니다: {stock_code}")
+                            
+                        # DB에 감시 시작 이력 기록
+                        if hasattr(self.parent, 'trader') and self.parent.trader and hasattr(self.parent.trader, 'db_manager') and self.parent.trader.db_manager:
+                            create_fire_and_forget_task(self.parent.trader.db_manager.insert_monitoring_start(stock_code, f"조건검색: {condition_name}"))
+                            
                 elif action_type == 'D':  # DELETE (이탈) # type: ignore
-                    self.logger.info(f"📉 조건검색 실시간 이탈: {stock_code} ({condition_name}, seq: {condition_seq})")
-                    
-                    # [추가] DB에 조건검색 이탈 이력 갱신 (엄격하게 즉시 이탈로 기록)
-                    if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'trader') and self.parent.trader and hasattr(self.parent.trader, 'db_manager'):
-                        from datetime import datetime
-                        exit_time_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                        create_fire_and_forget_task(self.parent.trader.db_manager.record_condition_exit(stock_code, condition_name, exit_time_str))
-                    
-                    # 보유 종목인지 확인 (Trader 객체 사용)
-                    is_holding = False
-                    if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'trader') and self.parent.trader:
-                        portfolio = self.parent.trader.get_portfolio_status()
-                        if stock_code in portfolio.get('holdings', {}):
-                            is_holding = True
-                        
-                    # 보유 중인 종목은 모니터링 유지 및 즉시 매도 (기존 로직 유지)
-                    if is_holding:
-                        self.logger.debug(f"✅ 보유 종목이므로 모니터링 유지: {stock_code}")
-                        
-                        if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'trader') and self.parent.trader:
-                            # 차단 목록 추가 (보유 종목은 즉시 차단)
-                            if stock_code not in self.parent.trader.condition_excluded_stocks:
-                                self.parent.trader.condition_excluded_stocks.add(stock_code)
-                                self.logger.debug(f"🚫 [{stock_code}] 조건검색 이탈(보유중)로 매수 차단 목록에 즉시 추가")
-
-                    else:
-                        # 미보유 종목의 경우 즉시 삭제/차단하지 않고 3분(180초) 지연 삭제 태스크 실행
-                        create_fire_and_forget_task(self._delayed_remove_monitoring(stock_code, 180))
+                    self.logger.info(f"📉 조건검색 실시간 이탈 신호 수신 (무시됨): {stock_code} ({condition_name}, seq: {condition_seq})")
+                    self.logger.debug(f"ℹ️ [{stock_code}] 조건검색 이탈 신호는 무시되며, 최고가 대비 10% 하락 시 자체 이탈 처리됩니다.")
 
                 else:
                     self.logger.warning(f"⚠️ 알 수 없는 조건검색 액션 타입: {stock_code} - 액션: {action_type}") # type: ignore

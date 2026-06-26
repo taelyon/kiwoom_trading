@@ -33,6 +33,7 @@ class ChartDataCache:
             self.realtime_tick_times = {} # {code: deque(maxlen=10)} - 틱 생성 속도 계산용
             self.last_indicator_calc_time = {} # {code: float} - 실시간 지표 계산 스로틀링용 (CPU 과부하 방지)
             self.pending_stocks = {}  # 큐에 대기 중인 종목 정보 (코드: 이름)
+            self.monitoring_highest_prices = {} # {code: price} - 감시 종목 최고가 추적 (10% 하락 이탈용)
             self.logger.debug("🔍 API 요청 큐 시스템 초기화 완료")
             
             # asyncio 백그라운드 태스크 정의 (QTimer 대체)
@@ -1309,6 +1310,44 @@ class ChartDataCache:
                 cached_data['realtime_metrics']['vi_distance'] = vi_distance
             else:
                 cached_data['realtime_metrics']['vi_distance'] = 999.0
+                
+            # 최고가 대비 10% 하락 시 자체 이탈 처리 로직
+            if current_price > 0:
+                if stock_code not in self.monitoring_highest_prices:
+                    self.monitoring_highest_prices[stock_code] = current_price
+                elif current_price > self.monitoring_highest_prices[stock_code]:
+                    self.monitoring_highest_prices[stock_code] = current_price
+                
+                highest = self.monitoring_highest_prices[stock_code]
+                if current_price <= highest * 0.90:
+                    self.logger.info(f"📉 [{stock_code}] 최고가({highest:,}원) 대비 10% 하락 감지! 자체 이탈 처리합니다. (현재가: {current_price:,}원)")
+                    
+                    # 보유 종목인지 확인
+                    is_holding = False
+                    if hasattr(self, 'trader') and self.trader:
+                        portfolio = self.trader.get_portfolio_status()
+                        if stock_code in portfolio.get('holdings', {}):
+                            is_holding = True
+                            
+                    # 1. DB에 이탈 시간 업데이트
+                    if hasattr(self.trader, 'db_manager') and self.trader.db_manager:
+                        from common_utils import create_fire_and_forget_task
+                        create_fire_and_forget_task(self.trader.db_manager.update_monitoring_end(stock_code))
+                    
+                    # 2. 매수 차단 목록 추가
+                    if hasattr(self.trader, 'condition_excluded_stocks'):
+                        self.trader.condition_excluded_stocks.add(stock_code)
+                        
+                    if is_holding:
+                        self.logger.debug(f"✅ 보유 종목이므로 모니터링은 유지합니다: {stock_code}")
+                    else:
+                        # 3. 감시 제외 (Core Manager)
+                        if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'core_manager'):
+                            self.parent.core_manager.remove_monitoring_stock(stock_code)
+                        
+                        # 캐시에서 자신을 직접 제거
+                        self.remove_stock(stock_code)
+                        return
             
             # 차트 캐시 업데이트 (메트릭 포함)
             chart_cache.cache[stock_code] = cached_data

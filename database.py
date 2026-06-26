@@ -67,17 +67,6 @@ class AsyncDatabaseManager:
                         )
                     ''')
                     
-                    # 조건검색 이력 테이블
-                    await cursor.execute('''
-                        CREATE TABLE IF NOT EXISTS condition_history (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            code TEXT NOT NULL,
-                            condition_name TEXT,
-                            entry_time TEXT NOT NULL,
-                            exit_time TEXT
-                        )
-                    ''')
-                    
                     # 통합 주식 데이터 테이블 동적 생성
                     # 기본 OHLCV 컬럼
                     base_columns = """
@@ -122,6 +111,17 @@ class AsyncDatabaseManager:
                         )
                     '''
                     await cursor.execute(create_table_sql)
+                    
+                    # 감시 이력 테이블 (조건검색 편입 등 감시 시작/종료 기록)
+                    await cursor.execute('''
+                        CREATE TABLE IF NOT EXISTS monitoring_history (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            code TEXT NOT NULL,
+                            source TEXT,
+                            start_time TEXT NOT NULL,
+                            end_time TEXT
+                        )
+                    ''')
                     
                     # commit은 isolation_level=None이면 자동으로 처리됨
                     self.logger.debug("✅ 데이터베이스 초기화 완료")
@@ -559,44 +559,46 @@ class AsyncDatabaseManager:
         except Exception as ex:
             self.logger.error(f"매매 기록 저장 실패: {ex}", exc_info=True)
 
-    async def record_condition_entry(self, code, condition_name, entry_time):
-        """조건검색 편입 이력 기록 (비동기 I/O)"""
+    async def insert_monitoring_start(self, code, source):
+        """감시 시작 시간 기록"""
         try:
             if self._conn is None:
                 await self.init_database()
-
             async with self._db_lock:
                 cursor = await self._conn.cursor()
+                current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 await cursor.execute('''
-                    INSERT INTO condition_history (code, condition_name, entry_time)
+                    INSERT INTO monitoring_history (code, source, start_time)
                     VALUES (?, ?, ?)
-                ''', (code, condition_name, entry_time))
+                ''', (code, source, current_time))
                 await self._conn.commit()
-                self.logger.debug(f"📝 조건검색 이력 추가: {code} ({condition_name}) 편입시간: {entry_time}")
+                self.logger.debug(f"감시 시작 이력 추가: {code} ({source}) @ {current_time}")
         except Exception as ex:
-            self.logger.error(f"조건검색 편입 이력 저장 실패: {ex}")
+            self.logger.error(f"감시 시작 이력 저장 실패: {ex}", exc_info=True)
 
-    async def record_condition_exit(self, code, condition_name, exit_time):
-        """조건검색 이탈 이력 갱신 (가장 최근 편입 이력의 exit_time 업데이트)"""
+    async def update_monitoring_end(self, code):
+        """감시 종료 시간 기록 (가장 최근 감시 시작 기록에 업데이트)"""
         try:
             if self._conn is None:
                 await self.init_database()
-
             async with self._db_lock:
                 cursor = await self._conn.cursor()
+                current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                
+                # 가장 최근의 감시 시작 기록을 찾아 종료 시간 업데이트
                 await cursor.execute('''
-                    UPDATE condition_history 
-                    SET exit_time = ? 
+                    UPDATE monitoring_history 
+                    SET end_time = ? 
                     WHERE id = (
-                        SELECT id FROM condition_history 
-                        WHERE code = ? AND condition_name = ? AND exit_time IS NULL 
-                        ORDER BY entry_time DESC LIMIT 1
+                        SELECT id FROM monitoring_history 
+                        WHERE code = ? AND end_time IS NULL 
+                        ORDER BY start_time DESC LIMIT 1
                     )
-                ''', (exit_time, code, condition_name))
+                ''', (current_time, code))
                 await self._conn.commit()
-                self.logger.debug(f"📝 조건검색 이력 갱신: {code} ({condition_name}) 이탈시간: {exit_time}")
+                self.logger.debug(f"감시 종료 이력 업데이트: {code} @ {current_time}")
         except Exception as ex:
-            self.logger.error(f"조건검색 이탈 이력 갱신 실패: {ex}")
+            self.logger.error(f"감시 종료 이력 업데이트 실패: {ex}", exc_info=True)
 
     async def clear_tables(self):
         """데이터베이스 테이블 초기화 (장 시작 전 정리용)"""
@@ -609,12 +611,11 @@ class AsyncDatabaseManager:
                 
                 # 주식 데이터 삭제 (매매 기록은 영구 보존)
                 await cursor.execute("DELETE FROM stock_data")
-                await cursor.execute("DELETE FROM condition_history")
                 # await cursor.execute("DELETE FROM trade_records")  # 매매내역 보존을 위해 삭제 주석 처리
                 
                 await self._conn.commit()
                 
-                self.logger.info("🧹 데이터베이스 테이블(stock_data, condition_history) 초기화 완료 (trade_records는 보존됨)")
+                self.logger.info("🧹 데이터베이스 테이블(stock_data) 초기화 완료 (trade_records는 보존됨)")
                 
                 # VACUUM으로 파일 크기 최적화 (선택사항, 시간이 걸릴 수 있음)
                 # await cursor.execute("VACUUM") 

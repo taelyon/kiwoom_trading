@@ -47,26 +47,27 @@ class Backtester:
         return df
 
     def load_condition_history(self, start_date_str, end_date_str, code=None):
-        conn = sqlite3.connect(self.db_path)
-        start_datetime = f"{start_date_str} 00:00:00"
-        end_datetime = f"{end_date_str} 23:59:59"
-        
-        query = f"""
-        SELECT *
-        FROM condition_history 
-        WHERE entry_time <= '{end_datetime}' AND (exit_time IS NULL OR exit_time >= '{start_datetime}')
-        """
-        if code and code != 'ALL':
-            query += f" AND code = '{code}'"
-            
         try:
-            df = pd.read_sql(query, conn)
-        except Exception as e:
-            logger.warning(f"condition_history 로드 실패 (테이블이 없을 수 있음): {e}")
-            df = pd.DataFrame()
+            conn = sqlite3.connect(self.db_path)
             
-        conn.close()
-        return df
+            start_datetime = f"{start_date_str} 00:00:00"
+            end_datetime = f"{end_date_str} 23:59:59"
+            
+            query = f"""
+            SELECT code, start_time as entry_time, end_time as exit_time
+            FROM monitoring_history
+            WHERE start_time <= '{end_datetime}'
+              AND (end_time IS NULL OR end_time >= '{start_datetime}')
+            """
+            if code and code != 'ALL':
+                query += f" AND code = '{code}'"
+                
+            df = pd.read_sql(query, conn)
+            conn.close()
+            return df
+        except Exception as e:
+            logger.error(f"감시 이력 로딩 실패: {e}")
+            return pd.DataFrame()
 
     def run(self, start_date, end_date, code='ALL', progress_callback=None, custom_buy=None, custom_sell=None, initial_capital=10000000, buycount=3):
         try:
@@ -80,19 +81,9 @@ class Backtester:
                 
             if progress_callback: progress_callback(30, f"데이터 로딩 완료: {len(df):,} 틱. 시뮬레이션 준비 중...")
 
-            # 조건검색 이력 로드 및 전처리
-            hist_df = self.load_condition_history(start_date, end_date, code)
-            condition_intervals = {}
-            if not hist_df.empty:
-                hist_df['entry_time'] = pd.to_datetime(hist_df['entry_time'])
-                hist_df['exit_time'] = pd.to_datetime(hist_df['exit_time']).fillna(pd.Timestamp.max)
-                
-                for _, row in hist_df.iterrows():
-                    c = row['code']
-                    if c not in condition_intervals:
-                        condition_intervals[c] = []
-                    condition_intervals[c].append((row['entry_time'], row['exit_time']))
-            
+            # 조건검색 이력 로드
+            condition_history_df = self.load_condition_history(start_date, end_date, code)
+
             buy_strategies = []
             sell_strategies = []
             
@@ -195,6 +186,15 @@ class Backtester:
                         
                         group_df = pd.merge_asof(temp_df, min3_df, left_index=True, right_index=True, direction='backward')
                         group_df = group_df.reset_index()
+                        
+                # 조건검색 이력 기반 필터링 (IS_MONITORED)
+                group_df['IS_MONITORED'] = False
+                if not condition_history_df.empty:
+                    histories = condition_history_df[condition_history_df['code'] == current_code]
+                    for _, hist_row in histories.iterrows():
+                        entry_dt = pd.to_datetime(hist_row['entry_time'])
+                        exit_dt = pd.to_datetime(hist_row['exit_time']) if pd.notna(hist_row['exit_time']) else pd.Timestamp.max
+                        group_df['IS_MONITORED'] = group_df['IS_MONITORED'] | ((group_df['datetime'] >= entry_dt) & (group_df['datetime'] <= exit_dt))
                 except Exception as e:
                     logger.error(f"3분봉 데이터 처리 오류 ({current_code}): {e}")
                     
@@ -397,66 +397,58 @@ class Backtester:
                         sd = stock_data[current_code]
                         idx = sd['current_idx']
                         
-                        # [추가] 조건검색 편입 중인지 확인 (기록이 아예 없는 과거 데이터면 무시하고 허용)
-                        is_monitored = True
-                        if condition_intervals:  # 이력 테이블에 데이터가 하나라도 있는 경우만 엄격하게 검사
-                            is_monitored = False
-                            if current_code in condition_intervals:
-                                current_dt = pd.to_datetime(current_time)
-                                for start_dt, end_dt in condition_intervals[current_code]:
-                                    if start_dt <= current_dt <= end_dt:
-                                        is_monitored = True
-                                        break
-                                        
-                        if not is_monitored:
-                            continue  # 조건검색 이탈(미편입) 상태이므로 매수 평가 생략
-                        
                         # 데이터가 10건 이상 쌓인 시점(기존의 range(10, n))부터만 매수 평가
                         if idx >= 10 and current_code not in portfolio:
-                            current_price = float(row['close'])
-                            start_idx = max(0, idx - 300)
-                            locals_dict = {}
-                            for col_name, col_arr in sd['precomputed'].items():
-                                arr_slice = col_arr[start_idx:idx+1]
-                                locals_dict[col_name] = arr_slice
-                                if not col_name.startswith('tic_') and not col_name.startswith('min3_'):
-                                    locals_dict[f'tic_{col_name}'] = arr_slice
-                                    
-                            if 'AI_SCORE' in sd['precomputed']:
-                                locals_dict['AI_SCORE'] = float(sd['precomputed']['AI_SCORE'][idx])
+                            # IS_MONITORED 체크 (조건검색 편입 기간 중일 때만 매수)
+                            is_monitored = True
+                            if 'IS_MONITORED' in sd['precomputed']:
+                                is_monitored = sd['precomputed']['IS_MONITORED'][idx]
                                 
-                            locals_dict['code'] = current_code
-                            locals_dict['datetime'] = datetime.now()
-                            locals_dict['current_price'] = current_price
-                            
-                            buy_signal = False
-                            matched_stg_name = ""
-                            
-                            for stg_name_str, stg_code in buy_compiled:
-                                try:
-                                    if eval(stg_code, globals(), locals_dict):
-                                        buy_signal = True
-                                        matched_stg_name = stg_name_str
-                                        break
-                                except Exception as e:
-                                    eval_errors += 1
-                                    if eval_errors <= 5:
-                                        logger.error(f"매수 평가 오류 ({stg_name_str}): {e}")
+                            if is_monitored:
+                                current_price = float(row['close'])
+                                start_idx = max(0, idx - 300)
+                                locals_dict = {}
+                                for col_name, col_arr in sd['precomputed'].items():
+                                    arr_slice = col_arr[start_idx:idx+1]
+                                    locals_dict[col_name] = arr_slice
+                                    if not col_name.startswith('tic_') and not col_name.startswith('min3_'):
+                                        locals_dict[f'tic_{col_name}'] = arr_slice
                                         
-                            if not sd['first_eval_logged']:
-                                debug_logs.append(f"[{current_code}] 첫 평가 샘플 - 시간: {current_time_str}, 가격: {current_price}, AI_SCORE: {locals_dict.get('AI_SCORE', 0.0)}")
-                                sd['first_eval_logged'] = True
+                                if 'AI_SCORE' in sd['precomputed']:
+                                    locals_dict['AI_SCORE'] = float(sd['precomputed']['AI_SCORE'][idx])
                                 
-                            if buy_signal:
-                                qty = int(invested_per_trade / current_price)
-                                if qty > 0:
-                                    portfolio[current_code] = {
-                                        'buy_price': current_price,
-                                        'qty': qty,
-                                        'buy_time': current_time_str,
-                                        'stg': matched_stg_name,
-                                        'executed_sell_rules': set()
-                                    }
+                                locals_dict['code'] = current_code
+                                locals_dict['datetime'] = datetime.now()
+                                locals_dict['current_price'] = current_price
+                                
+                                buy_signal = False
+                                matched_stg_name = ""
+                                
+                                for stg_name_str, stg_code in buy_compiled:
+                                    try:
+                                        if eval(stg_code, globals(), locals_dict):
+                                            buy_signal = True
+                                            matched_stg_name = stg_name_str
+                                            break
+                                    except Exception as e:
+                                        eval_errors += 1
+                                        if eval_errors <= 5:
+                                            logger.error(f"매수 평가 오류 ({stg_name_str}): {e}")
+                                            
+                                if not sd['first_eval_logged']:
+                                    debug_logs.append(f"[{current_code}] 첫 평가 샘플 - 시간: {current_time_str}, 가격: {current_price}, AI_SCORE: {locals_dict.get('AI_SCORE', 0.0)}")
+                                    sd['first_eval_logged'] = True
+                                    
+                                if buy_signal:
+                                    qty = int(invested_per_trade / current_price)
+                                    if qty > 0:
+                                        portfolio[current_code] = {
+                                            'buy_price': current_price,
+                                            'qty': qty,
+                                            'buy_time': current_time_str,
+                                            'stg': matched_stg_name,
+                                            'executed_sell_rules': set()
+                                        }
                 
                 # 3. 현재 틱(time) 처리가 끝났으므로 해당 종목들의 내부 idx 1 증가
                 for current_code in time_df['code'].unique():
