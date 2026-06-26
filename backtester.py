@@ -1,4 +1,4 @@
-﻿import sqlite3
+import sqlite3
 import pandas as pd
 import numpy as np
 import time
@@ -46,6 +46,28 @@ class Backtester:
         
         return df
 
+    def load_condition_history(self, start_date_str, end_date_str, code=None):
+        conn = sqlite3.connect(self.db_path)
+        start_datetime = f"{start_date_str} 00:00:00"
+        end_datetime = f"{end_date_str} 23:59:59"
+        
+        query = f"""
+        SELECT *
+        FROM condition_history 
+        WHERE entry_time <= '{end_datetime}' AND (exit_time IS NULL OR exit_time >= '{start_datetime}')
+        """
+        if code and code != 'ALL':
+            query += f" AND code = '{code}'"
+            
+        try:
+            df = pd.read_sql(query, conn)
+        except Exception as e:
+            logger.warning(f"condition_history 로드 실패 (테이블이 없을 수 있음): {e}")
+            df = pd.DataFrame()
+            
+        conn.close()
+        return df
+
     def run(self, start_date, end_date, code='ALL', progress_callback=None, custom_buy=None, custom_sell=None, initial_capital=10000000, buycount=3):
         try:
             logger.info(f"백테스트 데이터 로딩 시작: {start_date} ~ {end_date} (종목: {code})")
@@ -58,6 +80,19 @@ class Backtester:
                 
             if progress_callback: progress_callback(30, f"데이터 로딩 완료: {len(df):,} 틱. 시뮬레이션 준비 중...")
 
+            # 조건검색 이력 로드 및 전처리
+            hist_df = self.load_condition_history(start_date, end_date, code)
+            condition_intervals = {}
+            if not hist_df.empty:
+                hist_df['entry_time'] = pd.to_datetime(hist_df['entry_time'])
+                hist_df['exit_time'] = pd.to_datetime(hist_df['exit_time']).fillna(pd.Timestamp.max)
+                
+                for _, row in hist_df.iterrows():
+                    c = row['code']
+                    if c not in condition_intervals:
+                        condition_intervals[c] = []
+                    condition_intervals[c].append((row['entry_time'], row['exit_time']))
+            
             buy_strategies = []
             sell_strategies = []
             
@@ -361,6 +396,20 @@ class Backtester:
                         current_code = row['code']
                         sd = stock_data[current_code]
                         idx = sd['current_idx']
+                        
+                        # [추가] 조건검색 편입 중인지 확인 (기록이 아예 없는 과거 데이터면 무시하고 허용)
+                        is_monitored = True
+                        if condition_intervals:  # 이력 테이블에 데이터가 하나라도 있는 경우만 엄격하게 검사
+                            is_monitored = False
+                            if current_code in condition_intervals:
+                                current_dt = pd.to_datetime(current_time)
+                                for start_dt, end_dt in condition_intervals[current_code]:
+                                    if start_dt <= current_dt <= end_dt:
+                                        is_monitored = True
+                                        break
+                                        
+                        if not is_monitored:
+                            continue  # 조건검색 이탈(미편입) 상태이므로 매수 평가 생략
                         
                         # 데이터가 10건 이상 쌓인 시점(기존의 range(10, n))부터만 매수 평가
                         if idx >= 10 and current_code not in portfolio:

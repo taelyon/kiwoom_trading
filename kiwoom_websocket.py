@@ -1908,6 +1908,12 @@ class KiwoomWebSocketClient:
                 if action_type == 'I':  # INSERT (편입) # type: ignore
                     self.logger.info(f"📈 조건검색 실시간 편입: {stock_code} ({condition_name}, seq: {condition_seq})")
                     
+                    # [추가] DB에 조건검색 편입 이력 기록
+                    if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'trader') and self.parent.trader and hasattr(self.parent.trader, 'db_manager'):
+                        from datetime import datetime
+                        entry_time_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        create_fire_and_forget_task(self.parent.trader.db_manager.record_condition_entry(stock_code, condition_name, entry_time_str))
+                    
                     # 지연 삭제 대기 중인 종목이면 삭제 취소 (핑퐁 방지)
                     if getattr(self, '_condition_remove_tasks', {}).get(stock_code):
                         self._condition_remove_tasks[stock_code] = False
@@ -1937,6 +1943,12 @@ class KiwoomWebSocketClient:
                             self.logger.error(f"❌ chart_cache가 없습니다: {stock_code}")
                 elif action_type == 'D':  # DELETE (이탈) # type: ignore
                     self.logger.info(f"📉 조건검색 실시간 이탈: {stock_code} ({condition_name}, seq: {condition_seq})")
+                    
+                    # [추가] DB에 조건검색 이탈 이력 갱신 (엄격하게 즉시 이탈로 기록)
+                    if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'trader') and self.parent.trader and hasattr(self.parent.trader, 'db_manager'):
+                        from datetime import datetime
+                        exit_time_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        create_fire_and_forget_task(self.parent.trader.db_manager.record_condition_exit(stock_code, condition_name, exit_time_str))
                     
                     # 보유 종목인지 확인 (Trader 객체 사용)
                     is_holding = False
