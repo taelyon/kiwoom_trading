@@ -2562,13 +2562,13 @@ HTML_CONTENT = """
                         } else {
                             toolTip.style.display = 'block';
                             
-                            // Unix Timestamp 보정 (서버시간 기준)
+                            // Unix Timestamp 보정 (KST_OFFSET이 이미 더해졌으므로 UTC 기준으로 파싱)
                             const dt = new Date(param.time * 1000);
-                            const y = dt.getFullYear();
-                            const m = String(dt.getMonth() + 1).padStart(2, '0');
-                            const d = String(dt.getDate()).padStart(2, '0');
-                            const h = String(dt.getHours()).padStart(2, '0');
-                            const mn = String(dt.getMinutes()).padStart(2, '0');
+                            const y = dt.getUTCFullYear();
+                            const m = String(dt.getUTCMonth() + 1).padStart(2, '0');
+                            const d = String(dt.getUTCDate()).padStart(2, '0');
+                            const h = String(dt.getUTCHours()).padStart(2, '0');
+                            const mn = String(dt.getUTCMinutes()).padStart(2, '0');
                             toolTipDate.innerHTML = `${y}-${m}-${d} ${h}:${mn}`;
                             
                             const equity = param.seriesData.get(btLineSeries);
