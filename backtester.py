@@ -164,30 +164,14 @@ class Backtester:
                     'tic_close': 'close', 'tic_volume': 'volume'
                 })
                 
-                # 1.5 3분봉 데이터 처리
+                # 1.5 3분봉 데이터 존재 확인
                 try:
                     group_df['datetime'] = pd.to_datetime(group_df['datetime'])
                     has_db_min3 = all(col in group_df.columns for col in ['min3_open', 'min3_close', 'min3_volume'])
-                    if has_db_min3 and group_df['min3_volume'].notna().sum() > 0:
-                        pass
-                    else:
-                        temp_df = group_df.set_index('datetime')
-                        min3_df = temp_df.resample('3min').agg({
-                            'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'
-                        }).ffill()
-                        
-                        min3_inds = KiwoomIndicatorExtractor.extract_chart_indicators(min3_df)
-                        for k, v in min3_inds.items():
-                            min3_df[k] = v
-                            
-                        min3_df.columns = [f'min3_{c.lower()}' for c in min3_df.columns]
-                        existing_min3 = [c for c in temp_df.columns if c.startswith('min3_')]
-                        temp_df = temp_df.drop(columns=existing_min3)
-                        
-                        group_df = pd.merge_asof(temp_df, min3_df, left_index=True, right_index=True, direction='backward')
-                        group_df = group_df.reset_index()
+                    if not has_db_min3 or group_df['min3_volume'].notna().sum() == 0:
+                        logger.warning(f"{current_code}: DB에 3분봉 데이터가 불충분합니다. 지표 생성 없이 진행합니다.")
                 except Exception as e:
-                    logger.error(f"3분봉 데이터 처리 오류 ({current_code}): {e}")
+                    logger.error(f"3분봉 데이터 확인 오류 ({current_code}): {e}")
                     
                 # 감시 이력 기반 필터링 (IS_MONITORED)
                 if condition_history_df.empty:
@@ -201,13 +185,24 @@ class Backtester:
                         exit_dt = pd.to_datetime(hist_row['exit_time']) if pd.notna(hist_row['exit_time']) else pd.Timestamp.max
                         group_df['IS_MONITORED'] = group_df['IS_MONITORED'] | ((group_df['datetime'] >= entry_dt) & (group_df['datetime'] <= exit_dt))
                         
-                # 2. 기술적 지표 계산
+                # 2. DB 지표를 엔진 변수명으로 매핑 (재계산 방지)
                 try:
-                    indicators = KiwoomIndicatorExtractor.extract_chart_indicators(group_df)
-                    for k, v in indicators.items():
-                        group_df[k] = v
+                    # 틱 지표 및 분봉 지표 매핑 (tic_ma5 -> MA5, min3_rsi -> MIN3_RSI 등)
+                    for col in group_df.columns:
+                        if col.startswith('tic_'):
+                            upper_name = col[4:].upper()
+                            group_df[upper_name] = group_df[col]
+                        elif col.startswith('min3_'):
+                            upper_name = col.upper()
+                            group_df[upper_name] = group_df[col]
+                            
+                    # 특수 지표 변수명 명시적 매핑
+                    if 'tic_velocity' in group_df.columns:
+                        group_df['TICK_VELOCITY'] = group_df['tic_velocity']
+                    if 'tic_relative_position' in group_df.columns:
+                        group_df['RELATIVE_POSITION'] = group_df['tic_relative_position']
                 except Exception as e:
-                    logger.error(f"지표 사전 계산 오류 ({current_code}): {e}")
+                    logger.error(f"지표 매핑 오류 ({current_code}): {e}")
                 
                 n = len(group_df)
                 group_df['AI_SCORE'] = 0.0
@@ -305,6 +300,14 @@ class Backtester:
                         
                         pos = portfolio[current_code]
                         buy_price = pos['buy_price']
+                        
+                        # highest_price 갱신
+                        if current_price > pos.get('highest_price', buy_price):
+                            pos['highest_price'] = current_price
+                        
+                        highest_price = pos['highest_price']
+                        from_peak_pct = (current_price - highest_price) / highest_price * 100.0 if highest_price > 0 else 0.0
+                        
                         real_profit_pct = (current_price - buy_price) / buy_price * 100.0 - 0.2
                         
                         # eval 호환성 locals_dict 구성
@@ -327,6 +330,8 @@ class Backtester:
                         locals_dict['buy_price'] = buy_price
                         locals_dict['buy_time'] = pos['buy_time']
                         locals_dict['holding_amount'] = buy_price * pos['qty']
+                        locals_dict['highest_price'] = highest_price
+                        locals_dict['from_peak_pct'] = from_peak_pct
                         
                         sell_signal = False
                         sell_ratio = 1.0
@@ -450,7 +455,8 @@ class Backtester:
                                             'qty': qty,
                                             'buy_time': current_time_str,
                                             'stg': matched_stg_name,
-                                            'executed_sell_rules': set()
+                                            'executed_sell_rules': set(),
+                                            'highest_price': current_price
                                         }
                 
                 # 3. 현재 틱(time) 처리가 끝났으므로 해당 종목들의 내부 idx 1 증가

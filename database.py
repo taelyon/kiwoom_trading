@@ -23,8 +23,12 @@ class AsyncDatabaseManager:
         # 3분봉 저장 대상 지표 (DB 스키마 및 저장 시 사용)
         self.min_target_indicators = [
             'MA5', 'MA10', 'MA20', 'MA60', 'MA120', 
-            'RSI',
-            'RELATIVE_POSITION'
+            'RSI', 'RSI_SIGNAL',
+            'MACD', 'MACD_SIGNAL', 'MACD_HIST',
+            'BB_UPPER', 'BB_MIDDLE', 'BB_LOWER', 'BB_BANDWIDTH', 'BB_POSITION',
+            'STOCH_K', 'STOCH_D',
+            'WILLIAMS_R', 'ROC', 'OBV', 'OBV_MA20', 'ATR', 'VWAP',
+            'RELATIVE_POSITION', 'KOSPI_CHANGE', 'KOSDAQ_CHANGE'
         ]
         self._conn = None
         self._db_lock = asyncio.Lock()
@@ -158,6 +162,18 @@ class AsyncDatabaseManager:
                 
                 current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 
+                # 감시 이력(monitoring_history) 조회 (필터링 용도)
+                await cursor.execute("SELECT start_time, end_time FROM monitoring_history WHERE code = ?", (code,))
+                history_rows = await cursor.fetchall()
+                monitoring_intervals = []
+                for row in history_rows:
+                    try:
+                        st = datetime.strptime(row[0], '%Y-%m-%d %H:%M:%S')
+                        et = datetime.strptime(row[1], '%Y-%m-%d %H:%M:%S') if row[1] else datetime.max
+                        monitoring_intervals.append((st, et))
+                    except Exception as e:
+                        logging.warning(f"감시 이력 시간 파싱 오류 ({code}): {e}")
+                
                 # 틱봉 데이터 기준으로 저장
                 tic_times = tic_data.get('time', [])
                 tic_opens = tic_data.get('open', [])
@@ -172,19 +188,17 @@ class AsyncDatabaseManager:
                 tic_indicators = [key for key in tic_data.keys() if key not in basic_keys]
                 min_indicators = [key for key in min_data.keys() if key not in basic_keys]
                 
-                # 허용된 지표 목록 (대소문자 구분 없이)
-                # 허용된 지표 목록 (최적화됨: 미사용 지표 제거)
+                # 허용된 지표 목록 (모든 지표 활성화)
                 allowed_indicators = {
                     'MA5', 'MA10', 'MA20', 'MA60', 'MA120',
                     'RSI', 'RSI_SIGNAL',
                     'LAST_TIC_CNT',
                     'VELOCITY', 'RELATIVE_POSITION',
                     'KOSPI_CHANGE', 'KOSDAQ_CHANGE',
-                    # 필요시 주석 해제하여 사용
-                    # 'MACD', 'MACD_SIGNAL', 'MACD_HIST',
-                    # 'BB_UPPER', 'BB_MIDDLE', 'BB_LOWER', 'BB_BANDWIDTH', 'BB_POSITION',
-                    # 'STOCH_K', 'STOCH_D',
-                    # 'WILLIAMS_R', 'ROC', 'OBV', 'OBV_MA20', 'ATR', 'VWAP',
+                    'MACD', 'MACD_SIGNAL', 'MACD_HIST',
+                    'BB_UPPER', 'BB_MIDDLE', 'BB_LOWER', 'BB_BANDWIDTH', 'BB_POSITION',
+                    'STOCH_K', 'STOCH_D',
+                    'WILLIAMS_R', 'ROC', 'OBV', 'OBV_MA20', 'ATR', 'VWAP',
                 }
                 
                 # 지표 이름 정규화 및 필터링
@@ -275,6 +289,19 @@ class AsyncDatabaseManager:
                         except ValueError:
                             continue
                     
+                    # 감시 이력 필터링: tic_dt가 monitoring_intervals 중 하나에 속하는지 검사
+                    is_monitored = False
+                    if not monitoring_intervals:
+                        # 감시 이력이 없으면 전체 허용 (과거 호환성)
+                        is_monitored = True
+                    else:
+                        for st, et in monitoring_intervals:
+                            if st <= tic_dt <= et:
+                                is_monitored = True
+                                break
+                    if not is_monitored:
+                        continue
+                        
                     # 1. 같은 분(minute) 매칭 우선 시도 (O(1))
                     key = (tic_dt.year, tic_dt.month, tic_dt.day, tic_dt.hour, tic_dt.minute)
                     min_idx = min_time_map.get(key, -1)
