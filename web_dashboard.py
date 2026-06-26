@@ -2480,6 +2480,7 @@ HTML_CONTENT = """
         function renderBacktestChart(historyData, trades = [], bnhData = []) {
             try {
                 const wrapper = document.getElementById('btChartContainerWrapper');
+                const KST_OFFSET = 32400;
                 // 강제 리플로우를 발생시켜 clientWidth가 0이 되는 현상 방지
                 if (wrapper) wrapper.offsetHeight; 
                 
@@ -2596,10 +2597,10 @@ HTML_CONTENT = """
                     try {
                         const dateStr = item.time.replace(' ', 'T');
                         const dateObj = new Date(dateStr + '+09:00');
-                        t = Math.floor(dateObj.getTime() / 1000);
+                        t = Math.floor(dateObj.getTime() / 1000) + KST_OFFSET;
                         if (isNaN(t)) {
                             // Safari fallback
-                            t = Math.floor(new Date(item.time).getTime() / 1000);
+                            t = Math.floor(new Date(item.time).getTime() / 1000) + KST_OFFSET;
                         }
                     } catch (e) { continue; }
                     
@@ -2622,8 +2623,8 @@ HTML_CONTENT = """
                         try {
                             const dateStr = item.time.replace(' ', 'T');
                             const dateObj = new Date(dateStr + '+09:00');
-                            t = Math.floor(dateObj.getTime() / 1000);
-                            if (isNaN(t)) t = Math.floor(new Date(item.time).getTime() / 1000);
+                            t = Math.floor(dateObj.getTime() / 1000) + KST_OFFSET;
+                            if (isNaN(t)) t = Math.floor(new Date(item.time).getTime() / 1000) + KST_OFFSET;
                         } catch (e) { continue; }
                         
                         if (isNaN(t)) continue;
@@ -2658,8 +2659,8 @@ HTML_CONTENT = """
                         try {
                             const dateStr = timeStr.replace(' ', 'T');
                             const dateObj = new Date(dateStr + '+09:00');
-                            tSec = Math.floor(dateObj.getTime() / 1000);
-                            if(isNaN(tSec)) tSec = Math.floor(new Date(timeStr).getTime() / 1000);
+                            tSec = Math.floor(dateObj.getTime() / 1000) + KST_OFFSET;
+                            if(isNaN(tSec)) tSec = Math.floor(new Date(timeStr).getTime() / 1000) + KST_OFFSET;
                         } catch(e) { return; }
                         
                         if (isNaN(tSec) || !validTimes.has(tSec)) return;
