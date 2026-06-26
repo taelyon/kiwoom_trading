@@ -186,7 +186,9 @@ class Backtester:
                         
                         group_df = pd.merge_asof(temp_df, min3_df, left_index=True, right_index=True, direction='backward')
                         group_df = group_df.reset_index()
-                        
+                except Exception as e:
+                    logger.error(f"3분봉 데이터 처리 오류 ({current_code}): {e}")
+                    
                 # 조건검색 이력 기반 필터링 (IS_MONITORED)
                 group_df['IS_MONITORED'] = False
                 if not condition_history_df.empty:
@@ -195,9 +197,7 @@ class Backtester:
                         entry_dt = pd.to_datetime(hist_row['entry_time'])
                         exit_dt = pd.to_datetime(hist_row['exit_time']) if pd.notna(hist_row['exit_time']) else pd.Timestamp.max
                         group_df['IS_MONITORED'] = group_df['IS_MONITORED'] | ((group_df['datetime'] >= entry_dt) & (group_df['datetime'] <= exit_dt))
-                except Exception as e:
-                    logger.error(f"3분봉 데이터 처리 오류 ({current_code}): {e}")
-                    
+                        
                 # 2. 기술적 지표 계산
                 try:
                     indicators = KiwoomIndicatorExtractor.extract_chart_indicators(group_df)
