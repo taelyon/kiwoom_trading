@@ -1534,7 +1534,7 @@ HTML_CONTENT = """
                         </div>
 
                         <div style="margin-top: 16px;">
-                            <button id="btnRunBacktest" class="btn-primary" style="width: 100%; padding: 14px; font-size: 15px; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 8px; box-shadow: 0 4px 16px rgba(0, 242, 254, 0.2);" onclick="startBacktest()">🚀 백테스트 실행</button>
+                            <button id="btnRunBacktest" class="btn-primary" style="width: 100%; padding: 14px; font-size: 15px; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 8px; box-shadow: 0 4px 16px rgba(0, 242, 254, 0.2);" onclick="toggleBacktest()">🚀 백테스트 실행</button>
                         </div>
                     </div>
                 </div>
@@ -1825,6 +1825,15 @@ HTML_CONTENT = """
                             console.error("배치 렌더링 실패:", e);
                         }
                     }
+                } else if (data.type === 'backtest_error') {
+                    isBacktesting = false;
+                    document.getElementById('btnRunBacktest').disabled = false;
+                    document.getElementById('btnRunBacktest').innerText = '🚀 백테스트 실행';
+                    document.getElementById('btnRunBacktest').style.backgroundColor = '';
+                    document.getElementById('btnRunBacktest').style.color = '';
+                    
+                    document.getElementById('btProgressText').innerText = `오류 발생: ${data.error}`;
+                    document.getElementById('btProgressText').style.color = 'var(--primary)';
                 } else if (data.type === 'settings') {
                     applySettingsToUI(data.settings);
                 } else if (data.type === 'strategy_detail') {
@@ -1877,8 +1886,11 @@ HTML_CONTENT = """
                     document.getElementById('btLogsBox').style.display = 'none';
                     document.getElementById('btProgressText').innerText = `[${data.progress}%] ${data.msg}`;
                 } else if (data.type === 'backtest_result') {
+                    isBacktesting = false;
                     document.getElementById('btnRunBacktest').disabled = false;
                     document.getElementById('btnRunBacktest').innerText = '🚀 백테스트 실행';
+                    document.getElementById('btnRunBacktest').style.backgroundColor = '';
+                    document.getElementById('btnRunBacktest').style.color = '';
                     
                     if (data.data.error) {
                         document.getElementById('btProgressText').innerText = `오류 발생: ${data.data.error}`;
@@ -3394,6 +3406,19 @@ HTML_CONTENT = """
         }
 
         // 백테스팅 함수
+        let isBacktesting = false;
+        function toggleBacktest() {
+            if (isBacktesting) {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ type: 'stop_backtest' }));
+                }
+                document.getElementById('btnRunBacktest').disabled = true;
+                document.getElementById('btnRunBacktest').innerText = '중단 중...';
+                return;
+            }
+            startBacktest();
+        }
+
         function startBacktest() {
             const startDate = document.getElementById('btStartDate').value;
             const endDate = document.getElementById('btEndDate').value;
@@ -3404,8 +3429,11 @@ HTML_CONTENT = """
                 return;
             }
             
-            document.getElementById('btnRunBacktest').disabled = true;
-            document.getElementById('btnRunBacktest').innerText = '실행 중...';
+            isBacktesting = true;
+            document.getElementById('btnRunBacktest').disabled = false;
+            document.getElementById('btnRunBacktest').innerText = '🛑 백테스트 중단';
+            document.getElementById('btnRunBacktest').style.backgroundColor = '#ff5252';
+            document.getElementById('btnRunBacktest').style.color = '#fff';
             
                     document.getElementById('btResultContent').style.display = 'flex';
             
@@ -3766,6 +3794,8 @@ async def _send_chart_history_to_ws(ws, code, chart_cache):
         logging.error(f"❌ 차트 역사 데이터 전송 실패 ({code}): {e}", exc_info=True)
         return False
 
+active_backtests = {}
+
 async def websocket_handler(websocket):
     """WebSocket 신규 클라이언트 처리 및 실시간 동기화 루프"""
     global main_window_ref
@@ -4017,7 +4047,15 @@ async def websocket_handler(websocket):
                     
                     ctx = mp.get_context('spawn')
                     q = ctx.Queue()
+                    global active_backtests
+                    if websocket in active_backtests:
+                        old_p = active_backtests[websocket]
+                        if old_p.is_alive():
+                            old_p.terminate()
+                            old_p.join(timeout=1.0)
+                            
                     p = ctx.Process(target=run_backtest_process_worker, args=(q, start_date, end_date, code, custom_buy, custom_sell, initial_capital, buycount), daemon=True)
+                    active_backtests[websocket] = p
                     p.start()
                     
                     async def monitor_backtest_process():
@@ -4047,6 +4085,9 @@ async def websocket_handler(websocket):
                             p.join(timeout=1.0)
                             if p.is_alive():
                                 p.terminate()
+                                
+                            if active_backtests.get(websocket) == p:
+                                del active_backtests[websocket]
                         except Exception as e:
                             logging.error(f"백테스팅 모니터링 태스크 오류: {e}", exc_info=True)
                     
@@ -4055,6 +4096,20 @@ async def websocket_handler(websocket):
                         main_loop.create_task(monitor_backtest_process())
                     else:
                         asyncio.create_task(monitor_backtest_process())
+
+                elif msg_type == 'stop_backtest':
+                    global active_backtests
+                    p = active_backtests.pop(websocket, None)
+                    if p and p.is_alive():
+                        logging.info("사용자 요청으로 백테스트 프로세스 중단")
+                        p.terminate()
+                        p.join(timeout=1.0)
+                        
+                        await safe_send(websocket, json.dumps({
+                            "type": "backtest_error",
+                            "error": "사용자에 의해 백테스팅이 중단되었습니다.",
+                            "traceback": ""
+                        }))
 
                 elif msg_type == 'get_trade_history':
                     start_date = data.get('start_date')
