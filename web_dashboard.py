@@ -1984,7 +1984,7 @@ HTML_CONTENT = """
                     
                 } else if (data.type === 'ml_progress') {
                     const term = document.getElementById('mlTerminal');
-                    term.innerText += data.msg + "\n";
+                    term.innerText += data.msg + "\\n";
                     term.scrollTop = term.scrollHeight;
                     
                     // msg 내부에 퍼센티지(예: 35%)가 있다면 추출하여 프로그레스바 반영 (선택사항)
@@ -2003,11 +2003,11 @@ HTML_CONTENT = """
                     
                     const term = document.getElementById('mlTerminal');
                     if (data.success) {
-                        term.innerText += "\n✅ 학습이 성공적으로 완료되었습니다!\n" + data.msg + "\n";
+                        term.innerText += "\\n✅ 학습이 성공적으로 완료되었습니다!\\n" + data.msg + "\\n";
                         document.getElementById('mlProgressBar').style.width = '100%';
                         document.getElementById('mlProgressText').innerText = '100% 완료';
                     } else {
-                        term.innerText += "\n❌ 학습 중 문제가 발생했습니다.\n" + data.msg + "\n";
+                        term.innerText += "\\n❌ 학습 중 문제가 발생했습니다.\\n" + data.msg + "\\n";
                     }
                     term.scrollTop = term.scrollHeight;
                     
@@ -2018,7 +2018,7 @@ HTML_CONTENT = """
                     document.getElementById('btnRunMlTrain').style.backgroundColor = '';
                     
                     const term = document.getElementById('mlTerminal');
-                    term.innerText += "\n❌ 치명적 오류 발생:\n" + data.error + "\n" + (data.traceback || "") + "\n";
+                    term.innerText += "\\n❌ 치명적 오류 발생:\\n" + data.error + "\\n" + (data.traceback || "") + "\\n";
                     term.scrollTop = term.scrollHeight;
                     
                 } else if (data.type === 'trade_history_data') {
@@ -3587,7 +3587,7 @@ HTML_CONTENT = """
         function startMlTrain() {
             if (isMlTraining) return;
             
-            if (!confirm("저장된 최신 DB 데이터로 머신러닝(LightGBM) 재학습을 시작하시겠습니까?\n이 과정은 데이터 양에 따라 몇 분 정도 소요될 수 있습니다.")) {
+            if (!confirm("저장된 최신 DB 데이터로 머신러닝(LightGBM) 재학습을 시작하시겠습니까?\\n이 과정은 데이터 양에 따라 몇 분 정도 소요될 수 있습니다.")) {
                 return;
             }
             
@@ -3599,7 +3599,7 @@ HTML_CONTENT = """
             document.getElementById('mlProgressContainer').style.display = 'block';
             document.getElementById('mlProgressBar').style.width = '0%';
             document.getElementById('mlProgressText').innerText = '0%';
-            document.getElementById('mlTerminal').innerText = "🚀 모델 재학습(ML Training) 프로세스를 시작합니다...\n\n";
+            document.getElementById('mlTerminal').innerText = "🚀 모델 재학습(ML Training) 프로세스를 시작합니다...\\n\\n";
             
             const payload = {
                 type: 'run_ml_train'
