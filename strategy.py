@@ -1,4 +1,4 @@
-﻿import logging
+import logging
 import asyncio
 from config_manager import EnvConfigParser
 import json
@@ -184,23 +184,13 @@ class KiwoomStrategy:
                     del self._temp_blocked_codes[code]
                     self.logger.debug(f"🔓 [{code}] 전략 평가 일시 차단 해제")
             
-            # 매수 신호 평가 (is_buy_check_allowed가 True일 때만 실행)
             if is_buy_check_allowed:
-                # [추가] 글로벌 계좌 서킷 브레이커 발동 중이면 신규 매수 전면 차단
-                is_circuit_breaker_active = False
-                if hasattr(self.parent, 'autotrader') and self.parent.autotrader:
-                    is_circuit_breaker_active = getattr(self.parent.autotrader, 'circuit_breaker_triggered', False)
-                    
-                if is_circuit_breaker_active:
-                    if is_first_eval:
-                        self.logger.warning(f"🚨 [{code}] 서킷 브레이커 발동 중으로 신규 매수 진입이 전면 차단되었습니다.")
-                else:
-                    buy_signals = await self.get_buy_signals(code, market_data, effective_strategy_name)
-                    if buy_signals:
-                        self.logger.debug(f"📈 [{code}] 매수 신호 {len(buy_signals)}개 발견")
-                        await self.execute_buy_signals(code, buy_signals)
-                    elif is_first_eval:
-                        self.logger.debug(f"ℹ️ [{code}] 매수 조건 미충족")
+                buy_signals = await self.get_buy_signals(code, market_data, effective_strategy_name)
+                if buy_signals:
+                    self.logger.debug(f"📈 [{code}] 매수 신호 {len(buy_signals)}개 발견")
+                    await self.execute_buy_signals(code, buy_signals)
+                elif is_first_eval:
+                    self.logger.debug(f"ℹ️ [{code}] 매수 조건 미충족")
             
             # 매도 신호 평가 (보유 종목인 경우에만)
             portfolio = self.trader.get_portfolio_status()
