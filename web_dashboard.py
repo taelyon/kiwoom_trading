@@ -3785,7 +3785,7 @@ async def _send_chart_history_to_ws(ws, code, chart_cache):
             if not hasattr(ws, 'sent_chart_history'):
                 ws.sent_chart_history = {}
             ws.sent_chart_history[code] = True
-            logging.info(f"✅ [차트전송] {code} 차트 히스토리 전송 성공 (틱:{len(tic_history)}개, 분봉:{len(min_history)}개)")
+            logging.debug(f"✅ [차트전송] {code} 차트 히스토리 전송 성공 (틱:{len(tic_history)}개, 분봉:{len(min_history)}개)")
             return True
         else:
             logging.warning(f"⚠️ [차트전송] {code} 캐시에서 읽었지만 가공 결과가 빈 배열입니다! (tic_data close건수: {len(tic_data.get('close', []) if tic_data else [])}, min_data close건수: {len(min_data.get('close', []) if min_data else [])}) → 프론트엔드에 아무것도 전송하지 않음 (로딩 오버레이 무한대기 발생!)")
@@ -3801,7 +3801,7 @@ async def websocket_handler(websocket):
     global main_window_ref
     import time
     handler_start_time = time.time()
-    logging.info(f"[WS PROFILE SERVER] 새 대시보드 웹 브라우저 연결 수락됨 (시각: {datetime.now().strftime('%H:%M:%S.%f')[:-3]})")
+    logging.debug(f"[WS PROFILE SERVER] 새 대시보드 웹 브라우저 연결 수락됨 (시각: {datetime.now().strftime('%H:%M:%S.%f')[:-3]})")
     
     authenticated = False
     
@@ -3813,7 +3813,7 @@ async def websocket_handler(websocket):
                 msg_type = data.get('type')
                 
                 if msg_type not in ('ping', 'run_backtest'):
-                    logging.info(f"📨 [WS 수신] 메시지 수신됨: type={msg_type}, 전체내용={data}")
+                    logging.debug(f"📨 [WS 수신] 메시지 수신됨: type={msg_type}, 전체내용={data}")
                 elif msg_type == 'run_backtest':
                     logging.debug(f"📨 [WS 수신] 백테스팅 실행 요청 수신: code={data.get('code')}")
                 
@@ -3830,7 +3830,7 @@ async def websocket_handler(websocket):
                     
                     if is_match:
                         authenticated = True
-                        logging.info(f"[WS PROFILE SERVER] 대시보드 로그인 성공! (연결 브라우저: {len(connected_clients) + 1}개, 비밀번호 검증 소요: {(auth_eval_time - auth_start_time)*1000:.1f}ms)")
+                        logging.debug(f"[WS PROFILE SERVER] 대시보드 로그인 성공! (연결 브라우저: {len(connected_clients) + 1}개, 비밀번호 검증 소요: {(auth_eval_time - auth_start_time)*1000:.1f}ms)")
                         
                         send_start = time.time()
                         await safe_send(websocket, json.dumps({
@@ -3838,7 +3838,7 @@ async def websocket_handler(websocket):
                             "success": True
                         }))
                         send_end = time.time()
-                        logging.info(f"[WS PROFILE SERVER] auth_result 송신 완료 (소요: {(send_end - send_start)*1000:.1f}ms)")
+                        logging.debug(f"[WS PROFILE SERVER] auth_result 송신 완료 (소요: {(send_end - send_start)*1000:.1f}ms)")
                         
                         # 프론트엔드가 로그인 화면을 지우고 메인 대시보드 껍데기를 화면에 그릴(Paint) 수 있도록
                         # 0.5초의 숨통(이벤트 양보)을 열어줍니다. 이 짧은 시간 덕분에 체감 속도가 0.1초가 됩니다.
@@ -3850,7 +3850,7 @@ async def websocket_handler(websocket):
                         status_mid = time.time()
                         await safe_send(websocket, json.dumps(status_data))
                         status_end = time.time()
-                        logging.info(f"[WS PROFILE SERVER] status 데이터 수집 소요: {(status_mid - status_start)*1000:.1f}ms, 송신 소요: {(status_end - status_mid)*1000:.1f}ms")
+                        logging.debug(f"[WS PROFILE SERVER] status 데이터 수집 소요: {(status_mid - status_start)*1000:.1f}ms, 송신 소요: {(status_end - status_mid)*1000:.1f}ms")
                         
                         # 최근 로그 스트리밍 일괄 전송 (배치) - 최대 100개로 제한
                         log_batch_start = time.time()
@@ -3871,7 +3871,7 @@ async def websocket_handler(websocket):
                             
                         websocket.last_sent_log_id = last_id
                         log_batch_end = time.time()
-                        logging.info(f"🔑 [WS PROFILE SERVER] log_batch 전송 소요: {(log_batch_end - log_batch_start)*1000:.1f}ms")
+                        logging.debug(f"🔑 [WS PROFILE SERVER] log_batch 전송 소요: {(log_batch_end - log_batch_start)*1000:.1f}ms")
                         
                         # 초기 데이터 전송 완료 후 브로드캐스트 리스트에 등록하여 동시 전송 레이스 방지
                         connected_clients.add(websocket)
@@ -3882,7 +3882,7 @@ async def websocket_handler(websocket):
                             async def _prefetch_charts_async():
                                 for m_code in app.monitoring_manager.monitored_stocks:
                                     if m_code not in app.chart_cache.cache or not app.chart_cache.cache[m_code].get('tic_data'):
-                                        logging.info(f"📡 대시보드 로그인 사전 수집(Pre-fetching) 트리거: {m_code} 백그라운드 차트 조회 시작")
+                                        logging.debug(f"📡 대시보드 로그인 사전 수집(Pre-fetching) 트리거: {m_code} 백그라운드 차트 조회 시작")
                                         # 메인 이벤트 루프에서 안전하게 실행 (asyncio 충돌 방지)
                                         await app.chart_cache._collect_chart_data_internal(m_code, force=True)
                                         await asyncio.sleep(1.2) # 과부하 방지 안전 마진 딜레이
@@ -3893,7 +3893,7 @@ async def websocket_handler(websocket):
                         # 로그인 감지 시 종목 마스터 캐시 맵이 비어 있다면 즉각 비동기 충전 기동
                         if app and hasattr(app, 'data_manager') and app.data_manager:
                             if not app.data_manager.stock_code_map:
-                                logging.info("📡 대시보드 로그인 감지: 종목 마스터 캐시가 비어 있어 비동기 로딩을 개시합니다.")
+                                logging.debug("📡 대시보드 로그인 감지: 종목 마스터 캐시가 비어 있어 비동기 로딩을 개시합니다.")
                                 from utils import create_fire_and_forget_task
                                 create_fire_and_forget_task(app.data_manager._cache_all_stock_codes_async())
                     else:
@@ -4353,7 +4353,7 @@ async def websocket_handler(websocket):
                     
                 elif msg_type == 'subscribe_chart':
                     code = data.get('code')
-                    logging.info(f"📡 [차트구독] 프론트엔드로부터 'subscribe_chart' 요청 받음: {code}")
+                    logging.debug(f"📡 [차트구독] 프론트엔드로부터 'subscribe_chart' 요청 받음: {code}")
                     if code:
                         subscribed_charts[websocket] = code
                         # 해당 웹소켓의 역사적 데이터 전송 여부 초기화
@@ -4379,14 +4379,14 @@ async def websocket_handler(websocket):
                                     min_len = len(min_raw.get('close', []))
                             
                             cache_hit = in_cache and has_tic and has_min
-                            logging.info(f"📡 [차트구독] {code} 캐시 판정: in_cache={in_cache}, has_tic={has_tic}(건수:{tic_len}), has_min={has_min}(건수:{min_len}), cache_hit={cache_hit}")
+                            logging.debug(f"📡 [차트구독] {code} 캐시 판정: in_cache={in_cache}, has_tic={has_tic}(건수:{tic_len}), has_min={has_min}(건수:{min_len}), cache_hit={cache_hit}")
                             
                             if cache_hit:
                                 # 캐시에 데이터가 있으면 즉시 전송
                                 if tic_len == 0 and min_len == 0:
                                     logging.warning(f"⚠️ [차트구독] {code} 캐시 히트이지만 실제 데이터가 빈 깡통입니다! (tic_data/min_data가 빈 리스트)")
                                 send_result = await _send_chart_history_to_ws(websocket, code, app.chart_cache)
-                                logging.info(f"📡 [차트구독] {code} 캐시 히트 → 즉시 전송 결과: {send_result}")
+                                logging.debug(f"📡 [차트구독] {code} 캐시 히트 → 즉시 전송 결과: {send_result}")
                             else:
                                 # 캐시에 데이터가 없으면 비동기 수집 후 자동 전송
                                 async def _fetch_and_send(ws, chart_code, chart_cache):
@@ -4418,7 +4418,7 @@ async def websocket_handler(websocket):
                 elif msg_type == 'frontend_log':
                     msg = data.get('message', '')
                     if msg:
-                        logging.info(f"💻 {msg}")
+                        logging.debug(f"💻 {msg}")
 
             except Exception as inner_ex:
                 logging.error(f"대시보드 웹소켓 메시지 처리 오류: {inner_ex}", exc_info=True)
@@ -4436,7 +4436,7 @@ async def websocket_handler(websocket):
             del subscribed_charts[websocket]
         client_locks.pop(websocket, None)
 
-        logging.info(f"[WS PROFILE SERVER] 대시보드 웹 브라우저 연결 종료 [코드:{close_code}] (현재 연결 브라우저: {len(connected_clients)}개)")
+        logging.debug(f"[WS PROFILE SERVER] 대시보드 웹 브라우저 연결 종료 [코드:{close_code}] (현재 연결 브라우저: {len(connected_clients)}개)")
 
 # 차트 데이터 업데이트 통보 처리 (TradingApp 단에서 이벤트를 쏠 때 호출됨)
 def on_chart_data_updated(code):
@@ -4536,7 +4536,7 @@ def on_chart_data_updated(code):
                 sent_history = getattr(ws, 'sent_chart_history', {})
                 if not sent_history.get(code):
                     try:
-                        logging.info(f"🔔 [시그널경로] {code} data_updated 시그널에서 비동기 헬퍼를 통해 역사적 데이터 전송 개시")
+                        logging.debug(f"🔔 [시그널경로] {code} data_updated 시그널에서 비동기 헬퍼를 통해 역사적 데이터 전송 개시")
                         # _send_chart_history_to_ws는 내부에서 배열 변환을 비동기 환경에서 수행하므로 블로킹 방지
                         await _send_chart_history_to_ws(ws, code, main_window_ref.chart_cache)
                     except Exception:

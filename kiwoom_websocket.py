@@ -2233,7 +2233,7 @@ class KiwoomWebSocketClient:
                         msg = _json.dumps(settings_payload)
                         for client in list(connected_clients):
                             create_fire_and_forget_task(safe_send(client, msg))
-                        self.logger.info(f"📡 조건검색 목록 로드 완료 → 대시보드 {len(connected_clients)}개 클라이언트에 설정 자동 푸쉬")
+                        self.logger.debug(f"📡 조건검색 목록 로드 완료 → 대시보드 {len(connected_clients)}개 클라이언트에 설정 자동 푸쉬")
                 except Exception as push_err:
                     self.logger.debug(f"대시보드 설정 푸쉬 실패 (무시 가능): {push_err}")
             
@@ -2313,19 +2313,19 @@ class KiwoomWebSocketClient:
                 else:
                     self.logger.warning(f"⚠️ 종목 데이터가 딕셔너리가 아님: {type(item)} - {item}")
             
-            self.logger.info(f"📊 조건검색 처리 완료: {len(stock_list)}개 종목 추출됨")
+            self.logger.debug(f"📊 조건검색 처리 완료: {len(stock_list)}개 종목 추출됨")
             
             if stock_list:
-                self.logger.info(f"✅ 조건검색 실시간 요청 성공: {len(stock_list)}개 종목 발견")
+                self.logger.debug(f"✅ 조건검색 실시간 요청 성공: {len(stock_list)}개 종목 발견")
                 
                 # 부모 윈도우에 조건검색 결과 전달 및 API 큐에 추가
                 if hasattr(self, 'parent') and self.parent:
                     # 현재 조건검색 이름 가져오기
                     condition_name = self.parent.current_condition_name if hasattr(self.parent, 'current_condition_name') else None
                     if condition_name:
-                        self.logger.info(f"🔧 조건검색 '{condition_name}'의 종목들을 API 큐에 추가 시작")
+                        self.logger.debug(f"🔧 조건검색 '{condition_name}'의 종목들을 API 큐에 추가 시작")
                     else:
-                        self.logger.info("🔧 부모 윈도우에 API 큐 추가 시작") # type: ignore
+                        self.logger.debug("🔧 부모 윈도우에 API 큐 추가 시작") # type: ignore
                     
                     # 조건검색 결과를 API 큐에 추가 (차트 데이터 수집 후 모니터링에 추가됨)
                     added_count = 0
@@ -2365,7 +2365,7 @@ class KiwoomWebSocketClient:
                                 result = self.parent.chart_cache.add_stock_to_api_queue(stock['code'])
                                 if result:
                                     added_count += 1
-                                    self.logger.info(f"✅ API 큐 추가 성공: {stock['code']}")
+                                    self.logger.debug(f"✅ API 큐 추가 성공: {stock['code']}")
                                 else:
                                     # 중복이거나 이미 모니터링에 존재하는 경우
                                     self.logger.debug(f"ℹ️ API 큐 추가 건너뜀 (중복 또는 이미 존재): {stock['code']}")
@@ -2373,7 +2373,7 @@ class KiwoomWebSocketClient:
                             else:
                                 self.logger.error(f"❌ chart_cache가 없습니다: {stock['code']}")
                     
-                    self.logger.info(f"✅ 조건검색 실시간 결과 API 큐 추가 완료: {added_count}개 종목 추가")
+                    self.logger.debug(f"✅ 조건검색 실시간 결과 API 큐 추가 완료: {added_count}개 종목 추가")
                    
                 else:
                     self.logger.error("❌ 부모 윈도우가 없습니다")
