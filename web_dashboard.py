@@ -1682,7 +1682,7 @@ HTML_CONTENT = """
                 </table>
             </div>
         </div>
-
+    </div> <!-- // tradeHistoryModal 종료 -->
         <!-- 4. ML AI 학습 뷰 -->
         <div id="mlTrainView" class="view-container view-hidden">
             <div class="view-header">
