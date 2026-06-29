@@ -23,12 +23,7 @@ class AsyncDatabaseManager:
         # 3분봉 저장 대상 지표 (DB 스키마 및 저장 시 사용)
         self.min_target_indicators = [
             'MA5', 'MA10', 'MA20', 'MA60', 'MA120', 
-            'RSI', 'RSI_SIGNAL',
-            'MACD', 'MACD_SIGNAL', 'MACD_HIST',
-            'BB_UPPER', 'BB_MIDDLE', 'BB_LOWER', 'BB_BANDWIDTH', 'BB_POSITION',
-            'STOCH_K', 'STOCH_D',
-            'WILLIAMS_R', 'ROC', 'OBV', 'OBV_MA20', 'ATR', 'VWAP',
-            'RELATIVE_POSITION', 'KOSPI_CHANGE', 'KOSDAQ_CHANGE'
+            'RSI', 'RELATIVE_POSITION'
         ]
         self._conn = None
         self._db_lock = asyncio.Lock()
@@ -191,14 +186,9 @@ class AsyncDatabaseManager:
                 # 허용된 지표 목록 (모든 지표 활성화)
                 allowed_indicators = {
                     'MA5', 'MA10', 'MA20', 'MA60', 'MA120',
-                    'RSI', 'RSI_SIGNAL',
-                    'LAST_TIC_CNT',
+                    'RSI', 'LAST_TIC_CNT',
                     'VELOCITY', 'RELATIVE_POSITION',
-                    'KOSPI_CHANGE', 'KOSDAQ_CHANGE',
-                    'MACD', 'MACD_SIGNAL', 'MACD_HIST',
-                    'BB_UPPER', 'BB_MIDDLE', 'BB_LOWER', 'BB_BANDWIDTH', 'BB_POSITION',
-                    'STOCH_K', 'STOCH_D',
-                    'WILLIAMS_R', 'ROC', 'OBV', 'OBV_MA20', 'ATR', 'VWAP',
+                    'MACD', 'MACD_SIGNAL', 'MACD_HIST'
                 }
                 
                 # 지표 이름 정규화 및 필터링
