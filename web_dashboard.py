@@ -1981,7 +1981,6 @@ HTML_CONTENT = """
                     } else {
                         document.getElementById('btLogsBox').style.display = 'none';
                     }
-                    }
                     
                 } else if (data.type === 'ml_progress') {
                     const term = document.getElementById('mlTerminal');
