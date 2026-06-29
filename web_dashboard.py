@@ -40,6 +40,32 @@ def run_backtest_process_worker(q, s_date, e_date, c, buy_stg=None, sell_stg=Non
             "error": str(e),
             "traceback": traceback.format_exc()
         })
+def run_ml_train_process_worker(q):
+    """독립된 프로세스에서 MLTrainerWorker를 실행하고 큐를 통해 상태를 보고하는 워커 함수"""
+    try:
+        from ml_trainer import MLTrainerWorker
+        
+        def on_progress(msg):
+            q.put({
+                "type": "ml_progress",
+                "msg": msg
+            })
+            
+        def on_finished(success, msg):
+            q.put({
+                "type": "ml_result",
+                "success": success,
+                "msg": msg
+            })
+            
+        trainer = MLTrainerWorker(on_progress=on_progress, on_finished=on_finished)
+        trainer.run()
+    except Exception as e:
+        q.put({
+            "type": "ml_error",
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        })
 
 def datetime_to_timestamp(dt_val):
     """다양한 형식의 날짜/시간 값을 Unix 타임스탬프(초, 정수)로 변환 (Lightweight Charts v4 호환용)"""
@@ -1657,6 +1683,35 @@ HTML_CONTENT = """
         </div>
     </div>
 
+    <!-- 4. ML AI 학습 뷰 -->
+    <div id="mlTrainView" class="view-container view-hidden">
+        <div class="view-header">
+            <h2>🧠 AI 모델 재학습 (LightGBM)</h2>
+            <div style="font-size: 13px; color: #a0a5b1;">저장된 DB 데이터로 AI 모델을 새로 학습시켜 최신 타점을 확보합니다.</div>
+        </div>
+        
+        <div class="card" style="margin-bottom: 20px;">
+            <div class="card-header">학습 제어</div>
+            <div style="padding: 15px;">
+                <button id="btnRunMlTrain" class="btn-primary" style="width: 100%; padding: 14px; font-size: 15px; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 8px; box-shadow: 0 4px 16px rgba(0, 242, 254, 0.2);" onclick="startMlTrain()">🚀 최신 데이터로 모델 재학습 시작</button>
+                <div id="mlProgressContainer" style="margin-top: 20px; display: none;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px;">
+                        <span>학습 진행률</span>
+                        <span id="mlProgressText">0%</span>
+                    </div>
+                    <div style="width: 100%; height: 8px; background: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden;">
+                        <div id="mlProgressBar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #00f2fe 0%, #4facfe 100%); transition: width 0.3s ease;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="card-header">학습 로그 터미널</div>
+            <div id="mlTerminal" style="padding: 15px; height: 400px; overflow-y: auto; background-color: #0b0f19; color: #00ff00; font-family: 'Consolas', 'Courier New', monospace; font-size: 13px; border-bottom-left-radius: 12px; border-bottom-right-radius: 12px; border: 1px solid rgba(255,255,255,0.05); white-space: pre-wrap;">대기 중...</div>
+        </div>
+    </div>
+
     <script>
         let ws;
         let chart;
@@ -1926,6 +1981,46 @@ HTML_CONTENT = """
                     } else {
                         document.getElementById('btLogsBox').style.display = 'none';
                     }
+                    }
+                    
+                } else if (data.type === 'ml_progress') {
+                    const term = document.getElementById('mlTerminal');
+                    term.innerText += data.msg + "\n";
+                    term.scrollTop = term.scrollHeight;
+                    
+                    // msg 내부에 퍼센티지(예: 35%)가 있다면 추출하여 프로그레스바 반영 (선택사항)
+                    const percentMatch = data.msg.match(/([0-9]+)%/);
+                    if (percentMatch) {
+                        const pct = percentMatch[1] + "%";
+                        document.getElementById('mlProgressBar').style.width = pct;
+                        document.getElementById('mlProgressText').innerText = pct;
+                    }
+                    
+                } else if (data.type === 'ml_result') {
+                    isMlTraining = false;
+                    document.getElementById('btnRunMlTrain').disabled = false;
+                    document.getElementById('btnRunMlTrain').innerText = '🚀 최신 데이터로 모델 재학습 시작';
+                    document.getElementById('btnRunMlTrain').style.backgroundColor = '';
+                    
+                    const term = document.getElementById('mlTerminal');
+                    if (data.success) {
+                        term.innerText += "\n✅ 학습이 성공적으로 완료되었습니다!\n" + data.msg + "\n";
+                        document.getElementById('mlProgressBar').style.width = '100%';
+                        document.getElementById('mlProgressText').innerText = '100% 완료';
+                    } else {
+                        term.innerText += "\n❌ 학습 중 문제가 발생했습니다.\n" + data.msg + "\n";
+                    }
+                    term.scrollTop = term.scrollHeight;
+                    
+                } else if (data.type === 'ml_error') {
+                    isMlTraining = false;
+                    document.getElementById('btnRunMlTrain').disabled = false;
+                    document.getElementById('btnRunMlTrain').innerText = '🚀 최신 데이터로 모델 재학습 시작';
+                    document.getElementById('btnRunMlTrain').style.backgroundColor = '';
+                    
+                    const term = document.getElementById('mlTerminal');
+                    term.innerText += "\n❌ 치명적 오류 발생:\n" + data.error + "\n" + (data.traceback || "") + "\n";
+                    term.scrollTop = term.scrollHeight;
                     
                 } else if (data.type === 'trade_history_data') {
                     const thead = document.getElementById('tradeHistoryHead');
@@ -2710,9 +2805,13 @@ HTML_CONTENT = """
         function switchTab(tabId) {
             document.getElementById('tabLive').classList.remove('active');
             document.getElementById('tabBacktest').classList.remove('active');
+            document.getElementById('tabSettings').classList.remove('active');
+            document.getElementById('tabMlTrain').classList.remove('active');
             
             document.getElementById('liveView').classList.add('view-hidden');
             document.getElementById('backtestView').classList.add('view-hidden');
+            document.getElementById('settingsView').classList.add('view-hidden');
+            document.getElementById('mlTrainView').classList.add('view-hidden');
             
             if (tabId === 'live') {
                 document.getElementById('tabLive').classList.add('active');
@@ -2720,6 +2819,12 @@ HTML_CONTENT = """
             } else if (tabId === 'backtest') {
                 document.getElementById('tabBacktest').classList.add('active');
                 document.getElementById('backtestView').classList.remove('view-hidden');
+            } else if (tabId === 'settings') {
+                document.getElementById('tabSettings').classList.add('active');
+                document.getElementById('settingsView').classList.remove('view-hidden');
+            } else if (tabId === 'mlTrain') {
+                document.getElementById('tabMlTrain').classList.add('active');
+                document.getElementById('mlTrainView').classList.remove('view-hidden');
             }
         }
 
@@ -3469,6 +3574,39 @@ HTML_CONTENT = """
             
             ws.send(JSON.stringify(payload));
         }
+
+        // ML 학습 제어 함수
+        let isMlTraining = false;
+        function toggleMlTrain() {
+            if (isMlTraining) {
+                // 백테스트처럼 중단 기능이 필요하다면 추가할 수 있으나, 일단 버튼 비활성화로 방어
+                return;
+            }
+            startMlTrain();
+        }
+
+        function startMlTrain() {
+            if (isMlTraining) return;
+            
+            if (!confirm("저장된 최신 DB 데이터로 머신러닝(LightGBM) 재학습을 시작하시겠습니까?\n이 과정은 데이터 양에 따라 몇 분 정도 소요될 수 있습니다.")) {
+                return;
+            }
+            
+            isMlTraining = true;
+            document.getElementById('btnRunMlTrain').disabled = true;
+            document.getElementById('btnRunMlTrain').innerText = '⏳ 학습 진행 중...';
+            document.getElementById('btnRunMlTrain').style.backgroundColor = '#ff9800';
+            
+            document.getElementById('mlProgressContainer').style.display = 'block';
+            document.getElementById('mlProgressBar').style.width = '0%';
+            document.getElementById('mlProgressText').innerText = '0%';
+            document.getElementById('mlTerminal').innerText = "🚀 모델 재학습(ML Training) 프로세스를 시작합니다...\n\n";
+            
+            const payload = {
+                type: 'run_ml_train'
+            };
+            ws.send(JSON.stringify(payload));
+        }
         
         // 날짜 기본값 설정 (오늘 ~ 최근 7일)
         window.addEventListener('DOMContentLoaded', () => {
@@ -4026,6 +4164,53 @@ async def websocket_handler(websocket):
                                 "data": [],
                                 "error": str(ex)
                             }))
+
+                elif msg_type == 'run_ml_train':
+                    logging.debug(f"🧠 대시보드 제어: ML 모델 학습 요청")
+                    
+                    main_loop = None
+                    try:
+                        main_loop = asyncio.get_running_loop()
+                    except RuntimeError:
+                        if app and hasattr(app, 'loop') and app.loop:
+                            main_loop = app.loop
+                    
+                    ctx = mp.get_context('spawn')
+                    q = ctx.Queue()
+                    
+                    # 글로벌 변수로 제어할 필요가 있다면 active_ml_trains를 만들 수 있으나,
+                    # 중단 버튼은 일단 생략하므로 프로세스 변수만 관리.
+                    p = ctx.Process(target=run_ml_train_process_worker, args=(q,), daemon=True)
+                    p.start()
+                    
+                    async def monitor_ml_train_process():
+                        try:
+                            while p.is_alive() or not q.empty():
+                                try:
+                                    msg = q.get_nowait()
+                                    if msg["type"] == "ml_progress":
+                                        await safe_send(websocket, json.dumps(msg))
+                                    elif msg["type"] == "ml_result":
+                                        await safe_send(websocket, json.dumps(msg))
+                                        break
+                                    elif msg["type"] == "ml_error":
+                                        logging.error(f"ML 학습 프로세스 오류: {msg['error']}")
+                                        await safe_send(websocket, json.dumps(msg))
+                                        break
+                                except queue.Empty:
+                                    await asyncio.sleep(0.1)
+                            
+                            p.join(timeout=1.0)
+                            if p.is_alive():
+                                p.terminate()
+                        except Exception as e:
+                            logging.error(f"ML 학습 모니터링 태스크 오류: {e}", exc_info=True)
+                    
+                    if main_loop:
+                        main_loop.create_task(monitor_ml_train_process())
+                    else:
+                        asyncio.create_task(monitor_ml_train_process())
+
 
                 elif msg_type == 'run_backtest':
                     start_date = data.get('start_date')
