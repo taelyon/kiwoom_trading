@@ -1941,7 +1941,7 @@ class KiwoomWebSocketClient:
                             create_fire_and_forget_task(self.parent.trader.db_manager.insert_monitoring_start(stock_code, f"조건검색: {condition_name}"))
                             
                 elif action_type == 'D':  # DELETE (이탈) # type: ignore
-                    self.logger.info(f"📉 조건검색 실시간 이탈 신호 수신 (무시됨): {stock_code} ({condition_name}, seq: {condition_seq})")
+                    self.logger.debug(f"📉 조건검색 실시간 이탈 신호 수신 (무시됨): {stock_code} ({condition_name}, seq: {condition_seq})")
                     self.logger.debug(f"ℹ️ [{stock_code}] 조건검색 이탈 신호는 무시되며, 최고가 대비 10% 하락 시 자체 이탈 처리됩니다.")
 
                 else:
