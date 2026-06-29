@@ -77,6 +77,7 @@ class AsyncDatabaseManager:
                         tic_low REAL,
                         tic_close REAL,
                         tic_volume INTEGER,
+                        tic_strength REAL,
                         -- 3분봉 기본 데이터
                         min3_open REAL,
                         min3_high REAL,
@@ -236,14 +237,14 @@ class AsyncDatabaseManager:
                 min_indicator_cols = ", ".join([f"min3_{col.lower()}" for col in valid_min_indicators])
                 
                 columns = (
-                    "code, datetime, tic_open, tic_high, tic_low, tic_close, tic_volume, "
+                    "code, datetime, tic_open, tic_high, tic_low, tic_close, tic_volume, tic_strength, "
                     "min3_open, min3_high, min3_low, min3_close, min3_volume, "
                     f"{tic_indicator_cols}, {min_indicator_cols}, created_at"
                 )
                 
                 # 플레이스홀더 개수 계산
-                # 13개 기본 컬럼 (code, datetime, tic 5개, min3 5개, created_at 1개) + tic 지표 개수 + min 지표 개수
-                placeholders = ", ".join(["?"] * (13 + len(filtered_tic) + len(valid_min_indicators)))
+                # 14개 기본 컬럼 (code, datetime, tic 6개, min3 5개, created_at 1개) + tic 지표 개수 + min 지표 개수
+                placeholders = ", ".join(["?"] * (14 + len(filtered_tic) + len(valid_min_indicators)))
 
                 sql = f"INSERT OR REPLACE INTO stock_data ({columns}) VALUES ({placeholders})"
                 
@@ -331,6 +332,7 @@ class AsyncDatabaseManager:
                         tic_lows[i] if i < len(tic_lows) else 0,
                         tic_closes[i] if i < len(tic_closes) else 0,
                         tic_volumes[i] if i < len(tic_volumes) else 0,
+                        tic_strengths[i] if i < len(tic_strengths) else 0,
                         # 3분봉 기본 데이터
                         min_data.get('open', [])[min_idx] if min_idx >= 0 and min_idx < len(min_data.get('open', [])) else 0,
                         min_data.get('high', [])[min_idx] if min_idx >= 0 and min_idx < len(min_data.get('high', [])) else 0,

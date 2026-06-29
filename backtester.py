@@ -210,9 +210,9 @@ class Backtester:
                 # 3. AI_SCORE 배치 계산
                 if uses_ai and LGBM_MODEL:
                     try:
-                        f_strength = np.zeros(n)
+                        f_strength = group_df['tic_strength'].values if 'tic_strength' in group_df.columns else np.zeros(n)
                         f_velocity = group_df['TICK_VELOCITY'].values if 'TICK_VELOCITY' in group_df.columns else np.full(n, 999999.0)
-                        f_relative = np.zeros(n)
+                        f_relative = group_df['RELATIVE_POSITION'].values if 'RELATIVE_POSITION' in group_df.columns else np.zeros(n)
                         
                         vol = group_df['volume'].values if 'volume' in group_df.columns else np.ones(n)
                         f_spike = np.zeros(n)
