@@ -102,7 +102,7 @@ class KiwoomStrategy:
                     log_messages.append(f"{var_name}={value}")
             
             if log_messages:
-                self.logger.info(f"📊 [{code}] 조건 지표 값: {', '.join(log_messages)}")
+                self.logger.debug(f"📊 [{code}] 조건 지표 값: {', '.join(log_messages)}")
                 
         except Exception as e:
             self.logger.warning(f"지표 값 로깅 중 오류: {e}")
@@ -687,9 +687,9 @@ class KiwoomStrategy:
                             if partial_sell_ratio and 0 < partial_sell_ratio < 1:
                                 total_holding_qty = ws_balance_data[code].get('quantity', 0)
                                 order_available_qty = int(total_holding_qty * partial_sell_ratio)
-                                self.logger.info(f"💰 부분 익절 수량 계산 (웹소켓): 보유수량 {total_holding_qty}주 * {partial_sell_ratio} = {order_available_qty}주")
+                                self.logger.debug(f"💰 부분 익절 수량 계산 (웹소켓): 보유수량 {total_holding_qty}주 * {partial_sell_ratio} = {order_available_qty}주")
                             else:
-                                self.logger.info(f"⚡ 전량 매도 수량 조회 (웹소켓): {code} 주문가능수량 {order_available_qty}주")
+                                self.logger.debug(f"⚡ 전량 매도 수량 조회 (웹소켓): {code} 주문가능수량 {order_available_qty}주")
 
                     # 2. 웹소켓 데이터가 없거나 이상할 경우 REST API 사용 (Fallback)
                     if order_available_qty <= 0:
@@ -705,10 +705,10 @@ class KiwoomStrategy:
                                         total_holding_qty = self.parent.data_manager.safe_int(stock.get('hldg_qty', 0))
                                         if partial_sell_ratio and 0 < partial_sell_ratio < 1:
                                             order_available_qty = int(total_holding_qty * partial_sell_ratio)
-                                            self.logger.info(f"📡 부분 익절 수량 계산 (API): 보유수량 {total_holding_qty}주 * {partial_sell_ratio} = {order_available_qty}주")
+                                            self.logger.debug(f"📡 부분 익절 수량 계산 (API): 보유수량 {total_holding_qty}주 * {partial_sell_ratio} = {order_available_qty}주")
                                         else:
                                             order_available_qty = self.parent.data_manager.safe_int(stock.get('rmnd_qty', 0))
-                                            self.logger.info(f"📡 전량 매도 수량 조회 (API): {code} 주문가능수량 {order_available_qty}주")
+                                            self.logger.debug(f"📡 전량 매도 수량 조회 (API): {code} 주문가능수량 {order_available_qty}주")
                                         break
 
                 except Exception as qty_check_ex:
@@ -809,7 +809,7 @@ class KiwoomStrategy:
                 # 실제 주문 가능한 수량으로 제한
                 final_quantity = min(requested_quantity, actual_order_available_qty)
                 if final_quantity < requested_quantity:
-                    self.logger.info(f"📊 [{code}] 주문 수량 조정: {requested_quantity}주 → {final_quantity}주")
+                    self.logger.debug(f"📊 [{code}] 주문 수량 조정: {requested_quantity}주 → {final_quantity}주")
                 
                 success = await self.trader.place_sell_order(
                     code, 

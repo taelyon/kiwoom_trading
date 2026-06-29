@@ -130,7 +130,7 @@ class ChartDataCache:
                 self.save_task.cancel()
             if hasattr(self, 'queue_task') and self.queue_task:
                 self.queue_task.cancel()
-            self.logger.info("⏹️ ChartDataCache 백그라운드 루프 중지 완료")
+            self.logger.debug("⏹️ ChartDataCache 백그라운드 루프 중지 완료")
         except Exception as ex:
             self.logger.error(f"❌ ChartDataCache 중지 실패: {ex}")
     

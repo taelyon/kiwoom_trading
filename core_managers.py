@@ -109,7 +109,7 @@ class LoginHandler:
                 return
             
             if hasattr(self, 'websocket_client') and self.websocket_client and self.websocket_client.connected:
-                self.logger.info("✅ 웹소켓 클라이언트가 이미 연결되어 있습니다 (재사용)")
+                self.logger.debug("✅ 웹소켓 클라이언트가 이미 연결되어 있습니다 (재사용)")
                 return
             
             existing_balance_data = {}
@@ -319,7 +319,7 @@ class DataManager:
                 # 마지막 수집 시도 후 30초가 지났다면 백그라운드 갱신 작동
                 if (not self.stock_code_map or now - self._last_cache_attempt_time > 30.0):
                     self._last_cache_attempt_time = now
-                    self.logger.info(f"🔍 종목코드 '{code_str}'의 캐시 부재로 전체 종목 캐시 백그라운드 갱신 요청")
+                    self.logger.debug(f"🔍 종목코드 '{code_str}'의 캐시 부재로 전체 종목 캐시 백그라운드 갱신 요청")
                     
                     import asyncio
                     try:
@@ -340,7 +340,7 @@ class DataManager:
         # 1. 캐시에서 먼저 조회
         if self.stock_code_map and stock_name in self.stock_code_map:
             stock_code = self.stock_code_map[stock_name]
-            self.logger.info(f"✅ 종목명 캐시 조회 성공: {stock_name} -> {stock_code}")
+            self.logger.debug(f"✅ 종목명 캐시 조회 성공: {stock_name} -> {stock_code}")
             return stock_code
 
         # 2. 캐시에 없으면 API를 통해 조회 (Fallback)
@@ -369,7 +369,7 @@ class DataManager:
                                 if stock_info.get('name') == stock_name:
                                     stock_code = stock_info.get('code')
                                     if stock_code:
-                                        self.logger.info(f"✅ 종목명 API 검색 성공: {stock_name} -> {stock_code}")
+                                        self.logger.debug(f"✅ 종목명 API 검색 성공: {stock_name} -> {stock_code}")
                                         # 찾은 종목을 캐시에 추가
                                         self.stock_code_map[stock_name] = stock_code
                                         return stock_code
@@ -431,7 +431,7 @@ class DataManager:
                 # 성공적으로 데이터를 받아왔을 때만 기존 맵을 덮어씀 (일시적 실패 시 기존 캐시 보존)
                 if temp_map:
                     self.stock_code_map = temp_map
-                    self.logger.info(f"✅ 전체 종목 코드 캐싱 완료: {len(self.stock_code_map)}개 종목")
+                    self.logger.debug(f"✅ 전체 종목 코드 캐싱 완료: {len(self.stock_code_map)}개 종목")
                     
                     # 갱신 완료 후에도 요청된 코드가 없는 경우 캐시 예외 목록(Negative Cache)에 등록
                     if requested_code:
@@ -443,11 +443,11 @@ class DataManager:
                                 break
                         if not found:
                             self.non_existent_codes.add(req_clean)
-                            self.logger.info(f"🚫 종목코드 '{req_clean}'은 OpenAPI 마스터 목록에 없으므로 캐시 예외 목록(Negative Cache)에 등록합니다.")
+                            self.logger.debug(f"🚫 종목코드 '{req_clean}'은 OpenAPI 마스터 목록에 없으므로 캐시 예외 목록(Negative Cache)에 등록합니다.")
                         else:
                             # 만약 예외 목록에 등록되었던 종목이 신규로 발견되었을 경우, 예외 목록에서 제거(discard)하여 정상 상태로 환원
                             self.non_existent_codes.discard(req_clean)
-                            self.logger.info(f"🔄 종목코드 '{req_clean}'이 캐시에서 발견되어 예외 목록(Negative Cache)에서 제외했습니다.")
+                            self.logger.debug(f"🔄 종목코드 '{req_clean}'이 캐시에서 발견되어 예외 목록(Negative Cache)에서 제외했습니다.")
                 else:
                     self.logger.warning("⚠️ 받아온 종목 리스트가 없어 기존 종목명 캐시를 유지합니다.")
         except Exception as ex:
@@ -490,7 +490,7 @@ class MonitoringManager:
                 if removable_stocks:
                     # 추가된 시간이 가장 오래된 종목 정렬
                     oldest_code = min(removable_stocks, key=lambda c: self.stock_added_time.get(c, datetime.min))
-                    self.logger.info(f"🔄 최대 감시 종목({self.max_monitored_stocks}개) 초과로 가장 오래된 종목 자동 밀어내기: {oldest_code}")
+                    self.logger.debug(f"🔄 최대 감시 종목({self.max_monitored_stocks}개) 초과로 가장 오래된 종목 자동 밀어내기: {oldest_code}")
                     await self.remove_stock_from_monitoring(oldest_code)
                 else:
                     self.logger.warning(f"⚠️ 모든 감시 종목이 보유 종목이어서 밀어낼 수 없습니다. 추가 취소: {code}")
@@ -598,7 +598,7 @@ class MonitoringManager:
                 return
             
             stock_codes = self.parent.condition_search_results.get(seq, [])
-            self.logger.info(f"조건검색 종목 제거 시작: {len(stock_codes)}개 (seq: {seq})")
+            self.logger.debug(f"조건검색 종목 제거 시작: {len(stock_codes)}개 (seq: {seq})")
             
             for code in stock_codes:
                 await self.remove_stock_from_monitoring(code)
@@ -607,7 +607,7 @@ class MonitoringManager:
                 self.parent.chart_cache.update_chart_update_interval()
             
             del self.parent.condition_search_results[seq]
-            self.logger.info(f"조건검색 종목 제거 완료 (seq: {seq})")
+            self.logger.debug(f"조건검색 종목 제거 완료 (seq: {seq})")
         except Exception as ex:
             self.logger.error(f"조건검색 종목 제거 실패 (seq: {seq}): {ex}", exc_info=True)
     
@@ -681,7 +681,7 @@ class MonitoringManager:
 
     async def cleanup_stale_monitored_stocks(self):
         """설정된 TTL을 초과한 감시종목 자동 삭제 루프"""
-        self.logger.info(f"🧹 감시종목 TTL({self.monitoring_ttl_minutes}분) 자동 정리 백그라운드 태스크 시작")
+        self.logger.debug(f"🧹 감시종목 TTL({self.monitoring_ttl_minutes}분) 자동 정리 백그라운드 태스크 시작")
         while True:
             try:
                 await asyncio.sleep(60) # 1분마다 체크
@@ -707,7 +707,7 @@ class MonitoringManager:
                                 # 보유 종목은 TTL 적용 제외, 편입 시간을 갱신하여 불필요한 로그 방지
                                 self.stock_added_time[code] = now
                             else:
-                                self.logger.info(f"⏳ TTL 만료({elapsed:.1f}분 경과): 종목 {code} 자동 삭제")
+                                self.logger.debug(f"⏳ TTL 만료({elapsed:.1f}분 경과): 종목 {code} 자동 삭제")
                                 await self.remove_stock_from_monitoring(code)
             except asyncio.CancelledError:
                 break
@@ -841,7 +841,7 @@ class StrategyManager:
 
     async def _clear_monitoring_list(self):
         """모니터링 리스트 상태 초기화 (단, 보유 종목 제외)"""
-        self.logger.info("🔄 투자 전략 변경으로 인해 기존 모니터링 목록을 초기화합니다.")
+        self.logger.debug("🔄 투자 전략 변경으로 인해 기존 모니터링 목록을 초기화합니다.")
         
         # 보유 종목 추출
         holding_codes = set()
@@ -884,7 +884,7 @@ class StrategyManager:
             if ws_client and ws_client.connected:
                 from utils import create_fire_and_forget_task
                 create_fire_and_forget_task(ws_client.unsubscribe_stock_execution_data(codes_to_unsubscribe))
-                self.logger.info(f"🗑️ 전략 변경으로 인해 기존 {len(codes_to_unsubscribe)}개 종목 실시간 구독 해제 요청 완료")
+                self.logger.debug(f"🗑️ 전략 변경으로 인해 기존 {len(codes_to_unsubscribe)}개 종목 실시간 구독 해제 요청 완료")
 
         if hasattr(self.parent, 'chart_cache') and self.parent.chart_cache:
             self.parent.chart_cache.update_chart_update_interval()
@@ -963,7 +963,7 @@ class TradingManager:
                 if hasattr(self.parent, 'trader') and self.parent.trader:
                     self.parent.trader.buycount = buycount
                 
-                self.logger.info(f"✅ 최대 투자 종목수 설정 완료: {buycount}종목")
+                self.logger.debug(f"✅ 최대 투자 종목수 설정 완료: {buycount}종목")
                 return True
             else:
                 self.logger.warning("1 이상의 숫자를 입력해주세요.")
@@ -1137,7 +1137,7 @@ class TradingManager:
                         if ws_client and hasattr(ws_client, 'balance_data'):
                             if code in ws_client.balance_data:
                                 quantity = ws_client.balance_data[code].get('order_available_qty', 0)
-                                self.logger.info(f"💰 웹소켓 잔고 조회 (Fallback): {code} 주문가능수량 {quantity}주")
+                                self.logger.debug(f"💰 웹소켓 잔고 조회 (Fallback): {code} 주문가능수량 {quantity}주")
                 
                 if quantity <= 0:
                     self.logger.warning(f"⚠️ 보유 수량 없음: {code}")
@@ -1326,16 +1326,16 @@ class AccountManager:
                         
                     # .env에서 미리 세팅된 값이 있다면 API 값을 무시 (사용자 수동 설정 우선)
                     if getattr(parent.trader, 'prime_cash', 0) > 0:
-                        self.logger.info(f"누적투자원금(.env 설정 적용됨): {parent.trader.prime_cash:,}원")
+                        self.logger.debug(f"누적투자원금(.env 설정 적용됨): {parent.trader.prime_cash:,}원")
                     elif api_prime_cash > 0:
                         parent.trader.prime_cash = api_prime_cash
-                        self.logger.info(f"누적투자원금(API/fallback): {api_prime_cash:,}원")
+                        self.logger.debug(f"누적투자원금(API/fallback): {api_prime_cash:,}원")
                     holdings = balance_data.get('stk_acnt_evlt_prst', balance_data.get('output1', []))
                     if holdings and len(holdings) > 0:
-                        self.logger.info(f"📦 보유 종목 수: {len(holdings)}개")
+                        self.logger.debug(f"📦 보유 종목 수: {len(holdings)}개")
                         await self._initialize_balance_data_from_rest_api(holdings)
                     else:
-                        self.logger.info("📦 현재 보유 종목이 없습니다.")
+                        self.logger.debug("📦 현재 보유 종목이 없습니다.")
                 else:
                     self.logger.warning("⚠️ 계좌 잔고 조회 실패 또는 보유종목 없음")
             except Exception as balance_ex:
@@ -1363,7 +1363,7 @@ class AccountManager:
                         # 이미 다른 곳에서 lspft_amt 등으로 더 정확한 값이 설정되었다면 덮어쓰지 않음
                         if not getattr(self.parent.trader, 'prime_cash', 0):
                             self.parent.trader.prime_cash = entr_amount
-                    self.logger.info(f"예수금: {entr_amount:,}원")
+                    self.logger.debug(f"예수금: {entr_amount:,}원")
                     
                     if hasattr(self.parent, 'trader') and self.parent.trader:
                         self.parent.trader._cash_cache = entr_amount
@@ -1385,16 +1385,16 @@ class AccountManager:
                     total_eval_pl_amount = self.parent.data_manager.safe_int(eval_status.get('tot_evlt_pl', 0))
                     total_profit_rate = self.parent.data_manager.safe_float(eval_status.get('tot_prft_rt', 0.0))
 
-                    self.logger.info(f"보유종목 총매입금액: {total_purchase_amount:,}원")
-                    self.logger.info(f"보유종목 총평가손익: {total_eval_pl_amount:+,}원")
-                    self.logger.info(f"보유종목 총수익률: {total_profit_rate:.2f}%")
+                    self.logger.debug(f"보유종목 총매입금액: {total_purchase_amount:,}원")
+                    self.logger.debug(f"보유종목 총평가손익: {total_eval_pl_amount:+,}원")
+                    self.logger.debug(f"보유종목 총수익률: {total_profit_rate:.2f}%")
                     
                     prime_cash = getattr(self.parent.trader, 'prime_cash', 0)
                     available_cash = getattr(self.parent.trader, '_cash_cache', 0)
                     if prime_cash > 0:
                         total_assets = available_cash + total_purchase_amount + total_eval_pl_amount
                         account_profit_rate = ((total_assets - prime_cash) / prime_cash) * 100
-                        self.logger.info(f"계좌 총수익률: {account_profit_rate:.2f}% (총자산: {total_assets:,}원)")
+                        self.logger.debug(f"계좌 총수익률: {account_profit_rate:.2f}% (총자산: {total_assets:,}원)")
                 else:
                     self.logger.warning("⚠️ 계좌평가잔고내역 조회 실패")
             except Exception as eval_ex:
@@ -1411,7 +1411,7 @@ class AccountManager:
                         pass # .env 수동 설정값 유지
                     elif lspft_amt > 0:
                         self.parent.trader.prime_cash = lspft_amt
-                        self.logger.info(f"누적투자원금(kt00004): {lspft_amt:,}원")
+                        self.logger.debug(f"누적투자원금(kt00004): {lspft_amt:,}원")
                         
                     if 'stk_acnt_evlt_prst' in balance_data:
                         holdings = balance_data.get('stk_acnt_evlt_prst', [])
@@ -1502,7 +1502,7 @@ class AccountManager:
                                     if stock_code not in parent.trader.executed_sell_rules:
                                         parent.trader.executed_sell_rules[stock_code] = set()
                                     parent.trader.executed_sell_rules[stock_code].update(executed_rules)
-                                    self.logger.info(f"🔄 [{stock_code}] 과거 매도 이력 복구 완료: {executed_rules}")
+                                    self.logger.debug(f"🔄 [{stock_code}] 과거 매도 이력 복구 완료: {executed_rules}")
                         
                         if hasattr(parent, 'monitoring_manager'):
                             await parent.monitoring_manager.add_stock_to_monitoring_async(stock_code)
@@ -1512,7 +1512,7 @@ class AccountManager:
                     self.logger.error(f"❌ 종목 데이터 변환 실패 ({stock_code}): {item_ex}")
                     continue
             
-            self.logger.info(f"✅ REST API 잔고 데이터 변환 완료: {converted_count}개 종목")
+            self.logger.debug(f"✅ REST API 잔고 데이터 변환 완료: {converted_count}개 종목")
         except Exception as ex:
             self.logger.error(f"❌ REST API 잔고 데이터 변환 실패: {ex}", exc_info=True)
 
