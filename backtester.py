@@ -299,6 +299,7 @@ class Backtester:
                 current_time_str = str(current_time)
                 time_part = current_time_str[11:16].replace(":", "") if len(current_time_str) >= 16 else ""
                 is_market_close = (time_part >= "1518")
+                is_lunch_time = ("1130" <= time_part < "1300") # 점심시간 체크
                 
                 # 1. 매도 평가 (현재 보유 종목 중 time_df에 존재하는 것)
                 for _, row in time_df.iterrows():
@@ -405,8 +406,8 @@ class Backtester:
                                     portfolio[current_code]['qty'] -= sell_qty
                                     portfolio[current_code].setdefault('executed_sell_rules', set()).add(matched_sell_stg)
                                     
-                # 2. 매수 평가 (보유 슬롯이 비어있을 때만)
-                if not is_market_close:
+                # 2. 매수 평가 (보유 슬롯이 비어있고, 점심시간이 아닐 때만)
+                if not is_market_close and not is_lunch_time:
                     if 'AI_SCORE' in time_df.columns:
                         buy_candidates = time_df.sort_values(by='AI_SCORE', ascending=False)
                     else:

@@ -800,6 +800,12 @@ class AutoTrader:
             current_time_minutes = now.hour * 60 + now.minute
             if current_time_minutes < 540 or current_time_minutes >= 930:
                 return False
+                
+            # [추가] 점심시간(11:30 ~ 13:00) 매수 차단
+            if 690 <= current_time_minutes < 780:
+                if is_buy_check_allowed:
+                    self.logger.debug(f"⏳ [{code}] 점심시간(11:30~13:00) 매수 금지 시간대 - 신규 매수 차단")
+                is_buy_check_allowed = False
             
             if not hasattr(self, '_analyze_debug_codes'):
                 self._analyze_debug_codes = set()
