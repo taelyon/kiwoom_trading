@@ -2231,22 +2231,39 @@ class KiwoomWebSocketClient:
                     self.logger.debug("🔍 저장된 조건검색식 자동 실행 확인 시작")
                     saved_condition_executed = await self.parent.condition_search_manager.check_and_auto_execute_saved_condition()
                     
-                    # 저장된 조건검색식이 없으면 첫 번째 조건검색 자동 실행
+                    # 저장된 조건검색식이 실행되지 않았을 경우 (목록에 없거나 등)
                     if not saved_condition_executed:
-                        self.logger.info("🔍 저장된 조건검색식이 없어 첫 번째 조건검색 자동 실행")
-                        if condition_search_list: # type: ignore
-                            first_condition = condition_search_list[0]
-                            condition_seq = first_condition['seq']
-                            condition_name = first_condition['title']
+                        # 사용자가 설정해둔 전략이 있는지 확인
+                        from config_manager import EnvConfigParser
+                        config = EnvConfigParser()
+                        saved_stg = config.get('SETTINGS', 'last_strategy', fallback="")
+                        
+                        if saved_stg:
+                            self.logger.warning(f"⚠️ 저장된 조건검색식 '{saved_stg}'을(를) 서버 응답에서 찾을 수 없습니다. (서버 리셋 등 일시적 오류로 간주하여 30초 후 재조회합니다.)")
                             
-                            # 비동기로 조건검색 실행
-                            async def auto_execute_first_condition():
-                                await asyncio.sleep(2.0)  # 2초 대기
-                                await self.parent.start_condition_realtime(condition_seq)
-                                self.logger.info(f"✅ 첫 번째 조건검색 자동 실행 완료: {condition_name} (seq: {condition_seq})")
+                            # 30초 후 재요청 로직
+                            async def retry_condition_search_list():
+                                await asyncio.sleep(30.0)
+                                if hasattr(self.parent, 'handle_condition_search_list_query'):
+                                    self.logger.debug(f"🔄 조건검색 목록 재조회 재시도 (목표: {saved_stg})")
+                                    await self.parent.handle_condition_search_list_query()
                             
-                            create_fire_and_forget_task(auto_execute_first_condition())
-                            self.logger.info(f"🔍 첫 번째 조건검색 자동 실행 예약 (2초 후): {condition_name}")
+                            create_fire_and_forget_task(retry_condition_search_list())
+                        else:
+                            self.logger.info("🔍 저장된 조건검색식이 전혀 없어 첫 번째 조건검색 자동 실행")
+                            if condition_search_list: # type: ignore
+                                first_condition = condition_search_list[0]
+                                condition_seq = first_condition['seq']
+                                condition_name = first_condition['title']
+                                
+                                # 비동기로 조건검색 실행
+                                async def auto_execute_first_condition():
+                                    await asyncio.sleep(2.0)  # 2초 대기
+                                    await self.parent.start_condition_realtime(condition_seq)
+                                    self.logger.info(f"✅ 첫 번째 조건검색 자동 실행 완료: {condition_name} (seq: {condition_seq})")
+                                
+                                create_fire_and_forget_task(auto_execute_first_condition())
+                                self.logger.info(f"🔍 첫 번째 조건검색 자동 실행 예약 (2초 후): {condition_name}")
                     
                 except Exception as add_ex:
                     self.logger.error(f"투자전략 콤보박스에 조건검색식 추가 실패: {add_ex}", exc_info=True)
