@@ -400,7 +400,7 @@ class Backtester:
                                         daily_blacklist.add(current_code) # 당일 재매매 금지
                                     else:
                                         from datetime import timedelta
-                                        cooldown_list[current_code] = current_time + timedelta(minutes=60) # 60분 쿨타임
+                                        cooldown_list[current_code] = current_time + timedelta(minutes=30) # 30분 쿨타임
                                 else:
                                     portfolio[current_code]['qty'] -= sell_qty
                                     portfolio[current_code].setdefault('executed_sell_rules', set()).add(matched_sell_stg)

@@ -989,7 +989,7 @@ class KiwoomWebSocketClient:
                                     self.parent.trader.add_to_blacklist(stock_code, reason=f"손절에 따른 전량 매도 (수익률: {profit_rate:.2f}%)")
                             else:
                                 if hasattr(self.parent.trader, 'add_to_cooldown'):
-                                    self.parent.trader.add_to_cooldown(stock_code, duration_minutes=60)
+                                    self.parent.trader.add_to_cooldown(stock_code, duration_minutes=30)
             else:
                 # 실시간 잔고 데이터 수신 시, 테이블 업데이트 트리거
                 current_time = time.time()
