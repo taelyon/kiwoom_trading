@@ -1311,7 +1311,7 @@ class ChartDataCache:
             else:
                 cached_data['realtime_metrics']['vi_distance'] = 999.0
                 
-            # 최고가 대비 10% 하락 시 자체 이탈 처리 로직
+            # 최고가 대비 5% 하락 시 자체 이탈 처리 로직
             if current_price > 0:
                 if stock_code not in self.monitoring_highest_prices:
                     self.monitoring_highest_prices[stock_code] = current_price
@@ -1319,8 +1319,8 @@ class ChartDataCache:
                     self.monitoring_highest_prices[stock_code] = current_price
                 
                 highest = self.monitoring_highest_prices[stock_code]
-                if current_price <= highest * 0.90:
-                    self.logger.info(f"📉 [{stock_code}] 최고가({highest:,}원) 대비 10% 하락 감지! 자체 이탈 처리합니다. (현재가: {current_price:,}원)")
+                if current_price <= highest * 0.95:
+                    self.logger.info(f"📉 [{stock_code}] 최고가({highest:,}원) 대비 5% 하락 감지! 자체 이탈 처리합니다. (현재가: {current_price:,}원)")
                     
                     # 보유 종목인지 확인
                     is_holding = False
@@ -1334,9 +1334,12 @@ class ChartDataCache:
                         from common_utils import create_fire_and_forget_task
                         create_fire_and_forget_task(self.trader.db_manager.update_monitoring_end(stock_code))
                     
-                    # 2. 매수 차단 목록 추가
-                    if hasattr(self.trader, 'condition_excluded_stocks'):
-                        self.trader.condition_excluded_stocks.add(stock_code)
+                    # 2. 매수 차단 목록(Blacklist) 추가
+                    if hasattr(self, 'trader') and self.trader:
+                        if hasattr(self.trader, 'add_to_blacklist'):
+                            self.trader.add_to_blacklist(stock_code, reason="최고가 대비 5% 하락 (모멘텀 상실)")
+                        if hasattr(self.trader, 'condition_excluded_stocks'):
+                            self.trader.condition_excluded_stocks.add(stock_code)
                         
                     if is_holding:
                         self.logger.debug(f"✅ 보유 종목이므로 모니터링은 유지합니다: {stock_code}")
