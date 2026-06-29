@@ -189,12 +189,20 @@ class KiwoomStrategy:
                     self.logger.debug(f"🔓 [{code}] 전략 평가 일시 차단 해제")
             
             if is_buy_check_allowed:
-                buy_signals = await self.get_buy_signals(code, market_data, effective_strategy_name)
-                if buy_signals:
-                    self.logger.debug(f"📈 [{code}] 매수 신호 {len(buy_signals)}개 발견")
-                    await self.execute_buy_signals(code, buy_signals)
-                elif is_first_eval:
-                    self.logger.debug(f"ℹ️ [{code}] 매수 조건 미충족")
+                # [초단타 시간 필터] 매수 마감 시간 체크
+                from config_manager import get_config
+                time_settings = get_config().get_trading_time_settings()
+                
+                if datetime.now().time() >= time_settings['buy_end_time']:
+                    if is_first_eval:
+                        self.logger.debug(f"⏰ [{code}] 매수 마감 시간({time_settings['buy_end_time'].strftime('%H:%M')}) 초과로 신규 매수 평가를 건너뜁니다.")
+                else:
+                    buy_signals = await self.get_buy_signals(code, market_data, effective_strategy_name)
+                    if buy_signals:
+                        self.logger.debug(f"📈 [{code}] 매수 신호 {len(buy_signals)}개 발견")
+                        await self.execute_buy_signals(code, buy_signals)
+                    elif is_first_eval:
+                        self.logger.debug(f"ℹ️ [{code}] 매수 조건 미충족")
             
             # 매도 신호 평가 (보유 종목인 경우에만)
             portfolio = self.trader.get_portfolio_status()

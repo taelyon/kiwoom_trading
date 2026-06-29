@@ -1930,6 +1930,24 @@ class KiwoomWebSocketClient:
             if stock_code:
                 # 액션 타입에 따른 처리
                 if action_type == 'I':  # INSERT (편입) # type: ignore
+                    # [초단타 시간 필터] 매수 마감 시간 이후 신규 편입 차단
+                    from config_manager import get_config
+                    import datetime
+                    time_settings = get_config().get_trading_time_settings()
+                    if datetime.datetime.now().time() >= time_settings['buy_end_time']:
+                        # 단, 이미 보유 중인 종목이 재편입되는 경우라면 추적을 위해 허용할지 검토.
+                        # 여기서는 아예 모니터링 큐 진입 자체를 막아서 서버 부하를 줄임.
+                        is_holding = False
+                        if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'trader') and self.parent.trader:
+                            if stock_code in self.parent.trader.holdings and self.parent.trader.holdings[stock_code].get('quantity', 0) > 0:
+                                is_holding = True
+                        
+                        if not is_holding:
+                            self.logger.debug(f"⏰ [{stock_code}] 매수 마감 시간({time_settings['buy_end_time'].strftime('%H:%M')}) 초과로 조건검색 신규 편입 차단")
+                            return
+                        else:
+                            self.logger.debug(f"⏰ [{stock_code}] 매수 마감 시간이지만 보유 종목이므로 조건검색 편입 예외 허용")
+
                     is_already_in_cache = False
                     if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'chart_cache') and self.parent.chart_cache:
                         if stock_code in self.parent.chart_cache.cache:

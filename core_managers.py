@@ -686,6 +686,24 @@ class MonitoringManager:
             try:
                 await asyncio.sleep(60) # 1분마다 체크
                 
+                # [초단타 시간 필터] 오버나잇 방지 강제 일괄 청산 체크
+                from config_manager import get_config
+                time_settings = get_config().get_trading_time_settings()
+                if time_settings['sell_all_enabled']:
+                    now_time = datetime.now().time()
+                    if now_time >= time_settings['sell_all_time']:
+                        if getattr(self, '_has_liquidated_today', None) != datetime.now().date():
+                            self.logger.warning(f"⏰ 당일 매매 마감 시간({time_settings['sell_all_time'].strftime('%H:%M')}) 도달! 오버나잇 방지를 위해 보유 종목 전량 강제 청산을 시작합니다.")
+                            trader = getattr(self.parent, 'trader', None)
+                            if trader and hasattr(trader, 'holdings'):
+                                for code, info in list(trader.holdings.items()):
+                                    qty = info.get('quantity', 0)
+                                    if qty > 0:
+                                        self.logger.info(f"🧹 [마감 청산] {code} {qty}주 일괄 매도 주문")
+                                        import asyncio
+                                        asyncio.create_task(trader.place_sell_order(code, qty, price=0, strategy="마감 강제청산"))
+                            self._has_liquidated_today = datetime.now().date()
+                
                 if not self.monitored_stocks:
                     continue
                 
