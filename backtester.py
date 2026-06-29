@@ -282,12 +282,14 @@ class Backtester:
             
             current_date = None
             daily_blacklist = set()
+            cooldown_list = {} # {code: expiration_time}
             
             for current_time, time_df in grouped_by_time:
                 date_str = str(current_time)[:10]
                 if current_date != date_str:
                     current_date = date_str
                     daily_blacklist.clear()
+                    cooldown_list.clear()
                     
                 time_idx += 1
                 if progress_callback and time_idx % max(1, total_times // 20) == 0:
@@ -394,7 +396,11 @@ class Backtester:
                                 
                                 if sell_ratio >= 0.99:
                                     del portfolio[current_code]
-                                    daily_blacklist.add(current_code) # 당일 재매매 금지
+                                    if real_profit_pct < 0.0:
+                                        daily_blacklist.add(current_code) # 당일 재매매 금지
+                                    else:
+                                        from datetime import timedelta
+                                        cooldown_list[current_code] = current_time + timedelta(minutes=60) # 60분 쿨타임
                                 else:
                                     portfolio[current_code]['qty'] -= sell_qty
                                     portfolio[current_code].setdefault('executed_sell_rules', set()).add(matched_sell_stg)
@@ -414,8 +420,10 @@ class Backtester:
                         sd = stock_data[current_code]
                         idx = sd['current_idx']
                         
-                        # 데이터가 10건 이상 쌓인 시점부터 매수 평가 (블랙리스트 제외)
+                        # 데이터가 10건 이상 쌓인 시점부터 매수 평가 (블랙리스트 및 쿨타임 제외)
                         if idx >= 10 and current_code not in portfolio and current_code not in daily_blacklist:
+                            if current_code in cooldown_list and current_time < cooldown_list[current_code]:
+                                continue # 쿨타임 중
                             # IS_MONITORED 체크 (조건검색 편입 기간 중일 때만 매수)
                             is_monitored = True
                             if 'IS_MONITORED' in sd['precomputed']:

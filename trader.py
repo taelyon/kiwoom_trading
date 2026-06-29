@@ -70,11 +70,9 @@ class KiwoomTrader:
         self._buy_order_locks = {}
 
         # 당일 매수 금지 종목 (추적손절 등으로 매도된 종목)
+        self.condition_excluded_stocks = set() # 자체 이탈(10% 등)로 모니터링에서 제거된 종목들의 집합
         self.daily_blacklist = set()
-        
-        # 조건검색 이탈 종목 (재진입 전까지 매수 금지)
-        self.condition_excluded_stocks = set()
-        
+        self.cooldown_list = {}  # {stock_code: cooldown_expire_timestamp}
         self.load_blacklist()  # 파일에서 블랙리스트 복원
         self.load_settings()
 
@@ -138,15 +136,34 @@ class KiwoomTrader:
             log_msg += f" (사유: {reason})"
         self.logger.debug(log_msg)
 
+    def add_to_cooldown(self, code, duration_minutes=60):
+        """종목을 지정된 시간(분) 동안 매수 금지(쿨타임) 목록에 추가"""
+        expire_time = datetime.now() + timedelta(minutes=duration_minutes)
+        self.cooldown_list[code] = expire_time.timestamp()
+        self.logger.info(f"⏳ [{code}] 쿨타임 {duration_minutes}분 적용 (해제: {expire_time.strftime('%H:%M:%S')})")
+
     def is_blacklisted(self, code):
-        """종목이 당일 매수 금지 목록에 있는지 확인"""
-        return code in self.daily_blacklist
+        """종목이 당일 매수 금지 목록 또는 현재 쿨타임 상태인지 확인"""
+        if code in self.daily_blacklist:
+            return True
+            
+        if code in self.cooldown_list:
+            if datetime.now().timestamp() < self.cooldown_list[code]:
+                return True
+            else:
+                # 쿨타임 해제
+                del self.cooldown_list[code]
+                self.logger.info(f"🔓 [{code}] 쿨타임 해제 완료 (재매수 가능)")
+                return False
+                
+        return False
 
     def reset_blacklist(self):
-        """당일 매수 금지 목록 초기화"""
-        if self.daily_blacklist:
-            self.logger.info(f"🔄 당일 매수 금지 목록 초기화: {len(self.daily_blacklist)}개 종목 해제")
+        """당일 매수 금지 및 쿨타임 목록 초기화"""
+        if self.daily_blacklist or self.cooldown_list:
+            self.logger.info(f"🔄 당일 매수 금지 및 쿨타임 목록 초기화: 블랙리스트 {len(self.daily_blacklist)}개, 쿨타임 {len(self.cooldown_list)}개 해제")
             self.daily_blacklist.clear()
+            self.cooldown_list.clear()
             self.save_blacklist()
         else:
             self.logger.debug("🔄 당일 매수 금지 목록 초기화 (목록 비어있음)")
