@@ -1682,36 +1682,36 @@ HTML_CONTENT = """
                 </table>
             </div>
         </div>
-    </div>
 
-    <!-- 4. ML AI 학습 뷰 -->
-    <div id="mlTrainView" class="view-container view-hidden">
-        <div class="view-header">
-            <h2>🧠 AI 모델 재학습 (LightGBM)</h2>
-            <div style="font-size: 13px; color: #a0a5b1;">저장된 DB 데이터로 AI 모델을 새로 학습시켜 최신 타점을 확보합니다.</div>
-        </div>
-        
-        <div class="card" style="margin-bottom: 20px;">
-            <div class="card-header">학습 제어</div>
-            <div style="padding: 15px;">
-                <button id="btnRunMlTrain" class="btn-primary" style="width: 100%; padding: 14px; font-size: 15px; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 8px; box-shadow: 0 4px 16px rgba(0, 242, 254, 0.2);" onclick="startMlTrain()">🚀 최신 데이터로 모델 재학습 시작</button>
-                <div id="mlProgressContainer" style="margin-top: 20px; display: none;">
-                    <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px;">
-                        <span>학습 진행률</span>
-                        <span id="mlProgressText">0%</span>
-                    </div>
-                    <div style="width: 100%; height: 8px; background: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden;">
-                        <div id="mlProgressBar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #00f2fe 0%, #4facfe 100%); transition: width 0.3s ease;"></div>
+        <!-- 4. ML AI 학습 뷰 -->
+        <div id="mlTrainView" class="view-container view-hidden">
+            <div class="view-header">
+                <h2>🧠 AI 모델 재학습 (LightGBM)</h2>
+                <div style="font-size: 13px; color: #a0a5b1;">저장된 DB 데이터로 AI 모델을 새로 학습시켜 최신 타점을 확보합니다.</div>
+            </div>
+            
+            <div class="card" style="margin-bottom: 20px;">
+                <div class="card-header">학습 제어</div>
+                <div style="padding: 15px;">
+                    <button id="btnRunMlTrain" class="btn-primary" style="width: 100%; padding: 14px; font-size: 15px; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 8px; box-shadow: 0 4px 16px rgba(0, 242, 254, 0.2);" onclick="startMlTrain()">🚀 최신 데이터로 모델 재학습 시작</button>
+                    <div id="mlProgressContainer" style="margin-top: 20px; display: none;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px;">
+                            <span>학습 진행률</span>
+                            <span id="mlProgressText">0%</span>
+                        </div>
+                        <div style="width: 100%; height: 8px; background: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden;">
+                            <div id="mlProgressBar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #00f2fe 0%, #4facfe 100%); transition: width 0.3s ease;"></div>
+                        </div>
                     </div>
                 </div>
             </div>
+            
+            <div class="card">
+                <div class="card-header">학습 로그 터미널</div>
+                <div id="mlTerminal" style="padding: 15px; height: 400px; overflow-y: auto; background-color: #0b0f19; color: #00ff00; font-family: 'Consolas', 'Courier New', monospace; font-size: 13px; border-bottom-left-radius: 12px; border-bottom-right-radius: 12px; border: 1px solid rgba(255,255,255,0.05); white-space: pre-wrap;">대기 중...</div>
+            </div>
         </div>
-        
-        <div class="card">
-            <div class="card-header">학습 로그 터미널</div>
-            <div id="mlTerminal" style="padding: 15px; height: 400px; overflow-y: auto; background-color: #0b0f19; color: #00ff00; font-family: 'Consolas', 'Courier New', monospace; font-size: 13px; border-bottom-left-radius: 12px; border-bottom-right-radius: 12px; border: 1px solid rgba(255,255,255,0.05); white-space: pre-wrap;">대기 중...</div>
-        </div>
-    </div>
+    </div> <!-- // dashboardContainer 종료 -->
 
     <script>
         let ws;
