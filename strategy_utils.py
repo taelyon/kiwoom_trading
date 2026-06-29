@@ -1,4 +1,4 @@
-﻿"""
+"""
 키움 REST API 기반 전략 평가 및 지표 처리 유틸리티 모듈
 크레온 플러스 API를 키움 REST API로 전면 리팩토링
 """
@@ -27,8 +27,11 @@ except Exception as e:
     logging.getLogger(__name__).warning(f"⚠️ LightGBM 모델 로드 실패 또는 미설치: {e}")
 
 
+import time
+
 # ==================== 전략 평가용 안전한 globals ====================
 STRATEGY_SAFE_GLOBALS = {
+    'time': time,
     '__builtins__': {
         'min': min, 'max': max, 'abs': abs, 'round': round,
         'int': int, 'float': float, 'bool': bool, 'str': str,
