@@ -2029,11 +2029,9 @@ class KiwoomWebSocketClient:
             
             # 장운영구분에 따른 상세 로그 메시지
             if market_operation == '0':
-                self.logger.info("🌅 KRX 장전 시간입니다.")
-            elif market_operation == '2':
-                self.logger.info("✅ 장마감전 동시호가 시간입니다.")
+                self.logger.info("🌅 장시작전 알림(8:40~)")
             elif market_operation == '3':
-                self.logger.info("✅ KRX 장이 시작되었습니다! 거래 가능합니다.")
+                self.logger.info("✅ 장시작(09:00)! 정규장 거래 가능합니다.")
                 
                 # 장 시작 시 조건검색 강제 재구독 (실시간 편입 누락 방지)
                 if hasattr(self.parent, 'current_strategy') and self.parent.current_strategy:
@@ -2046,37 +2044,46 @@ class KiwoomWebSocketClient:
                     if condition_name and hasattr(self.parent, 'strategy_manager') and self.parent.strategy_manager:
                         self.logger.debug(f"🔄 장 시작 이벤트 감지: '{condition_name}' 조건검색 자동 새로고침(재구독) 요청")
                         create_fire_and_forget_task(self.parent.strategy_manager.stg_changed(condition_name))
-                        
-            elif market_operation == '8':
-                self.logger.info("⏹️ 장마감 시간이 되었습니다. 거래가 종료됩니다.")
-                # 장마감 시 장시작시간 구독 해제
-                create_fire_and_forget_task(self.unsubscribe_market_status())
+            
+            elif market_operation == '2':
+                self.logger.info("✅ 장마감 알림(15:20~) - 동시호가 시간입니다.")
             elif market_operation == '4':
-                self.logger.info("⏸️ 장종료 예상지수종료 시간입니다.")
+                self.logger.info("⏸️ 장마감(15:30) - 장종료 예상지수종료 시간입니다.")
             elif market_operation == '8':
-                self.logger.info("⏹️ 장마감 시간이 되었습니다. 거래가 종료됩니다.")
-            elif market_operation == 'o':
-                self.logger.info("ℹ️ 장 개시 전 시간외 종가매매 시간입니다.")
+                self.logger.info("⏹️ 정규장마감(15:30 이후) - 거래가 종료됩니다.")
+                create_fire_and_forget_task(self.unsubscribe_market_status())
+            elif market_operation == '9':
+                self.logger.info("⏹️ 전체장마감(18:00 이후)")
             elif market_operation == 'a':
-                self.logger.info("ℹ️ 시간외 종가매매 시작")
-            elif market_operation == 'P':
-                self.logger.info("🔄 NXT 프리마켓이 개시되었습니다.")
-            elif market_operation == 'Q':
-                self.logger.info("⏸️ NXT 프리마켓이 종료되었습니다.")
-            elif market_operation == 'R':
-                self.logger.info("🚀 NXT 메인마켓이 개시되었습니다.")
-            elif market_operation == 'S':
-                self.logger.info("⏹️ NXT 메인마켓이 종료되었습니다.")
-            elif market_operation == 'T':
-                self.logger.info("🔄 NXT 애프터마켓 단일가가 개시되었습니다.")
-            elif market_operation == 'U':
-                self.logger.info("🌙 NXT 애프터마켓이 개시되었습니다.")
-            elif market_operation == 'V':
-                self.logger.info("⏸️ NXT 종가매매가 종료되었습니다.")
-            elif market_operation == 'W':
-                self.logger.info("🌙 NXT 애프터마켓이 종료되었습니다.")
+                self.logger.info("ℹ️ 시간외 종가매매 시작(15:40)")
+            elif market_operation == 'b':
+                self.logger.info("⏸️ 시간외 종가매매 종료(16:00)")
+            elif market_operation == 'c':
+                self.logger.info("ℹ️ 시간외 단일가 시작(16:00)")
+            elif market_operation == 'd':
+                self.logger.info("⏸️ 시간외 단일가 종료(18:00)")
+            elif market_operation == 'e':
+                self.logger.info("⏸️ 선옵 장마감전 동시호가 종료")
+            elif market_operation == 'f':
+                self.logger.info("ℹ️ 선물옵션 장운영시간 알림(조기개장 상품)")
+            elif market_operation == 'o':
+                self.logger.info("🌅 선옵 장시작")
             elif market_operation == 's':
-                self.logger.info("ℹ️ 장운영구분 's': 장마감전 동시호가 또는 장마감 진행 중입니다.")
+                self.logger.info("ℹ️ 선옵 장마감전 동시호가 시작")
+            elif market_operation == 'P':
+                self.logger.info("🔄 NXT 프리마켓 시작 알림")
+            elif market_operation == 'Q':
+                self.logger.info("⏸️ NXT 프리마켓 종료 알림")
+            elif market_operation == 'R':
+                self.logger.info("🚀 NXT 메인마켓 시작 알림")
+            elif market_operation == 'S':
+                self.logger.info("⏹️ NXT 메인마켓 종료 알림")
+            elif market_operation == 'T':
+                self.logger.info("🔄 NXT 에프터마켓 단일가 시작 알림")
+            elif market_operation == 'U':
+                self.logger.info("🌙 NXT 에프터마켓 시작 알림")
+            elif market_operation == 'V':
+                self.logger.info("⏸️ NXT 에프터마켓 종료 알림")
             else:
                 self.logger.info(f"ℹ️ 알 수 없는 장운영구분: {market_operation}")
         except Exception as e:
