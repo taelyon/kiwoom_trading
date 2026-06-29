@@ -24,6 +24,9 @@ class KiwoomStrategy:
         self.signal_strategy_result = CallbackSignal()  # code, action, data
         self.clear_signal = CallbackSignal()
 
+        # 종목별 최근 매수 체결 시간 기록 (초 단위 timestamp)
+        self.last_buy_times = {}
+
         # 종목별 매수 신호 생성 동시성 제어를 위한 Lock
         self._buy_signal_locks: dict[str, asyncio.Lock] = {}
         
@@ -99,7 +102,7 @@ class KiwoomStrategy:
                     log_messages.append(f"{var_name}={value}")
             
             if log_messages:
-                self.logger.debug(f"📊 [{code}] 조건 지표 값: {', '.join(log_messages)}")
+                self.logger.info(f"📊 [{code}] 조건 지표 값: {', '.join(log_messages)}")
                 
         except Exception as e:
             self.logger.warning(f"지표 값 로깅 중 오류: {e}")
@@ -195,12 +198,17 @@ class KiwoomStrategy:
             # 매도 신호 평가 (보유 종목인 경우에만)
             portfolio = self.trader.get_portfolio_status()
             if code in portfolio['holdings']:
-                if is_first_eval:
-                    self.logger.debug(f"🔎 [{code}] 보유 종목 - 매도 평가 진행")
-                sell_signals = await self.get_sell_signals(code, market_data, effective_strategy_name)
-                if sell_signals:
-                    self.logger.debug(f"📉 [{code}] 매도 신호 {len(sell_signals)}개 발견")
-                    await self.execute_sell_signals(code, sell_signals)
+                # 매수 후 10초 유예기간 (쿨다운)
+                if time.time() - self.last_buy_times.get(code, 0) < 10:
+                    if is_first_eval:
+                        self.logger.debug(f"⏳ [{code}] 매수 체결 직후 유예기간(10초) 적용 중 - 매도 평가 보류")
+                else:
+                    if is_first_eval:
+                        self.logger.debug(f"🔎 [{code}] 보유 종목 - 매도 평가 진행")
+                    sell_signals = await self.get_sell_signals(code, market_data, effective_strategy_name)
+                    if sell_signals:
+                        self.logger.debug(f"📉 [{code}] 매도 신호 {len(sell_signals)}개 발견")
+                        await self.execute_sell_signals(code, sell_signals)
             else:
                 # 보유 종목이 아닌 경우 디버그 로그 (최초 1회만)
                 if is_first_eval:
@@ -568,7 +576,7 @@ class KiwoomStrategy:
                 elif current_price > self.trader.highest_prices[code]:
                     old_highest = self.trader.highest_prices[code]
                     self.trader.highest_prices[code] = current_price
-                    self.logger.debug(f"📈 {code} 최고가 갱신: {old_highest:,}원 → {current_price:,}원")
+                    self.logger.info(f"📈 {code} 최고가 갱신: {old_highest:,}원 → {current_price:,}원")
                 
                 # 포트폴리오 딕셔너리에 업데이트된 최고가 반영
                 portfolio['highest_prices'] = self.trader.highest_prices.copy() # type: ignore
@@ -679,9 +687,9 @@ class KiwoomStrategy:
                             if partial_sell_ratio and 0 < partial_sell_ratio < 1:
                                 total_holding_qty = ws_balance_data[code].get('quantity', 0)
                                 order_available_qty = int(total_holding_qty * partial_sell_ratio)
-                                self.logger.debug(f"💰 부분 익절 수량 계산 (웹소켓): 보유수량 {total_holding_qty}주 * {partial_sell_ratio} = {order_available_qty}주")
+                                self.logger.info(f"💰 부분 익절 수량 계산 (웹소켓): 보유수량 {total_holding_qty}주 * {partial_sell_ratio} = {order_available_qty}주")
                             else:
-                                self.logger.debug(f"⚡ 전량 매도 수량 조회 (웹소켓): {code} 주문가능수량 {order_available_qty}주")
+                                self.logger.info(f"⚡ 전량 매도 수량 조회 (웹소켓): {code} 주문가능수량 {order_available_qty}주")
 
                     # 2. 웹소켓 데이터가 없거나 이상할 경우 REST API 사용 (Fallback)
                     if order_available_qty <= 0:
@@ -697,10 +705,10 @@ class KiwoomStrategy:
                                         total_holding_qty = self.parent.data_manager.safe_int(stock.get('hldg_qty', 0))
                                         if partial_sell_ratio and 0 < partial_sell_ratio < 1:
                                             order_available_qty = int(total_holding_qty * partial_sell_ratio)
-                                            self.logger.debug(f"📡 부분 익절 수량 계산 (API): 보유수량 {total_holding_qty}주 * {partial_sell_ratio} = {order_available_qty}주")
+                                            self.logger.info(f"📡 부분 익절 수량 계산 (API): 보유수량 {total_holding_qty}주 * {partial_sell_ratio} = {order_available_qty}주")
                                         else:
                                             order_available_qty = self.parent.data_manager.safe_int(stock.get('rmnd_qty', 0))
-                                            self.logger.debug(f"📡 전량 매도 수량 조회 (API): {code} 주문가능수량 {order_available_qty}주")
+                                            self.logger.info(f"📡 전량 매도 수량 조회 (API): {code} 주문가능수량 {order_available_qty}주")
                                         break
 
                 except Exception as qty_check_ex:
@@ -749,6 +757,7 @@ class KiwoomStrategy:
                 )
                 
                 if success:
+                    self.last_buy_times[code] = time.time()
                     self.signal_strategy_result.emit(
                         code, 
                         "buy", 
@@ -800,7 +809,7 @@ class KiwoomStrategy:
                 # 실제 주문 가능한 수량으로 제한
                 final_quantity = min(requested_quantity, actual_order_available_qty)
                 if final_quantity < requested_quantity:
-                    self.logger.debug(f"📊 [{code}] 주문 수량 조정: {requested_quantity}주 → {final_quantity}주")
+                    self.logger.info(f"📊 [{code}] 주문 수량 조정: {requested_quantity}주 → {final_quantity}주")
                 
                 success = await self.trader.place_sell_order(
                     code, 
