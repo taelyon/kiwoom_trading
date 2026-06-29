@@ -796,12 +796,30 @@ class AutoTrader:
             if self.auto_liquidation_executed:
                 return False
             
+            # [API 장운영구분(FID:215) 기반 통제 로직 추가]
+            market_op = None
+            if hasattr(self.parent, 'websocket_manager') and hasattr(self.parent.websocket_manager, 'market_status'):
+                market_op = self.parent.websocket_manager.market_status.get('market_operation')
+                
             now = datetime.now()
             current_time_minutes = now.hour * 60 + now.minute
-            if current_time_minutes < 540 or current_time_minutes >= 930:
-                return False
+            
+            # 1. API 상태값이 수신된 경우: API 값을 최우선으로 매수 통제
+            if market_op is not None:
+                if market_op != '3':  # '3'(장중)이 아니면 신규 매수 전면 차단
+                    if is_buy_check_allowed:
+                        self.logger.debug(f"⏳ [{code}] 장운영구분({market_op}) 상태이므로 신규 매수 차단")
+                    is_buy_check_allowed = False
+                    
+                # 장마감('8' 이상) 이라면 전체 평가 즉시 종료 (매수/매도 모두 중단)
+                if market_op in ['8', '9', 'a', 'b', 'c', 'd']:
+                    return False
+            else:
+                # 2. 아직 API 상태값이 수신되지 않은 경우 (Fallback: 기존 로컬 시간)
+                if current_time_minutes < 540 or current_time_minutes >= 930:
+                    return False
                 
-            # [추가] 점심시간(11:30 ~ 13:00) 매수 차단
+            # [추가] 점심시간(11:30 ~ 13:00) 매수 차단 (로컬 시간 기준 부가 옵션)
             if 690 <= current_time_minutes < 780:
                 if is_buy_check_allowed:
                     self.logger.debug(f"⏳ [{code}] 점심시간(11:30~13:00) 매수 금지 시간대 - 신규 매수 차단")
