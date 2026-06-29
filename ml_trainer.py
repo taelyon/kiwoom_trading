@@ -43,12 +43,13 @@ class MLTrainingWorker(threading.Thread):
             'boosting_type': 'gbdt',
             'num_leaves': 32,                   # 리프 노드 수 (32~64 권장)
             'max_depth': 6,                     # 트리 깊이 (5~7로 얕게 제한)
-            'learning_rate': 0.05,
+            'learning_rate': 0.02,              # [수정] 0.05 -> 0.02 (세밀한 학습)
             'feature_fraction': 0.9,
             'bagging_fraction': 0.8,
             'bagging_freq': 5,
             'verbose': -1,
-            'min_data_in_leaf': 200,            # 잎 하나당 최소 데이터 200개 (노이즈 방지)
+            'min_data_in_leaf': 50,             # [수정] 200 -> 50 (세밀한 타점 패턴 학습 허용)
+            'is_unbalance': True,               # [추가] 클래스 불균형(상승 타점 가중치) 해소
             'force_col_wise': True
         }
 
@@ -85,9 +86,6 @@ class MLTrainingWorker(threading.Thread):
             if df.empty:
                 self.finished_signal.emit(False, "[ML] 학습할 데이터가 부족하여 학습을 건너뜁니다.")
                 return
-
-            # 이전 AI 모델 하위 호환성을 위해 삭제된 컬럼을 0.0으로 주입
-            df['tic_strength'] = 0.0
 
             self.progress_signal.emit(f"🔍 [ML] 데이터 전처리 중... (Rows: {len(df)})")
 
@@ -150,6 +148,14 @@ class MLTrainingWorker(threading.Thread):
                 else:
                     g['tic_rsi'] = 50.0
                     
+                # [신규] 최근 10틱 가격 변화율 (가속도)
+                g['tic_price_roc'] = g['tic_close'].pct_change(periods=10).fillna(0.0)
+                
+                # [신규] 최근 거래량 가속도 (직전 5틱 볼륨 합계 대비 최근 5틱 볼륨 합계 비)
+                vol_sum_5 = g['tic_volume'].rolling(5).sum()
+                prev_vol_sum_5 = vol_sum_5.shift(5)
+                g['tic_vol_roc'] = pd.Series(np.where(prev_vol_sum_5 > 0, vol_sum_5 / prev_vol_sum_5, 1.0)).fillna(1.0).values
+                    
                 return g
             
             df = df.groupby('code', group_keys=False).apply(calc_new_indicators)
@@ -175,7 +181,9 @@ class MLTrainingWorker(threading.Thread):
                 'tic_bb_position',
                 'tic_macd_hist',
                 'tic_rsi',
-                'time_of_day_minute'
+                'time_of_day_minute',
+                'tic_price_roc',      # [추가] 가격 상승 가속도
+                'tic_vol_roc'         # [추가] 거래량 폭발 가속도
             ]
             
             features = base_features + new_features
@@ -212,7 +220,7 @@ class MLTrainingWorker(threading.Thread):
             model = lgb.train(
                 self.params,
                 train_data,
-                num_boost_round=500,        # 반복 횟수
+                num_boost_round=1500,        # 반복 횟수 (Early Stopping 의존)
                 valid_sets=[train_data, val_data],
                 callbacks=[
                     lgb.early_stopping(stopping_rounds=50), # 과적합 방지: 50번 동안 성능 향상 없으면 중단
