@@ -431,6 +431,11 @@ class KiwoomTrader:
                     for code, balance_info in ws_balance_data.items():
                         if code == 'available_cash':
                             continue
+                        
+                        # [잔상 버그 픽스] 방금 매도한 종목이 API 지연으로 인해 다시 부활하는 것 차단
+                        if self.is_recently_sold(code):
+                            continue
+                        
                         quantity = balance_info.get('quantity', 0)
                         
                         if quantity == 0:
@@ -503,6 +508,11 @@ class KiwoomTrader:
             for code, balance_info in ws_balance_data.items():
                 if code == 'available_cash':
                     continue
+                
+                # [잔상 버그 픽스] 방금 매도한 종목이 웹소켓 지연으로 인해 다시 부활하는 것 차단
+                if self.is_recently_sold(code):
+                    continue
+                
                 quantity = balance_info.get('quantity', 0)
                 average_price = balance_info.get('average_price', 0)
                 
