@@ -700,7 +700,6 @@ class MonitoringManager:
                                     qty = info.get('quantity', 0)
                                     if qty > 0:
                                         self.logger.info(f"🧹 [마감 청산] {code} {qty}주 일괄 매도 주문")
-                                        import asyncio
                                         asyncio.create_task(trader.place_sell_order(code, qty, price=0, strategy="마감 강제청산"))
                             self._has_liquidated_today = datetime.now().date()
                 
