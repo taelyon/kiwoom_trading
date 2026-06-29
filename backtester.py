@@ -236,8 +236,28 @@ class Backtester:
                         dt_series = pd.to_datetime(group_df['datetime'], errors='coerce')
                         f_time = np.clip((dt_series.dt.hour * 60 + dt_series.dt.minute).values - 540, 0, 390)
                         
+                        # [신규 추가] 파생 가속도 지표 (price_roc, vol_roc) 동기화
+                        if 'close' in group_df.columns:
+                            f_price_roc = group_df['close'].pct_change(periods=10).fillna(0.0).values
+                        else:
+                            f_price_roc = np.zeros(n)
+                            
+                        if 'volume' in group_df.columns:
+                            vol_sum_5 = group_df['volume'].rolling(5).sum()
+                            prev_vol_sum_5 = vol_sum_5.shift(5)
+                            f_vol_roc = np.where(prev_vol_sum_5 > 0, vol_sum_5 / prev_vol_sum_5, 1.0)
+                            f_vol_roc = pd.Series(f_vol_roc).fillna(1.0).values
+                        else:
+                            f_vol_roc = np.ones(n)
+                        
                         num_features = LGBM_MODEL.num_feature()
-                        if num_features == 11:
+                        if num_features == 13:
+                            mat = np.column_stack((
+                                f_strength, f_velocity, f_relative, f_spike, f_vi_dist, f_kosdaq_change,
+                                f_vwap_dist, f_bb_pos, f_macd_hist, f_rsi, f_time,
+                                f_price_roc, f_vol_roc
+                            ))
+                        elif num_features == 11:
                             mat = np.column_stack((f_strength, f_velocity, f_relative, f_spike, f_vi_dist, f_kosdaq_change, f_vwap_dist, f_bb_pos, f_macd_hist, f_rsi, f_time))
                         elif num_features == 10:
                             mat = np.column_stack((f_strength, f_velocity, f_relative, f_spike, f_vi_dist, f_kosdaq_change, f_vwap_dist, f_bb_pos, f_macd_hist, f_rsi))

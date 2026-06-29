@@ -225,6 +225,9 @@ class KiwoomIndicatorExtractor:
             if is_target('RSI') and 'RSI' not in indicators:
                 indicators['RSI'] = talib.RSI(close, timeperiod=14) if len(close) >= 14 else np.full(len(close), np.nan)
 
+            if is_target('RSI_SIGNAL') and 'RSI' in indicators and 'RSI_SIGNAL' not in indicators and len(indicators['RSI']) >= 5:
+                indicators['RSI_SIGNAL'] = talib.SMA(indicators['RSI'], timeperiod=5)
+
             # MACD
             if (is_target('MACD') or is_target('MACD_SIGNAL') or is_target('MACD_HIST')) and 'MACD' not in indicators:
                 indicators['MACD'], indicators['MACD_SIGNAL'], indicators['MACD_HIST'] = (talib.MACD(close) if len(close) >= 26 
@@ -505,12 +508,35 @@ def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_
                 now = datetime.now()
                 feature_time = max(0, min(390, (now.hour * 60 + now.minute) - (9 * 60)))
                 
+                # [신규 추가] 파생 가속도 지표 (price_roc, vol_roc) 즉석 계산
+                close_arr = locals_dict.get('tic_close', [])
+                if isinstance(close_arr, (list, np.ndarray)) and len(close_arr) >= 11:
+                    feature_price_roc = (close_arr[-1] - close_arr[-11]) / close_arr[-11] if close_arr[-11] > 0 else 0.0
+                else:
+                    feature_price_roc = 0.0
+                    
+                vol_arr = locals_dict.get('tic_volume', [])
+                if isinstance(vol_arr, (list, np.ndarray)) and len(vol_arr) >= 10:
+                    vol_sum_recent_5 = sum(vol_arr[-5:])
+                    vol_sum_prev_5 = sum(vol_arr[-10:-5])
+                    feature_vol_roc = (vol_sum_recent_5 / vol_sum_prev_5) if vol_sum_prev_5 > 0 else 1.0
+                else:
+                    feature_vol_roc = 1.0
+                
                 # 모델 학습 시 사용된 피처 개수에 맞춰 동적으로 차원 맞추기
                 num_features = LGBM_MODEL.num_feature()
-                if num_features == 11:
-                    # 최신 11개 피처 (시간 지표 포함)
+                if num_features == 13:
+                    # 최신 13개 피처 (가속도 지표 포함)
                     input_vector = np.array([[
                         feature_strength, feature_velocity, feature_relative, feature_spike,
+                        feature_vi_dist, feature_kosdaq_change,
+                        feature_vwap_dist, feature_bb_pos, feature_macd_hist, feature_rsi,
+                        feature_time, feature_price_roc, feature_vol_roc
+                    ]])
+                elif num_features == 11:
+                    # 직전 11개 피처 (시간 지표 포함)
+                    input_vector = np.array([[
+                        feature_strength, feature_velocity, feature_imbalance, feature_relative, feature_spike,
                         feature_vi_dist, feature_kosdaq_change,
                         feature_vwap_dist, feature_bb_pos, feature_macd_hist, feature_rsi,
                         feature_time
@@ -743,7 +769,49 @@ def prepare_sell_strategy_locals(code, tic_chart_data, min_chart_data, buy_price
                 
                 # 모델 학습 시 사용된 피처 개수에 맞춰 동적으로 차원 맞추기
                 num_features = LGBM_MODEL.num_feature()
-                if num_features == 5:
+                if num_features == 14:
+                    # 추가 피처 4개 (VWAP, BB, MACD, RSI)
+                    vwap_val = locals_dict.get('tic_VWAP', [0])
+                    vwap_last = vwap_val[-1] if isinstance(vwap_val, (list, np.ndarray)) and len(vwap_val) > 0 else 0.0
+                    close_val = locals_dict.get('tic_close', [0])
+                    close_last = close_val[-1] if isinstance(close_val, (list, np.ndarray)) and len(close_val) > 0 else 0.0
+                    feature_vwap_dist = (close_last - vwap_last) / vwap_last if vwap_last > 0 else 0.0
+                    
+                    bb_pos_val = locals_dict.get('tic_BB_POSITION', [0.5])
+                    feature_bb_pos = bb_pos_val[-1] if isinstance(bb_pos_val, (list, np.ndarray)) and len(bb_pos_val) > 0 else 0.5
+                    
+                    macd_hist_val = locals_dict.get('tic_MACD_HIST', [0.0])
+                    feature_macd_hist = macd_hist_val[-1] if isinstance(macd_hist_val, (list, np.ndarray)) and len(macd_hist_val) > 0 else 0.0
+                    
+                    rsi_val = locals_dict.get('tic_RSI', [50.0])
+                    feature_rsi = rsi_val[-1] if isinstance(rsi_val, (list, np.ndarray)) and len(rsi_val) > 0 else 50.0
+                    
+                    now = datetime.now()
+                    feature_time = max(0, min(390, (now.hour * 60 + now.minute) - (9 * 60)))
+                    
+                    # [신규 추가] 파생 가속도 지표 (price_roc, vol_roc)
+                    close_arr = locals_dict.get('tic_close', [])
+                    if isinstance(close_arr, (list, np.ndarray)) and len(close_arr) >= 11:
+                        feature_price_roc = (close_arr[-1] - close_arr[-11]) / close_arr[-11] if close_arr[-11] > 0 else 0.0
+                    else:
+                        feature_price_roc = 0.0
+                        
+                    vol_arr = locals_dict.get('tic_volume', [])
+                    if isinstance(vol_arr, (list, np.ndarray)) and len(vol_arr) >= 10:
+                        vol_sum_recent_5 = sum(vol_arr[-5:])
+                        vol_sum_prev_5 = sum(vol_arr[-10:-5])
+                        feature_vol_roc = (vol_sum_recent_5 / vol_sum_prev_5) if vol_sum_prev_5 > 0 else 1.0
+                    else:
+                        feature_vol_roc = 1.0
+
+                    # 최신 13개 피처 (가속도 포함)
+                    input_vector = np.array([[
+                        feature_strength, feature_velocity, feature_relative, feature_spike,
+                        feature_vi_dist, feature_kosdaq_change,
+                        feature_vwap_dist, feature_bb_pos, feature_macd_hist, feature_rsi,
+                        feature_time, feature_price_roc, feature_vol_roc
+                    ]])
+                elif num_features == 5:
                     input_vector = np.array([[feature_strength, feature_velocity, feature_imbalance, feature_relative, feature_spike]])
                 elif num_features == 15:
                     # 15개 피처 (기본 5 + 신규 8 + 시장지수 2)
