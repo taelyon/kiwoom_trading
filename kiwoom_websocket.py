@@ -154,7 +154,7 @@ class KiwoomWebSocketClient:
         """웹소켓 클라이언트 명시적 종료"""
         self.keep_running = False
         await self.disconnect()
-        self.logger.info("🛑 웹소켓 클라이언트 중지 요청 (재연결 안함)")
+        self.logger.debug("🛑 웹소켓 클라이언트 중지 요청 (재연결 안함)")
     
     async def run(self):
         """웹소켓 클라이언트 실행 (키움증권 예시코드 기반)"""
@@ -202,7 +202,7 @@ class KiwoomWebSocketClient:
                 # 프로그램 종료가 아니라면 재연결을 위해 대기
                 if self.keep_running:
                     await asyncio.sleep(reconnect_delay)
-                    self.logger.info(f"🔄 웹소켓 재연결 시도 중... ({reconnect_delay}초 대기 완료)")
+                    self.logger.debug(f"🔄 웹소켓 재연결 시도 중... ({reconnect_delay}초 대기 완료)")
         
         self.logger.info("✅ 웹소켓 클라이언트 실행이 완전히 종료되었습니다.")
         if polling_task and not polling_task.done():
@@ -292,7 +292,7 @@ class KiwoomWebSocketClient:
                                     try:
                                         # 토큰 갱신
                                         if await self.parent.login_handler.kiwoom_client.get_access_token():
-                                            self.logger.info('✅ 토큰 갱신 성공 - 웹소켓 재연결 시도')
+                                            self.logger.debug('✅ 토큰 갱신 성공 - 웹소켓 재연결 시도')
                                             # 새로운 토큰으로 업데이트
                                             self.token = self.parent.login_handler.kiwoom_client.access_token
                                             # keep_running을 True로 설정 (재연결을 위해)
@@ -300,7 +300,7 @@ class KiwoomWebSocketClient:
                                             # 재연결 시도
                                             await asyncio.sleep(1)  # 1초 대기
                                             if await self.connect(): # type: ignore
-                                                self.logger.info('✅ 웹소켓 재연결 성공')
+                                                self.logger.debug('✅ 웹소켓 재연결 성공')
                                             else:
                                                 self.logger.error('❌ 웹소켓 재연결 실패')
                                                 await self.disconnect()
@@ -349,7 +349,7 @@ class KiwoomWebSocketClient:
                                 try:
                                     # 부모 윈도우의 임시 보유종목 데이터 확인
                                     if hasattr(self.parent, '_pending_balance_data'):
-                                        self.logger.info("웹소켓 준비 완료 - 임시 저장된 잔고 데이터로 투자현황표 초기화")
+                                        self.logger.debug("웹소켓 준비 완료 - 임시 저장된 잔고 데이터로 투자현황표 초기화")
                                         self.parent._initialize_balance_data_from_rest_api(self.parent._pending_balance_data)
                                         delattr(self.parent, '_pending_balance_data')
                                 except Exception as table_update_err:
@@ -371,7 +371,7 @@ class KiwoomWebSocketClient:
                             if hasattr(self.parent, 'monitoring_manager') and self.parent.monitoring_manager:
                                 monitoring_codes = self.parent.monitoring_manager.extract_monitoring_stock_codes_enhanced()
                                 if monitoring_codes:
-                                    self.logger.info(f"🔄 웹소켓 복구 상태 동기화: 모니터링 종목 {len(monitoring_codes)}개 실시간 체결 재구독")
+                                    self.logger.debug(f"🔄 웹소켓 복구 상태 동기화: 모니터링 종목 {len(monitoring_codes)}개 실시간 체결 재구독")
                                     await self.subscribe_stock_execution_data(monitoring_codes, 'monitoring')
                         except Exception as sync_err:
                             self.logger.error(f"모니터링 종목 재구독 실패: {sync_err}", exc_info=True)
@@ -379,7 +379,7 @@ class KiwoomWebSocketClient:
                         # [추가] 조건검색 실시간 재요청: 끊어지기 전 실행 중이던 조건검색 자동 재시작
                         try:
                             if hasattr(self.parent, 'current_strategy') and getattr(self.parent, 'current_strategy', None):
-                                self.logger.info("🔄 웹소켓 복구 상태 동기화: 조건검색 목록 재조회 및 자동 실행 요청")
+                                self.logger.debug("🔄 웹소켓 복구 상태 동기화: 조건검색 목록 재조회 및 자동 실행 요청")
                                 await self.parent.handle_condition_search_list_query()
                         except Exception as cnsr_err:
                             self.logger.error(f"조건검색 재구독 실패: {cnsr_err}", exc_info=True)
@@ -631,7 +631,7 @@ class KiwoomWebSocketClient:
             # 타입별 그룹 번호 저장
             self._pending_subscriptions[sub_type] = grp_no
             await self.send_message(subscribe_data)
-            self.logger.info('✅ 주문체결 실시간 구독 요청 전송 완료')
+            self.logger.debug('✅ 주문체결 실시간 구독 요청 전송 완료')
             
         except Exception as e:
             self.logger.error(f'주문체결 실시간 구독 요청 실패: {e}', exc_info=True)
@@ -655,7 +655,7 @@ class KiwoomWebSocketClient:
             # 타입별 그룹 번호 저장
             self._pending_subscriptions[sub_type] = grp_no
             await self.send_message(subscribe_data)
-            self.logger.info('✅ 실시간 잔고 구독 요청 전송 완료')
+            self.logger.debug('✅ 실시간 잔고 구독 요청 전송 완료')
             
         except Exception as e:
             self.logger.error(f'실시간 잔고 구독 요청 실패: {e}', exc_info=True)
@@ -678,7 +678,7 @@ class KiwoomWebSocketClient:
             # 타입별 그룹 번호 저장
             self._pending_subscriptions[sub_type] = grp_no
             await self.send_message(subscribe_data)
-            self.logger.info('✅ 시장 상태 구독 요청 전송 완료')
+            self.logger.debug('✅ 시장 상태 구독 요청 전송 완료')
             
         except Exception as e:
             self.logger.error(f'시장 상태 구독 요청 실패: {e}', exc_info=True)
@@ -700,7 +700,7 @@ class KiwoomWebSocketClient:
             }
             self._pending_subscriptions[sub_type] = grp_no
             await self.send_message(subscribe_data)
-            self.logger.info('✅ 업종지수(코스피/코스닥) 실시간 구독 요청 전송 완료')
+            self.logger.debug('✅ 업종지수(코스피/코스닥) 실시간 구독 요청 전송 완료')
             
         except Exception as e:
             self.logger.error(f'업종지수 실시간 구독 요청 실패: {e}', exc_info=True)
@@ -720,7 +720,7 @@ class KiwoomWebSocketClient:
                 }]
             }
             await self.send_message(unsubscribe_data)
-            self.logger.info('✅ 시장 상태 구독 해제 요청 전송 완료')
+            self.logger.debug('✅ 시장 상태 구독 해제 요청 전송 완료')
 
         except Exception as e:
             self.logger.error(f'시장 상태 구독 해제 요청 실패: {e}', exc_info=True)
@@ -907,7 +907,7 @@ class KiwoomWebSocketClient:
                                             # 주문 수량이 현재 잔고보다 크거나 같으면 해당 주문으로 간주
                                             if total_qty >= sold_qty:
                                                 sold_qty = total_qty
-                                                self.logger.info(f"📋 [알림보정] 분할 체결 감지: 잔고 대신 주문수량({sold_qty}) 사용 (주문번호: {ord_no})")
+                                                self.logger.debug(f"📋 [알림보정] 분할 체결 감지: 잔고 대신 주문수량({sold_qty}) 사용 (주문번호: {ord_no})")
                                                 found_order = True
                                                 break
                                     
@@ -921,7 +921,7 @@ class KiwoomWebSocketClient:
                                                 temp_qty = temp_log['quantity']
                                                 if temp_qty >= sold_qty:
                                                     sold_qty = temp_qty
-                                                    self.logger.info(f"📋 [알림보정] 임시 매도 기록 사용: {sold_qty}주 (REST 응답 지연)")
+                                                    self.logger.debug(f"📋 [알림보정] 임시 매도 기록 사용: {sold_qty}주 (REST 응답 지연)")
 
                             except Exception as qty_fix_ex:
                                 self.logger.warning(f"알림 수량 보정 중 오류 (무시): {qty_fix_ex}")
@@ -975,7 +975,7 @@ class KiwoomWebSocketClient:
                         if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'objtrader'):
                             if hasattr(self.parent.objtrader, 'highest_prices') and stock_code in self.parent.objtrader.highest_prices:
                                 del self.parent.objtrader.highest_prices[stock_code]
-                                self.logger.info(f"🗑️ {stock_code} 최고가 정보 제거 완료 (objtrader, 웹소켓 체결)")
+                                self.logger.debug(f"🗑️ {stock_code} 최고가 정보 제거 완료 (objtrader, 웹소켓 체결)")
                         
                         # [수정] 전량 매도 시 투자현황표 즉시 업데이트 (잔고 삭제 반영)
                         if hasattr(self.parent, 'update_stock_table'):
@@ -1210,7 +1210,7 @@ class KiwoomWebSocketClient:
                     if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'objtrader'):
                         if hasattr(self.parent.objtrader, 'highest_prices') and stock_code in self.parent.objtrader.highest_prices:
                             del self.parent.objtrader.highest_prices[stock_code]
-                            self.logger.info(f"🗑️ {stock_code} 최고가 정보 제거 완료 (주문 체결)")
+                            self.logger.debug(f"🗑️ {stock_code} 최고가 정보 제거 완료 (주문 체결)")
             
         except Exception as e:
             self.logger.error(f"주문체결 데이터 처리 실패: {e}", exc_info=True)
@@ -1672,7 +1672,7 @@ class KiwoomWebSocketClient:
                 tic_data['LAST_TIC_CNT'].append(1)
                 
                 if len(tic_data.get('close', [])) == 1:
-                    self.logger.info(f"🎯 첫 번째 60틱봉 생성: {stock_code}, 가격={current_price}, 순간체결강도 시작")
+                    self.logger.debug(f"🎯 첫 번째 60틱봉 생성: {stock_code}, 가격={current_price}, 순간체결강도 시작")
                 else:
                     self.logger.debug(f"🎼 새로운 60틱봉 생성: {stock_code}")
 
@@ -1777,7 +1777,7 @@ class KiwoomWebSocketClient:
                 min_data['close'].append(current_price)
                 min_data['volume'].append(volume)
                 
-                self.logger.info(f"🎯 첫 번째 3분봉 생성: {stock_code}, 시간={normalized_dt.strftime('%H:%M:%S')}, 가격={current_price}")
+                self.logger.debug(f"🎯 첫 번째 3분봉 생성: {stock_code}, 시간={normalized_dt.strftime('%H:%M:%S')}, 가격={current_price}")
                 return
             
             # 기존 분봉 데이터 확인
@@ -2012,7 +2012,7 @@ class KiwoomWebSocketClient:
                     # current_strategy가 없더라도, 혹시 current_condition_name이 있는지 한 번 더 체크 (호환성)
                     condition_name = getattr(self.parent, 'current_condition_name', None)
                     if condition_name and hasattr(self.parent, 'strategy_manager') and self.parent.strategy_manager:
-                        self.logger.info(f"🔄 장 시작 이벤트 감지: '{condition_name}' 조건검색 자동 새로고침(재구독) 요청")
+                        self.logger.debug(f"🔄 장 시작 이벤트 감지: '{condition_name}' 조건검색 자동 새로고침(재구독) 요청")
                         create_fire_and_forget_task(self.parent.strategy_manager.stg_changed(condition_name))
                         
             elif market_operation == '8':
