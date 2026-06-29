@@ -225,9 +225,6 @@ class KiwoomIndicatorExtractor:
             if is_target('RSI') and 'RSI' not in indicators:
                 indicators['RSI'] = talib.RSI(close, timeperiod=14) if len(close) >= 14 else np.full(len(close), np.nan)
 
-            if is_target('RSI_SIGNAL') and 'RSI' in indicators and 'RSI_SIGNAL' not in indicators and len(indicators['RSI']) >= 5:
-                indicators['RSI_SIGNAL'] = talib.SMA(indicators['RSI'], timeperiod=5)
-
             # MACD
             if (is_target('MACD') or is_target('MACD_SIGNAL') or is_target('MACD_HIST')) and 'MACD' not in indicators:
                 indicators['MACD'], indicators['MACD_SIGNAL'], indicators['MACD_HIST'] = (talib.MACD(close) if len(close) >= 26 

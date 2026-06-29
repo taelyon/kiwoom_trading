@@ -1086,7 +1086,7 @@ class ChartDataCache:
             if chart_type == "tic":
                 allowed_set = {
                     'MA5', 'MA10', 'MA20', 'MA60', 'MA120',
-                    'RSI', 'RSI_SIGNAL', 'RSI21',
+                    'RSI', 'RSI21',
                     'MACD', 'MACD_SIGNAL', 'MACD_HIST'
                 }
             elif chart_type == "minute":
@@ -1108,13 +1108,6 @@ class ChartDataCache:
             if 'RSI' in allowed_set and len(close_array) >= 15:
                 # RSI 계산 (기본 14일)
                 indicators['RSI'] = talib.RSI(close_array, timeperiod=14)
-                
-                # RSI Signal (RSI의 9일 이동평균)
-                if 'RSI_SIGNAL' in allowed_set:
-                    chart_len = len(indicators['RSI'])
-                    if chart_len >= 9:
-                        # 전체 길이에 대해 SMA 계산 (NaN은 전파됨)
-                        indicators['RSI_SIGNAL'] = talib.SMA(indicators['RSI'], timeperiod=9)
 
             # RSI 21 (추가 요청)
             if 'RSI21' in allowed_set and len(close_array) >= 22:
@@ -1331,7 +1324,7 @@ class ChartDataCache:
                             
                     # 1. DB에 이탈 시간 업데이트
                     if hasattr(self.trader, 'db_manager') and self.trader.db_manager:
-                        from common_utils import create_fire_and_forget_task
+                        from utils import create_fire_and_forget_task
                         create_fire_and_forget_task(self.trader.db_manager.update_monitoring_end(stock_code))
                     
                     # 2. 매수 차단 목록(Blacklist) 추가

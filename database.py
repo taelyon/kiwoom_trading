@@ -17,8 +17,7 @@ class AsyncDatabaseManager:
         self.db_path = db_path
         self.indicator_list = [
             'MA5', 'MA10', 'MA20', 'MA60', 'MA120', 
-            'RSI', 'RSI_SIGNAL',
-            'VELOCITY', 'RELATIVE_POSITION', 'LAST_TIC_CNT'
+            'RSI', 'VELOCITY', 'RELATIVE_POSITION', 'LAST_TIC_CNT'
         ]
         # 3분봉 저장 대상 지표 (DB 스키마 및 저장 시 사용)
         self.min_target_indicators = [
