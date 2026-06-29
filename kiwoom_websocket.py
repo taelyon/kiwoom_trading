@@ -321,7 +321,7 @@ class KiwoomWebSocketClient:
                             await self.disconnect()
                     else:
                         mode_text = "모의투자" if self.is_mock else "실전투자" # type: ignore
-                        self.logger.debug(f'✅ 웹소켓 로그인 성공하였습니다. ({mode_text} 모드)')
+                        self.logger.info(f'✅ 웹소켓 로그인 성공하였습니다. ({mode_text} 모드)')
                         
                         # 웹소켓 연결 성공 시 post_login_setup 실행
                         try:
