@@ -296,6 +296,13 @@ class KiwoomStrategy:
                     if is_first_check:
                         self.logger.debug(f"⏳ [{code}] 매수 주문이 이미 진행 중이므로 신호 생성을 건너뜁니다.")
                     return signals
+                    
+                # [추가] 이미 보유 중인 종목이면 추가 매수(물타기) 차단 및 평가 건너뛰기
+                portfolio = self.trader.get_portfolio_status()
+                if code in portfolio.get('holdings', {}):
+                    if is_first_check:
+                        self.logger.debug(f"🚫 [{code}] 이미 보유 중인 종목이므로 신규 매수 평가를 건너뜁니다.")
+                    return signals
                 
                 # 차트 데이터 가져오기 (틱/분봉) - chart_cache에서 직접 가져오기
                 tic_chart_data = pd.DataFrame()

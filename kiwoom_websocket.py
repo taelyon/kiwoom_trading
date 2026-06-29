@@ -980,6 +980,11 @@ class KiwoomWebSocketClient:
                         # [수정] 전량 매도 시 투자현황표 즉시 업데이트 (잔고 삭제 반영)
                         if hasattr(self.parent, 'update_stock_table'):
                             self.parent.update_stock_table()
+                            
+                        # [추가] 당일 재진입 방지 (블랙리스트 추가)
+                        if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'trader') and self.parent.trader:
+                            if hasattr(self.parent.trader, 'add_to_blacklist'):
+                                self.parent.trader.add_to_blacklist(stock_code, reason="익절/손절에 따른 전량 매도 완료 (당일 재매매 금지)")
             else:
                 # 실시간 잔고 데이터 수신 시, 테이블 업데이트 트리거
                 current_time = time.time()
