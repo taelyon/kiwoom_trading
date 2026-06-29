@@ -43,7 +43,7 @@ def run_backtest_process_worker(q, s_date, e_date, c, buy_stg=None, sell_stg=Non
 def run_ml_train_process_worker(q):
     """독립된 프로세스에서 MLTrainerWorker를 실행하고 큐를 통해 상태를 보고하는 워커 함수"""
     try:
-        from ml_trainer import MLTrainerWorker
+        from ml_trainer import MLTrainingWorker
         
         def on_progress(msg):
             q.put({
@@ -58,7 +58,7 @@ def run_ml_train_process_worker(q):
                 "msg": msg
             })
             
-        trainer = MLTrainerWorker(on_progress=on_progress, on_finished=on_finished)
+        trainer = MLTrainingWorker(on_progress=on_progress, on_finished=on_finished)
         trainer.run()
     except Exception as e:
         q.put({
