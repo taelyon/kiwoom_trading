@@ -216,7 +216,7 @@ class KiwoomTrader:
 
                 # 1. 보유 종목 확인
                 if code in self.holdings and self.holdings[code].get('quantity', 0) > 0:
-                    self.logger.warning(f"⚠️ 매수 주문 취소: {code}는 이미 보유 중인 종목입니다.")
+                    self.logger.info(f"⚠️ 매수 주문 취소: {code}는 이미 보유 중인 종목입니다.")
                     return False
                 
                 # 2. 최대 보유 종목 수 확인
