@@ -1509,6 +1509,20 @@ class KiwoomWebSocketClient:
                         trader.holdings[stock_code]['current_price'] = current_price
                         # holdings 업데이트 로그는 너무 빈번하므로 DEBUG 레벨로 유지
                         # self.logger.debug(f"✅ holdings 현재가 업데이트: {stock_code} {current_price:,}원")
+                        
+                        # [추가] 1초 타이머(Polling) 지연을 없애는 이벤트 기반 즉시 매도 트리거 (0.1초 스로틀링 적용)
+                        if hasattr(trader, 'strategy') and trader.strategy:
+                            if not hasattr(self, '_last_sell_eval_time'):
+                                self._last_sell_eval_time = {}
+                                
+                            current_eval_time = time.time()
+                            last_time = self._last_sell_eval_time.get(stock_code, 0)
+                            
+                            # 종목당 최소 0.1초(100ms) 이상 지났을 때만 매도 평가 허용 (CPU 과부하 방지)
+                            if current_eval_time - last_time >= 0.1:
+                                self._last_sell_eval_time[stock_code] = current_eval_time
+                                from utils import create_fire_and_forget_task
+                                create_fire_and_forget_task(trader.strategy.evaluate_sell_signals(stock_code, current_price, is_market_close=False))
             
             # 투자현황표 업데이트 (throttling 적용)
             current_time = time.time()
