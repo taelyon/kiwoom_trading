@@ -296,6 +296,12 @@ class Backtester:
             full_df = full_df.sort_values(by='datetime').reset_index(drop=True)
             
             # --- Phase 2: Event-Driven Simulation ---
+            from config_manager import get_config
+            time_settings = get_config().get_trading_time_settings()
+            buy_end_time_str = time_settings['buy_end_time'].strftime('%H%M')
+            sell_all_time_str = time_settings['sell_all_time'].strftime('%H%M')
+            sell_all_enabled = time_settings['sell_all_enabled']
+            
             grouped_by_time = full_df.groupby('datetime', sort=False)
             total_times = len(grouped_by_time)
             time_idx = 0
@@ -320,6 +326,8 @@ class Backtester:
                 time_part = current_time_str[11:16].replace(":", "") if len(current_time_str) >= 16 else ""
                 is_market_close = (time_part >= "1518")
                 is_lunch_time = ("1130" <= time_part < "1300") # 점심시간 체크
+                is_buy_blocked_time = (time_part >= buy_end_time_str)
+                is_force_sell_time = sell_all_enabled and (time_part >= sell_all_time_str)
                 
                 # 1. 매도 평가 (현재 보유 종목 중 time_df에 존재하는 것)
                 for _, row in time_df.iterrows():
@@ -384,11 +392,11 @@ class Backtester:
                                 if eval_errors <= 5:
                                     logger.error(f"매도 평가 오류 ({stg_name_str}): {e}")
                         
-                        # 15:18 장마감 강제 청산
-                        if is_market_close:
+                        # 오버나잇 방지 강제 청산 및 장마감 강제 청산
+                        if is_force_sell_time or is_market_close:
                             sell_signal = True
                             sell_ratio = 1.0
-                            matched_sell_stg = "장마감 강제청산"
+                            matched_sell_stg = "마감 강제청산"
                             
                         if sell_signal:
                             sell_qty = int(pos['qty'] * sell_ratio)
@@ -426,8 +434,8 @@ class Backtester:
                                     portfolio[current_code]['qty'] -= sell_qty
                                     portfolio[current_code].setdefault('executed_sell_rules', set()).add(matched_sell_stg)
                                     
-                # 2. 매수 평가 (보유 슬롯이 비어있고, 점심시간이 아닐 때만)
-                if not is_market_close and not is_lunch_time:
+                # 2. 매수 평가 (보유 슬롯이 비어있고, 점심시간이 아닐 때만, 그리고 매수 차단 시간이 아닐 때만)
+                if not is_market_close and not is_lunch_time and not is_buy_blocked_time:
                     if 'AI_SCORE' in time_df.columns:
                         buy_candidates = time_df.sort_values(by='AI_SCORE', ascending=False)
                     else:
