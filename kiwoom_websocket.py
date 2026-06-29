@@ -2315,9 +2315,9 @@ class KiwoomWebSocketClient:
                     # 현재 조건검색 이름 가져오기
                     condition_name = self.parent.current_condition_name if hasattr(self.parent, 'current_condition_name') else None
                     if condition_name:
-                        self.logger.info(f"🔧 조건검색 '{condition_name}'의 종목들을 API 큐에 추가 시작")
+                        self.logger.debug(f"🔧 조건검색 '{condition_name}'의 종목들을 API 큐에 추가 시작")
                     else:
-                        self.logger.info("🔧 부모 윈도우에 API 큐 추가 시작") # type: ignore
+                        self.logger.debug("🔧 부모 윈도우에 API 큐 추가 시작") # type: ignore
                     
                     # 조건검색 결과를 API 큐에 추가 (차트 데이터 수집 후 모니터링에 추가됨)
                     added_count = 0
@@ -2357,7 +2357,7 @@ class KiwoomWebSocketClient:
                                 result = self.parent.chart_cache.add_stock_to_api_queue(stock['code'])
                                 if result:
                                     added_count += 1
-                                    self.logger.info(f"✅ API 큐 추가 성공: {stock['code']}")
+                                    self.logger.debug(f"✅ API 큐 추가 성공: {stock['code']}")
                                 else:
                                     # 중복이거나 이미 모니터링에 존재하는 경우
                                     self.logger.debug(f"ℹ️ API 큐 추가 건너뜀 (중복 또는 이미 존재): {stock['code']}")
@@ -2365,7 +2365,7 @@ class KiwoomWebSocketClient:
                             else:
                                 self.logger.error(f"❌ chart_cache가 없습니다: {stock['code']}")
                     
-                    self.logger.info(f"✅ 조건검색 실시간 결과 API 큐 추가 완료: {added_count}개 종목 추가")
+                    self.logger.debug(f"✅ 조건검색 실시간 결과 API 큐 추가 완료: {added_count}개 종목 추가")
                    
                 else:
                     self.logger.error("❌ 부모 윈도우가 없습니다")
