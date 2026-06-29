@@ -1641,10 +1641,6 @@ HTML_CONTENT = """
                 </div>
             </div>
         </div>
-    </div>
-        </div>
-    </div>
-
     <!-- 매매내역 모달 -->    <!-- 매매내역 모달 -->
     <div id="tradeHistoryModal" class="modal-overlay" style="display:none; z-index: 9999;">
         <div class="modal-container">
