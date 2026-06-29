@@ -1277,6 +1277,7 @@ HTML_CONTENT = """
             <div class="nav-tabs">
                 <div id="tabLive" class="nav-tab active" onclick="switchTab('live')">📡 실시간 트레이딩</div>
                 <div id="tabBacktest" class="nav-tab" onclick="switchTab('backtest')">🧪 백테스팅</div>
+                <div id="tabMlTrain" class="nav-tab" onclick="switchTab('mlTrain')">🧠 AI 학습</div>
             </div>
             <div class="header-controls">
                 <!-- 자동매매 구동 스위치 -->
@@ -2804,12 +2805,10 @@ HTML_CONTENT = """
         function switchTab(tabId) {
             document.getElementById('tabLive').classList.remove('active');
             document.getElementById('tabBacktest').classList.remove('active');
-            document.getElementById('tabSettings').classList.remove('active');
             document.getElementById('tabMlTrain').classList.remove('active');
             
             document.getElementById('liveView').classList.add('view-hidden');
             document.getElementById('backtestView').classList.add('view-hidden');
-            document.getElementById('settingsView').classList.add('view-hidden');
             document.getElementById('mlTrainView').classList.add('view-hidden');
             
             if (tabId === 'live') {
@@ -2818,9 +2817,6 @@ HTML_CONTENT = """
             } else if (tabId === 'backtest') {
                 document.getElementById('tabBacktest').classList.add('active');
                 document.getElementById('backtestView').classList.remove('view-hidden');
-            } else if (tabId === 'settings') {
-                document.getElementById('tabSettings').classList.add('active');
-                document.getElementById('settingsView').classList.remove('view-hidden');
             } else if (tabId === 'mlTrain') {
                 document.getElementById('tabMlTrain').classList.add('active');
                 document.getElementById('mlTrainView').classList.remove('view-hidden');
