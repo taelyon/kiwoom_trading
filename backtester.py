@@ -251,7 +251,43 @@ class Backtester:
                             f_vol_roc = np.ones(n)
                         
                         num_features = LGBM_MODEL.num_feature()
-                        if num_features == 13:
+                        
+                        if num_features >= 17:
+                            if 'MIN3_MA5' in group_df.columns and 'MIN3_MA20' in group_df.columns:
+                                f_min3_trend_agree = ((group_df['MIN3_MA5'] > group_df['MIN3_MA20']) & (group_df['MIN3_MA20'] > 0)).astype(int).values
+                            else:
+                                f_min3_trend_agree = np.zeros(n)
+                                
+                            if 'MA5' in group_df.columns and 'MA20' in group_df.columns:
+                                ma20_safe = np.where(group_df['MA20'] == 0, 1e-9, group_df['MA20'])
+                                f_tic_ma_spread = ((group_df['MA5'] - group_df['MA20']) / ma20_safe).fillna(0.0).values
+                            else:
+                                f_tic_ma_spread = np.zeros(n)
+                                
+                            if 'close' in group_df.columns and 'volume' in group_df.columns:
+                                amount = group_df['close'] * group_df['volume']
+                                roll_amt = amount.rolling(10).mean().shift(1).fillna(1e-9).values
+                                roll_amt = np.where(roll_amt == 0, 1e-9, roll_amt)
+                                f_tic_amount_spike = (amount.values / roll_amt)
+                                f_tic_amount_spike = np.nan_to_num(f_tic_amount_spike, nan=0.0, posinf=0.0, neginf=0.0)
+                            else:
+                                f_tic_amount_spike = np.zeros(n)
+                                
+                            if 'high' in group_df.columns and 'low' in group_df.columns and 'close' in group_df.columns:
+                                hl_diff = group_df['high'] - group_df['low']
+                                hl_safe = np.where(hl_diff == 0, 1e-9, hl_diff)
+                                f_tic_tail_ratio = ((group_df['high'] - group_df['close']) / hl_safe).fillna(0.0).values
+                            else:
+                                f_tic_tail_ratio = np.zeros(n)
+                                
+                        if num_features == 17:
+                            mat = np.column_stack((
+                                f_strength, f_velocity, f_relative, f_spike, f_vi_dist, f_kosdaq_change,
+                                f_vwap_dist, f_bb_pos, f_macd_hist, f_rsi, f_time,
+                                f_price_roc, f_vol_roc,
+                                f_min3_trend_agree, f_tic_ma_spread, f_tic_amount_spike, f_tic_tail_ratio
+                            ))
+                        elif num_features == 13:
                             mat = np.column_stack((
                                 f_strength, f_velocity, f_relative, f_spike, f_vi_dist, f_kosdaq_change,
                                 f_vwap_dist, f_bb_pos, f_macd_hist, f_rsi, f_time,
