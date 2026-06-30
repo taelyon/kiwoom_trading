@@ -3839,12 +3839,6 @@ HTML_CONTENT = """
             const fmt = (d) => d.toISOString().split('T')[0];
             document.getElementById('btEndDate').value = fmt(today);
             document.getElementById('btStartDate').value = fmt(lastWeek);
-            
-            // AI 학습 탭은 과거 모든 데이터를 기본으로 불러오기 위해 초기값을 비워둡니다.
-            if (document.getElementById('mlEndDate')) {
-                document.getElementById('mlEndDate').value = "";
-                document.getElementById('mlStartDate').value = "";
-            }
         });
     </script>
 </body>
