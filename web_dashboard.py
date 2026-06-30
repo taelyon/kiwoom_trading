@@ -4461,7 +4461,13 @@ async def websocket_handler(websocket):
                                 except:
                                     pass
                         deployed_meta = None
-                        if os.path.exists('lgbm_model.json'):
+                        if os.path.exists('data/lgbm_model_params.json'):
+                            try:
+                                with open('data/lgbm_model_params.json', 'r', encoding='utf-8') as jf:
+                                    deployed_meta = json.load(jf)
+                            except:
+                                pass
+                        elif os.path.exists('lgbm_model.json'):
                             try:
                                 with open('lgbm_model.json', 'r', encoding='utf-8') as jf:
                                     deployed_meta = json.load(jf)
@@ -4489,6 +4495,9 @@ async def websocket_handler(websocket):
                                 src_json = f"models/lgbm_model_{ts}.json"
                                 if os.path.exists(src_json):
                                     shutil.copy2(src_json, 'lgbm_model.json')
+                                    # 영구 보존용(도커 재시작 대비)
+                                    os.makedirs('data', exist_ok=True)
+                                    shutil.copy2(src_json, 'data/lgbm_model_params.json')
                                 await safe_send(websocket, json.dumps({
                                     "type": "deploy_model_result",
                                     "success": True,
