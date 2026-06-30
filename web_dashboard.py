@@ -3799,22 +3799,20 @@ HTML_CONTENT = """
             });
         }
         
-        // 날짜 기본값 설정 (오늘 ~ 최근 7일, AI학습 탭 기본값은 최근 1달)
+        // 날짜 기본값 설정 (오늘 ~ 최근 7일) 백테스팅에만 적용
         window.addEventListener('DOMContentLoaded', () => {
             const today = new Date();
             const lastWeek = new Date(today);
             lastWeek.setDate(lastWeek.getDate() - 7);
             
-            const lastMonth = new Date(today);
-            lastMonth.setMonth(lastMonth.getMonth() - 1);
-            
             const fmt = (d) => d.toISOString().split('T')[0];
             document.getElementById('btEndDate').value = fmt(today);
             document.getElementById('btStartDate').value = fmt(lastWeek);
             
+            // AI 학습 탭은 과거 모든 데이터를 기본으로 불러오기 위해 초기값을 비워둡니다.
             if (document.getElementById('mlEndDate')) {
-                document.getElementById('mlEndDate').value = fmt(today);
-                document.getElementById('mlStartDate').value = fmt(lastMonth);
+                document.getElementById('mlEndDate').value = "";
+                document.getElementById('mlStartDate').value = "";
             }
         });
     </script>
