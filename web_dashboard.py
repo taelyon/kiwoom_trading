@@ -3684,7 +3684,8 @@ HTML_CONTENT = """
         // ML 학습 제어 함수
         let isMlTraining = false;
         
-        window.addEventListener('DOMContentLoaded', () => {
+        // 페이지 로드 시 즉시 실행되도록 IIFE 사용 (DOMContentLoaded 보다 확실함)
+        (function() {
             const today = new Date();
             const past = new Date();
             past.setDate(today.getDate() - 14);
@@ -3696,9 +3697,11 @@ HTML_CONTENT = """
                 return `${yyyy}-${mm}-${dd}`;
             };
             
-            if (document.getElementById('mlStartDate')) document.getElementById('mlStartDate').value = fmtDate(past);
-            if (document.getElementById('mlEndDate')) document.getElementById('mlEndDate').value = fmtDate(today);
-        });
+            const startDateEl = document.getElementById('mlStartDate');
+            const endDateEl = document.getElementById('mlEndDate');
+            if (startDateEl) startDateEl.value = fmtDate(past);
+            if (endDateEl) endDateEl.value = fmtDate(today);
+        })();
         
         function toggleMlTrain() {
             if (isMlTraining) {
