@@ -87,10 +87,10 @@ class MLTrainingWorker(threading.Thread):
             params = []
             if self.start_date:
                 query += " AND datetime >= ?"
-                params.append(self.start_date.replace('-', '') + '000000')
+                params.append(f"{self.start_date} 00:00:00")
             if self.end_date:
                 query += " AND datetime <= ?"
-                params.append(self.end_date.replace('-', '') + '235959')
+                params.append(f"{self.end_date} 23:59:59")
             query += " ORDER BY code, datetime"
             
             df = pd.read_sql(query, conn, params=params)
