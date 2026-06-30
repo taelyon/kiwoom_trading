@@ -4418,7 +4418,6 @@ async def websocket_handler(websocket):
                     try:
                         import glob
                         import os
-                        import json
                         
                         models = []
                         if os.path.exists('models'):
