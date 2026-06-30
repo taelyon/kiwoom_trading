@@ -2249,7 +2249,7 @@ HTML_CONTENT = """
                             <td class="text-right">${(parseInt(record.buy_avg_pric)||0).toLocaleString()}원</td>
                             <td class="text-right">${(parseInt(record.sel_avg_pric)||0).toLocaleString()}원</td>
                             <td class="text-right" style="color: ${plColor}; font-weight: bold;">${plAmt > 0 ? '+' : ''}${plAmt.toLocaleString()}원</td>
-                            <td class="text-right" style="color: ${prftColor}; font-weight: bold;">${prftRt > 0 ? '+' : ''}${record.prft_rt}%</td>
+                            <td class="text-right" style="color: ${prftColor}; font-weight: bold;">${(prftRt > 0 && !String(record.prft_rt).startsWith('+')) ? '+' : ''}${record.prft_rt}%</td>
                             <td class="text-right">${(parseInt(record.cmsn_alm_tax)||0).toLocaleString()}원</td>
                         `;
                         tbody.appendChild(row);
