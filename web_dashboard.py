@@ -1694,7 +1694,7 @@ HTML_CONTENT = """
             <div style="display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 20px;">
                 <!-- 좌측 제어 영역 -->
                 <div style="flex: 1; min-width: 300px; display: flex; flex-direction: column; gap: 20px;">
-                    <div class="card">
+                    <div class="glass-card">
                         <div class="card-header">🛠 하이퍼파라미터 튜닝 및 학습 제어</div>
                         <div style="padding: 15px; display: flex; flex-direction: column; gap: 15px;">
                             <div style="display: flex; gap: 10px;">
@@ -1741,7 +1741,7 @@ HTML_CONTENT = """
                         </div>
                     </div>
 
-                    <div class="card" style="flex: 1;">
+                    <div class="glass-card" style="flex: 1;">
                         <div class="card-header">🖥 학습 로그 터미널</div>
                         <div id="mlTerminal" style="padding: 15px; height: 250px; overflow-y: auto; background-color: #0b0f19; color: #00ff00; font-family: 'Consolas', 'Courier New', monospace; font-size: 13px; border-bottom-left-radius: 12px; border-bottom-right-radius: 12px; border: 1px solid rgba(255,255,255,0.05); white-space: pre-wrap;">대기 중...</div>
                     </div>
@@ -1749,7 +1749,7 @@ HTML_CONTENT = """
 
                 <!-- 우측 모니터링/지표 영역 -->
                 <div style="flex: 2; min-width: 400px; display: flex; flex-direction: column; gap: 20px;">
-                    <div class="card">
+                    <div class="glass-card">
                         <div class="card-header">📊 학습 결과 및 성능 지표 (Evaluation Metrics)</div>
                         <div style="padding: 15px; display: flex; flex-direction: column; gap: 15px;">
                             <div class="bt-summary-grid" style="grid-template-columns: repeat(3, 1fr);">
@@ -1779,7 +1779,7 @@ HTML_CONTENT = """
             </div>
             
             <!-- 하단 모델 레지스트리 영역 -->
-            <div class="card">
+            <div class="glass-card">
                 <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
                     <span>📂 모델 관리 및 실시간 반영 (Model Registry)</span>
                     <button class="btn-primary" style="padding: 6px 12px; font-size: 12px; background: rgba(255,255,255,0.1);" onclick="fetchModelHistory()">🔄 목록 갱신</button>
