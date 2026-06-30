@@ -1943,6 +1943,9 @@ HTML_CONTENT = """
                             // 초기 설정 가져오기
                             console.log("⚙️ [WS PROFILE] 8. 초기 설정(get_settings) 요청 패킷 송신...");
                             ws.send(jsonStr({ type: "get_settings" }));
+                            
+                            // 🚀 [추가] 앱 시작 시 모델 히스토리(및 배포된 파라미터) 자동 로드
+                            fetchModelHistory();
                         }, 100);
                     } else {
                         showAuthError(data.message || "인증 실패");
