@@ -41,19 +41,20 @@ class EnvConfigParser:
             with open(self.env_path, 'w', encoding='utf-8') as f:
                 f.write("# Generated .env file\n")
         
-        load_dotenv(self.env_path, override=True, encoding='utf-8')
+        load_dotenv(self.env_path, override=True, encoding='utf-8-sig')
         self._data = {}
         self._sync_from_env()
 
     def _sync_from_env(self):
         """환경 변수 및 파일에서 캐시로 데이터 동기화 (관리 대상 키만)"""
         from dotenv import dotenv_values
-        file_env = dotenv_values(self.env_path, encoding='utf-8')
+        file_env = dotenv_values(self.env_path, encoding='utf-8-sig')
         
-        # 1. 파일에서 읽은 값을 우선적으로 딕셔너리에 저장 (한글 키 깨짐 방지)
+        # 1. 파일에서 읽은 값을 우선적으로 딕셔너리에 저장 (한글 키 깨짐 방지 및 BOM 제거)
         for k, v in file_env.items():
-            if v is not None and any(k.startswith(p) for p in _MANAGED_PREFIXES):
-                self._data[k] = v
+            clean_k = k.lstrip('\ufeff')
+            if v is not None and any(clean_k.startswith(p) for p in _MANAGED_PREFIXES):
+                self._data[clean_k] = v
                 
         # 2. os.environ에 있는 값을 병합 (런타임 오버라이드 지원)
         for k, v in os.environ.items():
@@ -65,7 +66,7 @@ class EnvConfigParser:
 
     def read(self, filenames, encoding='utf-8'):
         """filenames 인자는 무시하고 .env 파일을 로드"""
-        load_dotenv(self.env_path, override=True, encoding='utf-8')
+        load_dotenv(self.env_path, override=True, encoding='utf-8-sig')
         self._sync_from_env()
         return [self.env_path]
 
@@ -169,7 +170,7 @@ class EnvConfigParser:
     def save(self):
         """현재 변경된 설정을 .env 파일에 안전하게 저장 (코멘트 보존, Docker mount 안전)"""
         try:
-            with open(self.env_path, 'r', encoding='utf-8') as f:
+            with open(self.env_path, 'r', encoding='utf-8-sig') as f:
                 lines = f.readlines()
             
             updated_keys = set()
