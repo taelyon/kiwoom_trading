@@ -1344,9 +1344,12 @@ class ChartDataCache:
                     if is_holding:
                         self.logger.debug(f"✅ 보유 종목이므로 모니터링은 유지합니다: {stock_code}")
                     else:
-                        # 3. 감시 제외 (Core Manager)
-                        if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'core_manager'):
-                            self.parent.core_manager.remove_monitoring_stock(stock_code)
+                        # 3. 감시 제외 (Core Manager / Monitoring Manager)
+                        if hasattr(self, 'parent') and self.parent:
+                            if hasattr(self.parent, 'monitoring_manager'):
+                                await self.parent.monitoring_manager.remove_stock_from_monitoring(stock_code)
+                            elif hasattr(self.parent, 'core_manager'):
+                                self.parent.core_manager.remove_monitoring_stock(stock_code)
                         
                         # 캐시에서 자신을 직접 제거
                         self.remove_stock(stock_code)
