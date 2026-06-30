@@ -46,7 +46,6 @@ class KiwoomWebSocketClient:
         self._table_update_interval = 1.0  # 투자현황표 업데이트 최소 간격(초)
         self._condition_remove_tasks = {}  # 조건검색 이탈 시 지연 삭제 관리를 위한 딕셔너리
         self._pending_subscriptions = {}  # 타입별 그룹 번호 추적 {type: grp_no}
-        self.market_indices = {'kospi_change': 0.0, 'kosdaq_change': 0.0}  # 실시간 시장 지수 등락률 (0J)
 
         
     async def connect(self):
@@ -160,9 +159,6 @@ class KiwoomWebSocketClient:
         """웹소켓 클라이언트 실행 (키움증권 예시코드 기반)"""
         reconnect_delay = 5  # 재연결 시도 간격 (초)
         
-        # 네이버 금융 API 폴링 태스크 시작
-        polling_task = asyncio.create_task(self.poll_market_indices())
-        
         while self.keep_running:
             try:
                 # 서버에 연결
@@ -205,37 +201,6 @@ class KiwoomWebSocketClient:
                     self.logger.debug(f"🔄 웹소켓 재연결 시도 중... ({reconnect_delay}초 대기 완료)")
         
         self.logger.info("✅ 웹소켓 클라이언트 실행이 완전히 종료되었습니다.")
-        if polling_task and not polling_task.done():
-            polling_task.cancel()
-
-    async def poll_market_indices(self):
-        """네이버 금융 API를 통해 주기적으로 코스피/코스닥 지수를 조회 (10초 주기)"""
-        url_kospi = "https://polling.finance.naver.com/api/realtime/domestic/index/KOSPI"
-        url_kosdaq = "https://polling.finance.naver.com/api/realtime/domestic/index/KOSDAQ"
-        
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            while self.keep_running:
-                try:
-                    # KOSPI 조회
-                    resp_kospi = await client.get(url_kospi)
-                    if resp_kospi.status_code == 200:
-                        data = resp_kospi.json()
-                        if "datas" in data and len(data["datas"]) > 0:
-                            ratio = float(data["datas"][0].get("fluctuationsRatioRaw", "0.0"))
-                            self.market_indices['kospi_change'] = ratio
-                    
-                    # KOSDAQ 조회
-                    resp_kosdaq = await client.get(url_kosdaq)
-                    if resp_kosdaq.status_code == 200:
-                        data = resp_kosdaq.json()
-                        if "datas" in data and len(data["datas"]) > 0:
-                            ratio = float(data["datas"][0].get("fluctuationsRatioRaw", "0.0"))
-                            self.market_indices['kosdaq_change'] = ratio
-                            
-                except Exception as e:
-                    self.logger.debug(f"시장 지수 폴링(네이버) 실패: {e}")
-                    
-                await asyncio.sleep(10)
 
     async def send_message(self, message):
         """메시지 전송 (키움증권 예시코드 기반)"""
@@ -459,12 +424,6 @@ class KiwoomWebSocketClient:
                                         self.process_market_status_data(data_item)
                                     except Exception as market_err:
                                         self.logger.error(f"시장 상태 데이터 처리 실패: {market_err}", exc_info=True)
-                                        
-                                elif data_type == '0J':  # 업종 지수
-                                    try:
-                                        self.process_market_index_data(data_item)
-                                    except Exception as index_err:
-                                        self.logger.error(f"업종 지수 데이터 처리 실패: {index_err}", exc_info=True)
                                         
                                 elif data_type == '02':  # 조건검색 실시간 알림
                                     self.logger.debug(f"조건검색 실시간 알림 수신: {data_item.get('item')}")
@@ -2107,34 +2066,6 @@ class KiwoomWebSocketClient:
         except Exception as e:
             self.logger.error(f"시장 상태 데이터 처리 실패: {e}", exc_info=True)
             
-    def process_market_index_data(self, data_item):
-        """업종 지수 데이터 처리 (0J)"""
-        try:
-            code = data_item.get('item', '')
-            values = data_item.get('values', {})
-            
-            # 단일 딕셔너리가 아닌 리스트인 경우 처리
-            if isinstance(values, list) and values:
-                merged_values = {}
-                for value in values:
-                    if isinstance(value, dict):
-                        merged_values.update(value)
-                values = merged_values
-            elif not isinstance(values, dict):
-                return
-                
-            # 등락율 (FID: 12)
-            change_rate = safe_float_conversion(values.get('12', 0.0))
-            
-            if code == '001':
-                self.market_indices['kospi_change'] = change_rate
-            elif code == '101':
-                self.market_indices['kosdaq_change'] = change_rate
-                
-        except Exception as e:
-            self.logger.error(f"업종 지수 데이터 처리 실패: {e}", exc_info=True)
-            
-    
     async def process_condition_search_list_response(self, response):
         """조건검색 목록조회 응답 처리"""
         try:           

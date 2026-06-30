@@ -874,21 +874,12 @@ class ChartDataCache:
 
                 # DataFrame 변환 및 지표 계산 (CPU 바운드 작업을 스레드풀로 오프로드)
                 try:
-                    ws_client = None
-                    if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'login_handler'):
-                        ws_client = getattr(self.parent.login_handler, 'websocket_client', None)
-                    elif hasattr(self, 'trader') and self.trader and hasattr(self.trader, 'ws_client'):
-                        ws_client = self.trader.ws_client
-                        
-                    kospi_change = ws_client.market_indices.get('kospi_change', 0.0) if ws_client and hasattr(ws_client, 'market_indices') else 0.0
-
                     loop = asyncio.get_running_loop()
                     tic_df, min_df = await loop.run_in_executor(
                         None, 
                         self._prepare_data_for_db, 
                         original_tic_data, 
-                        original_min_data, 
-                        kospi_change
+                        original_min_data
                     )
 
                 except Exception as df_ex:
@@ -933,7 +924,7 @@ class ChartDataCache:
         except Exception as ex:
             logging.error(f"통합 차트 데이터 DB 저장 실패: {ex}", exc_info=True)
 
-    def _prepare_data_for_db(self, original_tic_data, original_min_data, kospi_change):
+    def _prepare_data_for_db(self, original_tic_data, original_min_data):
         """DB 저장을 위한 Pandas 데이터프레임 생성 및 지표 계산 (CPU 바운드 로직)"""
         tic_df = pd.DataFrame()
         if original_tic_data:
@@ -965,7 +956,6 @@ class ChartDataCache:
             base_cols = {'open', 'high', 'low', 'close', 'volume'}
             for key, value in tic_indicators.items():
                 if key not in base_cols: tic_df[key] = value
-            tic_df['KOSPI_CHANGE'] = kospi_change
 
         if not min_df.empty:
             min_allowed = ['MA5', 'MA10', 'MA20', 'MA60', 'MA120', 'RSI', 'RELATIVE_POSITION']
