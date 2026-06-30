@@ -1729,7 +1729,7 @@ class MLManager:
         """학습 진행 상황 로그 출력"""
         self.logger.info(f"{msg}")
 
-    def _on_finished(self, success, msg):
+    def _on_finished(self, success, msg, metrics=None):
         """학습 완료 처리"""
         if success:
             self.logger.info(f"✨ {msg}")
