@@ -2126,12 +2126,15 @@ HTML_CONTENT = """
                     renderModelHistory(data.data);
                 
                 } else if (data.type === 'deploy_model_result') {
-                    if (data.success) {
-                        alert("✅ 배포 성공: " + data.msg);
-                    } else {
-                        alert("❌ 배포 실패: " + data.msg);
+                    const term = document.getElementById('mlTerminal');
+                    if (term) {
+                        if (data.success) {
+                            term.innerText += "\n✅ [Deploy] 배포 성공: " + data.msg + "\n";
+                        } else {
+                            term.innerText += "\n❌ [Deploy] 배포 실패: " + data.msg + "\n";
+                        }
+                        term.scrollTop = term.scrollHeight;
                     }
-
                     
                 } else if (data.type === 'trade_history_data') {
                     const thead = document.getElementById('tradeHistoryHead');
