@@ -26,6 +26,19 @@ try:
 except Exception as e:
     logging.getLogger(__name__).warning(f"⚠️ LightGBM 모델 로드 실패 또는 미설치: {e}")
 
+def reload_model():
+    """런타임에 모델을 다시 로드합니다 (웹 대시보드에서 핫 배포 시 호출됨)"""
+    global LGBM_MODEL
+    try:
+        import lightgbm as lgb
+        if os.path.exists('lgbm_model.txt'):
+            LGBM_MODEL = lgb.Booster(model_file='lgbm_model.txt')
+            logging.getLogger(__name__).info("🤖전략 평가용 LightGBM 모델 런타임 리로드 완료 (lgbm_model.txt)")
+            return True
+    except Exception as e:
+        logging.getLogger(__name__).warning(f"⚠️ LightGBM 모델 런타임 리로드 실패: {e}")
+    return False
+
 
 import time
 

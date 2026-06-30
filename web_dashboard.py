@@ -4450,11 +4450,9 @@ async def websocket_handler(websocket):
                                     "success": True,
                                     "msg": f"{ts} 버전 모델이 실시간 트레이딩(lgbm_model.txt)에 적용되었습니다."
                                 }))
-                                # 여기서 MLManager가 런타임에 모델을 리로드하도록 호출할 수 있음
-                                if hasattr(app, 'ml_manager') and app.ml_manager:
-                                    # 백그라운드 태스크로 모델 리로드
-                                    from utils import create_fire_and_forget_task
-                                    create_fire_and_forget_task(app.ml_manager.load_model())
+                                # 실시간 트레이딩 로직(strategy_utils) 런타임 리로드
+                                import strategy_utils
+                                strategy_utils.reload_model()
                                 continue
                             
                         await safe_send(websocket, json.dumps({
