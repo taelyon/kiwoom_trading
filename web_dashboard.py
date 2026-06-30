@@ -1766,8 +1766,11 @@ HTML_CONTENT = """
                                 </div>
                             </div>
                             
-                            <div style="width: 100%; height: 300px; margin-top: 10px;">
-                                <canvas id="mlFeatureChart"></canvas>
+                            <div style="width: 100%; height: 300px; margin-top: 10px; position: relative;">
+                                <div id="mlFeaturePlaceholder" style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: flex; align-items: center; justify-content: center; color: rgba(255,255,255,0.3); font-size: 14px; text-align: center; line-height: 1.6;">
+                                    진행된 학습이 없습니다.<br>좌측 패널에서 학습을 실행하시면<br>여기에 피처 중요도 차트가 표시됩니다.
+                                </div>
+                                <canvas id="mlFeatureChart" style="position: relative; z-index: 1;"></canvas>
                             </div>
                         </div>
                     </div>
@@ -3731,6 +3734,9 @@ HTML_CONTENT = """
         
         let mlFeatureChartObj = null;
         function renderFeatureChart(importanceData) {
+            if(document.getElementById('mlFeaturePlaceholder')) {
+                document.getElementById('mlFeaturePlaceholder').style.display = 'none';
+            }
             const ctx = document.getElementById('mlFeatureChart').getContext('2d');
             if (mlFeatureChartObj) mlFeatureChartObj.destroy();
             
