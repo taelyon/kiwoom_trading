@@ -1449,8 +1449,8 @@ HTML_CONTENT = """
                                 <input type="number" id="cfgBuyCount" value="5">
                             </div>
                             <div class="form-field">
-                                <label for="cfgPrimeCash">투자원금 (prime_cash)</label>
-                                <input type="number" id="cfgPrimeCash" value="0" style="font-family: monospace; font-weight: bold;" title="최초 투자원금 (수익률 계산 기준)">
+                                <label for="cfgPrimeCash">투자원금 (0 입력 시 키움 예수금 자동 조회)</label>
+                                <input type="number" id="cfgPrimeCash" value="0" style="font-family: monospace; font-weight: bold;" title="최초 투자원금 (0이면 계좌 예수금 자동 반영)">
                             </div>
                         </div>
                         <div class="order-row">
