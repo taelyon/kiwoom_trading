@@ -881,7 +881,6 @@ class ChartDataCache:
                         ws_client = self.trader.ws_client
                         
                     kospi_change = ws_client.market_indices.get('kospi_change', 0.0) if ws_client and hasattr(ws_client, 'market_indices') else 0.0
-                    kosdaq_change = ws_client.market_indices.get('kosdaq_change', 0.0) if ws_client and hasattr(ws_client, 'market_indices') else 0.0
 
                     loop = asyncio.get_running_loop()
                     tic_df, min_df = await loop.run_in_executor(
@@ -889,8 +888,7 @@ class ChartDataCache:
                         self._prepare_data_for_db, 
                         original_tic_data, 
                         original_min_data, 
-                        kospi_change, 
-                        kosdaq_change
+                        kospi_change
                     )
 
                 except Exception as df_ex:
@@ -935,7 +933,7 @@ class ChartDataCache:
         except Exception as ex:
             logging.error(f"통합 차트 데이터 DB 저장 실패: {ex}", exc_info=True)
 
-    def _prepare_data_for_db(self, original_tic_data, original_min_data, kospi_change, kosdaq_change):
+    def _prepare_data_for_db(self, original_tic_data, original_min_data, kospi_change):
         """DB 저장을 위한 Pandas 데이터프레임 생성 및 지표 계산 (CPU 바운드 로직)"""
         tic_df = pd.DataFrame()
         if original_tic_data:
@@ -968,7 +966,6 @@ class ChartDataCache:
             for key, value in tic_indicators.items():
                 if key not in base_cols: tic_df[key] = value
             tic_df['KOSPI_CHANGE'] = kospi_change
-            tic_df['KOSDAQ_CHANGE'] = kosdaq_change
 
         if not min_df.empty:
             min_allowed = ['MA5', 'MA10', 'MA20', 'MA60', 'MA120', 'RSI', 'RELATIVE_POSITION']
@@ -1300,17 +1297,7 @@ class ChartDataCache:
             if 'realtime_metrics' not in cached_data:
                 cached_data['realtime_metrics'] = {}
             cached_data['realtime_metrics']['tick_velocity'] = tick_velocity
-            
-            # 상방 VI 이격도 추정 (시가 기준 10% 상승 가격)
-            open_price = realtime_data.get('open_price', 0)
-            current_price = realtime_data.get('current_price', 0)
-            if open_price > 0 and current_price > 0:
-                vi_price = open_price * 1.10
-                vi_distance = (vi_price - current_price) / current_price * 100
-                cached_data['realtime_metrics']['vi_distance'] = vi_distance
-            else:
-                cached_data['realtime_metrics']['vi_distance'] = 999.0
-                
+                            
             # 최고가 대비 10% 하락 시 자체 이탈 처리 로직
             if current_price > 0:
                 if stock_code not in self.monitoring_highest_prices:
