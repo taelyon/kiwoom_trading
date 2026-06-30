@@ -1292,7 +1292,7 @@ class KiwoomWebSocketClient:
                             volume = 0
                         
                         try:
-                            strength = float(strength_raw.replace('%', '').replace(',', ''))
+                            strength = float(str(strength_raw).replace('%', '').replace(',', ''))
                         except (ValueError, AttributeError):
                             strength = 0.0                       
                         
@@ -1384,7 +1384,7 @@ class KiwoomWebSocketClient:
                             volume = 0
                         
                         try:
-                            strength = float(strength_raw.replace('%', '').replace(',', ''))
+                            strength = float(str(strength_raw).replace('%', '').replace(',', ''))
                         except (ValueError, AttributeError):
                             strength = 0.0                       
                         
