@@ -2124,6 +2124,13 @@ HTML_CONTENT = """
                     term.scrollTop = term.scrollHeight;
                 
                 } else if (data.type === 'model_history') {
+                    if (data.deployed && data.deployed.params) {
+                        const p = data.deployed.params;
+                        if (p.learning_rate) document.getElementById('mlLr').value = p.learning_rate;
+                        if (p.max_depth) document.getElementById('mlMaxDepth').value = p.max_depth;
+                        if (p.num_leaves) document.getElementById('mlNumLeaves').value = p.num_leaves;
+                        if (p.min_data_in_leaf) document.getElementById('mlMinData').value = p.min_data_in_leaf;
+                    }
                     renderModelHistory(data.data);
                 
                 } else if (data.type === 'deploy_model_result') {
@@ -4453,11 +4460,20 @@ async def websocket_handler(websocket):
                                         models.append(meta)
                                 except:
                                     pass
+                        deployed_meta = None
+                        if os.path.exists('lgbm_model.json'):
+                            try:
+                                with open('lgbm_model.json', 'r', encoding='utf-8') as jf:
+                                    deployed_meta = json.load(jf)
+                            except:
+                                pass
+                                
                         # 최신순 정렬
                         models.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
                         await safe_send(websocket, json.dumps({
                             "type": "model_history",
-                            "data": models
+                            "data": models,
+                            "deployed": deployed_meta
                         }))
                     except Exception as e:
                         logging.error(f"모델 히스토리 로드 실패: {e}")
@@ -4470,6 +4486,9 @@ async def websocket_handler(websocket):
                             src_model = f"models/lgbm_model_{ts}.txt"
                             if os.path.exists(src_model):
                                 shutil.copy2(src_model, 'lgbm_model.txt')
+                                src_json = f"models/lgbm_model_{ts}.json"
+                                if os.path.exists(src_json):
+                                    shutil.copy2(src_json, 'lgbm_model.json')
                                 await safe_send(websocket, json.dumps({
                                     "type": "deploy_model_result",
                                     "success": True,
