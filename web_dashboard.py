@@ -3781,6 +3781,17 @@ HTML_CONTENT = """
                 tbody.innerHTML = '<tr><td colspan="6" class="text-center">저장된 모델 히스토리가 없습니다.</td></tr>';
                 return;
             }
+            
+            // 가장 최신 모델 정보를 상단 지표 영역에 표시 (기존에 비어있는 경우 방지)
+            const latest = models[0];
+            if (latest && latest.metrics) {
+                if (latest.metrics.auc) document.getElementById('mlValAuc').innerText = parseFloat(latest.metrics.auc).toFixed(4);
+                if (latest.metrics.train_auc) document.getElementById('mlTrainAuc').innerText = parseFloat(latest.metrics.train_auc).toFixed(4);
+                if (latest.metrics.data_rows) document.getElementById('mlDataRows').innerText = parseInt(latest.metrics.data_rows).toLocaleString();
+                if (latest.metrics.feature_importance) {
+                    renderFeatureChart(latest.metrics.feature_importance);
+                }
+            }
             models.forEach(m => {
                 const tr = document.createElement('tr');
                 const tsFormatted = m.timestamp.replace(/(\\d{4})(\\d{2})(\\d{2})_(\\d{2})(\\d{2})(\\d{2})/, '$1-$2-$3 $4:$5:$6');
