@@ -2129,9 +2129,9 @@ HTML_CONTENT = """
                     const term = document.getElementById('mlTerminal');
                     if (term) {
                         if (data.success) {
-                            term.innerText += "\n✅ [Deploy] 배포 성공: " + data.msg + "\n";
+                            term.innerText += "\\n✅ [Deploy] 배포 성공: " + data.msg + "\\n";
                         } else {
-                            term.innerText += "\n❌ [Deploy] 배포 실패: " + data.msg + "\n";
+                            term.innerText += "\\n❌ [Deploy] 배포 실패: " + data.msg + "\\n";
                         }
                         term.scrollTop = term.scrollHeight;
                     }
