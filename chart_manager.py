@@ -874,6 +874,9 @@ class ChartDataCache:
 
                 # DataFrame 변환 및 지표 계산 (CPU 바운드 작업을 스레드풀로 오프로드)
                 try:
+                    ws_client = None
+                    if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'login_handler'):
+                        ws_client = getattr(self.parent.login_handler, 'websocket_client', None)
                     loop = asyncio.get_running_loop()
                     tic_df, min_df = await loop.run_in_executor(
                         None, 

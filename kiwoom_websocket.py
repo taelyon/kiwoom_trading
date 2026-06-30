@@ -425,6 +425,12 @@ class KiwoomWebSocketClient:
                                     except Exception as market_err:
                                         self.logger.error(f"시장 상태 데이터 처리 실패: {market_err}", exc_info=True)
                                         
+                                elif data_type == '0J':  # 업종 지수
+                                    try:
+                                        self.process_market_index_data(data_item)
+                                    except Exception as index_err:
+                                        self.logger.error(f"업종 지수 데이터 처리 실패: {index_err}", exc_info=True)
+                                        
                                 elif data_type == '02':  # 조건검색 실시간 알림
                                     self.logger.debug(f"조건검색 실시간 알림 수신: {data_item.get('item')}")
                                     try:
@@ -2066,6 +2072,29 @@ class KiwoomWebSocketClient:
         except Exception as e:
             self.logger.error(f"시장 상태 데이터 처리 실패: {e}", exc_info=True)
             
+    def process_market_index_data(self, data_item):
+        """업종 지수 데이터 처리 (0J)"""
+        try:
+            code = data_item.get('item', '')
+            values = data_item.get('values', {})
+            
+            # 단일 딕셔너리가 아닌 리스트인 경우 처리
+            if isinstance(values, list) and values:
+                merged_values = {}
+                for value in values:
+                    if isinstance(value, dict):
+                        merged_values.update(value)
+                values = merged_values
+            elif not isinstance(values, dict):
+                return
+                
+            # 등락율 (FID: 12)
+            change_rate = safe_float_conversion(values.get('12', 0.0))
+                
+        except Exception as e:
+            self.logger.error(f"업종 지수 데이터 처리 실패: {e}", exc_info=True)
+            
+    
     async def process_condition_search_list_response(self, response):
         """조건검색 목록조회 응답 처리"""
         try:           
