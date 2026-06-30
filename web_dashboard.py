@@ -4378,6 +4378,7 @@ async def websocket_handler(websocket):
                         new_settings = data.get('settings', {})
                         from config_manager import EnvConfigParser
                         config = EnvConfigParser()
+                        config.reload()  # 사용자가 NAS 쉘에서 직접 수정한 .env 값을 먼저 캐시에 반영
                         
                         if 'buycount' in new_settings:
                             config.set('SETTINGS', 'buycount', str(new_settings['buycount']))
