@@ -3737,10 +3737,9 @@ HTML_CONTENT = """
             const ctx = document.getElementById('mlFeatureChart').getContext('2d');
             if (mlFeatureChartObj) mlFeatureChartObj.destroy();
             
-            // 데이터 상위 15개로 자르기
-            const sorted = importanceData.slice(0, 15);
-            const labels = sorted.map(d => d.feature);
-            const data = sorted.map(d => d.importance);
+            // 모든 피처 데이터 사용
+            const labels = importanceData.map(d => d.feature);
+            const data = importanceData.map(d => d.importance);
             
             mlFeatureChartObj = new Chart(ctx, {
                 type: 'bar',
@@ -3761,7 +3760,7 @@ HTML_CONTENT = """
                     indexAxis: 'y',
                     plugins: {
                         legend: { display: false },
-                        title: { display: true, text: 'Top 15 Feature Importances', color: '#a0a5b1' }
+                        title: { display: true, text: 'All Feature Importances', color: '#a0a5b1' }
                     },
                     scales: {
                         x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#a0a5b1' } },
