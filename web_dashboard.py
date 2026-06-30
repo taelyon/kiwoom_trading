@@ -1791,8 +1791,8 @@ HTML_CONTENT = """
                                 <th>생성 일시 (버전)</th>
                                 <th>학습 기간</th>
                                 <th>주요 파라미터</th>
-                                <th>학습 AUC</th>
                                 <th>검증 AUC</th>
+                                <th>학습 AUC</th>
                                 <th>데이터 수</th>
                                 <th>액션</th>
                             </tr>
@@ -3824,8 +3824,8 @@ HTML_CONTENT = """
                     <td>${tsFormatted}</td>
                     <td>${dateRange}</td>
                     <td style="font-size: 11px;">${params}</td>
-                    <td style="color: #ff9800; font-weight: bold;">${trainAuc}</td>
                     <td style="color: #00f2fe; font-weight: bold;">${auc}</td>
+                    <td style="color: #ff9800; font-weight: bold;">${trainAuc}</td>
                     <td>${rows}</td>
                     <td><button class="btn-primary" style="padding: 4px 10px; font-size: 11px;" onclick="deployModel('${m.timestamp}')">Deploy</button></td>
                 `;
