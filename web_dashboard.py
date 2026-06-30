@@ -4446,7 +4446,6 @@ async def websocket_handler(websocket):
                 elif msg_type == 'get_model_history':
                     try:
                         import glob
-                        import os
                         
                         models = []
                         if os.path.exists('models'):
