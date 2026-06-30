@@ -22,10 +22,14 @@ class MLTrainingWorker(threading.Thread):
     UI 프리징(멈춤)을 방지하기 위해 threading.Thread 상속
     """
 
-    def __init__(self, db_path='data/stock_data.db', model_output_path='lgbm_model.txt', on_progress=None, on_finished=None):
+    def __init__(self, db_path='data/stock_data.db', model_output_path='lgbm_model.txt', on_progress=None, on_finished=None,
+                 start_date=None, end_date=None, hyperparameters=None, save_history=True):
         super().__init__()
         self.db_path = db_path
         self.model_output_path = model_output_path
+        self.start_date = start_date
+        self.end_date = end_date
+        self.save_history = save_history
         self.logger = logging.getLogger(self.__class__.__name__)
         
         # 콜백 기반 시그널 초기화
@@ -36,29 +40,31 @@ class MLTrainingWorker(threading.Thread):
         if on_progress:
             self.progress_signal.connect(on_progress)
         
-        # 학습 파라미터 (스캘핑용 과적합 방지 설정 적용)
+        # 학습 파라미터 기본값
         self.params = {
-            'objective': 'binary',              # 이진 분류 (상승/하락)
-            'metric': 'auc',                    # 평가지표
+            'objective': 'binary',
+            'metric': 'auc',
             'boosting_type': 'gbdt',
-            'num_leaves': 32,                   # 리프 노드 수 (32~64 권장)
-            'max_depth': 6,                     # 트리 깊이 (5~7로 얕게 제한)
-            'learning_rate': 0.02,              # [수정] 0.05 -> 0.02 (세밀한 학습)
+            'num_leaves': 32,
+            'max_depth': 6,
+            'learning_rate': 0.02,
             'feature_fraction': 0.9,
             'bagging_fraction': 0.8,
             'bagging_freq': 5,
             'verbose': -1,
-            'min_data_in_leaf': 50,             # [수정] 200 -> 50 (세밀한 타점 패턴 학습 허용)
-            'is_unbalance': True,               # [추가] 클래스 불균형(상승 타점 가중치) 해소
+            'min_data_in_leaf': 50,
+            'is_unbalance': True,
             'force_col_wise': True
         }
+        if hyperparameters:
+            self.params.update(hyperparameters)
 
     def run(self):
         """스레드 실행 메인 함수"""
         if not LGBM_AVAILABLE:
             error_msg = "LightGBM이 설치되지 않았습니다. 터미널에서 'pip install lightgbm'을 실행하세요."
             self.logger.error(error_msg)
-            self.finished_signal.emit(False, error_msg)
+            self.finished_signal.emit(False, error_msg, None)
             return
 
         conn = None
@@ -66,25 +72,31 @@ class MLTrainingWorker(threading.Thread):
             self.progress_signal.emit("🔍 [ML] 학습 데이터 로딩 중 (DB)...")
             
             if not os.path.exists(self.db_path):
-                self.finished_signal.emit(False, f"데이터베이스 파일이 없습니다: {self.db_path}")
+                self.finished_signal.emit(False, f"데이터베이스 파일이 없습니다: {self.db_path}", None)
                 return
 
             conn = sqlite3.connect(self.db_path)
             
             # 학습에 필요한 핵심 컬럼만 조회 (데이터 양이 많을 수 있으므로 필요한 것만)
-            # 주의: 데이터가 충분히 쌓인 후에 실행해야 함
             query = """
                 SELECT *
                 FROM stock_data 
                 WHERE tic_velocity IS NOT NULL 
                   AND tic_velocity != 0
-                ORDER BY code, datetime
             """
+            params = []
+            if self.start_date:
+                query += " AND datetime >= ?"
+                params.append(self.start_date.replace('-', '') + '000000')
+            if self.end_date:
+                query += " AND datetime <= ?"
+                params.append(self.end_date.replace('-', '') + '235959')
+            query += " ORDER BY code, datetime"
             
-            df = pd.read_sql(query, conn)
+            df = pd.read_sql(query, conn, params=params)
             
             if df.empty:
-                self.finished_signal.emit(False, "[ML] 학습할 데이터가 부족하여 학습을 건너뜁니다.")
+                self.finished_signal.emit(False, "[ML] 학습할 데이터가 부족하여 학습을 건너뜁니다.", None)
                 return
 
             self.progress_signal.emit(f"🔍 [ML] 데이터 전처리 중... (Rows: {len(df)})")
@@ -199,7 +211,7 @@ class MLTrainingWorker(threading.Thread):
             df_train = df.dropna(subset=base_features + ['label'])
             
             if len(df_train) < 1000:
-                self.finished_signal.emit(False, f"[ML] 유효한 학습 데이터가 너무 적습니다 ({len(df_train)}개). 최소 1000개 필요.")
+                self.finished_signal.emit(False, f"[ML] 유효한 학습 데이터가 너무 적습니다 ({len(df_train)}개). 최소 1000개 필요.", None)
                 return
             
             X = df_train[features]
@@ -229,23 +241,53 @@ class MLTrainingWorker(threading.Thread):
             )
             
             self.progress_signal.emit("💾 [ML] 모델 파일 저장 중...")
+            self.model_output_path = 'lgbm_model.txt'
             model.save_model(self.model_output_path)
             
             # 검증 성능(AUC) 가져오기
             best_score = model.best_score.get('valid_1', {}).get('auc', 0.0) if hasattr(model, 'best_score') else 0.0
+            best_train_score = model.best_score.get('training', {}).get('auc', 0.0) if hasattr(model, 'best_score') else 0.0
             
             # Feature Importance 로깅
             importance = list(zip(features, model.feature_importance()))
             importance.sort(key=lambda x: x[1], reverse=True)
             top_features = ", ".join([f"{f}:{score}" for f, score in importance[:3]])
             
+            import json
+            metrics = {
+                'auc': best_score,
+                'train_auc': best_train_score,
+                'data_rows': len(df_train),
+                'feature_importance': [{'feature': f, 'importance': int(s)} for f, s in importance]
+            }
+            
+            if self.save_history:
+                try:
+                    os.makedirs('models', exist_ok=True)
+                    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+                    hist_path = f"models/lgbm_model_{ts}.txt"
+                    model.save_model(hist_path)
+                    
+                    meta_path = f"models/lgbm_model_{ts}.json"
+                    meta = {
+                        'timestamp': ts,
+                        'params': self.params,
+                        'start_date': self.start_date,
+                        'end_date': self.end_date,
+                        'metrics': metrics
+                    }
+                    with open(meta_path, 'w', encoding='utf-8') as mf:
+                        json.dump(meta, mf, ensure_ascii=False, indent=2)
+                except Exception as e:
+                    self.logger.error(f"히스토리 모델 저장 실패: {e}")
+            
             success_msg = f"✅ 모델 학습 완료! (Data: {len(df_train)}, 검증 AUC: {best_score:.4f}, Top: {top_features})"
             self.logger.debug(success_msg)
-            self.finished_signal.emit(True, success_msg)
+            self.finished_signal.emit(True, success_msg, metrics)
 
         except Exception as ex:
             self.logger.error(f"모델 학습 중 치명적 오류: {ex}", exc_info=True)
-            self.finished_signal.emit(False, f"학습 중 오류 발생: {ex}")
+            self.finished_signal.emit(False, f"학습 중 오류 발생: {ex}", None)
             
         finally:
             if conn:
@@ -258,9 +300,11 @@ if __name__ == "__main__":
     def on_progress(msg):
         print(msg)
         
-    def on_finished(success, msg):
+    def on_finished(success, msg, metrics=None):
         print(f"\n결과: {'✅ 성공' if success else '❌ 실패'}")
         print(f"메시지: {msg}")
+        if metrics:
+            print(f"Metrics: {metrics}")
         
     worker = MLTrainingWorker(on_progress=on_progress, on_finished=on_finished)
     worker.start()

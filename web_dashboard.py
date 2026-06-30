@@ -40,7 +40,7 @@ def run_backtest_process_worker(q, s_date, e_date, c, buy_stg=None, sell_stg=Non
             "error": str(e),
             "traceback": traceback.format_exc()
         })
-def run_ml_train_process_worker(q):
+def run_ml_train_process_worker(q, start_date=None, end_date=None, hyperparameters=None):
     """독립된 프로세스에서 MLTrainerWorker를 실행하고 큐를 통해 상태를 보고하는 워커 함수"""
     try:
         from ml_trainer import MLTrainingWorker
@@ -51,14 +51,21 @@ def run_ml_train_process_worker(q):
                 "msg": msg
             })
             
-        def on_finished(success, msg):
+        def on_finished(success, msg, metrics=None):
             q.put({
                 "type": "ml_result",
                 "success": success,
-                "msg": msg
+                "msg": msg,
+                "metrics": metrics
             })
             
-        trainer = MLTrainingWorker(on_progress=on_progress, on_finished=on_finished)
+        trainer = MLTrainingWorker(
+            on_progress=on_progress, 
+            on_finished=on_finished,
+            start_date=start_date,
+            end_date=end_date,
+            hyperparameters=hyperparameters
+        )
         trainer.run()
     except Exception as e:
         q.put({
@@ -1683,29 +1690,117 @@ HTML_CONTENT = """
         <!-- 4. ML AI 학습 뷰 -->
         <div id="mlTrainView" class="view-container view-hidden">
             <div class="view-header">
-                <h2>🧠 AI 모델 재학습 (LightGBM)</h2>
-                <div style="font-size: 13px; color: #a0a5b1;">저장된 DB 데이터로 AI 모델을 새로 학습시켜 최신 타점을 확보합니다.</div>
+                <h2>🧠 AI 모델 학습 연구소 (AI Training Dashboard)</h2>
+                <div style="font-size: 13px; color: #a0a5b1;">과거 데이터 기반으로 LightGBM 모델을 튜닝하고 최적의 타점 알고리즘을 찾아 실시간 트레이딩에 배포합니다.</div>
             </div>
             
-            <div class="card" style="margin-bottom: 20px;">
-                <div class="card-header">학습 제어</div>
-                <div style="padding: 15px;">
-                    <button id="btnRunMlTrain" class="btn-primary" style="width: 100%; padding: 14px; font-size: 15px; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 8px; box-shadow: 0 4px 16px rgba(0, 242, 254, 0.2);" onclick="startMlTrain()">🚀 최신 데이터로 모델 재학습 시작</button>
-                    <div id="mlProgressContainer" style="margin-top: 20px; display: none;">
-                        <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px;">
-                            <span>학습 진행률</span>
-                            <span id="mlProgressText">0%</span>
+            <div style="display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 20px;">
+                <!-- 좌측 제어 영역 -->
+                <div style="flex: 1; min-width: 300px; display: flex; flex-direction: column; gap: 20px;">
+                    <div class="card">
+                        <div class="card-header">🛠 하이퍼파라미터 튜닝 및 학습 제어</div>
+                        <div style="padding: 15px; display: flex; flex-direction: column; gap: 15px;">
+                            <div style="display: flex; gap: 10px;">
+                                <div class="form-field" style="flex: 1;">
+                                    <label>학습 시작일 (Start Date)</label>
+                                    <input type="date" id="mlStartDate" style="width: 100%; background: rgba(0,0,0,0.3); color: white; border: 1px solid var(--border-color); border-radius: 6px; padding: 8px;">
+                                </div>
+                                <div class="form-field" style="flex: 1;">
+                                    <label>학습 종료일 (End Date)</label>
+                                    <input type="date" id="mlEndDate" style="width: 100%; background: rgba(0,0,0,0.3); color: white; border: 1px solid var(--border-color); border-radius: 6px; padding: 8px;">
+                                </div>
+                            </div>
+                            
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                                <div class="form-field">
+                                    <label>Learning Rate</label>
+                                    <input type="number" step="0.01" id="mlLearningRate" value="0.02" style="width: 100%; background: rgba(0,0,0,0.3); color: white; border: 1px solid var(--border-color); border-radius: 6px; padding: 8px;">
+                                </div>
+                                <div class="form-field">
+                                    <label>Max Depth</label>
+                                    <input type="number" id="mlMaxDepth" value="6" style="width: 100%; background: rgba(0,0,0,0.3); color: white; border: 1px solid var(--border-color); border-radius: 6px; padding: 8px;">
+                                </div>
+                                <div class="form-field">
+                                    <label>Num Leaves</label>
+                                    <input type="number" id="mlNumLeaves" value="32" style="width: 100%; background: rgba(0,0,0,0.3); color: white; border: 1px solid var(--border-color); border-radius: 6px; padding: 8px;">
+                                </div>
+                                <div class="form-field">
+                                    <label>Min Data In Leaf</label>
+                                    <input type="number" id="mlMinData" value="50" style="width: 100%; background: rgba(0,0,0,0.3); color: white; border: 1px solid var(--border-color); border-radius: 6px; padding: 8px;">
+                                </div>
+                            </div>
+                            
+                            <button id="btnRunMlTrain" class="btn-primary" style="width: 100%; padding: 14px; font-size: 15px; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 8px; box-shadow: 0 4px 16px rgba(0, 242, 254, 0.2);" onclick="startMlTrain()">🚀 설정된 파라미터로 모델 학습 시작</button>
+                            
+                            <div id="mlProgressContainer" style="margin-top: 10px; display: none;">
+                                <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px;">
+                                    <span>학습 진행 상태</span>
+                                    <span id="mlProgressText">0%</span>
+                                </div>
+                                <div style="width: 100%; height: 8px; background: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden;">
+                                    <div id="mlProgressBar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #00f2fe 0%, #4facfe 100%); transition: width 0.3s ease;"></div>
+                                </div>
+                            </div>
                         </div>
-                        <div style="width: 100%; height: 8px; background: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden;">
-                            <div id="mlProgressBar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #00f2fe 0%, #4facfe 100%); transition: width 0.3s ease;"></div>
+                    </div>
+
+                    <div class="card" style="flex: 1;">
+                        <div class="card-header">🖥 학습 로그 터미널</div>
+                        <div id="mlTerminal" style="padding: 15px; height: 250px; overflow-y: auto; background-color: #0b0f19; color: #00ff00; font-family: 'Consolas', 'Courier New', monospace; font-size: 13px; border-bottom-left-radius: 12px; border-bottom-right-radius: 12px; border: 1px solid rgba(255,255,255,0.05); white-space: pre-wrap;">대기 중...</div>
+                    </div>
+                </div>
+
+                <!-- 우측 모니터링/지표 영역 -->
+                <div style="flex: 2; min-width: 400px; display: flex; flex-direction: column; gap: 20px;">
+                    <div class="card">
+                        <div class="card-header">📊 학습 결과 및 성능 지표 (Evaluation Metrics)</div>
+                        <div style="padding: 15px; display: flex; flex-direction: column; gap: 15px;">
+                            <div class="bt-summary-grid" style="grid-template-columns: repeat(3, 1fr);">
+                                <div class="bt-summary-card" style="background: rgba(0,242,254,0.05);">
+                                    <div class="bt-summary-label">검증 AUC Score</div>
+                                    <div id="mlValAuc" class="bt-summary-value" style="color: #00f2fe;">0.0000</div>
+                                </div>
+                                <div class="bt-summary-card" style="background: rgba(244,143,177,0.05);">
+                                    <div class="bt-summary-label">학습 AUC Score</div>
+                                    <div id="mlTrainAuc" class="bt-summary-value" style="color: #f48fb1;">0.0000</div>
+                                </div>
+                                <div class="bt-summary-card" style="background: rgba(16,185,129,0.05);">
+                                    <div class="bt-summary-label">학습 데이터 수 (Rows)</div>
+                                    <div id="mlDataRows" class="bt-summary-value" style="color: #10b981;">0</div>
+                                </div>
+                            </div>
+                            
+                            <div style="width: 100%; height: 300px; margin-top: 10px;">
+                                <canvas id="mlFeatureChart"></canvas>
+                            </div>
                         </div>
                     </div>
                 </div>
             </div>
             
+            <!-- 하단 모델 레지스트리 영역 -->
             <div class="card">
-                <div class="card-header">학습 로그 터미널</div>
-                <div id="mlTerminal" style="padding: 15px; height: 400px; overflow-y: auto; background-color: #0b0f19; color: #00ff00; font-family: 'Consolas', 'Courier New', monospace; font-size: 13px; border-bottom-left-radius: 12px; border-bottom-right-radius: 12px; border: 1px solid rgba(255,255,255,0.05); white-space: pre-wrap;">대기 중...</div>
+                <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                    <span>📂 모델 관리 및 실시간 반영 (Model Registry)</span>
+                    <button class="btn-primary" style="padding: 6px 12px; font-size: 12px; background: rgba(255,255,255,0.1);" onclick="fetchModelHistory()">🔄 목록 갱신</button>
+                </div>
+                <div style="padding: 15px; max-height: 300px; overflow-y: auto;">
+                    <table class="portfolio-table" style="width: 100%;">
+                        <thead>
+                            <tr>
+                                <th>생성 일시 (버전)</th>
+                                <th>학습 기간</th>
+                                <th>주요 파라미터</th>
+                                <th>검증 AUC</th>
+                                <th>데이터 수</th>
+                                <th>액션</th>
+                            </tr>
+                        </thead>
+                        <tbody id="mlModelRegistryBody">
+                            <tr><td colspan="6" class="text-center">등록된 모델이 없습니다. 학습을 진행하거나 목록을 갱신하세요.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </div> <!-- // dashboardContainer 종료 -->
@@ -1996,7 +2091,7 @@ HTML_CONTENT = """
                 } else if (data.type === 'ml_result') {
                     isMlTraining = false;
                     document.getElementById('btnRunMlTrain').disabled = false;
-                    document.getElementById('btnRunMlTrain').innerText = '🚀 최신 데이터로 모델 재학습 시작';
+                    document.getElementById('btnRunMlTrain').innerText = '🚀 설정된 파라미터로 모델 학습 시작';
                     document.getElementById('btnRunMlTrain').style.backgroundColor = '';
                     
                     const term = document.getElementById('mlTerminal');
@@ -2004,20 +2099,39 @@ HTML_CONTENT = """
                         term.innerText += "\\n✅ 학습이 성공적으로 완료되었습니다!\\n" + data.msg + "\\n";
                         document.getElementById('mlProgressBar').style.width = '100%';
                         document.getElementById('mlProgressText').innerText = '100% 완료';
+                        
+                        if (data.metrics) {
+                            document.getElementById('mlValAuc').innerText = data.metrics.auc.toFixed(4);
+                            document.getElementById('mlTrainAuc').innerText = data.metrics.train_auc.toFixed(4);
+                            document.getElementById('mlDataRows').innerText = data.metrics.data_rows.toLocaleString() + '개';
+                            renderFeatureChart(data.metrics.feature_importance);
+                        }
+                        fetchModelHistory(); // 학습 완료 후 목록 갱신
                     } else {
-                        term.innerText += "\\n❌ 학습 중 문제가 발생했습니다.\\n" + data.msg + "\\n";
+                        term.innerText += "\\n❌ 학습 중 문제가 발생했습니다.\\n" + (data.msg || "") + "\\n";
                     }
                     term.scrollTop = term.scrollHeight;
                     
                 } else if (data.type === 'ml_error') {
                     isMlTraining = false;
                     document.getElementById('btnRunMlTrain').disabled = false;
-                    document.getElementById('btnRunMlTrain').innerText = '🚀 최신 데이터로 모델 재학습 시작';
+                    document.getElementById('btnRunMlTrain').innerText = '🚀 설정된 파라미터로 모델 학습 시작';
                     document.getElementById('btnRunMlTrain').style.backgroundColor = '';
                     
                     const term = document.getElementById('mlTerminal');
                     term.innerText += "\\n❌ 치명적 오류 발생:\\n" + data.error + "\\n" + (data.traceback || "") + "\\n";
                     term.scrollTop = term.scrollHeight;
+                
+                } else if (data.type === 'model_history') {
+                    renderModelHistory(data.data);
+                
+                } else if (data.type === 'deploy_model_result') {
+                    if (data.success) {
+                        alert("✅ 배포 성공: " + data.msg);
+                    } else {
+                        alert("❌ 배포 실패: " + data.msg);
+                    }
+
                     
                 } else if (data.type === 'trade_history_data') {
                     const thead = document.getElementById('tradeHistoryHead');
@@ -3580,7 +3694,7 @@ HTML_CONTENT = """
         function startMlTrain() {
             if (isMlTraining) return;
             
-            if (!confirm("저장된 최신 DB 데이터로 머신러닝(LightGBM) 재학습을 시작하시겠습니까?\\n이 과정은 데이터 양에 따라 몇 분 정도 소요될 수 있습니다.")) {
+            if (!confirm("설정된 파라미터와 기간으로 모델 학습을 시작하시겠습니까?")) {
                 return;
             }
             
@@ -3595,20 +3709,113 @@ HTML_CONTENT = """
             document.getElementById('mlTerminal').innerText = "🚀 모델 재학습(ML Training) 프로세스를 시작합니다...\\n\\n";
             
             const payload = {
-                type: 'run_ml_train'
+                type: 'run_ml_train',
+                start_date: document.getElementById('mlStartDate').value,
+                end_date: document.getElementById('mlEndDate').value,
+                hyperparameters: {
+                    learning_rate: parseFloat(document.getElementById('mlLearningRate').value) || 0.02,
+                    max_depth: parseInt(document.getElementById('mlMaxDepth').value) || 6,
+                    num_leaves: parseInt(document.getElementById('mlNumLeaves').value) || 32,
+                    min_data_in_leaf: parseInt(document.getElementById('mlMinData').value) || 50
+                }
             };
             ws.send(JSON.stringify(payload));
         }
         
-        // 날짜 기본값 설정 (오늘 ~ 최근 7일)
+        // AI Training Dashboard 기능 함수들
+        function fetchModelHistory() {
+            ws.send(JSON.stringify({ type: 'get_model_history' }));
+        }
+        
+        function deployModel(timestamp) {
+            if (confirm("이 모델 버전을 실시간 트레이딩 로직에 즉시 반영(배포)하시겠습니까?")) {
+                ws.send(JSON.stringify({ type: 'deploy_model', timestamp: timestamp }));
+            }
+        }
+        
+        let mlFeatureChartObj = null;
+        function renderFeatureChart(importanceData) {
+            const ctx = document.getElementById('mlFeatureChart').getContext('2d');
+            if (mlFeatureChartObj) mlFeatureChartObj.destroy();
+            
+            // 데이터 상위 15개로 자르기
+            const sorted = importanceData.slice(0, 15);
+            const labels = sorted.map(d => d.feature);
+            const data = sorted.map(d => d.importance);
+            
+            mlFeatureChartObj = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Feature Importance (Split)',
+                        data: data,
+                        backgroundColor: 'rgba(0, 242, 254, 0.6)',
+                        borderColor: 'rgba(0, 242, 254, 1)',
+                        borderWidth: 1,
+                        borderRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    indexAxis: 'y',
+                    plugins: {
+                        legend: { display: false },
+                        title: { display: true, text: 'Top 15 Feature Importances', color: '#a0a5b1' }
+                    },
+                    scales: {
+                        x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#a0a5b1' } },
+                        y: { grid: { display: false }, ticks: { color: '#a0a5b1' } }
+                    }
+                }
+            });
+        }
+        
+        function renderModelHistory(models) {
+            const tbody = document.getElementById('mlModelRegistryBody');
+            tbody.innerHTML = '';
+            if (!models || models.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="text-center">저장된 모델 히스토리가 없습니다.</td></tr>';
+                return;
+            }
+            models.forEach(m => {
+                const tr = document.createElement('tr');
+                const tsFormatted = m.timestamp.replace(/(\\d{4})(\\d{2})(\\d{2})_(\\d{2})(\\d{2})(\\d{2})/, '$1-$2-$3 $4:$5:$6');
+                const dateRange = (m.start_date || '전체') + ' ~ ' + (m.end_date || '전체');
+                const auc = m.metrics && m.metrics.auc ? m.metrics.auc.toFixed(4) : '-';
+                const rows = m.metrics && m.metrics.data_rows ? m.metrics.data_rows.toLocaleString() : '-';
+                const params = m.params ? `LR:${m.params.learning_rate}, MD:${m.params.max_depth}, NL:${m.params.num_leaves}` : '-';
+                
+                tr.innerHTML = `
+                    <td>${tsFormatted}</td>
+                    <td>${dateRange}</td>
+                    <td style="font-size: 11px;">${params}</td>
+                    <td style="color: #00f2fe; font-weight: bold;">${auc}</td>
+                    <td>${rows}</td>
+                    <td><button class="btn-primary" style="padding: 4px 10px; font-size: 11px;" onclick="deployModel('${m.timestamp}')">Deploy</button></td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+        
+        // 날짜 기본값 설정 (오늘 ~ 최근 7일, AI학습 탭 기본값은 최근 1달)
         window.addEventListener('DOMContentLoaded', () => {
             const today = new Date();
             const lastWeek = new Date(today);
             lastWeek.setDate(lastWeek.getDate() - 7);
             
+            const lastMonth = new Date(today);
+            lastMonth.setMonth(lastMonth.getMonth() - 1);
+            
             const fmt = (d) => d.toISOString().split('T')[0];
             document.getElementById('btEndDate').value = fmt(today);
             document.getElementById('btStartDate').value = fmt(lastWeek);
+            
+            if (document.getElementById('mlEndDate')) {
+                document.getElementById('mlEndDate').value = fmt(today);
+                document.getElementById('mlStartDate').value = fmt(lastMonth);
+            }
         });
     </script>
 </body>
@@ -4170,9 +4377,13 @@ async def websocket_handler(websocket):
                     ctx = mp.get_context('spawn')
                     q = ctx.Queue()
                     
+                    start_date = data.get('start_date')
+                    end_date = data.get('end_date')
+                    hyperparameters = data.get('hyperparameters')
+                    
                     # 글로벌 변수로 제어할 필요가 있다면 active_ml_trains를 만들 수 있으나,
                     # 중단 버튼은 일단 생략하므로 프로세스 변수만 관리.
-                    p = ctx.Process(target=run_ml_train_process_worker, args=(q,), daemon=True)
+                    p = ctx.Process(target=run_ml_train_process_worker, args=(q, start_date, end_date, hyperparameters), daemon=True)
                     p.start()
                     
                     async def monitor_ml_train_process():
@@ -4202,6 +4413,63 @@ async def websocket_handler(websocket):
                         main_loop.create_task(monitor_ml_train_process())
                     else:
                         asyncio.create_task(monitor_ml_train_process())
+
+                elif msg_type == 'get_model_history':
+                    try:
+                        import glob
+                        import os
+                        import json
+                        
+                        models = []
+                        if os.path.exists('models'):
+                            for f in glob.glob('models/*.json'):
+                                try:
+                                    with open(f, 'r', encoding='utf-8') as jf:
+                                        meta = json.load(jf)
+                                        models.append(meta)
+                                except:
+                                    pass
+                        # 최신순 정렬
+                        models.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
+                        await safe_send(websocket, json.dumps({
+                            "type": "model_history",
+                            "data": models
+                        }))
+                    except Exception as e:
+                        logging.error(f"모델 히스토리 로드 실패: {e}")
+                        
+                elif msg_type == 'deploy_model':
+                    try:
+                        import shutil
+                        ts = data.get('timestamp')
+                        if ts:
+                            src_model = f"models/lgbm_model_{ts}.txt"
+                            if os.path.exists(src_model):
+                                shutil.copy2(src_model, 'lgbm_model.txt')
+                                await safe_send(websocket, json.dumps({
+                                    "type": "deploy_model_result",
+                                    "success": True,
+                                    "msg": f"{ts} 버전 모델이 실시간 트레이딩(lgbm_model.txt)에 적용되었습니다."
+                                }))
+                                # 여기서 MLManager가 런타임에 모델을 리로드하도록 호출할 수 있음
+                                if app.trader and app.trader.ml_manager:
+                                    # 백그라운드 태스크로 모델 리로드
+                                    from utils import create_fire_and_forget_task
+                                    create_fire_and_forget_task(app.trader.ml_manager.load_model())
+                                continue
+                            
+                        await safe_send(websocket, json.dumps({
+                            "type": "deploy_model_result",
+                            "success": False,
+                            "msg": "해당 모델 파일을 찾을 수 없습니다."
+                        }))
+                    except Exception as e:
+                        logging.error(f"모델 배포 실패: {e}")
+                        await safe_send(websocket, json.dumps({
+                            "type": "deploy_model_result",
+                            "success": False,
+                            "msg": str(e)
+                        }))
 
 
                 elif msg_type == 'run_backtest':
