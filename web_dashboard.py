@@ -1791,13 +1791,14 @@ HTML_CONTENT = """
                                 <th>생성 일시 (버전)</th>
                                 <th>학습 기간</th>
                                 <th>주요 파라미터</th>
+                                <th>학습 AUC</th>
                                 <th>검증 AUC</th>
                                 <th>데이터 수</th>
                                 <th>액션</th>
                             </tr>
                         </thead>
                         <tbody id="mlModelRegistryBody">
-                            <tr><td colspan="6" class="text-center">등록된 모델이 없습니다. 학습을 진행하거나 목록을 갱신하세요.</td></tr>
+                            <tr><td colspan="7" class="text-center">등록된 모델이 없습니다. 학습을 진행하거나 목록을 갱신하세요.</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -3796,7 +3797,7 @@ HTML_CONTENT = """
             const tbody = document.getElementById('mlModelRegistryBody');
             tbody.innerHTML = '';
             if (!models || models.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" class="text-center">저장된 모델 히스토리가 없습니다.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" class="text-center">저장된 모델 히스토리가 없습니다.</td></tr>';
                 return;
             }
             
@@ -3815,13 +3816,15 @@ HTML_CONTENT = """
                 const tsFormatted = m.timestamp.replace(/(\\d{4})(\\d{2})(\\d{2})_(\\d{2})(\\d{2})(\\d{2})/, '$1-$2-$3 $4:$5:$6');
                 const dateRange = (m.start_date || '전체') + ' ~ ' + (m.end_date || '전체');
                 const auc = m.metrics && m.metrics.auc ? m.metrics.auc.toFixed(4) : '-';
+                const trainAuc = m.metrics && m.metrics.train_auc ? m.metrics.train_auc.toFixed(4) : '-';
                 const rows = m.metrics && m.metrics.data_rows ? m.metrics.data_rows.toLocaleString() : '-';
-                const params = m.params ? `LR:${m.params.learning_rate}, MD:${m.params.max_depth}, NL:${m.params.num_leaves}` : '-';
+                const params = m.params ? `LR:${m.params.learning_rate}, MD:${m.params.max_depth}, NL:${m.params.num_leaves}, MDL:${m.params.min_data_in_leaf}` : '-';
                 
                 tr.innerHTML = `
                     <td>${tsFormatted}</td>
                     <td>${dateRange}</td>
                     <td style="font-size: 11px;">${params}</td>
+                    <td style="color: #ff9800; font-weight: bold;">${trainAuc}</td>
                     <td style="color: #00f2fe; font-weight: bold;">${auc}</td>
                     <td>${rows}</td>
                     <td><button class="btn-primary" style="padding: 4px 10px; font-size: 11px;" onclick="deployModel('${m.timestamp}')">Deploy</button></td>
