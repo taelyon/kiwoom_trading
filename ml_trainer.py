@@ -173,8 +173,8 @@ class MLTrainingWorker(threading.Thread):
             df = df.groupby('code', group_keys=False).apply(calc_new_indicators)
             
             # 시간 지표 추가 (장 시작 후 몇 분이 지났는지)
-            parsed_time = pd.to_datetime(df['datetime'], format='%Y%m%d%H%M%S', errors='coerce')
-            parsed_time = parsed_time.fillna(pd.to_datetime('20000101120000', format='%Y%m%d%H%M%S'))
+            parsed_time = pd.to_datetime(df['datetime'], errors='coerce')
+            parsed_time = parsed_time.fillna(pd.to_datetime('2000-01-01 12:00:00'))
             df['time_of_day_minute'] = (parsed_time.dt.hour * 60 + parsed_time.dt.minute) - (9 * 60)
             df['time_of_day_minute'] = df['time_of_day_minute'].clip(lower=0, upper=390)
             
