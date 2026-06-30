@@ -1689,10 +1689,6 @@ HTML_CONTENT = """
     </div> <!-- // tradeHistoryModal 종료 -->
         <!-- 4. ML AI 학습 뷰 -->
         <div id="mlTrainView" class="view-container view-hidden">
-            <div class="view-header">
-                <h2>🧠 AI 모델 학습 연구소 (AI Training Dashboard)</h2>
-                <div style="font-size: 13px; color: #a0a5b1;">과거 데이터 기반으로 LightGBM 모델을 튜닝하고 최적의 타점 알고리즘을 찾아 실시간 트레이딩에 배포합니다.</div>
-            </div>
             
             <div style="display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 20px;">
                 <!-- 좌측 제어 영역 -->
