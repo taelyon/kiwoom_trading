@@ -3694,9 +3694,7 @@ HTML_CONTENT = """
         function startMlTrain() {
             if (isMlTraining) return;
             
-            if (!confirm("설정된 파라미터와 기간으로 모델 학습을 시작하시겠습니까?")) {
-                return;
-            }
+
             
             isMlTraining = true;
             document.getElementById('btnRunMlTrain').disabled = true;
@@ -3728,9 +3726,7 @@ HTML_CONTENT = """
         }
         
         function deployModel(timestamp) {
-            if (confirm("이 모델 버전을 실시간 트레이딩 로직에 즉시 반영(배포)하시겠습니까?")) {
-                ws.send(JSON.stringify({ type: 'deploy_model', timestamp: timestamp }));
-            }
+            ws.send(JSON.stringify({ type: 'deploy_model', timestamp: timestamp }));
         }
         
         let mlFeatureChartObj = null;
