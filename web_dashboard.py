@@ -2126,7 +2126,7 @@ HTML_CONTENT = """
                 } else if (data.type === 'model_history') {
                     if (data.deployed && data.deployed.params) {
                         const p = data.deployed.params;
-                        if (p.learning_rate) document.getElementById('mlLr').value = p.learning_rate;
+                        if (p.learning_rate) document.getElementById('mlLearningRate').value = p.learning_rate;
                         if (p.max_depth) document.getElementById('mlMaxDepth').value = p.max_depth;
                         if (p.num_leaves) document.getElementById('mlNumLeaves').value = p.num_leaves;
                         if (p.min_data_in_leaf) document.getElementById('mlMinData').value = p.min_data_in_leaf;
