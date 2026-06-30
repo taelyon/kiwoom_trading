@@ -3683,9 +3683,25 @@ HTML_CONTENT = """
 
         // ML 학습 제어 함수
         let isMlTraining = false;
+        
+        window.addEventListener('DOMContentLoaded', () => {
+            const today = new Date();
+            const past = new Date();
+            past.setDate(today.getDate() - 14);
+            
+            const fmtDate = (d) => {
+                const yyyy = d.getFullYear();
+                const mm = String(d.getMonth() + 1).padStart(2, '0');
+                const dd = String(d.getDate()).padStart(2, '0');
+                return `${yyyy}-${mm}-${dd}`;
+            };
+            
+            if (document.getElementById('mlStartDate')) document.getElementById('mlStartDate').value = fmtDate(past);
+            if (document.getElementById('mlEndDate')) document.getElementById('mlEndDate').value = fmtDate(today);
+        });
+        
         function toggleMlTrain() {
             if (isMlTraining) {
-                // 백테스트처럼 중단 기능이 필요하다면 추가할 수 있으나, 일단 버튼 비활성화로 방어
                 return;
             }
             startMlTrain();

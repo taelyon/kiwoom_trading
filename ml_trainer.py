@@ -210,8 +210,8 @@ class MLTrainingWorker(threading.Thread):
             # 결측치 제거
             df_train = df.dropna(subset=base_features + ['label'])
             
-            if len(df_train) < 1000:
-                self.finished_signal.emit(False, f"[ML] 유효한 학습 데이터가 너무 적습니다 ({len(df_train)}개). 최소 1000개 필요.", None)
+            if len(df_train) < 50:
+                self.finished_signal.emit(False, f"[ML] 유효한 학습 데이터가 너무 적습니다 ({len(df_train)}개). 최소 50개 필요.", None)
                 return
             
             X = df_train[features]
@@ -221,6 +221,20 @@ class MLTrainingWorker(threading.Thread):
             split_idx = int(len(X) * 0.8)
             X_train, X_val = X.iloc[:split_idx], X.iloc[split_idx:]
             y_train, y_val = y.iloc[:split_idx], y.iloc[split_idx:]
+            
+            # 동적 파라미터 조정 (데이터가 적을 때 LightGBM 에러 방지)
+            train_len = len(X_train)
+            if 'min_data_in_leaf' in self.params:
+                if train_len < self.params['min_data_in_leaf'] * 2:
+                    new_min_data = max(1, int(train_len / 4))
+                    self.logger.warning(f"학습 데이터({train_len}개)가 적어 min_data_in_leaf를 {self.params['min_data_in_leaf']}에서 {new_min_data}(으)로 임시 조정합니다.")
+                    self.params['min_data_in_leaf'] = new_min_data
+                    
+            if 'num_leaves' in self.params:
+                max_leaves = max(2, int(train_len / 5))
+                if self.params['num_leaves'] > max_leaves:
+                    self.logger.warning(f"학습 데이터({train_len}개)가 적어 num_leaves를 {self.params['num_leaves']}에서 {max_leaves}(으)로 임시 조정합니다.")
+                    self.params['num_leaves'] = max_leaves
             
             # LightGBM 데이터셋 생성
             train_data = lgb.Dataset(X_train, label=y_train)
