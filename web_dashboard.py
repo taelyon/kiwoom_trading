@@ -1827,6 +1827,7 @@ HTML_CONTENT = """
         let lastLoggedMsg = "";
         let currentPassword = "";
         let lastChartTimestamp = 0;
+        let initialParamsLoaded = false;
 
         // 대시보드 로그인 정밀 프로파일링용 글로벌 변수
         let loginStartTime = 0;
@@ -2127,12 +2128,13 @@ HTML_CONTENT = """
                     term.scrollTop = term.scrollHeight;
                 
                 } else if (data.type === 'model_history') {
-                    if (data.deployed && data.deployed.params) {
+                    if (!initialParamsLoaded && data.deployed && data.deployed.params) {
                         const p = data.deployed.params;
                         if (p.learning_rate) document.getElementById('mlLearningRate').value = p.learning_rate;
                         if (p.max_depth) document.getElementById('mlMaxDepth').value = p.max_depth;
                         if (p.num_leaves) document.getElementById('mlNumLeaves').value = p.num_leaves;
                         if (p.min_data_in_leaf) document.getElementById('mlMinData').value = p.min_data_in_leaf;
+                        initialParamsLoaded = true;
                     }
                     renderModelHistory(data.data);
                 
