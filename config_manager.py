@@ -48,12 +48,31 @@ class EnvConfigParser:
     def _sync_from_env(self):
         """환경 변수 및 파일에서 캐시로 데이터 동기화 (관리 대상 키만)"""
         from dotenv import dotenv_values
-        file_env = dotenv_values(self.env_path, encoding='utf-8-sig')
+        file_env = {}
+        try:
+            file_env = dotenv_values(self.env_path, encoding='utf-8-sig')
+        except Exception:
+            pass
+
+        # dotenv_values가 실패하거나 누락된 경우를 대비한 수동 파싱 (fallback)
+        if os.path.exists(self.env_path):
+            try:
+                with open(self.env_path, 'r', encoding='utf-8-sig') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith('#') and '=' in line:
+                            k, v = line.split('=', 1)
+                            k = k.strip()
+                            v = v.strip().strip('"').strip("'")
+                            if k not in file_env:
+                                file_env[k] = v
+            except Exception:
+                pass
         
         # 1. 파일에서 읽은 값을 우선적으로 딕셔너리에 저장 (한글 키 깨짐 방지 및 BOM 제거)
         for k, v in file_env.items():
             clean_k = k.lstrip('\ufeff')
-            if v is not None and any(clean_k.startswith(p) for p in _MANAGED_PREFIXES):
+            if v is not None and any(clean_k.upper().startswith(p) for p in _MANAGED_PREFIXES):
                 self._data[clean_k] = v
                 
         # 2. os.environ에 있는 값을 병합 (런타임 오버라이드 지원)
@@ -108,10 +127,7 @@ class EnvConfigParser:
         if val is None: return fallback
         try:
             if isinstance(val, str):
-                import re
-                clean_val = re.sub(r'[^\d\-]', '', val)
-                if not clean_val: return fallback
-                return int(clean_val)
+                val = val.replace(',', '').strip('"').strip("'")
             return int(val)
         except (ValueError, TypeError):
             return fallback
@@ -121,10 +137,7 @@ class EnvConfigParser:
         if val is None: return fallback
         try:
             if isinstance(val, str):
-                import re
-                clean_val = re.sub(r'[^\d\-\.]', '', val)
-                if not clean_val: return fallback
-                return float(clean_val)
+                val = val.replace(',', '').strip('"').strip("'")
             return float(val)
         except (ValueError, TypeError):
             return fallback
