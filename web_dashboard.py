@@ -1451,8 +1451,8 @@ HTML_CONTENT = """
                                 <input type="number" id="cfgBuyCount" value="5">
                             </div>
                             <div class="form-field">
-                                <label for="cfgPrimeCash">투자원금 (prime cash)</label>
-                                <input type="number" id="cfgPrimeCash" value="0" style="font-family: monospace; font-weight: bold;" title="최초 투자원금">
+                                <label for="cfgPrimeCash">투자원금 (0 입력 시 키움 예수금 자동 조회)</label>
+                                <input type="number" id="cfgPrimeCash" value="0" style="font-family: monospace; font-weight: bold;" title="최초 투자원금 (0이면 계좌 예수금 자동 반영)">
                             </div>
                         </div>
                         <div class="order-row">
@@ -4210,8 +4210,7 @@ async def websocket_handler(websocket):
                     config = EnvConfigParser()
                     expected_password = config.get('SETTINGS', 'dashboard_password', fallback='admin')
                     
-                    logging.error(f"[WS PROFILE SERVER] 인증 시도 감지 - 입력: {password}, 서버기대: {expected_password}")
-                    is_match = True  # 임시로 무조건 통과
+                    is_match = (password == expected_password)
                     auth_eval_time = time.time()
                     
                     if is_match:
@@ -4289,7 +4288,6 @@ async def websocket_handler(websocket):
                             "success": False,
                             "message": "비밀번호가 일치하지 않습니다."
                         }))
-                        await asyncio.sleep(0.5)
                         await websocket.close()
                         return
 
