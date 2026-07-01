@@ -281,10 +281,11 @@ class MLTrainingWorker(threading.Thread):
             best_score = model.best_score.get('valid_1', {}).get('auc', 0.0) if hasattr(model, 'best_score') else 0.0
             best_train_score = model.best_score.get('training', {}).get('auc', 0.0) if hasattr(model, 'best_score') else 0.0
             
-            # Feature Importance 로깅
-            importance = list(zip(features, model.feature_importance()))
+            # Feature Importance 로깅 (split 방식 대신 gain 방식으로 변경하여 실질적 기여도 측정)
+            raw_importance = model.feature_importance(importance_type='gain')
+            importance = list(zip(features, raw_importance))
             importance.sort(key=lambda x: x[1], reverse=True)
-            top_features = ", ".join([f"{f}:{score}" for f, score in importance[:3]])
+            top_features = ", ".join([f"{f}:{int(score)}" for f, score in importance[:3]])
             
             import json
             metrics = {
