@@ -204,8 +204,6 @@ class MLTrainingWorker(threading.Thread):
             ]
             
             new_features = [
-                'tic_vi_distance', 
-                'tic_kosdaq_change',
                 'tic_vwap_distance',
                 'tic_bb_position',
                 'tic_macd_hist',

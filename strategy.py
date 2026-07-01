@@ -325,16 +325,7 @@ class KiwoomStrategy:
                         current_open = cache_data.get('current_open', 0)
                         realtime_metrics = cache_data.get('realtime_metrics', {})
                         
-                        # [추가] WebSocket에서 실시간 시장 지수 등락률 가져오기
-                        ws_client = None
-                        if hasattr(self, 'trader') and self.trader and hasattr(self.trader, 'ws_client'):
-                            ws_client = self.trader.ws_client
-                        elif hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'login_handler'):
-                            ws_client = getattr(self.parent.login_handler, 'websocket_client', None)
-                            
-                        if ws_client and hasattr(ws_client, 'market_indices'):
-                            realtime_metrics['kospi_change'] = ws_client.market_indices.get('kospi_change', 0.0)
-                            realtime_metrics['kosdaq_change'] = ws_client.market_indices.get('kosdaq_change', 0.0)
+                        
 
                         if tic_data and len(tic_data.get('close', [])) > 0:
                             try:
