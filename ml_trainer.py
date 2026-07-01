@@ -104,13 +104,22 @@ class MLTrainingWorker(threading.Thread):
             # === Feature Engineering (비율/속도 변환) ===
             # 종목별로 그룹화하여 계산 필요
             
-            # 1. Target 생성 (미래 수익률이 수수료+세금 및 슬리피지를 상회하면 1, 아니면 0)
-            # 키움증권 기준 수수료/세금 왕복 0.21% + 호가 슬리피지 방어를 위해 0.35% 이상 상승 시 1로 간주
-            TARGET_MARGIN = 0.0035
-            df['target'] = df.groupby('code')['tic_close'].shift(-5)
-            # target이 NaN인 마지막 5개 행은 평가할 수 없으므로 미리 제거
-            df = df.dropna(subset=['target']).copy()
-            df['label'] = (df['target'] > (df['tic_close'] * (1 + TARGET_MARGIN))).astype(int)
+            # 1. Target 생성 (향후 N틱 내 최고가가 수수료+슬리피지를 커버할 만큼 상승했는지)
+            # 기존: 정확히 5틱 뒤 종가만 비교 → 실전과 괴리 (5틱 뒤에 내려와도 중간에 올랐으면 익절 가능)
+            # 개선: 향후 20틱 중 최고가가 목표 수익률을 한 번이라도 돌파했으면 1로 학습
+            LOOKAHEAD = 20  # 향후 20틱 (약 3~10분)
+            TARGET_MARGIN = 0.003  # 0.3% (왕복 수수료 0.21% + 최소 마진)
+            
+            def calc_future_max(group):
+                close = group['tic_close']
+                # 향후 1~LOOKAHEAD 틱의 최고가 계산
+                shifts = pd.concat([close.shift(-i) for i in range(1, LOOKAHEAD + 1)], axis=1)
+                group['future_max'] = shifts.max(axis=1)
+                return group
+            
+            df = df.groupby('code', group_keys=False).apply(calc_future_max)
+            df = df.dropna(subset=['future_max']).copy()
+            df['label'] = (df['future_max'] > (df['tic_close'] * (1 + TARGET_MARGIN))).astype(int)
             
             # 2. 비율 변환 (가격 자체는 제거)
             # 이미 RELATIVE_POSITION(이격도), STRENGTH(체결강도) 등은 비율임.
@@ -236,10 +245,17 @@ class MLTrainingWorker(threading.Thread):
             X = df_train[features]
             y = df_train['label']
             
-            # 학습용/검증용 분리 (8:2)
-            split_idx = int(len(X) * 0.8)
-            X_train, X_val = X.iloc[:split_idx], X.iloc[split_idx:]
-            y_train, y_val = y.iloc[:split_idx], y.iloc[split_idx:]
+            # 양성 라벨 비율 로깅 (데이터 밸런스 확인)
+            pos_ratio = y.mean()
+            self.progress_signal.emit(f"📊 [ML] 양성 라벨 비율: {pos_ratio:.1%} (1={y.sum()}, 0={len(y)-y.sum()})")
+            
+            # 학습용/검증용 분리 (75:25, 시계열 누수 방지를 위한 갭 포함)
+            # train[0..74%] → gap(1%) → val[75%..100%]
+            # 갭: 라벨 생성 시 미래 데이터(LOOKAHEAD 틱)를 참조하므로, train 마지막과 val 첫 부분이 겹치는 것을 방지
+            gap_size = min(LOOKAHEAD * 2, int(len(X) * 0.01))  # 최소 LOOKAHEAD*2, 최대 1%
+            split_idx = int(len(X) * 0.75)
+            X_train, X_val = X.iloc[:split_idx], X.iloc[split_idx + gap_size:]
+            y_train, y_val = y.iloc[:split_idx], y.iloc[split_idx + gap_size:]
             
             # 동적 파라미터 조정 (데이터가 적을 때 LightGBM 에러 방지)
             train_len = len(X_train)
@@ -265,11 +281,11 @@ class MLTrainingWorker(threading.Thread):
             model = lgb.train(
                 self.params,
                 train_data,
-                num_boost_round=1500,        # 반복 횟수 (Early Stopping 의존)
+                num_boost_round=2000,        # 반복 횟수 (Early Stopping 의존)
                 valid_sets=[train_data, val_data],
                 callbacks=[
-                    lgb.early_stopping(stopping_rounds=50), # 과적합 방지: 50번 동안 성능 향상 없으면 중단
-                    lgb.log_evaluation(period=50) 
+                    lgb.early_stopping(stopping_rounds=100), # 과적합 방지: 100번 동안 성능 향상 없으면 중단
+                    lgb.log_evaluation(period=100) 
                 ]
             )
             
