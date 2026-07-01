@@ -784,7 +784,7 @@ def prepare_sell_strategy_locals(code, tic_chart_data, min_chart_data, buy_price
                 
                 # 모델 학습 시 사용된 피처 개수에 맞춰 동적으로 차원 맞추기
                 num_features = LGBM_MODEL.num_feature()
-                if num_features == 14:
+                if num_features >= 11:
                     # 추가 피처 4개 (VWAP, BB, MACD, RSI)
                     vwap_val = locals_dict.get('tic_VWAP', [0])
                     vwap_last = vwap_val[-1] if isinstance(vwap_val, (list, np.ndarray)) and len(vwap_val) > 0 else 0.0
