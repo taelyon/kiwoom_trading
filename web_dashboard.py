@@ -2334,7 +2334,7 @@ HTML_CONTENT = """
                 tbody.innerHTML = holdings.map(stock => {
                     const profitClass = stock.profit_loss >= 0 ? 'up' : 'down';
                     const sign = stock.profit_loss >= 0 ? '+' : '';
-                    const aiScoreVal = (Number(stock.ai_score || 0) * 100).toFixed(1);
+                    const aiScoreVal = Number(stock.ai_score || 0).toFixed(3);
                     return `
                         <tr onclick="subscribeStockChart('${stock.code}', '${stock.name}')">
                             <td>
@@ -2352,7 +2352,7 @@ HTML_CONTENT = """
                                 </span>
                             </td>
                             <td>
-                                <span style="color: #FF1493; font-weight: bold;">${aiScoreVal}점</span>
+                                <span style="color: #FF1493; font-weight: bold;">${aiScoreVal}</span>
                             </td>
                         </tr>
                     `;
