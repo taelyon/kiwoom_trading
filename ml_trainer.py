@@ -110,14 +110,9 @@ class MLTrainingWorker(threading.Thread):
             LOOKAHEAD = 20  # 향후 20틱 (약 3~10분)
             TARGET_MARGIN = 0.003  # 0.3% (왕복 수수료 0.21% + 최소 마진)
             
-            def calc_future_max(group):
-                close = group['tic_close']
-                # 향후 1~LOOKAHEAD 틱의 최고가 계산
-                shifts = pd.concat([close.shift(-i) for i in range(1, LOOKAHEAD + 1)], axis=1)
-                group['future_max'] = shifts.max(axis=1)
-                return group
-            
-            df = df.groupby('code', group_keys=False).apply(calc_future_max)
+            # 종목별 shift를 사용하여 향후 1~20틱의 종가를 수집한 뒤 최고가 산출
+            future_shifts = [df.groupby('code')['tic_close'].shift(-i) for i in range(1, LOOKAHEAD + 1)]
+            df['future_max'] = pd.concat(future_shifts, axis=1).max(axis=1)
             df = df.dropna(subset=['future_max']).copy()
             df['label'] = (df['future_max'] > (df['tic_close'] * (1 + TARGET_MARGIN))).astype(int)
             
