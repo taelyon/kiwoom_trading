@@ -845,6 +845,18 @@ class KiwoomRestClient:
                 else:
                     return_msg = data.get('return_msg', '알 수 없는 오류')
                     self.logger.error(f"계좌평가현황 조회 실패: {return_msg}", exc_info=True)
+                    
+                    # 8005: 토큰 만료/유효하지 않음 오류 시 자동 재발급 및 1회 재시도
+                    if '8005' in return_msg or 'Token이 유효하지 않습니다' in return_msg:
+                        self.logger.warning("♻️ 토큰 만료 감지(8005): 토큰 초기화 후 재발급을 시도합니다.")
+                        self.clear_token()
+                        if await self.connect():
+                            self.logger.info("✅ 토큰 재발급 성공, 계좌평가현황 조회를 재시도합니다.")
+                            # 재시도 (재귀 호출)
+                            return await self.get_acnt_balance()
+                        else:
+                            self.logger.error("❌ 토큰 재발급에 실패하여 조회를 포기합니다.")
+                            
                     # API 실패 시 기존 캐시 데이터 반환 (있다면)
                     return self._balance_cache if self._balance_cache else {}
             else:
@@ -905,6 +917,17 @@ class KiwoomRestClient:
                 else:
                     error_msg = data.get('return_msg', '알 수 없는 오류')
                     self.logger.error(f"❌ 계좌평가잔고내역 조회 API 오류: {error_msg}")
+                    
+                    # 8005: 토큰 만료/유효하지 않음 오류 시 자동 재발급 및 1회 재시도
+                    if '8005' in error_msg or 'Token이 유효하지 않습니다' in error_msg:
+                        self.logger.warning("♻️ 토큰 만료 감지(8005): 토큰 초기화 후 재발급을 시도합니다.")
+                        self.clear_token()
+                        if await self.connect():
+                            self.logger.info("✅ 토큰 재발급 성공, 계좌평가잔고내역 조회를 재시도합니다.")
+                            return await self.get_account_evaluation_status(cont_yn, next_key)
+                        else:
+                            self.logger.error("❌ 토큰 재발급에 실패하여 조회를 포기합니다.")
+                            
                     return {}
             else:
                 self.logger.error(f"❌ 계좌평가잔고내역 조회 HTTP 오류: {response.status_code}")
