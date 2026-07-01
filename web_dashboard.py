@@ -4647,8 +4647,8 @@ async def websocket_handler(websocket):
                     from config_manager import EnvConfigParser
                     config = EnvConfigParser()
                     settings = {
-                        "buycount": config.get('SETTINGS', 'buycount', fallback='3'),
-                        "prime_cash": config.get('SETTINGS', 'prime_cash', fallback='0'),
+                        "buycount": str(config.getint('SETTINGS', 'buycount', fallback=3)),
+                        "prime_cash": str(config.getint('SETTINGS', 'prime_cash', fallback=0)),
                         "last_strategy": config.get('SETTINGS', 'last_strategy', fallback=''),
                         "simulation": config.getboolean('KIWOOM_API', 'simulation', fallback=False),
                         "condition_list": getattr(app, 'condition_search_list', []) or [],
