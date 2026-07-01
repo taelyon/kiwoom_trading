@@ -107,6 +107,11 @@ class EnvConfigParser:
         val = self.get(section, option)
         if val is None: return fallback
         try:
+            if isinstance(val, str):
+                import re
+                clean_val = re.sub(r'[^\d\-]', '', val)
+                if not clean_val: return fallback
+                return int(clean_val)
             return int(val)
         except (ValueError, TypeError):
             return fallback
@@ -115,6 +120,11 @@ class EnvConfigParser:
         val = self.get(section, option)
         if val is None: return fallback
         try:
+            if isinstance(val, str):
+                import re
+                clean_val = re.sub(r'[^\d\-\.]', '', val)
+                if not clean_val: return fallback
+                return float(clean_val)
             return float(val)
         except (ValueError, TypeError):
             return fallback
