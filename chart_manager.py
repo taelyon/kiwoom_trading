@@ -1292,6 +1292,9 @@ class ChartDataCache:
             cached_data['realtime_metrics']['tick_velocity'] = tick_velocity
                             
             # 최고가 대비 10% 하락 시 자체 이탈 처리 로직
+            current_price_str = realtime_data.get('현재가', '0')
+            current_price = abs(int(current_price_str)) if current_price_str not in ['', None] else 0
+            
             if current_price > 0:
                 if stock_code not in self.monitoring_highest_prices:
                     self.monitoring_highest_prices[stock_code] = current_price
