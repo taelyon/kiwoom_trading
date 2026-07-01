@@ -4288,6 +4288,7 @@ async def websocket_handler(websocket):
                             "success": False,
                             "message": "비밀번호가 일치하지 않습니다."
                         }))
+                        await asyncio.sleep(0.5)
                         await websocket.close()
                         return
 
