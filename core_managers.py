@@ -1346,6 +1346,12 @@ class AccountManager:
                         self.logger.debug(f"누적투자원금(.env 설정 적용됨): {parent.trader.prime_cash:,}원")
                     elif api_prime_cash > 0:
                         parent.trader.prime_cash = api_prime_cash
+                        # API로 읽어온 원금을 .env에 저장하여 재시작 시 0이 되지 않도록 영구 기록
+                        try:
+                            parent.trader.config.set('SETTINGS', 'prime_cash', str(api_prime_cash))
+                            parent.trader.config.save()
+                        except Exception as e:
+                            self.logger.warning(f"투자원금 .env 저장 실패: {e}")
                         self.logger.debug(f"누적투자원금(API/fallback): {api_prime_cash:,}원")
                     holdings = balance_data.get('stk_acnt_evlt_prst', balance_data.get('output1', []))
                     if holdings and len(holdings) > 0:

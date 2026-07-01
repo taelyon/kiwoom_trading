@@ -4648,7 +4648,7 @@ async def websocket_handler(websocket):
                     config = EnvConfigParser()
                     settings = {
                         "buycount": config.get('SETTINGS', 'buycount', fallback='3'),
-                        "prime_cash": config.get('SETTINGS', 'prime_cash', fallback='0'),
+                        "prime_cash": str(getattr(app.trader, 'prime_cash', 0)) if getattr(app, 'trader', None) and getattr(app.trader, 'prime_cash', 0) > 0 else config.get('SETTINGS', 'prime_cash', fallback='0'),
                         "last_strategy": config.get('SETTINGS', 'last_strategy', fallback=''),
                         "simulation": config.getboolean('KIWOOM_API', 'simulation', fallback=False),
                         "condition_list": getattr(app, 'condition_search_list', []) or [],
