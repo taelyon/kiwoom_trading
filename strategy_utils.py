@@ -105,7 +105,30 @@ def evaluate_strategies(strategies, safe_locals, code="", strategy_type=""):
             if result:
                 strategy_name = strategy.get('name', '전략')
                 if code:
-                    logger.debug(f"{code}: {strategy_name} 조건 충족")
+                    logger.info(f"✅ [{code}] {strategy_type} '{strategy_name}' 조건 충족!")
+                    # 매수/매도 시 사용된 지표들의 실제 값을 파싱하여 로그에 출력
+                    try:
+                        import ast
+                        tree = ast.parse(condition)
+                        var_names = set(node.id for node in ast.walk(tree) if isinstance(node, ast.Name))
+                        
+                        log_msg = f"💡 [{code}] '{strategy_name}' 체결 시 지표값:"
+                        for var in var_names:
+                            if var in safe_locals:
+                                val = safe_locals[var]
+                                if type(val).__name__ in ('ndarray', 'Series'):
+                                    val = val.tolist()
+                                if isinstance(val, (list, tuple)):
+                                    log_msg += f"\n  - {var}: ...{val[-3:] if len(val) >= 3 else val}"
+                                else:
+                                    if isinstance(val, float):
+                                        log_msg += f"\n  - {var}: {val:.4f}"
+                                    else:
+                                        log_msg += f"\n  - {var}: {val}"
+                        logger.info(log_msg)
+                    except Exception as parse_ex:
+                        logger.debug(f"조건 변수 파싱 실패: {parse_ex}")
+
                 return True, strategy
                 
         except Exception as ex:
