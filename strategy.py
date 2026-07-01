@@ -396,8 +396,8 @@ class KiwoomStrategy:
                 )
                 
                 # 대시보드 차트 표시용으로 AI_SCORE 백업
-                if hasattr(self.parent, 'main_window') and self.parent.main_window and hasattr(self.parent.main_window, 'chart_cache'):
-                    cache_data = self.parent.main_window.chart_cache.cache.get(code)
+                if hasattr(self.parent, 'chart_cache') and self.parent.chart_cache:
+                    cache_data = self.parent.chart_cache.cache.get(code)
                     if cache_data and 'AI_SCORE' in safe_locals:
                         cache_data['latest_ai_score'] = safe_locals['AI_SCORE']
                 condition_met, matched_strategy = strategy_utils.evaluate_strategies(
@@ -624,8 +624,8 @@ class KiwoomStrategy:
             )
             
             # 대시보드 차트/테이블 표시용으로 AI_SCORE 백업 (매도 평가 시에도 실시간 갱신)
-            if hasattr(self.parent, 'main_window') and self.parent.main_window and hasattr(self.parent.main_window, 'chart_cache'):
-                cache_data = self.parent.main_window.chart_cache.cache.get(code)
+            if hasattr(self.parent, 'chart_cache') and self.parent.chart_cache:
+                cache_data = self.parent.chart_cache.cache.get(code)
                 if cache_data and 'AI_SCORE' in safe_locals:
                     cache_data['latest_ai_score'] = safe_locals['AI_SCORE']
             condition_met, matched_strategy = strategy_utils.evaluate_strategies(
