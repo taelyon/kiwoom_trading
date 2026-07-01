@@ -81,9 +81,21 @@ class EnvConfigParser:
 
     def get(self, section, option, fallback=None):
         key = self._get_key(section, option)
-        val = self._data.get(key, os.environ.get(key, fallback))
-        # fallback이 None인 경우 ConfigParser는 NoOptionError를 내뱉지만, 여기선 None 반환
-        return val
+        # 1. Exact match
+        val = self._data.get(key, os.environ.get(key))
+        if val is not None:
+            return val
+            
+        # 2. Case-insensitive match (for manual .env edits like SETTINGS_prime_cash)
+        key_upper = key.upper()
+        for k, v in self._data.items():
+            if k.upper() == key_upper:
+                return v
+        for k, v in os.environ.items():
+            if k.upper() == key_upper:
+                return v
+                
+        return fallback
 
     def getboolean(self, section, option, fallback=False):
         val = self.get(section, option, str(fallback))
