@@ -3542,7 +3542,7 @@ HTML_CONTENT = """
 
         // 계좌 동기화 및 DB 리셋 확인창
         function confirmResetSync() {
-            if (confirm("⚠️ 주의: 로컬 매매 기록(trade_records)이 모두 삭제되며 키움증권 잔고로 강제 동기화됩니다.\n\n정말 초기화하시겠습니까?")) {
+            if (confirm("⚠️ 주의: 로컬 매매 기록(trade_records)이 모두 삭제되며 키움증권 잔고로 강제 동기화됩니다.\\n\\n정말 초기화하시겠습니까?")) {
                 ws.send(jsonStr({ type: "reset_sync_account" }));
                 alert("계좌 동기화 및 매매내역 초기화를 요청했습니다. 잠시 후 새로고침됩니다.");
                 setTimeout(() => {
