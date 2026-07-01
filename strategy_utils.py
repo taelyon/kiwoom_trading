@@ -600,6 +600,7 @@ def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_
                     input_vector = np.array([[feature_strength, feature_velocity, feature_imbalance, feature_relative, feature_spike]])
                 else:
                     # 예외 발생 시 안전하게 0 리턴 처리 (크래시 방지)
+                    logger.warning(f"⚠️ strategy_utils(Buy)에 {num_features}개 피처에 대한 매핑 로직이 구현되지 않았습니다. 기본 0.0 값으로 평가됩니다.")
                     input_vector = np.zeros((1, num_features))
                 
                 # 추론 실행
@@ -893,11 +894,8 @@ def prepare_sell_strategy_locals(code, tic_chart_data, min_chart_data, buy_price
                         feature_kospi_change, feature_kosdaq_change
                     ]])
                 else:
-                    # 13개 피처 (기본 5 + 신규 8)
-                    input_vector = np.array([[
-                        feature_strength, feature_velocity, feature_imbalance, feature_relative, feature_spike,
-                        feature_turnover, feature_vi_dist, sell_1, sell_2, sell_3, buy_1, buy_2, buy_3
-                    ]])
+                    logger.warning(f"⚠️ strategy_utils(Sell)에 {num_features}개 피처에 대한 매핑 로직이 구현되지 않았습니다. 기본 0.0 값으로 평가됩니다.")
+                    input_vector = np.zeros((1, num_features))
                 
                 # 추론 실행
                 ai_score = LGBM_MODEL.predict(input_vector)[0]

@@ -300,6 +300,7 @@ class Backtester:
                         elif num_features == 6:
                             mat = np.column_stack((f_strength, f_velocity, f_relative, f_spike, f_vi_dist, f_kosdaq_change))
                         else:
+                            logger.warning(f"⚠️ 백테스터에 {num_features}개 피처에 대한 행렬 매핑 로직이 구현되지 않았습니다. 기본 0.0 값으로 평가됩니다.")
                             mat = np.zeros((n, num_features))
                         
                         group_df['AI_SCORE'] = LGBM_MODEL.predict(mat, num_threads=1)
