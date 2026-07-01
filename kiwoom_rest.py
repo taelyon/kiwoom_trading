@@ -618,7 +618,10 @@ class KiwoomRestClient:
             self.logger.warning(f"틱 차트 데이터 조회 연결 타임아웃: {code}")
             return {}
         except Exception as e:
-            self.logger.error(f"틱 차트 데이터 조회 중 오류: ({type(e).__name__}) {e}", exc_info=True)
+            if isinstance(e, AttributeError) and "'NoneType'" in str(e) and "post" in str(e):
+                self.logger.debug("틱 차트 데이터 조회 취소: API 연결이 해제되었습니다.")
+            else:
+                self.logger.error(f"틱 차트 데이터 조회 중 오류: ({type(e).__name__}) {e}", exc_info=True)
             return {}
     
     
