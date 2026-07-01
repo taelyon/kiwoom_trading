@@ -208,6 +208,45 @@ class KiwoomRestClient:
              self.client.headers['Authorization'] = f'Bearer {self.access_token}'
         self.logger.warning("♻️ HTTP 클라이언트가 재설정되었습니다 (연결 풀 초기화)")
     
+    async def fetch_account_number(self):
+        """ka00001 (계좌번호조회) API를 호출하여 동적으로 계좌번호 가져오기"""
+        try:
+            if not self.access_token:
+                self.logger.error("토큰이 없어 계좌번호를 조회할 수 없습니다.")
+                return False
+                
+            server_url = self.mock_url if self.is_mock else self.base_url
+            url = f"{server_url}/api/dostk/acnt"
+            
+            headers = {
+                'Content-Type': 'application/json;charset=UTF-8',
+                'authorization': f'Bearer {self.access_token}',
+                'cont-yn': 'N',
+                'next-key': '',
+                'api-id': 'ka00001'
+            }
+            
+            response = await self.client.post(url, headers=headers, json={})
+            response.raise_for_status()
+            
+            data = response.json()
+            acct_no = data.get('acctNo')
+            
+            if isinstance(acct_no, list) and len(acct_no) > 0:
+                acct_no = acct_no[0]
+            
+            if acct_no:
+                self.account_number = str(acct_no).strip()
+                self.logger.info(f"✅ 동적 계좌번호 조회 성공: {self.account_number}")
+                return True
+            else:
+                self.logger.error(f"❌ 계좌번호를 찾을 수 없습니다. 응답: {data}")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"❌ 계좌번호 동적 조회 중 오류 발생: {e}", exc_info=True)
+            return False
+
     async def connect(self) -> bool:
         """키움 REST API 연결 (비동기)"""
         try:
@@ -222,11 +261,18 @@ class KiwoomRestClient:
                     if self.client:
                         self.client.headers['Authorization'] = f'Bearer {self.access_token}'
                     self.logger.debug("저장된 토큰을 사용하여 연결")
+                    
+                    # 동적 계좌번호 조회
+                    await self.fetch_account_number()
+                    
                     self.is_connected = True
                     return True
                 
                 # 토큰이 없거나 만료된 경우 새로 발급
                 if await self.get_access_token():
+                    # 동적 계좌번호 조회
+                    await self.fetch_account_number()
+                    
                     self.is_connected = True
                     self.logger.info("키움 REST API 연결 성공")
                     return True
