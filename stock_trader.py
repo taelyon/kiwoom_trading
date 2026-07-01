@@ -234,6 +234,13 @@ class TradingApp:
         """주문 결과 수신 시 호출"""
         self.update_stock_table()
 
+    async def force_sync_account_and_reset_db(self):
+        """대시보드로부터의 계좌 강제 동기화 및 DB 리셋 요청을 AccountManager로 전달"""
+        if hasattr(self, 'account_manager') and self.account_manager:
+            await self.account_manager.force_sync_account_and_reset_db()
+        else:
+            self.logger.error("❌ AccountManager가 초기화되지 않아 강제 동기화를 수행할 수 없습니다.")
+
     # --- 조건검색 관련 메서드 (ConditionSearchManager 위임) ---
 
     async def handle_condition_search_list_query(self):
