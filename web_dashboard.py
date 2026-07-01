@@ -1388,11 +1388,12 @@ HTML_CONTENT = """
                                     <th>평균단가</th>
                                     <th>현재가</th>
                                     <th>평가손익 (수익률)</th>
+                                    <th>AI Score</th>
                                 </tr>
                             </thead>
                             <tbody id="portfolioBody">
                                 <tr>
-                                    <td colspan="5" class="no-data">보유 중인 종목이 없습니다.</td>
+                                    <td colspan="6" class="no-data">보유 중인 종목이 없습니다.</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -2328,11 +2329,12 @@ HTML_CONTENT = """
             document.getElementById('holdingCount').innerText = '보유 종목 수: ' + holdings.length + '개';
 
             if (holdings.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="5" class="no-data">보유 중인 종목이 없습니다.</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="6" class="no-data">보유 중인 종목이 없습니다.</td></tr>`;
             } else {
                 tbody.innerHTML = holdings.map(stock => {
                     const profitClass = stock.profit_loss >= 0 ? 'up' : 'down';
                     const sign = stock.profit_loss >= 0 ? '+' : '';
+                    const aiScoreVal = (Number(stock.ai_score || 0) * 100).toFixed(1);
                     return `
                         <tr onclick="subscribeStockChart('${stock.code}', '${stock.name}')">
                             <td>
@@ -2348,6 +2350,9 @@ HTML_CONTENT = """
                                 <span class="profit-pill ${profitClass}">
                                     ${sign}${Math.round(Number(stock.profit_loss)).toLocaleString()}원 (${sign}${Number(stock.profit_rate).toFixed(2)}%)
                                 </span>
+                            </td>
+                            <td>
+                                <span style="color: #FF1493; font-weight: bold;">${aiScoreVal}점</span>
                             </td>
                         </tr>
                     `;
@@ -3141,7 +3146,7 @@ HTML_CONTENT = """
                         borderColor: 'rgba(197, 203, 206, 0.4)',
                         scaleMargins: {
                             top: 0.05,
-                            bottom: 0.5, // 캔들은 위 50% 차지
+                            bottom: 0.4, // 캔들은 위 60% 차지
                         },
                     },
                     timeScale: {
@@ -3198,21 +3203,6 @@ HTML_CONTENT = """
                     })
                 };
                 
-                // AI_SCORE 피드 추가
-                aiScoreSeries = chart.addLineSeries({
-                    color: '#FF1493', // 딥핑크
-                    lineWidth: 2,
-                    priceScaleId: 'ai_score_scale',
-                    crosshairMarkerVisible: false,
-                    title: 'AI Score'
-                });
-                chart.priceScale('ai_score_scale').applyOptions({
-                    scaleMargins: {
-                        top: 0.5,
-                        bottom: 0.35, // 50~65%
-                    },
-                });
-
                 // 볼륨 피드 추가
                 volumeSeries = chart.addHistogramSeries({
                     color: 'rgba(38, 166, 154, 0.5)',
@@ -3221,8 +3211,8 @@ HTML_CONTENT = """
                 });
                 chart.priceScale('volume_scale').applyOptions({
                     scaleMargins: {
-                        top: 0.65,
-                        bottom: 0.25, // 거래량은 65~75%
+                        top: 0.6,
+                        bottom: 0.25, // 거래량은 60~75%
                     },
                 });
 
@@ -3471,7 +3461,6 @@ HTML_CONTENT = """
             if (macdSeries) macdSeries.setData(macdArr);
             if (macdSigSeries) macdSigSeries.setData(macdSig);
             if (macdHistSeries) macdHistSeries.setData(macdHist);
-            if (aiScoreSeries) aiScoreSeries.setData([]); // 실시간부터 그려짐
 
             if (sorted.length > 0) {
                 lastChartTimestamp = sorted[sorted.length - 1]._t;
@@ -3547,11 +3536,6 @@ HTML_CONTENT = """
                     value: candle['macd_hist'],
                     color: candle['macd_hist'] >= 0 ? 'rgba(38, 166, 154, 0.5)' : 'rgba(239, 83, 80, 0.5)'
                 });
-            }
-            
-            // AI_SCORE 틱 업데이트
-            if (candle['ai_score'] !== null && candle['ai_score'] !== undefined) {
-                if (aiScoreSeries) aiScoreSeries.update({ time: formattedTime, value: candle['ai_score'] });
             }
         }
 
@@ -3936,6 +3920,13 @@ def get_current_status_data():
         for code, data in ws_balance.items():
             if not isinstance(data, dict):
                 continue
+                
+            ai_score = 0.0
+            if hasattr(app, 'chart_cache'):
+                cache_data = app.chart_cache.cache.get(code)
+                if cache_data:
+                    ai_score = cache_data.get('latest_ai_score', 0.0)
+                    
             holdings[code] = {
                 "code": code,
                 "name": data.get('name', '알수없음'),
@@ -3943,7 +3934,8 @@ def get_current_status_data():
                 "purchase_price": data.get('average_price', 0),
                 "current_price": data.get('current_price', 0),
                 "profit_loss": data.get('profit_loss', 0),
-                "profit_rate": data.get('profit_loss_rate', 0.0)
+                "profit_rate": data.get('profit_loss_rate', 0.0),
+                "ai_score": ai_score
             }
         t5 = time.perf_counter()
 
