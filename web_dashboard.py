@@ -1937,14 +1937,14 @@ HTML_CONTENT = """
                         
                         // 브라우저가 화면을 즉각 그릴(Paint) 수 있도록 콜스택(Call Stack) 양보
                         setTimeout(() => {
+                            // 초기 설정 가져오기 (차트 초기화 오류 시에도 설정은 로드되도록 위치 변경)
+                            console.log("⚙️ [WS PROFILE] 8. 초기 설정(get_settings) 요청 패킷 송신...");
+                            ws.send(jsonStr({ type: "get_settings" }));
+                            
                             const chartStartTime = performance.now();
                             console.log("📈 [WS PROFILE] 6. TradingView 차트 초기화 시작...");
                             initTradingViewChart();
                             console.log(`📈 [WS PROFILE] 7. TradingView 차트 초기화 완료 (소요: ${(performance.now() - chartStartTime).toFixed(1)} ms)`);
-                            
-                            // 초기 설정 가져오기
-                            console.log("⚙️ [WS PROFILE] 8. 초기 설정(get_settings) 요청 패킷 송신...");
-                            ws.send(jsonStr({ type: "get_settings" }));
                             
                             // 🚀 [추가] 앱 시작 시 모델 히스토리(및 배포된 파라미터) 자동 로드
                             fetchModelHistory();
@@ -4648,7 +4648,7 @@ async def websocket_handler(websocket):
                     config = EnvConfigParser()
                     settings = {
                         "buycount": config.get('SETTINGS', 'buycount', fallback='3'),
-                        "prime_cash": str(getattr(app.trader, 'prime_cash', 0)) if getattr(app, 'trader', None) and getattr(app.trader, 'prime_cash', 0) > 0 else config.get('SETTINGS', 'prime_cash', fallback='0'),
+                        "prime_cash": config.get('SETTINGS', 'prime_cash', fallback='0'),
                         "last_strategy": config.get('SETTINGS', 'last_strategy', fallback=''),
                         "simulation": config.getboolean('KIWOOM_API', 'simulation', fallback=False),
                         "condition_list": getattr(app, 'condition_search_list', []) or [],
