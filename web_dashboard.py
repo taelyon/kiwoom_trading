@@ -4646,12 +4646,10 @@ async def websocket_handler(websocket):
                 elif msg_type == 'get_settings':
                     from config_manager import EnvConfigParser
                     config = EnvConfigParser()
-                    # 런타임에 싱글톤 캐시를 초기화하여 최신 .env 반영 (UI 새로고침 시 수동 변경분 적용)
-                    config._initialized = False
-                    config.__init__()
+                    config.reload() # 런타임에 싱글톤 캐시를 최신 상태로 강제 갱신
                     settings = {
-                        "buycount": str(config.getint('SETTINGS', 'buycount', fallback=3)),
-                        "prime_cash": str(config.getint('SETTINGS', 'prime_cash', fallback=0)),
+                        "buycount": config.get('SETTINGS', 'buycount', fallback='3'),
+                        "prime_cash": config.get('SETTINGS', 'prime_cash', fallback='0'),
                         "last_strategy": config.get('SETTINGS', 'last_strategy', fallback=''),
                         "simulation": config.getboolean('KIWOOM_API', 'simulation', fallback=False),
                         "condition_list": getattr(app, 'condition_search_list', []) or [],
@@ -4660,8 +4658,6 @@ async def websocket_handler(websocket):
                         "mock_appkey": config.get('KIWOOM_API', 'mock_appkey', fallback=''),
                         "mock_secretkey": config.get('KIWOOM_API', 'mock_secretkey', fallback='')
                     }
-                    import logging
-                    logging.info(f"DEBUG get_settings dict: buycount={settings['buycount']}, prime_cash={settings['prime_cash']}, raw_env_prime={config.get('SETTINGS', 'prime_cash')}, keys={list(config._data.keys())}")
                     await safe_send(websocket, json.dumps({
                         "type": "settings",
                         "settings": settings
