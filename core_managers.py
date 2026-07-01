@@ -1437,7 +1437,7 @@ class AccountManager:
         except Exception as ex:
             self.logger.error(f"계좌 잔고 조회 실패 (비동기): {ex}", exc_info=True)
 
-    async def _initialize_balance_data_from_rest_api(self, holdings):
+    async def _initialize_balance_data_from_rest_api(self, holdings, clear_existing=False):
         """REST API 잔고 데이터를 웹소켓 balance_data 형식으로 변환"""
         parent = self.parent
         try:
@@ -1446,6 +1446,15 @@ class AccountManager:
             if not ws_client:
                 self.logger.warning("⚠️ websocket_client가 없습니다 - 데이터를 로드할 수 없습니다")
                 return
+            
+            if clear_existing:
+                self.logger.info("🧹 기존 로컬 잔고/보유종목 캐시를 강제 초기화합니다 (계좌 동기화).")
+                ws_client.balance_data.clear()
+                if hasattr(parent, 'trader') and parent.trader:
+                    parent.trader.holdings.clear()
+                    parent.trader.buy_prices.clear()
+                    parent.trader.buy_times.clear()
+                    parent.trader.executed_sell_rules.clear()
             
             converted_count = 0
             for stock in holdings:
@@ -1529,6 +1538,30 @@ class AccountManager:
             self.logger.debug(f"✅ REST API 잔고 데이터 변환 완료: {converted_count}개 종목")
         except Exception as ex:
             self.logger.error(f"❌ REST API 잔고 데이터 변환 실패: {ex}", exc_info=True)
+
+    async def force_sync_account_and_reset_db(self):
+        """계좌 강제 동기화 및 로컬 DB 매매내역 초기화"""
+        try:
+            self.logger.info("🔄 계좌 동기화 및 DB 리셋을 시작합니다.")
+            
+            # 1. 로컬 DB trade_records 초기화
+            if hasattr(self.parent, 'trader') and self.parent.trader and hasattr(self.parent.trader, 'db_manager'):
+                await self.parent.trader.db_manager.clear_trade_records()
+            else:
+                self.logger.warning("⚠️ db_manager를 찾을 수 없어 DB 리셋을 건너뜁니다.")
+
+            # 2. REST API로 계좌 잔고 가져오기
+            if hasattr(self.parent, 'trader') and self.parent.trader and hasattr(self.parent.trader, 'client'):
+                balance_data = await self.parent.trader.client.get_acnt_balance()
+                if balance_data:
+                    holdings = balance_data.get('stk_acnt_evlt_prst', [])
+                    # clear_existing=True 를 전달하여 기존 데이터를 모두 덮어씌움
+                    await self._initialize_balance_data_from_rest_api(holdings, clear_existing=True)
+                    self.logger.info("✅ 계좌 동기화 및 DB 리셋 완료")
+                else:
+                    self.logger.warning("⚠️ 계좌 잔고 조회 실패로 동기화를 완료하지 못했습니다.")
+        except Exception as ex:
+            self.logger.error(f"❌ 계좌 동기화 및 DB 리셋 실패: {ex}", exc_info=True)
 
 
 # ==========================================

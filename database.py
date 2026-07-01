@@ -642,6 +642,20 @@ class AsyncDatabaseManager:
         except Exception as ex:
             self.logger.error(f"데이터베이스 초기화 실패: {ex}", exc_info=True)
 
+    async def clear_trade_records(self):
+        """매매 기록(trade_records) 테이블 초기화 (계좌 동기화 및 강제 리셋용)"""
+        try:
+            if self._conn is None:
+                await self.init_database()
+
+            async with self._db_lock:
+                cursor = await self._conn.cursor()
+                await cursor.execute("DELETE FROM trade_records")
+                await self._conn.commit()
+                self.logger.info("🧹 데이터베이스 매매 기록(trade_records) 강제 초기화 완료")
+        except Exception as ex:
+            self.logger.error(f"매매 기록 초기화 실패: {ex}", exc_info=True)
+
     async def get_trade_history(self, limit=500, start_date=None, end_date=None):
         """저장된 매매 기록을 가져옴 (최신순, 날짜 필터 적용 가능)"""
         try:

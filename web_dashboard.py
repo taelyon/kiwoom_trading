@@ -1324,6 +1324,7 @@ HTML_CONTENT = """
                         <div class="card-title">총 자산</div>
                         <div id="totalAssets" class="card-value">0원</div>
                         <div id="primeCashText" class="card-subtext" style="margin-top: 6px; font-size: 12px; color: var(--text-secondary);">투자원금: 조회 중...</div>
+                        <button class="btn-warning" style="position: absolute; top: 15px; right: 95px; padding: 6px 10px; font-size: 11px; border-radius: 6px;" onclick="confirmResetSync()">🔄 계좌동기화</button>
                         <button class="btn-primary" style="position: absolute; top: 15px; right: 15px; padding: 6px 10px; font-size: 11px; border-radius: 6px;" onclick="openTradeHistory()">📜 매매내역</button>
                     </div>
                     <div class="glass-card">
@@ -3539,6 +3540,18 @@ HTML_CONTENT = """
             }
         }
 
+        // 계좌 동기화 및 DB 리셋 확인창
+        function confirmResetSync() {
+            if (confirm("⚠️ 주의: 로컬 매매 기록(trade_records)이 모두 삭제되며 키움증권 잔고로 강제 동기화됩니다.\n\n정말 초기화하시겠습니까?")) {
+                ws.send(jsonStr({ type: "reset_sync_account" }));
+                alert("계좌 동기화 및 매매내역 초기화를 요청했습니다. 잠시 후 새로고침됩니다.");
+                setTimeout(() => {
+                    // 화면 초기화용 임시 설정 (이후 status 메시지가 알아서 갱신함)
+                    document.getElementById('totalAssets').innerText = '동기화 중...';
+                }, 500);
+            }
+        }
+
         // 매매내역 모달 열기
         function openTradeHistory() {
             document.getElementById('tradeHistoryModal').style.display = 'flex';
@@ -4337,6 +4350,13 @@ async def websocket_handler(websocket):
                     if app.trading_manager:
                         logging.warning("🚨 대시보드 긴급 제어: 전량 매도 청산(Safe Out) 실행")
                         create_fire_and_forget_task(app.trading_manager.sell_all_item(is_auto=False))
+
+                elif msg_type == 'reset_sync_account':
+                    logging.warning("🚨 대시보드 제어: 계좌 강제 동기화 및 DB 리셋 요청 수신")
+                    if hasattr(app, 'force_sync_account_and_reset_db'):
+                        create_fire_and_forget_task(app.force_sync_account_and_reset_db())
+                    else:
+                        logging.error("❌ force_sync_account_and_reset_db 메서드를 찾을 수 없습니다.")
                         
                 elif msg_type == 'add_monitoring':
                     code = data.get('code')
