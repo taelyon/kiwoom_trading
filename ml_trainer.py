@@ -284,10 +284,7 @@ class MLTrainingWorker(threading.Thread):
                 ]
             )
             
-            self.progress_signal.emit("💾 [ML] 모델 파일 저장 중...")
-            self.model_output_path = 'lgbm_model.txt'
-            model.save_model(self.model_output_path)
-            
+            self.progress_signal.emit("💾 [ML] 모델 히스토리 파일 저장 중...")
             # 검증 성능(AUC) 가져오기
             best_score = model.best_score.get('valid_1', {}).get('auc', 0.0) if hasattr(model, 'best_score') else 0.0
             best_train_score = model.best_score.get('training', {}).get('auc', 0.0) if hasattr(model, 'best_score') else 0.0
@@ -339,19 +336,102 @@ class MLTrainingWorker(threading.Thread):
                 conn.close()
 
 if __name__ == "__main__":
-    # 단독 실행 모드
-    print("🚀 [Standalone] ML 학습 프로세스 시작...")
+    # 단독 실행 모드 (자동 학습 그리드 서치 및 조건부 배포)
+    import json
+    import asyncio
     
-    def on_progress(msg):
-        print(msg)
+    print("🚀 [Standalone] ML 학습 프로세스 시작 (Hyperparameter Search)")
+    
+    # 1. 시도할 파라미터 셋 (안정형, 균형형, 공격형)
+    param_grid = [
+        {"max_depth": 4, "num_leaves": 16, "min_data_in_leaf": 200}, # 안정형 (과적합 방지 최우선)
+        {"max_depth": 5, "num_leaves": 24, "min_data_in_leaf": 100}, # 균형형
+        {"max_depth": 6, "num_leaves": 32, "min_data_in_leaf": 50},  # 공격형 (복잡한 패턴 학습)
+    ]
+    
+    best_auc = 0.0
+    best_ts = None
+    best_params = None
+    
+    # 2. 순차적으로 학습 진행
+    for params in param_grid:
+        print(f"\n▶️ [학습 시작] 하이퍼파라미터: {params}")
         
-    def on_finished(success, msg, metrics=None):
-        print(f"\n결과: {'✅ 성공' if success else '❌ 실패'}")
-        print(f"메시지: {msg}")
-        if metrics:
-            print(f"Metrics: {metrics}")
+        current_metrics = {}
+        current_success = False
+        current_ts = None
         
-    worker = MLTrainingWorker(on_progress=on_progress, on_finished=on_finished)
-    worker.start()
-    worker.join()
+        def on_progress(msg):
+            # 로그 과다 방지
+            if "[ML]" in msg:
+                print("   " + msg)
+                
+        def on_finished(success, msg, metrics=None):
+            global current_success, current_metrics
+            current_success = success
+            if metrics:
+                current_metrics = metrics
+            print(f"   결과: {'✅ 성공' if success else '❌ 실패'}, {msg}")
+            
+        worker = MLTrainingWorker(on_progress=on_progress, on_finished=on_finished, hyperparameters=params)
+        worker.run()
+        
+        if current_success and current_metrics:
+            try:
+                models_dir = 'models'
+                if os.path.exists(models_dir):
+                    json_files = [f for f in os.listdir(models_dir) if f.startswith('lgbm_model_') and f.endswith('.json')]
+                    if json_files:
+                        json_files.sort(reverse=True)
+                        latest_json = json_files[0]
+                        current_ts = latest_json.replace('lgbm_model_', '').replace('.json', '')
+            except Exception as e:
+                print(f"   ⚠️ TS 파싱 에러: {e}")
+            
+            auc = current_metrics.get('auc', 0.0)
+            if auc > best_auc:
+                best_auc = auc
+                best_ts = current_ts
+                best_params = params
+                
+    print(f"\n🏆 [학습 완료] 최고 성능(AUC): {best_auc:.4f} (파라미터: {best_params}, 버젼: {best_ts})")
+    
+    # 3. 기존 모델과 성능 비교
+    current_deployed_auc = 0.0
+    try:
+        if os.path.exists('data/lgbm_model_params.json'):
+            with open('data/lgbm_model_params.json', 'r', encoding='utf-8') as f:
+                meta = json.load(f)
+                current_deployed_auc = meta.get('metrics', {}).get('auc', 0.0)
+    except Exception as e:
+        print(f"⚠️ 기존 모델 메타데이터 읽기 실패: {e}")
+        
+    print(f"📊 [비교] 현재 적용된 모델 AUC: {current_deployed_auc:.4f} vs 새로 학습된 최고 모델 AUC: {best_auc:.4f}")
+    
+    # 4. 자동 핫-리로드(배포)
+    if best_auc > current_deployed_auc and best_ts:
+        print(f"✨ 새 모델의 성능이 더 우수하여 실시간 매매 봇에 자동 배포(Hot-reload)를 요청합니다!")
+        
+        async def trigger_deploy(ts):
+            try:
+                import websockets
+                async with websockets.connect("ws://127.0.0.1:8080/ws") as ws:
+                    req = {
+                        "type": "deploy_model",
+                        "timestamp": ts
+                    }
+                    await ws.send(json.dumps(req))
+                    res_str = await asyncio.wait_for(ws.recv(), timeout=5.0)
+                    res = json.loads(res_str)
+                    if res.get('success'):
+                        print("✅ [자동 배포 성공] " + res.get('msg', ''))
+                    else:
+                        print("❌ [자동 배포 실패] " + res.get('msg', ''))
+            except Exception as e:
+                print(f"⚠️ 봇 웹소켓 통신 실패 (봇이 꺼져있을 수 있음): {e}")
+                
+        asyncio.run(trigger_deploy(best_ts))
+    else:
+        print(f"🛡 기존 모델의 성능이 더 우수하거나 새 최고 모델이 생성되지 않아 배포를 취소합니다.")
+
 
