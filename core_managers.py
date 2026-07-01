@@ -1344,15 +1344,8 @@ class AccountManager:
                     # .env에서 미리 세팅된 값이 있다면 API 값을 무시 (사용자 수동 설정 우선)
                     if getattr(parent.trader, 'prime_cash', 0) > 0:
                         self.logger.debug(f"누적투자원금(.env 설정 적용됨): {parent.trader.prime_cash:,}원")
-                    elif api_prime_cash > 0:
-                        parent.trader.prime_cash = api_prime_cash
-                        # API로 읽어온 원금을 .env에 저장하여 재시작 시 0이 되지 않도록 영구 기록
-                        try:
-                            parent.trader.config.set('SETTINGS', 'prime_cash', str(api_prime_cash))
-                            parent.trader.config.save()
-                        except Exception as e:
-                            self.logger.warning(f"투자원금 .env 저장 실패: {e}")
-                        self.logger.debug(f"누적투자원금(API/fallback): {api_prime_cash:,}원")
+                    else:
+                        self.logger.debug("누적투자원금(.env 미설정 또는 0). 키움 자동 조회를 사용하지 않습니다.")
                     holdings = balance_data.get('stk_acnt_evlt_prst', balance_data.get('output1', []))
                     if holdings and len(holdings) > 0:
                         self.logger.debug(f"📦 보유 종목 수: {len(holdings)}개")
@@ -1381,11 +1374,10 @@ class AccountManager:
                     # 'ord_alow_amt' (주문가능금액)을 우선 예수금으로 활용하고, 없으면 'entr' 사용
                     entr_amount = self.parent.data_manager.safe_int(deposit_data.get('ord_alow_amt', deposit_data.get('entr', 0)))
                     
-                    # 투자원금(entr_amount) fallback용 캐싱
-                    if hasattr(self.parent, 'trader') and self.parent.trader and entr_amount > 0:
-                        # 이미 다른 곳에서 lspft_amt 등으로 더 정확한 값이 설정되었다면 덮어쓰지 않음
-                        if not getattr(self.parent.trader, 'prime_cash', 0):
-                            self.parent.trader.prime_cash = entr_amount
+                    # 투자원금 fallback 방지 (무조건 .env 설정 우선)
+                    # if hasattr(self.parent, 'trader') and self.parent.trader and entr_amount > 0:
+                    #    if not getattr(self.parent.trader, 'prime_cash', 0):
+                    #        self.parent.trader.prime_cash = entr_amount
                     self.logger.debug(f"예수금: {entr_amount:,}원")
                     
                     if hasattr(self.parent, 'trader') and self.parent.trader:
@@ -1431,10 +1423,9 @@ class AccountManager:
                     # lspft_amt (누적투자원금) 추출
                     lspft_amt = self.parent.data_manager.safe_int(balance_data.get('lspft_amt', 0))
                     if getattr(self.parent.trader, 'prime_cash', 0) > 0:
-                        pass # .env 수동 설정값 유지
-                    elif lspft_amt > 0:
-                        self.parent.trader.prime_cash = lspft_amt
-                        self.logger.debug(f"누적투자원금(kt00004): {lspft_amt:,}원")
+                        self.logger.debug(f"누적투자원금(.env 설정 적용됨): {self.parent.trader.prime_cash:,}원")
+                    else:
+                        self.logger.debug("누적투자원금(.env 미설정 또는 0). 키움 자동 조회를 사용하지 않습니다.")
                         
                     if 'stk_acnt_evlt_prst' in balance_data:
                         holdings = balance_data.get('stk_acnt_evlt_prst', [])
