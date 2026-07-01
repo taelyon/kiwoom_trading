@@ -3141,7 +3141,7 @@ HTML_CONTENT = """
                         borderColor: 'rgba(197, 203, 206, 0.4)',
                         scaleMargins: {
                             top: 0.05,
-                            bottom: 0.4, // 캔들은 위 60% 차지
+                            bottom: 0.5, // 캔들은 위 50% 차지
                         },
                     },
                     timeScale: {
@@ -3197,18 +3197,32 @@ HTML_CONTENT = """
                         lastValueVisible: false,
                     })
                 };
+                
+                // AI_SCORE 피드 추가
+                aiScoreSeries = chart.addLineSeries({
+                    color: '#FF1493', // 딥핑크
+                    lineWidth: 2,
+                    priceScaleId: 'ai_score_scale',
+                    crosshairMarkerVisible: false,
+                    title: 'AI Score'
+                });
+                chart.priceScale('ai_score_scale').applyOptions({
+                    scaleMargins: {
+                        top: 0.5,
+                        bottom: 0.35, // 50~65%
+                    },
+                });
 
-                // 볼륨 피드 추가 (스케일 마진 분리 적용)
+                // 볼륨 피드 추가
                 volumeSeries = chart.addHistogramSeries({
                     color: 'rgba(38, 166, 154, 0.5)',
                     priceFormat: { type: 'volume' },
                     priceScaleId: 'volume_scale',
                 });
-
                 chart.priceScale('volume_scale').applyOptions({
                     scaleMargins: {
-                        top: 0.6,
-                        bottom: 0.25, // 거래량은 60~75% 영역 차지
+                        top: 0.65,
+                        bottom: 0.25, // 거래량은 65~75%
                     },
                 });
 
@@ -3219,34 +3233,32 @@ HTML_CONTENT = """
                     priceScaleId: 'rsi_scale',
                     crosshairMarkerVisible: false,
                 });
-                
                 // RSI 30 하단선
                 rsiLowLineSeries = chart.addLineSeries({
                     color: 'rgba(255, 255, 255, 0.3)',
                     lineWidth: 1,
-                    lineStyle: 2, // Dashed
+                    lineStyle: 2,
                     priceScaleId: 'rsi_scale',
                     crosshairMarkerVisible: false,
                     lastValueVisible: false,
                     priceLineVisible: false,
                 });
-
                 chart.priceScale('rsi_scale').applyOptions({
                     scaleMargins: {
                         top: 0.75,
-                        bottom: 0.15, // RSI는 75~85% 영역 차지
+                        bottom: 0.15, // RSI는 75~85%
                     },
                 });
 
                 // MACD 피드 추가
                 macdSeries = chart.addLineSeries({
-                    color: '#2962FF', // 파란색 (MACD Line)
+                    color: '#2962FF',
                     lineWidth: 1.5,
                     priceScaleId: 'macd_scale',
                     crosshairMarkerVisible: false,
                 });
                 macdSigSeries = chart.addLineSeries({
-                    color: '#FF6D00', // 주황색 (Signal Line)
+                    color: '#FF6D00',
                     lineWidth: 1.5,
                     priceScaleId: 'macd_scale',
                     crosshairMarkerVisible: false,
@@ -3257,7 +3269,7 @@ HTML_CONTENT = """
                 chart.priceScale('macd_scale').applyOptions({
                     scaleMargins: {
                         top: 0.85,
-                        bottom: 0, // MACD는 85~100% 영역 차지
+                        bottom: 0, // MACD는 85~100%
                     },
                 });
 
@@ -3459,6 +3471,7 @@ HTML_CONTENT = """
             if (macdSeries) macdSeries.setData(macdArr);
             if (macdSigSeries) macdSigSeries.setData(macdSig);
             if (macdHistSeries) macdHistSeries.setData(macdHist);
+            if (aiScoreSeries) aiScoreSeries.setData([]); // 실시간부터 그려짐
 
             if (sorted.length > 0) {
                 lastChartTimestamp = sorted[sorted.length - 1]._t;
@@ -3534,6 +3547,11 @@ HTML_CONTENT = """
                     value: candle['macd_hist'],
                     color: candle['macd_hist'] >= 0 ? 'rgba(38, 166, 154, 0.5)' : 'rgba(239, 83, 80, 0.5)'
                 });
+            }
+            
+            // AI_SCORE 틱 업데이트
+            if (candle['ai_score'] !== null && candle['ai_score'] !== undefined) {
+                if (aiScoreSeries) aiScoreSeries.update({ time: formattedTime, value: candle['ai_score'] });
             }
         }
 
@@ -4996,7 +5014,8 @@ def on_chart_data_updated(code):
             "high": float(tic_data.get('high', [])[-1]),
             "low": float(tic_data.get('low', [])[-1]),
             "close": float(tic_data.get('close', [])[-1]),
-            "volume": int(tic_data.get('volume', [])[-1])
+            "volume": int(tic_data.get('volume', [])[-1]),
+            "ai_score": float(cache_data.get('latest_ai_score', 0.0))
         }
         if 'MA5' in tic_data and tic_data['MA5'] and not math.isnan(float(tic_data['MA5'][-1])): tic_candle['ma5'] = float(tic_data['MA5'][-1])
         if 'MA10' in tic_data and tic_data['MA10'] and not math.isnan(float(tic_data['MA10'][-1])): tic_candle['ma10'] = float(tic_data['MA10'][-1])

@@ -394,6 +394,12 @@ class KiwoomStrategy:
                 safe_locals = strategy_utils.prepare_buy_strategy_locals(
                     code, tic_chart_data, min_chart_data, portfolio, realtime_metrics=realtime_metrics
                 )
+                
+                # 대시보드 차트 표시용으로 AI_SCORE 백업
+                if hasattr(self.parent, 'main_window') and self.parent.main_window and hasattr(self.parent.main_window, 'chart_cache'):
+                    cache_data = self.parent.main_window.chart_cache.cache.get(code)
+                    if cache_data and 'AI_SCORE' in safe_locals:
+                        cache_data['latest_ai_score'] = safe_locals['AI_SCORE']
                 condition_met, matched_strategy = strategy_utils.evaluate_strategies(
                     buy_strategies, safe_locals, code, "매수"
                 )
