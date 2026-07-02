@@ -2063,7 +2063,7 @@ HTML_CONTENT = """
                         document.getElementById('btWarningText').style.display = 'none';
                         if (data.data.debug_logs && data.data.debug_logs.length > 0) {
                             document.getElementById('btDebugLogsBox').style.display = 'block';
-                            document.getElementById('btLogsContent').innerText = data.data.debug_logs.join('\n');
+                            document.getElementById('btLogsContent').innerText = data.data.debug_logs.join('\\n');
                         }
                         return;
                     }
@@ -2087,7 +2087,7 @@ HTML_CONTENT = """
                     
                     if (data.data.debug_logs && data.data.debug_logs.length > 0) {
                         document.getElementById('btDebugLogsBox').style.display = 'block';
-                        document.getElementById('btLogsContent').innerText = data.data.debug_logs.join('\n');
+                        document.getElementById('btLogsContent').innerText = data.data.debug_logs.join('\\n');
                     } else {
                         document.getElementById('btDebugLogsBox').style.display = 'none';
                     }
