@@ -1573,7 +1573,7 @@ class KiwoomWebSocketClient:
                 return False
             
             required_keys = ['time', 'open', 'high', 'low', 'close', 'volume', 'buy_volume', 'sell_volume', 
-                             'TICK_VELOCITY', 'LAST_TIC_CNT']
+                             'strength', 'TICK_VELOCITY', 'LAST_TIC_CNT']
             current_len = len(tic_data.get('close', []))
             for key in required_keys:
                 if key not in tic_data:
@@ -1647,14 +1647,14 @@ class KiwoomWebSocketClient:
                 tic_data['close'].append(current_price)
                 tic_data['volume'].append(volume)
                 
-                # 순간 체결강도 초기화
+                # 순간 체결강도 보조 데이터
                 cur_buy_vol = volume if is_buy else 0
                 cur_sell_vol = volume if not is_buy else 0
                 tic_data['buy_volume'].append(cur_buy_vol)
                 tic_data['sell_volume'].append(cur_sell_vol)
                 
-                # 체결강도 계산 제거 (항상 0.0이거나 100.0이라 불필요)
-                
+                # 누적 체결강도(FID 228) 기록 복구
+                tic_data['strength'].append(strength_cumulative)
                 # ML 학습용 데이터 저장
                 tic_data['TICK_VELOCITY'].append(tick_velocity)
                 # 삭제됨: tic_data['ORDER_BOOK_IMBALANCE'].append(order_book_imbalance)
@@ -1683,14 +1683,15 @@ class KiwoomWebSocketClient:
                 # 거래량 누적
                 tic_data['volume'][last_index] += volume
                 
-                # 매수/매도 거래량 누적 (순간 체결강도용)
+                # 매수/매도 거래량 누적 (순간 체결강도 보조 데이터)
                 cur_buy_vol = volume if is_buy else 0
                 cur_sell_vol = volume if not is_buy else 0
                 tic_data['buy_volume'][last_index] += cur_buy_vol
                 tic_data['sell_volume'][last_index] += cur_sell_vol
                 
-                # 체결강도 재계산 제거
-
+                # 누적 체결강도 업데이트 (가장 최신 값으로 덮어쓰기)
+                if 'strength' in tic_data:
+                    tic_data['strength'][last_index] = strength_cumulative
                 # ML 학습용 데이터 업데이트 (최신값으로 덮어쓰기)
                 if 'TICK_VELOCITY' in tic_data:
                     tic_data['TICK_VELOCITY'][last_index] = tick_velocity
@@ -1701,7 +1702,7 @@ class KiwoomWebSocketClient:
 
                 # 최대 데이터 수 제한
                 max_data = 1500
-                for key in ['time', 'open', 'high', 'low', 'close', 'volume', 'buy_volume', 'sell_volume', 'TICK_VELOCITY', 'LAST_TIC_CNT']:
+                for key in ['time', 'open', 'high', 'low', 'close', 'volume', 'buy_volume', 'sell_volume', 'strength', 'TICK_VELOCITY', 'LAST_TIC_CNT']:
                     if key in tic_data and len(tic_data[key]) > max_data:
                         tic_data[key] = tic_data[key][-max_data:]
                 
