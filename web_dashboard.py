@@ -1624,7 +1624,7 @@ HTML_CONTENT = """
                         
                         <div class="glass-card" style="flex-grow: 1; min-height: 300px; display: flex; flex-direction: column;">
                             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-                                <div class="section-title" style="margin-bottom: 0;">⚙️ 백테스팅 매매 로그</div>
+                                <div class="section-title" style="margin-bottom: 0;">📊 백테스팅 시뮬레이션 결과</div>
                                 <div id="btProgressText" style="color:var(--accent-cyan); font-weight:bold; font-size: 13px;">대기 중...</div>
                             </div>
                             <div id="btLogsBox" style="display:none; flex-grow: 1; max-height: 300px; overflow-y:auto; background:rgba(0,0,0,0.5); padding:0; border-radius:8px; border: 1px solid rgba(255,255,255,0.05);">
@@ -1643,6 +1643,16 @@ HTML_CONTENT = """
                                     </thead>
                                     <tbody id="btTradeTableBody"></tbody>
                                 </table>
+                            </div>
+                        </div>
+
+                        <div class="glass-card" style="min-height: 120px; display: flex; flex-direction: column;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                                <div class="section-title" style="margin-bottom: 0;">📋 백테스팅 매매 로그</div>
+                                <button onclick="toggleBtLogs()" style="background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); color:var(--text-secondary); padding:4px 10px; border-radius:6px; cursor:pointer; font-size:12px;">접기/펼치기</button>
+                            </div>
+                            <div id="btDebugLogsBox" style="display:none; flex-grow:1; max-height:250px; overflow-y:auto; background:rgba(0,0,0,0.6); padding:12px; border-radius:8px; border:1px solid rgba(255,255,255,0.05);">
+                                <pre id="btLogsContent" style="margin:0; white-space:pre-wrap; word-break:break-all; font-family:'Consolas','Monaco','Courier New',monospace; font-size:12px; line-height:1.6; color:#a0aec0;">로그가 없습니다.</pre>
                             </div>
                         </div>
                     </div>
@@ -2052,8 +2062,8 @@ HTML_CONTENT = """
                         document.getElementById('btProgressText').style.color = 'var(--primary)';
                         document.getElementById('btWarningText').style.display = 'none';
                         if (data.data.debug_logs && data.data.debug_logs.length > 0) {
-                            document.getElementById('btLogsBox').style.display = 'block';
-                            document.getElementById('btLogsContent').innerText = data.data.debug_logs.join('\\n');
+                            document.getElementById('btDebugLogsBox').style.display = 'block';
+                            document.getElementById('btLogsContent').innerText = data.data.debug_logs.join('\n');
                         }
                         return;
                     }
@@ -2076,10 +2086,10 @@ HTML_CONTENT = """
                     document.getElementById('btMdd').innerText = data.data.mdd + '%';
                     
                     if (data.data.debug_logs && data.data.debug_logs.length > 0) {
-                        document.getElementById('btLogsBox').style.display = 'block';
-                        document.getElementById('btLogsContent').innerText = data.data.debug_logs.join('\\n');
+                        document.getElementById('btDebugLogsBox').style.display = 'block';
+                        document.getElementById('btLogsContent').innerText = data.data.debug_logs.join('\n');
                     } else {
-                        document.getElementById('btLogsBox').style.display = 'none';
+                        document.getElementById('btDebugLogsBox').style.display = 'none';
                     }
                     
                 } else if (data.type === 'ml_progress') {
@@ -3639,11 +3649,11 @@ HTML_CONTENT = """
         }
 
         function toggleBtLogs() {
-            const content = document.getElementById('btLogsContent');
-            if (content.style.display === 'none') {
-                content.style.display = 'block';
+            const box = document.getElementById('btDebugLogsBox');
+            if (box.style.display === 'none') {
+                box.style.display = 'block';
             } else {
-                content.style.display = 'none';
+                box.style.display = 'none';
             }
         }
 
