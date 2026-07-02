@@ -454,16 +454,23 @@ def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_
                 if len(volume_series) >= 10:
                     locals_dict['tic_avg_volume_10'] = volume_series.tail(10).mean()
                     
-                # 순간 거래량 폭발력 (Instant Volume Spike)
-                # (현재 틱 거래량) / (직전 10개 봉 평균 거래량)
-                if len(volume_series) >= 11:
-                    prev_10_avg = volume_series.iloc[-11:-1].mean()
-                    if prev_10_avg > 0:
-                        locals_dict['tic_volume_spike'] = volume_series.iloc[-1] / prev_10_avg
+                # 거래량 이동평균 비율 (Volume MA Ratio)
+                # (현재 틱 거래량) / (직전 20개 봉 포함 이동평균 거래량)
+                if len(volume_series) >= 20:
+                    ma_20_vol = volume_series.tail(20).mean()
+                    if ma_20_vol > 0:
+                        locals_dict['tic_volume_ma_ratio'] = volume_series.iloc[-1] / ma_20_vol
                     else:
-                        locals_dict['tic_volume_spike'] = 0.0
+                        locals_dict['tic_volume_ma_ratio'] = 0.0
+                elif len(volume_series) > 0:
+                    # 데이터가 20개가 안 될 경우 현재 있는 데이터만으로 평균 계산
+                    ma_vol = volume_series.mean()
+                    if ma_vol > 0:
+                        locals_dict['tic_volume_ma_ratio'] = volume_series.iloc[-1] / ma_vol
+                    else:
+                        locals_dict['tic_volume_ma_ratio'] = 0.0
                 else:
-                    locals_dict['tic_volume_spike'] = 0.0
+                    locals_dict['tic_volume_ma_ratio'] = 0.0
 
                 if len(volume_series) >= 5:
                     # 최근 5개 틱의 평균 거래량 (순간 체결량 포착용)
@@ -490,8 +497,8 @@ def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_
 
                 feature_relative = locals_dict.get('min3_relative_position', [0])[-1] if isinstance(locals_dict.get('min3_relative_position'), (list, np.ndarray)) else 0
                 
-                # Volume Spike (스칼라 값)
-                feature_spike = locals_dict.get('tic_volume_spike', 0.0)
+                # Volume MA Ratio (스칼라 값)
+                feature_ma_ratio = locals_dict.get('tic_volume_ma_ratio', 0.0)
                 
                 
 
@@ -555,7 +562,7 @@ def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_
                 if num_features == 14:
                     # 최신 14개 피처 (기존 15개에서 bb_position 제거됨)
                     input_vector = np.array([[
-                        feature_strength, feature_velocity, feature_relative, feature_spike,
+                        feature_strength, feature_velocity, feature_relative, feature_ma_ratio,
                         feature_vwap_dist, feature_macd_hist, feature_rsi,
                         feature_time, feature_price_roc, feature_vol_roc,
                         feature_tic_ma_spread, feature_tic_tail_ratio, feature_tic_buy_sell_ratio, feature_tic_spread
@@ -564,7 +571,7 @@ def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_
                     # 구버전 15개 피처 (bb_position 포함)
                     feature_bb_pos = locals_dict.get('tic_BB_POSITION', [0.5])[-1] if isinstance(locals_dict.get('tic_BB_POSITION', [0.5]), (list, np.ndarray)) else 0.5
                     input_vector = np.array([[
-                        feature_strength, feature_velocity, feature_relative, feature_spike,
+                        feature_strength, feature_velocity, feature_relative, feature_ma_ratio,
                         feature_vwap_dist, feature_bb_pos, feature_macd_hist, feature_rsi,
                         feature_time, feature_price_roc, feature_vol_roc,
                         feature_tic_ma_spread, feature_tic_tail_ratio, feature_tic_buy_sell_ratio, feature_tic_spread
@@ -572,7 +579,7 @@ def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_
                 elif num_features == 13:
                     # 13개 피처 (기존 15개에서 min3_trend_agree, amount_spike 제거)
                     input_vector = np.array([[
-                        feature_strength, feature_velocity, feature_relative, feature_spike,
+                        feature_strength, feature_velocity, feature_relative, feature_ma_ratio,
                         feature_vwap_dist, feature_bb_pos, feature_macd_hist, feature_rsi,
                         feature_time, feature_price_roc, feature_vol_roc,
                         feature_tic_ma_spread, feature_tic_tail_ratio

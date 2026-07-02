@@ -125,13 +125,10 @@ class MLTrainingWorker(threading.Thread):
             # [B] tic_velocity 로그 정규화 (극단적 스케일 0~999999 해소)
             df['tic_velocity'] = np.log1p(df['tic_velocity'])
             
-            # 순간 거래량 폭발력 (Instant Volume Spike)
-            # (현재 60틱 거래량) / (직전 10개 봉 평균 거래량)
-            # 1. 직전 10개 봉의 평균 구하기 (shift(1) 후 rolling(10_mean))
-            df['prev_10_vol_avg'] = df.groupby('code')['tic_volume'].shift(1).rolling(10).mean()
-            
-            # 2. Spike 계산 (0으로 나누기 방지)
-            df['tic_volume_spike'] = np.where(df['prev_10_vol_avg'] > 0, df['tic_volume'] / df['prev_10_vol_avg'], 0)
+            # 거래량 이동평균 비율 (Volume MA Ratio)
+            # 현재 거래량 / 20봉 이동평균 거래량
+            df['vol_ma20'] = df.groupby('code')['tic_volume'].transform(lambda x: x.rolling(20, min_periods=1).mean())
+            df['tic_volume_ma_ratio'] = np.where(df['vol_ma20'] > 0, df['tic_volume'] / df['vol_ma20'], 0)
             
             # (삭제됨) 거래 대금 가속도는 거래량 폭발력과 중복도가 높아 제거
 
@@ -206,7 +203,7 @@ class MLTrainingWorker(threading.Thread):
                 'tic_strength', 
                 'tic_velocity', 
                 'min3_relative_position',
-                'tic_volume_spike'
+                'tic_volume_ma_ratio'
             ]
             
             new_features = [

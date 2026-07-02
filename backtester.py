@@ -231,11 +231,11 @@ class Backtester:
                         f_relative = group_df['RELATIVE_POSITION'].values if 'RELATIVE_POSITION' in group_df.columns else np.zeros(n)
                         
                         vol = group_df['volume'].values if 'volume' in group_df.columns else np.ones(n)
-                        f_spike = np.zeros(n)
-                        if n > 10:
-                            roll_avg = pd.Series(vol).rolling(window=10).mean().shift(1).fillna(1).values
+                        f_ma_ratio = np.zeros(n)
+                        if n > 0:
+                            roll_avg = pd.Series(vol).rolling(window=20, min_periods=1).mean().values
                             roll_avg = np.where(roll_avg == 0, 1, roll_avg)
-                            f_spike = vol / roll_avg
+                            f_ma_ratio = vol / roll_avg
                         
 
                         close_vals = group_df['close'].values
@@ -298,23 +298,23 @@ class Backtester:
                             f_buy_sell_ratio = np.full(n, 0.5)
                             f_spread = np.zeros(n)
                             mat = np.column_stack((
-                                f_strength, f_velocity, f_relative, f_spike,
+                                f_strength, f_velocity, f_relative, f_ma_ratio,
                                 f_vwap_dist, f_macd_hist, f_rsi, f_time,
                                 f_price_roc, f_vol_roc,
                                 f_tic_ma_spread, f_tic_tail_ratio, f_buy_sell_ratio, f_spread
                             ))
                         elif num_features == 10:
                             mat = np.column_stack((
-                                f_strength, f_velocity, f_relative, f_spike,
+                                f_strength, f_velocity, f_relative, f_ma_ratio,
                                 f_vwap_dist, f_macd_hist, f_rsi, f_time,
                                 f_price_roc, f_vol_roc
                             ))
                         elif num_features == 8:
-                            mat = np.column_stack((f_strength, f_velocity, f_relative, f_spike, f_vwap_dist, f_macd_hist, f_rsi, f_time))
+                            mat = np.column_stack((f_strength, f_velocity, f_relative, f_ma_ratio, f_vwap_dist, f_macd_hist, f_rsi, f_time))
                         elif num_features == 7:
-                            mat = np.column_stack((f_strength, f_velocity, f_relative, f_spike, f_vwap_dist, f_macd_hist, f_rsi))
+                            mat = np.column_stack((f_strength, f_velocity, f_relative, f_ma_ratio, f_vwap_dist, f_macd_hist, f_rsi))
                         elif num_features == 4:
-                            mat = np.column_stack((f_strength, f_velocity, f_relative, f_spike))
+                            mat = np.column_stack((f_strength, f_velocity, f_relative, f_ma_ratio))
                         else:
                             logger.warning(f"⚠️ 백테스터에 {num_features}개 피처에 대한 행렬 매핑 로직이 구현되지 않았습니다. 기본 0.0 값으로 평가됩니다.")
                             mat = np.zeros((n, num_features))
