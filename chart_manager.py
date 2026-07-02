@@ -1117,12 +1117,7 @@ class ChartDataCache:
                 indicators['MACD_SIGNAL'] = macd_signal
                 indicators['MACD_HIST'] = macd_hist
                 
-            # 볼린저 밴드 (허용된 경우만)
-            if 'BB_UPPER' in allowed_set and len(close_array) >= 20:
-                bb_upper, bb_middle, bb_lower = talib.BBANDS(close_array, timeperiod=20)
-                indicators['BB_UPPER'] = bb_upper
-                indicators['BB_MIDDLE'] = bb_middle
-                indicators['BB_LOWER'] = bb_lower
+            # (삭제됨) 볼린저 밴드
                 
             # 스토캐스틱 (허용된 경우만)
             if 'STOCH_K' in allowed_set and len(high_array) >= 14:

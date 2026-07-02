@@ -196,8 +196,7 @@ class KiwoomIndicatorExtractor:
             # 1. 캐시된 지표가 있으면 그대로 사용
             cached_indicator_keys = [
                 'MA5', 'MA10', 'MA20', 'MA60', 'RSI', 'MACD', 'MACD_SIGNAL', 'MACD_HIST',
-                'STOCHK', 'STOCHD', 'WILLIAMS_R', 'ROC', 'OBV', 'OBV_MA20',
-                'BB_UPPER', 'BB_MIDDLE', 'BB_LOWER', 'ATR',
+                'STOCHK', 'STOCHD', 'WILLIAMS_R', 'ROC', 'OBV', 'OBV_MA20', 'ATR',
                 'TICK_VELOCITY', 'LAST_TIC_CNT'
             ]
             for key in cached_indicator_keys:
@@ -272,26 +271,6 @@ class KiwoomIndicatorExtractor:
             # 스토캐스틱
             if (is_target('STOCHK') or is_target('STOCHD')) and 'STOCHK' not in indicators and len(high) >= 14 and len(low) >= 14:
                 indicators['STOCHK'], indicators['STOCHD'] = talib.STOCH(high, low, close)
-
-            # 볼린저 밴드
-            if (is_target('BB_UPPER') or is_target('BB_MIDDLE') or is_target('BB_LOWER')) and 'BB_UPPER' not in indicators and len(close) >= 20:
-                bb_upper, bb_middle, bb_lower = talib.BBANDS(close, timeperiod=20)
-                indicators['BB_UPPER'] = bb_upper
-                indicators['BB_MIDDLE'] = bb_middle
-                indicators['BB_LOWER'] = bb_lower
-
-            # BB_POSITION과 BB_BANDWIDTH는 항상 재계산 (다른 BB 지표에 의존)
-            if (is_target('BB_POSITION') or is_target('BB_BANDWIDTH')) and 'BB_UPPER' in indicators and 'BB_LOWER' in indicators and 'BB_MIDDLE' in indicators:
-                bb_upper = indicators['BB_UPPER']
-                bb_middle = indicators['BB_MIDDLE']
-                bb_lower = indicators['BB_LOWER']
-                bb_range = bb_upper - bb_lower
-                safe_bb_range = np.where(bb_range == 0, 1e-9, bb_range)
-                if is_target('BB_POSITION'):
-                    indicators['BB_POSITION'] = (close - bb_lower) / safe_bb_range
-                if is_target('BB_BANDWIDTH'):
-                    safe_bb_middle = np.where(bb_middle == 0, 1e-9, bb_middle)
-                    indicators['BB_BANDWIDTH'] = bb_range / safe_bb_middle
 
             # ATR (Average True Range)
             if is_target('ATR') and 'ATR' not in indicators and len(high) >= 14 and len(low) >= 14:
