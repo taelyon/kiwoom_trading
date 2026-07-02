@@ -560,9 +560,25 @@ def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_
                 low_val = locals_dict.get('tic_low', [0])
                 feature_tic_tail_ratio = (high_val[-1] - close_arr[-1]) / (high_val[-1] - low_val[-1]) if (len(high_val) > 0 and len(low_val) > 0 and len(close_arr) > 0 and (high_val[-1] - low_val[-1]) > 0) else 0.0
                 
+                # [신규 추가] 순간 체결강도 (tic_buy_sell_ratio)
+                buy_vol_arr = locals_dict.get('tic_buy_volume', [])
+                vol_arr = locals_dict.get('tic_volume', [])
+                if len(buy_vol_arr) > 0 and len(vol_arr) > 0 and vol_arr[-1] > 0:
+                    feature_tic_buy_sell_ratio = buy_vol_arr[-1] / vol_arr[-1]
+                else:
+                    feature_tic_buy_sell_ratio = 0.5
+                
                 # 모델 학습 시 사용된 피처 개수에 맞춰 동적으로 차원 맞추기
                 num_features = LGBM_MODEL.num_feature()
-                if num_features == 13:
+                if num_features == 14:
+                    # 14개 피처 (13개 + 순간 체결강도)
+                    input_vector = np.array([[
+                        feature_strength, feature_velocity, feature_relative, feature_spike,
+                        feature_vwap_dist, feature_bb_pos, feature_macd_hist, feature_rsi,
+                        feature_time, feature_price_roc, feature_vol_roc,
+                        feature_tic_ma_spread, feature_tic_tail_ratio, feature_tic_buy_sell_ratio
+                    ]])
+                elif num_features == 13:
                     # 13개 피처 (기존 15개에서 min3_trend_agree, amount_spike 제거)
                     input_vector = np.array([[
                         feature_strength, feature_velocity, feature_relative, feature_spike,
@@ -855,7 +871,23 @@ def prepare_sell_strategy_locals(code, tic_chart_data, min_chart_data, buy_price
                     low_val = locals_dict.get('tic_low', [0])
                     feature_tic_tail_ratio = (high_val[-1] - close_arr[-1]) / (high_val[-1] - low_val[-1]) if (len(high_val) > 0 and len(low_val) > 0 and len(close_arr) > 0 and (high_val[-1] - low_val[-1]) > 0) else 0.0
 
-                    if num_features == 13:
+                    # [신규 추가] 순간 체결강도 (tic_buy_sell_ratio)
+                    buy_vol_arr = locals_dict.get('tic_buy_volume', [])
+                    vol_arr = locals_dict.get('tic_volume', [])
+                    if len(buy_vol_arr) > 0 and len(vol_arr) > 0 and vol_arr[-1] > 0:
+                        feature_tic_buy_sell_ratio = buy_vol_arr[-1] / vol_arr[-1]
+                    else:
+                        feature_tic_buy_sell_ratio = 0.5
+
+                    if num_features == 14:
+                        # 14개 피처 (13개 + 순간 체결강도)
+                        input_vector = np.array([[
+                            feature_strength, feature_velocity, feature_relative, feature_spike,
+                            feature_vwap_dist, feature_bb_pos, feature_macd_hist, feature_rsi,
+                            feature_time, feature_price_roc, feature_vol_roc,
+                            feature_tic_ma_spread, feature_tic_tail_ratio, feature_tic_buy_sell_ratio
+                        ]])
+                    elif num_features == 13:
                         # 13개 피처 (기존 15개에서 min3_trend_agree, amount_spike 제거)
                         input_vector = np.array([[
                             feature_strength, feature_velocity, feature_relative, feature_spike,

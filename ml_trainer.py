@@ -191,6 +191,12 @@ class MLTrainingWorker(threading.Thread):
             df['time_of_day_minute'] = (parsed_time.dt.hour * 60 + parsed_time.dt.minute) - (9 * 60)
             df['time_of_day_minute'] = df['time_of_day_minute'].clip(lower=0, upper=390)
             
+            # [신규 피처] 순간 체결강도 (tic_buy_sell_ratio)
+            # 과거 데이터에는 buy_volume이 없을 수 있으므로 예외처리
+            if 'tic_buy_volume' not in df.columns:
+                df['tic_buy_volume'] = 0
+            df['tic_buy_sell_ratio'] = np.where(df['tic_volume'] > 0, df['tic_buy_volume'] / df['tic_volume'], 0.5)
+            
             # (삭제됨) 3분봉 추세 동조화는 이진값 노이즈로 작용하여 제거
             
             # [신규 피처] 2. 이동평균선 정배열 척도 (MA Ribbon Distance)
@@ -218,7 +224,8 @@ class MLTrainingWorker(threading.Thread):
                 'tic_price_roc',      # 가격 상승 가속도
                 'tic_vol_roc',        # 거래량 폭발 가속도
                 'tic_ma_spread',      # [추가] 이평선 정배열 척도
-                'tic_tail_ratio'      # [추가] 캔들 윗꼬리 비율
+                'tic_tail_ratio',     # [추가] 캔들 윗꼬리 비율
+                'tic_buy_sell_ratio'  # [추가] 순간 체결강도
             ]
             
             features = base_features + new_features
