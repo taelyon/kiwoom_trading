@@ -167,6 +167,9 @@ class Backtester:
                 # 1.5 3분봉 데이터 존재 확인
                 try:
                     group_df['datetime'] = pd.to_datetime(group_df['datetime'])
+                    # 3분봉 식별을 위한 고유 period_id 생성 (빠른 배열 추출용)
+                    group_df['period_id'] = (group_df['datetime'].dt.minute // 3) + group_df['datetime'].dt.hour * 20 + group_df['datetime'].dt.dayofyear * 1000
+                    
                     has_db_min3 = all(col in group_df.columns for col in ['min3_open', 'min3_close', 'min3_volume'])
                     if not has_db_min3 or group_df['min3_volume'].notna().sum() == 0:
                         logger.warning(f"{current_code}: DB에 3분봉 데이터가 불충분합니다. 지표 생성 없이 진행합니다.")
@@ -387,8 +390,23 @@ class Backtester:
                         # eval 호환성 locals_dict 구성
                         start_idx = max(0, idx - 300)
                         locals_dict = {}
+                        
+                        # 빠른 3분봉 배열 추출을 위한 인덱스 마스크 계산
+                        keep_indices = None
+                        if 'period_id' in sd['precomputed']:
+                            p_ids = sd['precomputed']['period_id'][start_idx:idx+1]
+                            if len(p_ids) > 1:
+                                changes = p_ids[:-1] != p_ids[1:]
+                                keep_indices = np.append(changes, True)
+                            else:
+                                keep_indices = np.array([True])
+                                
                         for col_name, col_arr in sd['precomputed'].items():
                             arr_slice = col_arr[start_idx:idx+1]
+                            
+                            if col_name.startswith('min3_') and keep_indices is not None:
+                                arr_slice = arr_slice[keep_indices]
+                                
                             locals_dict[col_name] = arr_slice
                             if not col_name.startswith('tic_') and not col_name.startswith('min3_'):
                                 locals_dict[f'tic_{col_name}'] = arr_slice
@@ -497,8 +515,24 @@ class Backtester:
                                 current_price = float(row['close'])
                                 start_idx = max(0, idx - 300)
                                 locals_dict = {}
+                                
+                                # 빠른 3분봉 배열 추출을 위한 인덱스 마스크 계산
+                                keep_indices = None
+                                if 'period_id' in sd['precomputed']:
+                                    p_ids = sd['precomputed']['period_id'][start_idx:idx+1]
+                                    if len(p_ids) > 1:
+                                        changes = p_ids[:-1] != p_ids[1:]
+                                        keep_indices = np.append(changes, True)
+                                    else:
+                                        keep_indices = np.array([True])
+                                        
                                 for col_name, col_arr in sd['precomputed'].items():
                                     arr_slice = col_arr[start_idx:idx+1]
+                                    
+                                    if col_name.startswith('min3_') and keep_indices is not None:
+                                        # 진짜 3분봉 배열(완성된 3분봉들 + 현재 진행중인 3분봉)로 압축
+                                        arr_slice = arr_slice[keep_indices]
+                                        
                                     locals_dict[col_name] = arr_slice
                                     if not col_name.startswith('tic_') and not col_name.startswith('min3_'):
                                         locals_dict[f'tic_{col_name}'] = arr_slice
