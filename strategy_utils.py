@@ -312,15 +312,16 @@ class KiwoomIndicatorExtractor:
             if is_target('OBV_MA20') and 'OBV' in indicators and 'OBV_MA20' not in indicators and len(indicators['OBV']) >= 20:
                 indicators['OBV_MA20'] = talib.SMA(indicators['OBV'], timeperiod=20)
             
-            # VWAP 계산
+            # [C] Rolling VWAP 계산 (누적 VWAP → 최근 60봉 Rolling VWAP로 교체)
+            # 누적 VWAP는 오후로 갈수록 둔감해져 단타에 부적합
             if is_target('VWAP') and len(close) >= 1 and len(volume) >= 1:
                 typical_price = (high + low + close) / 3
                 
-                # 누적 VWAP를 배열 형태로 계산
-                cumulative_pv = np.cumsum(typical_price * volume)
-                cumulative_volume = np.cumsum(volume)
-                safe_cumulative_volume = np.where(cumulative_volume == 0, 1e-9, cumulative_volume)
-                vwap_array = cumulative_pv / safe_cumulative_volume
+                VWAP_WINDOW = 60  # 최근 60봉 (약 1시간)
+                rolling_pv = pd.Series(typical_price * volume).rolling(VWAP_WINDOW, min_periods=1).sum().values
+                rolling_v = pd.Series(volume).rolling(VWAP_WINDOW, min_periods=1).sum().values
+                safe_rolling_v = np.where(rolling_v == 0, 1e-9, rolling_v)
+                vwap_array = rolling_pv / safe_rolling_v
                 indicators['VWAP'] = vwap_array
             
             # 가격 정보 (배열 형태로 저장)
@@ -500,7 +501,9 @@ def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_
                 
                 # TICK_VELOCITY (배열 보장됨)
                 tv_val = locals_dict.get('tic_velocity')
-                feature_velocity = tv_val[-1] if isinstance(tv_val, (list, np.ndarray)) and len(tv_val) > 0 else 999999.0
+                raw_velocity = tv_val[-1] if isinstance(tv_val, (list, np.ndarray)) and len(tv_val) > 0 else 999999.0
+                # [B] 로그 정규화 적용 (학습 시와 동일한 변환)
+                feature_velocity = np.log1p(raw_velocity)
 
                 # ORDER_BOOK_IMBALANCE (배열 보장됨)
                 obi_val = locals_dict.get('tic_order_book_imbalance')
@@ -784,7 +787,9 @@ def prepare_sell_strategy_locals(code, tic_chart_data, min_chart_data, buy_price
                 
                 # TICK_VELOCITY (배열 보장됨)
                 tv_val = locals_dict.get('tic_velocity')
-                feature_velocity = tv_val[-1] if isinstance(tv_val, (list, np.ndarray)) and len(tv_val) > 0 else 999999.0
+                raw_velocity = tv_val[-1] if isinstance(tv_val, (list, np.ndarray)) and len(tv_val) > 0 else 999999.0
+                # [B] 로그 정규화 적용 (학습 시와 동일한 변환)
+                feature_velocity = np.log1p(raw_velocity)
 
                 # ORDER_BOOK_IMBALANCE (배열 보장됨)
                 obi_val = locals_dict.get('tic_order_book_imbalance')

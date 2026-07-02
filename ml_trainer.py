@@ -120,6 +120,9 @@ class MLTrainingWorker(threading.Thread):
             # 이미 RELATIVE_POSITION(이격도), STRENGTH(체결강도) 등은 비율임.
             # 추가적으로 필요한 것들 변환
             
+            # [B] tic_velocity 로그 정규화 (극단적 스케일 0~999999 해소)
+            df['tic_velocity'] = np.log1p(df['tic_velocity'])
+            
             # 순간 거래량 폭발력 (Instant Volume Spike)
             # (현재 60틱 거래량) / (직전 10개 봉 평균 거래량)
             # 1. 직전 10개 봉의 평균 구하기 (shift(1) 후 rolling(10_mean))
@@ -140,11 +143,13 @@ class MLTrainingWorker(threading.Thread):
                 low = g['tic_low'].values
                 vol = g['tic_volume'].values
                 
-                # VWAP Distance
+                # [C] Rolling VWAP Distance (누적 VWAP → 최근 60봉 Rolling VWAP로 교체)
+                # 누적 VWAP는 오후로 갈수록 둔감해져 단타에 부적합
+                VWAP_WINDOW = 60  # 최근 60봉 (약 1시간)
                 typ = (high + low + close) / 3
-                cum_pv = np.cumsum(typ * vol)
-                cum_v = np.cumsum(vol)
-                vwap = np.where(cum_v > 0, cum_pv / cum_v, close)
+                rolling_pv = pd.Series(typ * vol).rolling(VWAP_WINDOW, min_periods=1).sum().values
+                rolling_v = pd.Series(vol).rolling(VWAP_WINDOW, min_periods=1).sum().values
+                vwap = np.where(rolling_v > 0, rolling_pv / rolling_v, close)
                 g['tic_vwap_distance'] = np.where(vwap > 0, (close - vwap) / vwap, 0)
                 
                 # BB Position
