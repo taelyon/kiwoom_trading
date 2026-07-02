@@ -124,6 +124,13 @@ class Backtester:
             eval_errors = 0
             debug_logs = []
 
+            # --- 초기 설정 로그 ---
+            debug_logs.append(f"📊 [시작] 백테스트 기간: {start_date} ~ {end_date}")
+            debug_logs.append(f"💰 초기 자본금: {initial_capital:,.0f}원 | 최대 보유 종목: {buycount}개 | 종목당 투자금: {invested_per_trade:,.0f}원")
+            debug_logs.append(f"📈 매수 전략 {len(buy_strategies)}개: {', '.join([s.get('name','?') for s in buy_strategies])}")
+            debug_logs.append(f"📉 매도 전략 {len(sell_strategies)}개: {', '.join([s.get('name','?') for s in sell_strategies])}")
+            debug_logs.append(f"🔍 분석 대상 종목: {total_codes}개 | 총 틱 데이터: {len(df):,}건")
+
             from strategy_utils import KiwoomIndicatorExtractor, LGBM_MODEL
             
             # AI_SCORE 사용 여부 판단
@@ -132,6 +139,12 @@ class Backtester:
                 if 'AI_SCORE' in stg.get('content', ''):
                     uses_ai = True
                     break
+            
+            if uses_ai:
+                debug_logs.append(f"🤖 AI_SCORE 사용 감지 - LightGBM 모델 상태: {'✅ 로드됨' if LGBM_MODEL else '❌ 미로드 (AI_SCORE=0.0)'}")
+            else:
+                debug_logs.append(f"ℹ️ AI_SCORE 미사용 전략")
+            debug_logs.append("─" * 50)
             
             
             # --- 전략 문자열 사전 컴파일 ---
@@ -307,6 +320,7 @@ class Backtester:
                         group_df['AI_SCORE'] = LGBM_MODEL.predict(mat, num_threads=1)
                     except Exception as e:
                         logger.error(f"AI_SCORE 배치 계산 오류 ({current_code}): {e}")
+                        debug_logs.append(f"⚠️ [{current_code}] AI_SCORE 계산 오류: {e}")
                 
                 # 4. precomputed 추출 (numpy 배열)
                 precomputed = {}
@@ -444,6 +458,7 @@ class Backtester:
                                 eval_errors += 1
                                 if eval_errors <= 5:
                                     logger.error(f"매도 평가 오류 ({stg_name_str}): {e}")
+                                    debug_logs.append(f"❌ [{current_code}] 매도 평가 오류 ({stg_name_str}): {e}")
                         
                         # 오버나잇 방지 강제 청산 및 장마감 강제 청산
                         if is_force_sell_time or is_market_close:
@@ -460,6 +475,9 @@ class Backtester:
                                 capital += trade_profit
                                 if trade_profit > 0: win_count += 1
                                 else: loss_count += 1
+                                
+                                profit_emoji = '🟢' if trade_profit >= 0 else '🔴'
+                                debug_logs.append(f"{profit_emoji} [{current_time_str[5:16]}] 매도 {current_code} | '{matched_sell_stg}' | {buy_price:,.0f}→{current_price:,.0f} ({real_profit_pct:+.2f}%) | 손익: {trade_profit:+,.0f}원 | 잔고: {capital:,.0f}원")
                                 
                                 trades.append({
                                     'code': current_code,
@@ -480,12 +498,15 @@ class Backtester:
                                     del portfolio[current_code]
                                     if real_profit_pct < 0.0:
                                         daily_blacklist.add(current_code) # 당일 재매매 금지
+                                        debug_logs.append(f"   ⛔ [{current_code}] 손절 → 당일 블랙리스트 등록")
                                     else:
                                         from datetime import timedelta
                                         cooldown_list[current_code] = current_time + timedelta(minutes=30) # 30분 쿨타임
+                                        debug_logs.append(f"   ⏳ [{current_code}] 익절 → 30분 쿨타임 적용")
                                 else:
                                     portfolio[current_code]['qty'] -= sell_qty
                                     portfolio[current_code].setdefault('executed_sell_rules', set()).add(matched_sell_stg)
+                                    debug_logs.append(f"   📌 [{current_code}] 분할매도 ({int(sell_ratio*100)}%) → 잔여 {portfolio[current_code]['qty']}주")
                                     
                 # 2. 매수 평가 (보유 슬롯이 비어있고, 점심시간이 아닐 때만, 그리고 매수 차단 시간이 아닐 때만)
                 if not is_market_close and not is_lunch_time and not is_buy_blocked_time:
@@ -557,14 +578,18 @@ class Backtester:
                                         eval_errors += 1
                                         if eval_errors <= 5:
                                             logger.error(f"매수 평가 오류 ({stg_name_str}): {e}")
+                                            debug_logs.append(f"❌ [{current_code}] 매수 평가 오류 ({stg_name_str}): {e}")
                                             
                                 if not sd['first_eval_logged']:
-                                    debug_logs.append(f"[{current_code}] 첫 평가 샘플 - 시간: {current_time_str}, 가격: {current_price}, AI_SCORE: {locals_dict.get('AI_SCORE', 0.0)}")
+                                    ai_str = f", AI_SCORE: {locals_dict.get('AI_SCORE', 0.0):.4f}" if uses_ai else ""
+                                    debug_logs.append(f"🔍 [{current_code}] 첫 평가 - {current_time_str[5:16]}, 가격: {current_price:,.0f}{ai_str}")
                                     sd['first_eval_logged'] = True
                                     
                                 if buy_signal:
                                     qty = int(invested_per_trade / current_price)
                                     if qty > 0:
+                                        ai_str = f" | AI: {locals_dict.get('AI_SCORE', 0.0):.4f}" if uses_ai else ""
+                                        debug_logs.append(f"📈 [{current_time_str[5:16]}] 매수 {current_code} | '{matched_stg_name}' | {current_price:,.0f}원 x {qty}주 = {current_price*qty:,.0f}원{ai_str} | 보유: {len(portfolio)+1}/{buycount}")
                                         portfolio[current_code] = {
                                             'buy_price': current_price,
                                             'qty': qty,
@@ -579,6 +604,9 @@ class Backtester:
                     stock_data[current_code]['current_idx'] += 1
 
             # 4. 잔여 포지션 청산 (장 종료 후 보유 종목)
+            if portfolio:
+                debug_logs.append(f"─" * 50)
+                debug_logs.append(f"⚠️ 잔여 포지션 {len(portfolio)}개 강제 청산 처리")
             for current_code, pos in list(portfolio.items()):
                 # 마지막 가격은 precomputed 의 마지막 값을 참조
                 sd = stock_data[current_code]
@@ -593,6 +621,9 @@ class Backtester:
                 if trade_profit > 0: win_count += 1
                 else: loss_count += 1
                 real_profit_pct = (last_price - pos['buy_price']) / pos['buy_price'] * 100.0 - 0.2
+                
+                profit_emoji = '🟢' if trade_profit >= 0 else '🔴'
+                debug_logs.append(f"{profit_emoji} [{current_code}] 강제청산 | {pos['buy_price']:,.0f}→{last_price:,.0f} ({real_profit_pct:+.2f}%) | 손익: {trade_profit:+,.0f}원")
                 
                 trades.append({
                     'code': current_code,
@@ -612,6 +643,13 @@ class Backtester:
 # 모든 종목 루프 종료 후 결과 요약
             total_trades = win_count + loss_count
             win_rate = (win_count / total_trades * 100.0) if total_trades > 0 else 0.0
+            
+            # --- 최종 결과 요약 로그 ---
+            debug_logs.append("─" * 50)
+            debug_logs.append(f"✅ [완료] 총 {total_trades}건 거래 | 승률: {win_rate:.1f}% ({win_count}승 {loss_count}패)")
+            debug_logs.append(f"💰 총 손익: {total_profit:+,.0f}원 | 최종 자본: {capital:,.0f}원 | MDD: {mdd:.2f}%")
+            if eval_errors > 0:
+                debug_logs.append(f"⚠️ 전략 평가 오류 {eval_errors}건 발생 (상세는 위 로그 참조)")
             
             # 매도 시간(sell_time) 기준으로 거래 내역 정렬
             trades = sorted(trades, key=lambda x: x['sell_time'])
