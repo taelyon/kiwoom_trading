@@ -523,9 +523,7 @@ def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_
                 close_last = close_val[-1] if isinstance(close_val, (list, np.ndarray)) and len(close_val) > 0 else 0.0
                 feature_vwap_dist = (close_last - vwap_last) / vwap_last if vwap_last > 0 else 0.0
                 
-                bb_pos_val = locals_dict.get('tic_BB_POSITION', [0.5])
-                feature_bb_pos = bb_pos_val[-1] if isinstance(bb_pos_val, (list, np.ndarray)) and len(bb_pos_val) > 0 else 0.5
-                
+                # (삭제됨) bb_pos_val
                 macd_hist_val = locals_dict.get('tic_MACD_HIST', [0.0])
                 feature_macd_hist = macd_hist_val[-1] if isinstance(macd_hist_val, (list, np.ndarray)) and len(macd_hist_val) > 0 else 0.0
                 
@@ -575,21 +573,22 @@ def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_
                 
                 # 모델 학습 시 사용된 피처 개수에 맞춰 동적으로 차원 맞추기
                 num_features = LGBM_MODEL.num_feature()
-                if num_features == 15:
-                    # 최신 15개 피처 (14개 + tic_spread)
+                if num_features == 14:
+                    # 최신 14개 피처 (기존 15개에서 bb_position 제거됨)
+                    input_vector = np.array([[
+                        feature_strength, feature_velocity, feature_relative, feature_spike,
+                        feature_vwap_dist, feature_macd_hist, feature_rsi,
+                        feature_time, feature_price_roc, feature_vol_roc,
+                        feature_tic_ma_spread, feature_tic_tail_ratio, feature_tic_buy_sell_ratio, feature_tic_spread
+                    ]])
+                elif num_features == 15:
+                    # 구버전 15개 피처 (bb_position 포함)
+                    feature_bb_pos = locals_dict.get('tic_BB_POSITION', [0.5])[-1] if isinstance(locals_dict.get('tic_BB_POSITION', [0.5]), (list, np.ndarray)) else 0.5
                     input_vector = np.array([[
                         feature_strength, feature_velocity, feature_relative, feature_spike,
                         feature_vwap_dist, feature_bb_pos, feature_macd_hist, feature_rsi,
                         feature_time, feature_price_roc, feature_vol_roc,
                         feature_tic_ma_spread, feature_tic_tail_ratio, feature_tic_buy_sell_ratio, feature_tic_spread
-                    ]])
-                elif num_features == 14:
-                    # 14개 피처 (13개 + 순간 체결강도)
-                    input_vector = np.array([[
-                        feature_strength, feature_velocity, feature_relative, feature_spike,
-                        feature_vwap_dist, feature_bb_pos, feature_macd_hist, feature_rsi,
-                        feature_time, feature_price_roc, feature_vol_roc,
-                        feature_tic_ma_spread, feature_tic_tail_ratio, feature_tic_buy_sell_ratio
                     ]])
                 elif num_features == 13:
                     # 13개 피처 (기존 15개에서 min3_trend_agree, amount_spike 제거)
@@ -838,9 +837,7 @@ def prepare_sell_strategy_locals(code, tic_chart_data, min_chart_data, buy_price
                     close_last = close_val[-1] if isinstance(close_val, (list, np.ndarray)) and len(close_val) > 0 else 0.0
                     feature_vwap_dist = (close_last - vwap_last) / vwap_last if vwap_last > 0 else 0.0
                     
-                    bb_pos_val = locals_dict.get('tic_BB_POSITION', [0.5])
-                    feature_bb_pos = bb_pos_val[-1] if isinstance(bb_pos_val, (list, np.ndarray)) and len(bb_pos_val) > 0 else 0.5
-                    
+                    # (삭제됨) bb_pos_val
                     macd_hist_val = locals_dict.get('tic_MACD_HIST', [0.0])
                     feature_macd_hist = macd_hist_val[-1] if isinstance(macd_hist_val, (list, np.ndarray)) and len(macd_hist_val) > 0 else 0.0
                     
@@ -887,21 +884,22 @@ def prepare_sell_strategy_locals(code, tic_chart_data, min_chart_data, buy_price
                     else:
                         feature_tic_spread = 0.0
 
-                    if num_features == 15:
-                        # 최신 15개 피처 (14개 + tic_spread)
+                    if num_features == 14:
+                        # 최신 14개 피처 (기존 15개에서 bb_position 제거됨)
+                        input_vector = np.array([[
+                            feature_strength, feature_velocity, feature_relative, feature_spike,
+                            feature_vwap_dist, feature_macd_hist, feature_rsi,
+                            feature_time, feature_price_roc, feature_vol_roc,
+                            feature_tic_ma_spread, feature_tic_tail_ratio, feature_tic_buy_sell_ratio, feature_tic_spread
+                        ]])
+                    elif num_features == 15:
+                        # 구버전 15개 피처 (bb_position 포함)
+                        feature_bb_pos = locals_dict.get('tic_BB_POSITION', [0.5])[-1] if isinstance(locals_dict.get('tic_BB_POSITION', [0.5]), (list, np.ndarray)) else 0.5
                         input_vector = np.array([[
                             feature_strength, feature_velocity, feature_relative, feature_spike,
                             feature_vwap_dist, feature_bb_pos, feature_macd_hist, feature_rsi,
                             feature_time, feature_price_roc, feature_vol_roc,
                             feature_tic_ma_spread, feature_tic_tail_ratio, feature_tic_buy_sell_ratio, feature_tic_spread
-                        ]])
-                    elif num_features == 14:
-                        # 14개 피처 (13개 + 순간 체결강도)
-                        input_vector = np.array([[
-                            feature_strength, feature_velocity, feature_relative, feature_spike,
-                            feature_vwap_dist, feature_bb_pos, feature_macd_hist, feature_rsi,
-                            feature_time, feature_price_roc, feature_vol_roc,
-                            feature_tic_ma_spread, feature_tic_tail_ratio, feature_tic_buy_sell_ratio
                         ]])
                     elif num_features == 13:
                         # 13개 피처 (기존 15개에서 min3_trend_agree, amount_spike 제거)

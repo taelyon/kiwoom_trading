@@ -151,15 +151,8 @@ class MLTrainingWorker(threading.Thread):
                 vwap = np.where(rolling_v > 0, rolling_pv / rolling_v, close)
                 g['tic_vwap_distance'] = np.where(vwap > 0, (close - vwap) / vwap, 0)
                 
-                # BB Position
-                if len(close) >= 20:
-                    u, m, l = talib.BBANDS(close, timeperiod=20)
-                    r = u - l
-                    bb_pos = np.where(r > 0, (close - l) / r, 0.5)
-                    g['tic_bb_position'] = pd.Series(bb_pos).fillna(0.5).values
-                else:
-                    g['tic_bb_position'] = 0.5
-                    
+                # (삭제됨) BB Position
+                
                 # MACD Hist
                 if len(close) >= 26:
                     _, _, h = talib.MACD(close)
@@ -218,7 +211,6 @@ class MLTrainingWorker(threading.Thread):
             
             new_features = [
                 'tic_vwap_distance',
-                'tic_bb_position',
                 'tic_macd_hist',
                 'tic_rsi',
                 'time_of_day_minute',
