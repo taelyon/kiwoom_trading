@@ -551,21 +551,10 @@ def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_
                 else:
                     feature_vol_roc = 1.0
                 
-                # [신규 추가] 4개의 파생 피처
-                min3_ma5 = locals_dict.get('min3_MA5', [0])
-                min3_ma20 = locals_dict.get('min3_MA20', [0])
-                feature_min3_trend_agree = 1 if (len(min3_ma5) > 0 and len(min3_ma20) > 0 and min3_ma5[-1] > min3_ma20[-1] and min3_ma20[-1] > 0) else 0
-                
+                # (삭제됨) feature_min3_trend_agree, feature_tic_amount_spike
                 tic_ma5 = locals_dict.get('tic_MA5', [0])
                 tic_ma20 = locals_dict.get('tic_MA20', [0])
                 feature_tic_ma_spread = (tic_ma5[-1] - tic_ma20[-1]) / tic_ma20[-1] if (len(tic_ma5) > 0 and len(tic_ma20) > 0 and tic_ma20[-1] > 0) else 0.0
-                
-                if isinstance(close_arr, (list, np.ndarray)) and isinstance(vol_arr, (list, np.ndarray)) and len(close_arr) >= 11 and len(vol_arr) >= 11:
-                    tic_amount = [c * v for c, v in zip(close_arr[-11:], vol_arr[-11:])]
-                    prev_10_amt_avg = sum(tic_amount[:-1]) / 10
-                    feature_tic_amount_spike = tic_amount[-1] / prev_10_amt_avg if prev_10_amt_avg > 0 else 0.0
-                else:
-                    feature_tic_amount_spike = 0.0
                     
                 high_val = locals_dict.get('tic_high', [0])
                 low_val = locals_dict.get('tic_low', [0])
@@ -573,8 +562,18 @@ def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_
                 
                 # 모델 학습 시 사용된 피처 개수에 맞춰 동적으로 차원 맞추기
                 num_features = LGBM_MODEL.num_feature()
-                if num_features == 15:
-                    # 최신 15개 피처 (4개 파생 피처 추가)
+                if num_features == 13:
+                    # 13개 피처 (기존 15개에서 min3_trend_agree, amount_spike 제거)
+                    input_vector = np.array([[
+                        feature_strength, feature_velocity, feature_relative, feature_spike,
+                        feature_vwap_dist, feature_bb_pos, feature_macd_hist, feature_rsi,
+                        feature_time, feature_price_roc, feature_vol_roc,
+                        feature_tic_ma_spread, feature_tic_tail_ratio
+                    ]])
+                elif num_features == 15:
+                    # 이전 15개 피처
+                    feature_min3_trend_agree = 0  # 호환성 위해 0 삽입
+                    feature_tic_amount_spike = 0.0
                     input_vector = np.array([[
                         feature_strength, feature_velocity, feature_relative, feature_spike,
                         feature_vwap_dist, feature_bb_pos, feature_macd_hist, feature_rsi,
@@ -847,28 +846,27 @@ def prepare_sell_strategy_locals(code, tic_chart_data, min_chart_data, buy_price
                     else:
                         feature_vol_roc = 1.0
 
-                    # [신규 추가] 4개의 파생 피처
-                    min3_ma5 = locals_dict.get('min3_MA5', [0])
-                    min3_ma20 = locals_dict.get('min3_MA20', [0])
-                    feature_min3_trend_agree = 1 if (len(min3_ma5) > 0 and len(min3_ma20) > 0 and min3_ma5[-1] > min3_ma20[-1] and min3_ma20[-1] > 0) else 0
-                    
+                    # (삭제됨) feature_min3_trend_agree, feature_tic_amount_spike
                     tic_ma5 = locals_dict.get('tic_MA5', [0])
                     tic_ma20 = locals_dict.get('tic_MA20', [0])
                     feature_tic_ma_spread = (tic_ma5[-1] - tic_ma20[-1]) / tic_ma20[-1] if (len(tic_ma5) > 0 and len(tic_ma20) > 0 and tic_ma20[-1] > 0) else 0.0
-                    
-                    if isinstance(close_arr, (list, np.ndarray)) and isinstance(vol_arr, (list, np.ndarray)) and len(close_arr) >= 11 and len(vol_arr) >= 11:
-                        tic_amount = [c * v for c, v in zip(close_arr[-11:], vol_arr[-11:])]
-                        prev_10_amt_avg = sum(tic_amount[:-1]) / 10
-                        feature_tic_amount_spike = tic_amount[-1] / prev_10_amt_avg if prev_10_amt_avg > 0 else 0.0
-                    else:
-                        feature_tic_amount_spike = 0.0
                         
                     high_val = locals_dict.get('tic_high', [0])
                     low_val = locals_dict.get('tic_low', [0])
                     feature_tic_tail_ratio = (high_val[-1] - close_arr[-1]) / (high_val[-1] - low_val[-1]) if (len(high_val) > 0 and len(low_val) > 0 and len(close_arr) > 0 and (high_val[-1] - low_val[-1]) > 0) else 0.0
 
-                    if num_features == 15:
-                        # 최신 15개 피처 (4개 파생 피처 추가)
+                    if num_features == 13:
+                        # 13개 피처 (기존 15개에서 min3_trend_agree, amount_spike 제거)
+                        input_vector = np.array([[
+                            feature_strength, feature_velocity, feature_relative, feature_spike,
+                            feature_vwap_dist, feature_bb_pos, feature_macd_hist, feature_rsi,
+                            feature_time, feature_price_roc, feature_vol_roc,
+                            feature_tic_ma_spread, feature_tic_tail_ratio
+                        ]])
+                    elif num_features == 15:
+                        # 이전 15개 피처
+                        feature_min3_trend_agree = 0
+                        feature_tic_amount_spike = 0.0
                         input_vector = np.array([[
                             feature_strength, feature_velocity, feature_relative, feature_spike,
                             feature_vwap_dist, feature_bb_pos, feature_macd_hist, feature_rsi,

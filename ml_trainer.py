@@ -48,11 +48,13 @@ class MLTrainingWorker(threading.Thread):
             'num_leaves': 32,
             'max_depth': 6,
             'learning_rate': 0.02,
-            'feature_fraction': 0.9,
-            'bagging_fraction': 0.8,
+            'feature_fraction': 0.7,
+            'bagging_fraction': 0.7,
             'bagging_freq': 5,
             'verbose': -1,
             'min_data_in_leaf': 50,
+            'lambda_l1': 0.1,
+            'lambda_l2': 1.0,
             'is_unbalance': True,
             'force_col_wise': True
         }
@@ -131,11 +133,8 @@ class MLTrainingWorker(threading.Thread):
             # 2. Spike 계산 (0으로 나누기 방지)
             df['tic_volume_spike'] = np.where(df['prev_10_vol_avg'] > 0, df['tic_volume'] / df['prev_10_vol_avg'], 0)
             
-            # [신규 피처] 3. 거래 대금 가속도 (Transaction Amount Momentum)
-            df['tic_amount'] = df['tic_close'] * df['tic_volume']
-            df['prev_10_amt_avg'] = df.groupby('code')['tic_amount'].shift(1).rolling(10).mean()
-            df['tic_amount_spike'] = np.where(df['prev_10_amt_avg'] > 0, df['tic_amount'] / df['prev_10_amt_avg'], 0)
-            
+            # (삭제됨) 거래 대금 가속도는 거래량 폭발력과 중복도가 높아 제거
+
             import talib
             def calc_new_indicators(g):
                 close = g['tic_close'].values
@@ -192,9 +191,7 @@ class MLTrainingWorker(threading.Thread):
             df['time_of_day_minute'] = (parsed_time.dt.hour * 60 + parsed_time.dt.minute) - (9 * 60)
             df['time_of_day_minute'] = df['time_of_day_minute'].clip(lower=0, upper=390)
             
-            # [신규 피처] 1. 다중 타임프레임 동조화 (3분봉 추세)
-            # 3분봉 MA5 > MA20 이면 1, 아니면 0
-            df['min3_trend_agree'] = (df['min3_ma5'] > df['min3_ma20']).astype(int)
+            # (삭제됨) 3분봉 추세 동조화는 이진값 노이즈로 작용하여 제거
             
             # [신규 피처] 2. 이동평균선 정배열 척도 (MA Ribbon Distance)
             # 단기 이평(MA5)과 장기 이평(MA20) 간의 간격 비율
@@ -220,9 +217,7 @@ class MLTrainingWorker(threading.Thread):
                 'time_of_day_minute',
                 'tic_price_roc',      # 가격 상승 가속도
                 'tic_vol_roc',        # 거래량 폭발 가속도
-                'min3_trend_agree',   # [추가] 3분봉 추세 동조화
                 'tic_ma_spread',      # [추가] 이평선 정배열 척도
-                'tic_amount_spike',   # [추가] 거래 대금 가속도
                 'tic_tail_ratio'      # [추가] 캔들 윗꼬리 비율
             ]
             
