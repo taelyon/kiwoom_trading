@@ -253,7 +253,7 @@ class Backtester:
                         
                         num_features = LGBM_MODEL.num_feature()
                         
-                        if num_features >= 17:
+                        if num_features >= 15:
                             if 'MIN3_MA5' in group_df.columns and 'MIN3_MA20' in group_df.columns:
                                 f_min3_trend_agree = ((group_df['MIN3_MA5'] > group_df['MIN3_MA20']) & (group_df['MIN3_MA20'] > 0)).astype(int).values
                             else:
