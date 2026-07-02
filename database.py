@@ -77,6 +77,8 @@ class AsyncDatabaseManager:
                         tic_low REAL,
                         tic_close REAL,
                         tic_volume INTEGER,
+                        tic_buy_volume INTEGER,
+                        tic_sell_volume INTEGER,
                         tic_strength REAL,
                         -- 3분봉 기본 데이터
                         min3_open REAL,
@@ -177,10 +179,12 @@ class AsyncDatabaseManager:
                 tic_lows = tic_data.get('low', [])
                 tic_closes = tic_data.get('close', [])
                 tic_volumes = tic_data.get('volume', [])
+                tic_buy_volumes = tic_data.get('buy_volume', [])
+                tic_sell_volumes = tic_data.get('sell_volume', [])
                 tic_strengths = tic_data.get('strength', [])
 
                 # 실제 캐시 데이터에서 기술적 지표 키 추출 (OHLCV 제외)
-                basic_keys = {'time', 'open', 'high', 'low', 'close', 'volume', 'strength'}
+                basic_keys = {'time', 'open', 'high', 'low', 'close', 'volume', 'buy_volume', 'sell_volume', 'strength'}
                 tic_indicators = [key for key in tic_data.keys() if key not in basic_keys]
                 min_indicators = [key for key in min_data.keys() if key not in basic_keys]
                 
@@ -227,7 +231,7 @@ class AsyncDatabaseManager:
                 
                 # 동적으로 컬럼명과 플레이스홀더 생성
                 # tic_ 컬럼은 filtered_tic에 있는 것만 생성 (기본 컬럼 중복 생성 방지)
-                base_indicators = {'CLOSE', 'HIGH', 'LOW', 'OPEN', 'VOLUME', 'STRENGTH'}
+                base_indicators = {'CLOSE', 'HIGH', 'LOW', 'OPEN', 'VOLUME', 'BUY_VOLUME', 'SELL_VOLUME', 'STRENGTH'}
                 filtered_tic = [col for col in filtered_tic if col not in base_indicators]
                 filtered_tic.sort()
                 tic_indicator_cols = ", ".join([f"tic_{col.lower()}" for col in filtered_tic])
@@ -237,14 +241,14 @@ class AsyncDatabaseManager:
                 min_indicator_cols = ", ".join([f"min3_{col.lower()}" for col in valid_min_indicators])
                 
                 columns = (
-                    "code, datetime, tic_open, tic_high, tic_low, tic_close, tic_volume, tic_strength, "
+                    "code, datetime, tic_open, tic_high, tic_low, tic_close, tic_volume, tic_buy_volume, tic_sell_volume, tic_strength, "
                     "min3_open, min3_high, min3_low, min3_close, min3_volume, "
                     f"{tic_indicator_cols}, {min_indicator_cols}, created_at"
                 )
                 
                 # 플레이스홀더 개수 계산
-                # 14개 기본 컬럼 (code, datetime, tic 6개, min3 5개, created_at 1개) + tic 지표 개수 + min 지표 개수
-                placeholders = ", ".join(["?"] * (14 + len(filtered_tic) + len(valid_min_indicators)))
+                # 16개 기본 컬럼 (code, datetime, tic 8개, min3 5개, created_at 1개) + tic 지표 개수 + min 지표 개수
+                placeholders = ", ".join(["?"] * (16 + len(filtered_tic) + len(valid_min_indicators)))
 
                 sql = f"INSERT OR REPLACE INTO stock_data ({columns}) VALUES ({placeholders})"
                 
@@ -332,6 +336,8 @@ class AsyncDatabaseManager:
                         tic_lows[i] if i < len(tic_lows) else 0,
                         tic_closes[i] if i < len(tic_closes) else 0,
                         tic_volumes[i] if i < len(tic_volumes) else 0,
+                        tic_buy_volumes[i] if i < len(tic_buy_volumes) else 0,
+                        tic_sell_volumes[i] if i < len(tic_sell_volumes) else 0,
                         tic_strengths[i] if i < len(tic_strengths) else 0,
                         # 3분봉 기본 데이터
                         min_data.get('open', [])[min_idx] if min_idx >= 0 and min_idx < len(min_data.get('open', [])) else 0,
@@ -469,10 +475,10 @@ class AsyncDatabaseManager:
             # 새로 추가할 컬럼들 확인
             new_columns = []
             
-            # 0. 3분봉 기본 OHLCV 컬럼 확인
-            for basic_min_col in ['min3_open', 'min3_high', 'min3_low', 'min3_close', 'min3_volume']:
-                if basic_min_col not in existing_columns:
-                    new_columns.append(basic_min_col)
+            # 0. 기본 컬럼 누락 확인 (예: 나중에 추가된 buy_volume, sell_volume 등)
+            for basic_col in ['tic_buy_volume', 'tic_sell_volume', 'min3_open', 'min3_high', 'min3_low', 'min3_close', 'min3_volume']:
+                if basic_col not in existing_columns:
+                    new_columns.append(basic_col)
             
             # 1. 틱봉 지표 컬럼 확인
             for indicator in tic_indicators:
