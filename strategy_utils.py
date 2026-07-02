@@ -567,10 +567,23 @@ def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_
                     feature_tic_buy_sell_ratio = buy_vol_arr[-1] / vol_arr[-1]
                 else:
                     feature_tic_buy_sell_ratio = 0.5
+                # [신규 추가] 봉 내 가격 변동폭 비율 (tic_spread)
+                if len(high_val) > 0 and len(low_val) > 0 and len(close_arr) > 0 and close_arr[-1] > 0:
+                    feature_tic_spread = (high_val[-1] - low_val[-1]) / close_arr[-1]
+                else:
+                    feature_tic_spread = 0.0
                 
                 # 모델 학습 시 사용된 피처 개수에 맞춰 동적으로 차원 맞추기
                 num_features = LGBM_MODEL.num_feature()
-                if num_features == 14:
+                if num_features == 15:
+                    # 최신 15개 피처 (14개 + tic_spread)
+                    input_vector = np.array([[
+                        feature_strength, feature_velocity, feature_relative, feature_spike,
+                        feature_vwap_dist, feature_bb_pos, feature_macd_hist, feature_rsi,
+                        feature_time, feature_price_roc, feature_vol_roc,
+                        feature_tic_ma_spread, feature_tic_tail_ratio, feature_tic_buy_sell_ratio, feature_tic_spread
+                    ]])
+                elif num_features == 14:
                     # 14개 피처 (13개 + 순간 체결강도)
                     input_vector = np.array([[
                         feature_strength, feature_velocity, feature_relative, feature_spike,
@@ -585,16 +598,6 @@ def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_
                         feature_vwap_dist, feature_bb_pos, feature_macd_hist, feature_rsi,
                         feature_time, feature_price_roc, feature_vol_roc,
                         feature_tic_ma_spread, feature_tic_tail_ratio
-                    ]])
-                elif num_features == 15:
-                    # 이전 15개 피처
-                    feature_min3_trend_agree = 0  # 호환성 위해 0 삽입
-                    feature_tic_amount_spike = 0.0
-                    input_vector = np.array([[
-                        feature_strength, feature_velocity, feature_relative, feature_spike,
-                        feature_vwap_dist, feature_bb_pos, feature_macd_hist, feature_rsi,
-                        feature_time, feature_price_roc, feature_vol_roc,
-                        feature_min3_trend_agree, feature_tic_ma_spread, feature_tic_amount_spike, feature_tic_tail_ratio
                     ]])
                 elif num_features == 11:
                     # 이전 11개 피처 (가속도 지표 포함)
@@ -878,8 +881,21 @@ def prepare_sell_strategy_locals(code, tic_chart_data, min_chart_data, buy_price
                         feature_tic_buy_sell_ratio = buy_vol_arr[-1] / vol_arr[-1]
                     else:
                         feature_tic_buy_sell_ratio = 0.5
+                    # [신규 추가] 봉 내 가격 변동폭 비율 (tic_spread)
+                    if len(high_val) > 0 and len(low_val) > 0 and len(close_arr) > 0 and close_arr[-1] > 0:
+                        feature_tic_spread = (high_val[-1] - low_val[-1]) / close_arr[-1]
+                    else:
+                        feature_tic_spread = 0.0
 
-                    if num_features == 14:
+                    if num_features == 15:
+                        # 최신 15개 피처 (14개 + tic_spread)
+                        input_vector = np.array([[
+                            feature_strength, feature_velocity, feature_relative, feature_spike,
+                            feature_vwap_dist, feature_bb_pos, feature_macd_hist, feature_rsi,
+                            feature_time, feature_price_roc, feature_vol_roc,
+                            feature_tic_ma_spread, feature_tic_tail_ratio, feature_tic_buy_sell_ratio, feature_tic_spread
+                        ]])
+                    elif num_features == 14:
                         # 14개 피처 (13개 + 순간 체결강도)
                         input_vector = np.array([[
                             feature_strength, feature_velocity, feature_relative, feature_spike,
@@ -894,16 +910,6 @@ def prepare_sell_strategy_locals(code, tic_chart_data, min_chart_data, buy_price
                             feature_vwap_dist, feature_bb_pos, feature_macd_hist, feature_rsi,
                             feature_time, feature_price_roc, feature_vol_roc,
                             feature_tic_ma_spread, feature_tic_tail_ratio
-                        ]])
-                    elif num_features == 15:
-                        # 이전 15개 피처
-                        feature_min3_trend_agree = 0
-                        feature_tic_amount_spike = 0.0
-                        input_vector = np.array([[
-                            feature_strength, feature_velocity, feature_relative, feature_spike,
-                            feature_vwap_dist, feature_bb_pos, feature_macd_hist, feature_rsi,
-                            feature_time, feature_price_roc, feature_vol_roc,
-                            feature_min3_trend_agree, feature_tic_ma_spread, feature_tic_amount_spike, feature_tic_tail_ratio
                         ]])
                     elif num_features == 11:
                         # 이전 11개 피처 (가속도 포함)

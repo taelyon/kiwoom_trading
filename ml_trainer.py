@@ -203,9 +203,10 @@ class MLTrainingWorker(threading.Thread):
             # 단기 이평(MA5)과 장기 이평(MA20) 간의 간격 비율
             df['tic_ma_spread'] = np.where(df['tic_ma20'] > 0, (df['tic_ma5'] - df['tic_ma20']) / df['tic_ma20'], 0)
             
-            # [신규 피처] 4. 캔들 몸통/꼬리 비율 (Candle Shape Ratio)
-            # 위꼬리가 차지하는 비율 (고점 - 종가) / (고점 - 저점)
             df['tic_tail_ratio'] = np.where((df['tic_high'] - df['tic_low']) > 0, (df['tic_high'] - df['tic_close']) / (df['tic_high'] - df['tic_low']), 0)
+            
+            # [신규 피처] 5. 봉 내 가격 변동폭 비율 (tic_spread)
+            df['tic_spread'] = np.where(df['tic_close'] > 0, (df['tic_high'] - df['tic_low']) / df['tic_close'], 0)
             
             # Feature 목록 정의
             base_features = [
@@ -225,7 +226,8 @@ class MLTrainingWorker(threading.Thread):
                 'tic_vol_roc',        # 거래량 폭발 가속도
                 'tic_ma_spread',      # [추가] 이평선 정배열 척도
                 'tic_tail_ratio',     # [추가] 캔들 윗꼬리 비율
-                'tic_buy_sell_ratio'  # [추가] 순간 체결강도
+                'tic_buy_sell_ratio', # [추가] 순간 체결강도
+                'tic_spread'          # [추가] 봉 내 가격 변동폭 비율
             ]
             
             features = base_features + new_features
