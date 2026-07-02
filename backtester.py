@@ -243,7 +243,6 @@ class Backtester:
                         vwap_safe = np.where(vwap_vals == 0, 1e-9, vwap_vals)
                         f_vwap_dist = (close_vals - vwap_vals) / vwap_safe
                         
-                        f_bb_pos = group_df['BB_POSITION'].values if 'BB_POSITION' in group_df.columns else np.full(n, 0.5)
                         f_macd_hist = group_df['MACD_HIST'].values if 'MACD_HIST' in group_df.columns else np.zeros(n)
                         f_rsi = group_df['RSI'].values if 'RSI' in group_df.columns else np.full(n, 50.0)
                         
@@ -294,23 +293,26 @@ class Backtester:
                             else:
                                 f_tic_tail_ratio = np.zeros(n)
                                 
-                        if num_features == 15:
+                        if num_features >= 14:
+                            # 14차원 최신 피처 (임시 매핑)
+                            f_buy_sell_ratio = np.full(n, 0.5)
+                            f_spread = np.zeros(n)
                             mat = np.column_stack((
                                 f_strength, f_velocity, f_relative, f_spike,
-                                f_vwap_dist, f_bb_pos, f_macd_hist, f_rsi, f_time,
+                                f_vwap_dist, f_macd_hist, f_rsi, f_time,
                                 f_price_roc, f_vol_roc,
-                                f_min3_trend_agree, f_tic_ma_spread, f_tic_amount_spike, f_tic_tail_ratio
+                                f_tic_ma_spread, f_tic_tail_ratio, f_buy_sell_ratio, f_spread
                             ))
-                        elif num_features == 11:
+                        elif num_features == 10:
                             mat = np.column_stack((
                                 f_strength, f_velocity, f_relative, f_spike,
-                                f_vwap_dist, f_bb_pos, f_macd_hist, f_rsi, f_time,
+                                f_vwap_dist, f_macd_hist, f_rsi, f_time,
                                 f_price_roc, f_vol_roc
                             ))
-                        elif num_features == 9:
-                            mat = np.column_stack((f_strength, f_velocity, f_relative, f_spike, f_vwap_dist, f_bb_pos, f_macd_hist, f_rsi, f_time))
                         elif num_features == 8:
-                            mat = np.column_stack((f_strength, f_velocity, f_relative, f_spike, f_vwap_dist, f_bb_pos, f_macd_hist, f_rsi))
+                            mat = np.column_stack((f_strength, f_velocity, f_relative, f_spike, f_vwap_dist, f_macd_hist, f_rsi, f_time))
+                        elif num_features == 7:
+                            mat = np.column_stack((f_strength, f_velocity, f_relative, f_spike, f_vwap_dist, f_macd_hist, f_rsi))
                         elif num_features == 4:
                             mat = np.column_stack((f_strength, f_velocity, f_relative, f_spike))
                         else:
