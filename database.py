@@ -458,17 +458,24 @@ class AsyncDatabaseManager:
                 
                 await self._conn.commit()
                 
-                # 데이터 저장 완료 로그 (가장 최근 완성된 데이터 기준 출력)
+                # 데이터 저장 완료 로그 (가장 최근에 매수/매도 거래량이 발생한 유의미한 데이터 기준 출력)
                 if batch_values:
                     try:
-                        # 맨 마지막 행(-1)은 갓 생성된 미완성 봉일 수 있으므로, 이전 봉(-2)을 우선 참조
-                        log_row = batch_values[-2] if len(batch_values) >= 2 else batch_values[-1]
+                        # 뒤에서부터 순회하며 buy_volume 또는 sell_volume이 0보다 큰(유의미한) 행 탐색
+                        log_row = batch_values[-1]
+                        for row in reversed(batch_values):
+                            c_b = row[7]
+                            c_s = row[8]
+                            if (c_b and c_b > 0) or (c_s and c_s > 0):
+                                log_row = row
+                                break
+                        
                         c_buy = log_row[7]
                         c_sell = log_row[8]
                         c_str = log_row[9]
                         self.logger.info(f"💾 [DB저장] {code} 데이터 {len(batch_values)}건 기록 완료 | 최근완성 매수:{c_buy} 매도:{c_sell} 체결강도:{c_str}%")
                     except Exception as e:
-                        self.logger.debug(f"DB 저장 로그 출력 중 오류: {e}")                
+                        self.logger.debug(f"DB 저장 로그 출력 중 오류: {e}")
         except Exception as ex:
             self.logger.error(f"통합 주식 데이터 저장 실패 ({code}): {ex}", exc_info=True)
     
