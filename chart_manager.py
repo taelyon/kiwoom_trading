@@ -922,8 +922,29 @@ class ChartDataCache:
                 
                 logging.debug(f"💾 {code}: DB 저장 시작")
                 
-                # 통합 주식 데이터 저장 (틱봉 기준, 분봉 데이터 포함)
-                await self.trader.db_manager.save_stock_data(code, tic_df.to_dict('list'), min_df.to_dict('list'))
+                # 메모리에서 감시 시작 시간 가져오기
+                monitoring_start_time = None
+                if hasattr(self.parent, 'core_managers') and self.parent.core_managers:
+                    monitoring_start_time = self.parent.core_managers.stock_added_time.get(code)
+                
+                # [추가] 강제 데이터 수집 모드 (과거 데이터 전체 저장)
+                from config_manager import EnvConfigParser
+                if EnvConfigParser().getboolean('DATA_SAVING', 'DATA_COLLECTION_MODE', fallback=False):
+                    if monitoring_start_time is not None:
+                        # 중복 로그 방지를 위해 한 번만 출력
+                        if not hasattr(self, '_log_data_collect') or code not in self._log_data_collect:
+                            if not hasattr(self, '_log_data_collect'): self._log_data_collect = set()
+                            logging.info(f"⚠️ [{code}] 데이터 수집 모드(DATA_COLLECTION_MODE) 켜짐 - 오늘 치 과거 데이터를 전부 강제 저장합니다.")
+                            self._log_data_collect.add(code)
+                    monitoring_start_time = None
+
+                # 통합 주식 데이터 저장 (틱봉 기준, 분봉 데이터 포함, 메모리 필터링 적용)
+                await self.trader.db_manager.save_stock_data(
+                    code, 
+                    tic_df.to_dict('list'), 
+                    min_df.to_dict('list'),
+                    monitoring_start_time
+                )
                 
                 # 저장 시간 업데이트
                 data['last_save'] = current_time
@@ -1099,9 +1120,8 @@ class ChartDataCache:
                 }
             elif chart_type == "minute":
                 allowed_set = {
-                    'MA5', 'MA10', 'MA20', 'MA60', 'MA120',
-                    'RSI', 'RELATIVE_POSITION', 'RSI21',
-                    'MACD', 'MACD_SIGNAL', 'MACD_HIST'
+                    'MA5', 'MA10', 'MA20',
+                    'RSI', 'RELATIVE_POSITION', 'RSI21'
                 }
             else:
                 allowed_set = {'MA5', 'MA20', 'MA60', 'RSI'}

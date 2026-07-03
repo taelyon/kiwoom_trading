@@ -46,28 +46,7 @@ class Backtester:
         
         return df
 
-    def load_condition_history(self, start_date_str, end_date_str, code=None):
-        try:
-            conn = sqlite3.connect(self.db_path)
-            
-            start_datetime = f"{start_date_str} 00:00:00"
-            end_datetime = f"{end_date_str} 23:59:59"
-            
-            query = f"""
-            SELECT code, start_time as entry_time, end_time as exit_time
-            FROM monitoring_history
-            WHERE start_time <= '{end_datetime}'
-              AND (end_time IS NULL OR end_time >= '{start_datetime}')
-            """
-            if code and code != 'ALL':
-                query += f" AND code = '{code}'"
-                
-            df = pd.read_sql(query, conn)
-            conn.close()
-            return df
-        except Exception as e:
-            logger.error(f"감시 이력 로딩 실패: {e}")
-            return pd.DataFrame()
+
 
     def run(self, start_date, end_date, code='ALL', progress_callback=None, custom_buy=None, custom_sell=None, initial_capital=10000000, buycount=3):
         try:
@@ -81,8 +60,7 @@ class Backtester:
                 
             if progress_callback: progress_callback(30, f"데이터 로딩 완료: {len(df):,} 틱. 시뮬레이션 준비 중...")
 
-            # 조건검색 이력 로드
-            condition_history_df = self.load_condition_history(start_date, end_date, code)
+
 
             buy_strategies = []
             sell_strategies = []
@@ -190,16 +168,9 @@ class Backtester:
                     logger.error(f"3분봉 데이터 확인 오류 ({current_code}): {e}")
                     
                 # 감시 이력 기반 필터링 (IS_MONITORED)
-                if condition_history_df.empty:
-                    # 감시 이력 데이터가 아예 없는 경우 (과거 데이터 호환성 유지)
-                    group_df['IS_MONITORED'] = True
-                else:
-                    group_df['IS_MONITORED'] = False
-                    histories = condition_history_df[condition_history_df['code'] == current_code]
-                    for _, hist_row in histories.iterrows():
-                        entry_dt = pd.to_datetime(hist_row['entry_time'])
-                        exit_dt = pd.to_datetime(hist_row['exit_time']) if pd.notna(hist_row['exit_time']) else pd.Timestamp.max
-                        group_df['IS_MONITORED'] = group_df['IS_MONITORED'] | ((group_df['datetime'] >= entry_dt) & (group_df['datetime'] <= exit_dt))
+                # 데이터베이스(stock_data)에 저장된 데이터 자체가 곧 감시 대상이었음을 의미하므로 
+                # 모든 로우에 대해 IS_MONITORED = True 로 일괄 적용합니다.
+                group_df['IS_MONITORED'] = True
                         
                 # 2. DB 지표를 엔진 변수명으로 매핑 (재계산 방지)
                 try:

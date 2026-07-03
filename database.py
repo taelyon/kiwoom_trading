@@ -22,7 +22,7 @@ class AsyncDatabaseManager:
         ]
         # 3분봉 저장 대상 지표 (DB 스키마 및 저장 시 사용)
         self.min_target_indicators = [
-            'MA5', 'MA10', 'MA20', 'MA60', 'MA120', 
+            'MA5', 'MA10', 'MA20',
             'RSI', 'RELATIVE_POSITION'
         ]
         self._conn = None
@@ -66,28 +66,6 @@ class AsyncDatabaseManager:
                         )
                     ''')
                     
-                    # 통합 주식 데이터 테이블 동적 생성
-                    # 기본 OHLCV 컬럼
-                    base_columns = """
-                        code TEXT NOT NULL,
-                        datetime TEXT NOT NULL,
-                        -- 틱봉 기본 데이터
-                        tic_open REAL,
-                        tic_high REAL,
-                        tic_low REAL,
-                        tic_close REAL,
-                        tic_volume INTEGER,
-                        tic_buy_volume INTEGER,
-                        tic_sell_volume INTEGER,
-                        tic_strength REAL,
-                        -- 3분봉 기본 데이터
-                        min3_open REAL,
-                        min3_high REAL,
-                        min3_low REAL,
-                        min3_close REAL,
-                        min3_volume INTEGER
-                    """
-                    
                     # 틱봉 기술적 지표 (최적화됨)
                     tic_indicators = [
                         'MA5', 'MA10', 'MA20', 'MA60', 'MA120',
@@ -102,26 +80,38 @@ class AsyncDatabaseManager:
                     
                     create_table_sql = f'''
                         CREATE TABLE IF NOT EXISTS stock_data (
-                            {base_columns},
-                            -- 기술적 지표 (틱봉)
+                            code TEXT NOT NULL,
+                            datetime TEXT NOT NULL,
+                            -- [ 틱봉(60틱) 그룹 ] 기본 OHLCV + 기술적 지표
+                            tic_open REAL,
+                            tic_high REAL,
+                            tic_low REAL,
+                            tic_close REAL,
+                            tic_volume INTEGER,
+                            tic_buy_volume INTEGER,
+                            tic_sell_volume INTEGER,
+                            tic_strength REAL,
                             {tic_indicator_cols},
-                            -- 기술적 지표 (3분봉)
+                            -- [ 3분봉 그룹 ] 기본 OHLCV + 기술적 지표
+                            min3_open REAL,
+                            min3_high REAL,
+                            min3_low REAL,
+                            min3_close REAL,
+                            min3_volume INTEGER,
                             {min_indicator_cols},
-                            -- 메타데이터
+                            -- [ 메타데이터 ]
                             created_at TEXT,
                             PRIMARY KEY (code, datetime)
                         )
                     '''
                     await cursor.execute(create_table_sql)
                     
-                    # 감시 이력 테이블 (조건검색 편입 등 감시 시작/종료 기록)
+                    # 시스템 설정 테이블
                     await cursor.execute('''
-                        CREATE TABLE IF NOT EXISTS monitoring_history (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            code TEXT NOT NULL,
-                            source TEXT,
-                            start_time TEXT NOT NULL,
-                            end_time TEXT
+                        CREATE TABLE IF NOT EXISTS system_config (
+                            key TEXT PRIMARY KEY,
+                            value TEXT,
+                            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                         )
                     ''')
                     
@@ -146,7 +136,7 @@ class AsyncDatabaseManager:
                     self.logger.error(f"데이터베이스 초기화 실패 (최대 재시도 횟수 초과): {ex}")
                     raise ex
     
-    async def save_stock_data(self, code, tic_data, min_data):
+    async def save_stock_data(self, code, tic_data, min_data, monitoring_start_time=None):
         """통합 주식 데이터 저장 (틱봉 기준, 분봉 데이터 포함)"""
         try:
             if not tic_data or not min_data:
@@ -160,17 +150,7 @@ class AsyncDatabaseManager:
                 
                 current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 
-                # 감시 이력(monitoring_history) 조회 (필터링 용도)
-                await cursor.execute("SELECT start_time, end_time FROM monitoring_history WHERE code = ?", (code,))
-                history_rows = await cursor.fetchall()
-                monitoring_intervals = []
-                for row in history_rows:
-                    try:
-                        st = datetime.strptime(row[0], '%Y-%m-%d %H:%M:%S')
-                        et = datetime.strptime(row[1], '%Y-%m-%d %H:%M:%S') if row[1] else datetime.max
-                        monitoring_intervals.append((st, et))
-                    except Exception as e:
-                        logging.warning(f"감시 이력 시간 파싱 오류 ({code}): {e}")
+                current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 
                 # 틱봉 데이터 기준으로 저장
                 tic_times = tic_data.get('time', [])
@@ -211,8 +191,9 @@ class AsyncDatabaseManager:
                 normalized_tic = [normalize_indicator(ind) for ind in tic_indicators]
                 normalized_min = [normalize_indicator(ind) for ind in min_indicators]
                 
-                # 허용된 지표만 선택
-                filtered_tic = [ind for ind in normalized_tic if ind in allowed_indicators and ind != 'RELATIVE_POSITION']
+                # 허용된 지표만 선택 (DB에 저장하지 않을 지표 명시적 제외)
+                db_exclude_indicators = {'RELATIVE_POSITION', 'MACD', 'MACD_SIGNAL', 'MACD_HIST'}
+                filtered_tic = [ind for ind in normalized_tic if ind in allowed_indicators and ind not in db_exclude_indicators]
                 filtered_min = [ind for ind in normalized_min if ind in allowed_indicators]
                 
                 # 모든 지표 통합 (중복 제거)
@@ -241,9 +222,12 @@ class AsyncDatabaseManager:
                 min_indicator_cols = ", ".join([f"min3_{col.lower()}" for col in valid_min_indicators])
                 
                 columns = (
-                    "code, datetime, tic_open, tic_high, tic_low, tic_close, tic_volume, tic_buy_volume, tic_sell_volume, tic_strength, "
+                    "code, datetime, "
+                    "tic_open, tic_high, tic_low, tic_close, tic_volume, tic_buy_volume, tic_sell_volume, tic_strength, "
+                    f"{tic_indicator_cols}, "
                     "min3_open, min3_high, min3_low, min3_close, min3_volume, "
-                    f"{tic_indicator_cols}, {min_indicator_cols}, created_at"
+                    f"{min_indicator_cols}, "
+                    "created_at"
                 )
                 
                 # 플레이스홀더 개수 계산
@@ -284,17 +268,8 @@ class AsyncDatabaseManager:
                         except ValueError:
                             continue
                     
-                    # 감시 이력 필터링: tic_dt가 monitoring_intervals 중 하나에 속하는지 검사
-                    is_monitored = False
-                    if not monitoring_intervals:
-                        # 감시 이력이 없으면 전체 허용 (과거 호환성)
-                        is_monitored = True
-                    else:
-                        for st, et in monitoring_intervals:
-                            if st <= tic_dt <= et:
-                                is_monitored = True
-                                break
-                    if not is_monitored:
+                    # 메모리 필터링: tic_dt가 monitoring_start_time 이후인지 검사
+                    if monitoring_start_time and tic_dt < monitoring_start_time:
                         continue
                         
                     # 1. 같은 분(minute) 매칭 우선 시도 (O(1))
@@ -330,7 +305,7 @@ class AsyncDatabaseManager:
                     values = [
                         code,
                         datetime_str,
-                        # 틱봉 데이터
+                        # 틱봉 기본 데이터
                         tic_opens[i] if i < len(tic_opens) else 0,
                         tic_highs[i] if i < len(tic_highs) else 0,
                         tic_lows[i] if i < len(tic_lows) else 0,
@@ -339,116 +314,78 @@ class AsyncDatabaseManager:
                         tic_buy_volumes[i] if i < len(tic_buy_volumes) else 0,
                         tic_sell_volumes[i] if i < len(tic_sell_volumes) else 0,
                         tic_strengths[i] if i < len(tic_strengths) else 0,
-                        # 3분봉 기본 데이터
-                        min_data.get('open', [])[min_idx] if min_idx >= 0 and min_idx < len(min_data.get('open', [])) else 0,
-                        min_data.get('high', [])[min_idx] if min_idx >= 0 and min_idx < len(min_data.get('high', [])) else 0,
-                        min_data.get('low', [])[min_idx] if min_idx >= 0 and min_idx < len(min_data.get('low', [])) else 0,
-                        min_data.get('close', [])[min_idx] if min_idx >= 0 and min_idx < len(min_data.get('close', [])) else 0,
-                        min_data.get('volume', [])[min_idx] if min_idx >= 0 and min_idx < len(min_data.get('volume', [])) else 0,
                     ]
 
                     # 틱봉 기술적 지표 값 추가
                     for indicator in filtered_tic:
                         try:
-                            # 정규화된 이름과 원본 이름 모두 시도
                             indicator_data = None
-                            
-                            # 먼저 정규화된 이름으로 시도
                             if indicator in tic_data:
                                 indicator_data = tic_data.get(indicator, [])
                             else:
-                                # 역매핑 시도 (STOCH_K -> stochk)
-                                reverse_mapping = {
-                                    'STOCH_K': 'stochk',
-                                    'STOCH_D': 'stochd'
-                                }
+                                reverse_mapping = {'STOCH_K': 'stochk', 'STOCH_D': 'stochd'}
                                 original_name = reverse_mapping.get(indicator)
                                 if original_name and original_name in tic_data:
                                     indicator_data = tic_data.get(original_name, [])
                                 else:
-                                    # 소문자로 시도
                                     indicator_data = tic_data.get(indicator.lower(), [])
                             
-                            # 배열인 경우 특정 인덱스 접근
                             if isinstance(indicator_data, (list, tuple, np.ndarray)):
                                 if i < len(indicator_data):
                                     value = indicator_data[i]
-                                    # numpy scalar 변환
-                                    if isinstance(value, np.generic):
-                                        value = value.item()
-                                    # NaN이 아닌 경우에만 추가
-                                    if not pd.isna(value):
-                                        values.append(value)
-                                    else:
-                                        values.append(None)
+                                    if isinstance(value, np.generic): value = value.item()
+                                    if not pd.isna(value): values.append(value)
+                                    else: values.append(None)
                                 else:
                                     values.append(None)
                             else:
-                                # 단일 값인 경우
                                 value = indicator_data
-                                # numpy scalar 변환
-                                if isinstance(value, np.generic):
-                                    value = value.item()
-                                # NaN이 아닌 경우에만 추가
-                                if not pd.isna(value):
-                                    values.append(value)
-                                else:
-                                    values.append(None)
+                                if isinstance(value, np.generic): value = value.item()
+                                if not pd.isna(value): values.append(value)
+                                else: values.append(None)
                         except Exception as ex:
                             self.logger.debug(f"틱봉 지표 처리 중 오류 ({indicator}): {ex}")
                             values.append(None)
 
+                    # 3분봉 기본 데이터 추가
+                    values.extend([
+                        min_data.get('open', [])[min_idx] if min_idx >= 0 and min_idx < len(min_data.get('open', [])) else 0,
+                        min_data.get('high', [])[min_idx] if min_idx >= 0 and min_idx < len(min_data.get('high', [])) else 0,
+                        min_data.get('low', [])[min_idx] if min_idx >= 0 and min_idx < len(min_data.get('low', [])) else 0,
+                        min_data.get('close', [])[min_idx] if min_idx >= 0 and min_idx < len(min_data.get('close', [])) else 0,
+                        min_data.get('volume', [])[min_idx] if min_idx >= 0 and min_idx < len(min_data.get('volume', [])) else 0,
+                    ])
+
                     # 분봉 기술적 지표 값 추가
                     for indicator in valid_min_indicators:
-                        if True: # indicator in self.min_target_indicators 조건은 valid_min_indicators 생성 시 이미 체크됨
-                            try:
-                                # 정규화된 이름과 원본 이름 모두 시도
-                                indicator_data = None
-                                
-                                # 먼저 정규화된 이름으로 시도
-                                if indicator in min_data:
-                                    indicator_data = min_data.get(indicator, [])
+                        try:
+                            indicator_data = None
+                            if indicator in min_data:
+                                indicator_data = min_data.get(indicator, [])
+                            else:
+                                reverse_mapping = {'STOCH_K': 'stochk', 'STOCH_D': 'stochd'}
+                                original_name = reverse_mapping.get(indicator)
+                                if original_name and original_name in min_data:
+                                    indicator_data = min_data.get(original_name, [])
                                 else:
-                                    # 역매핑 시도 (STOCH_K -> stochk)
-                                    reverse_mapping = {
-                                        'STOCH_K': 'stochk',
-                                        'STOCH_D': 'stochd'
-                                    }
-                                    original_name = reverse_mapping.get(indicator)
-                                    if original_name and original_name in min_data:
-                                        indicator_data = min_data.get(original_name, [])
-                                    else:
-                                        # 소문자로 시도
-                                        indicator_data = min_data.get(indicator.lower(), [])
-                                
-                                # 배열인 경우 특정 인덱스 접근
-                                if isinstance(indicator_data, (list, tuple, np.ndarray)):
-                                    if min_idx >= 0 and min_idx < len(indicator_data):
-                                        value = indicator_data[min_idx]
-                                        # numpy scalar 변환
-                                        if isinstance(value, np.generic):
-                                            value = value.item()
-                                        # NaN이 아닌 경우에만 추가
-                                        if not pd.isna(value):
-                                            values.append(value)
-                                        else:
-                                            values.append(None)
-                                    else:
-                                        values.append(None)
+                                    indicator_data = min_data.get(indicator.lower(), [])
+                            
+                            if isinstance(indicator_data, (list, tuple, np.ndarray)):
+                                if min_idx >= 0 and min_idx < len(indicator_data):
+                                    value = indicator_data[min_idx]
+                                    if isinstance(value, np.generic): value = value.item()
+                                    if not pd.isna(value): values.append(value)
+                                    else: values.append(None)
                                 else:
-                                    # 단일 값인 경우
-                                    value = indicator_data
-                                    # numpy scalar 변환
-                                    if isinstance(value, np.generic):
-                                        value = value.item()
-                                    # NaN이 아닌 경우에만 추가
-                                    if not pd.isna(value):
-                                        values.append(value)
-                                    else:
-                                        values.append(None)
-                            except Exception as ex:
-                                self.logger.debug(f"분봉 지표 처리 중 오류 ({indicator}): {ex}")
-                                values.append(None)
+                                    values.append(None)
+                            else:
+                                value = indicator_data
+                                if isinstance(value, np.generic): value = value.item()
+                                if not pd.isna(value): values.append(value)
+                                else: values.append(None)
+                        except Exception as ex:
+                            self.logger.debug(f"분봉 지표 처리 중 오류 ({indicator}): {ex}")
+                            values.append(None)
                     
                     values.append(current_time)
                     batch_values.append(tuple(values))
@@ -577,7 +514,7 @@ class AsyncDatabaseManager:
             self.logger.error(f"분봉 데이터 매칭 실패: {ex}")
             return -1
     
-    async def save_trade_record(self, code, datetime_str, order_type, quantity, price, strategy=""):
+    async def save_trade_record(self, code, datetime_str, order_type, quantity, price, strategy="", profit_loss=0.0):
         """매매 기록 저장 (비동기 I/O)"""
         try:
             if self._conn is None:
@@ -590,9 +527,9 @@ class AsyncDatabaseManager:
                 
                 await cursor.execute('''
                     INSERT INTO trade_records 
-                    (code, datetime, order_type, quantity, price, amount, strategy)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                ''', (code, datetime_str, order_type, quantity, price, amount, strategy))
+                    (code, datetime, order_type, quantity, price, amount, strategy, profit_loss)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (code, datetime_str, order_type, quantity, price, amount, strategy, profit_loss))
                 
                 await self._conn.commit()
                 
@@ -600,47 +537,6 @@ class AsyncDatabaseManager:
             
         except Exception as ex:
             self.logger.error(f"매매 기록 저장 실패: {ex}", exc_info=True)
-
-    async def insert_monitoring_start(self, code, source):
-        """감시 시작 시간 기록"""
-        try:
-            if self._conn is None:
-                await self.init_database()
-            async with self._db_lock:
-                cursor = await self._conn.cursor()
-                current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                await cursor.execute('''
-                    INSERT INTO monitoring_history (code, source, start_time)
-                    VALUES (?, ?, ?)
-                ''', (code, source, current_time))
-                await self._conn.commit()
-                self.logger.debug(f"감시 시작 이력 추가: {code} ({source}) @ {current_time}")
-        except Exception as ex:
-            self.logger.error(f"감시 시작 이력 저장 실패: {ex}", exc_info=True)
-
-    async def update_monitoring_end(self, code):
-        """감시 종료 시간 기록 (가장 최근 감시 시작 기록에 업데이트)"""
-        try:
-            if self._conn is None:
-                await self.init_database()
-            async with self._db_lock:
-                cursor = await self._conn.cursor()
-                current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                
-                # 가장 최근의 감시 시작 기록을 찾아 종료 시간 업데이트
-                await cursor.execute('''
-                    UPDATE monitoring_history 
-                    SET end_time = ? 
-                    WHERE id = (
-                        SELECT id FROM monitoring_history 
-                        WHERE code = ? AND end_time IS NULL 
-                        ORDER BY start_time DESC LIMIT 1
-                    )
-                ''', (current_time, code))
-                await self._conn.commit()
-                self.logger.debug(f"감시 종료 이력 업데이트: {code} @ {current_time}")
-        except Exception as ex:
-            self.logger.error(f"감시 종료 이력 업데이트 실패: {ex}", exc_info=True)
 
     async def clear_tables(self):
         """데이터베이스 테이블 초기화 (장 시작 전 정리용)"""

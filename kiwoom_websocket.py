@@ -1052,13 +1052,22 @@ class KiwoomWebSocketClient:
                     order_type_str = "buy" if buy_sell_flag == '2' else "sell"
                     strategy_name = self.parent.trader.order_strategies.get(order_no, "수동/미상")
                     
+                    # 수익금 계산 로직 (매도 시)
+                    profit_loss = 0.0
+                    if order_type_str == "sell" and hasattr(self, 'balance_data') and stock_code in self.balance_data:
+                        buy_avg_price = self.balance_data[stock_code].get('buy_avg_price', 0)
+                        if buy_avg_price > 0:
+                            # 수수료/세금 대략 0.23% 적용하여 순수익금 계산
+                            net_profit_per_share = (exec_price_float - buy_avg_price) - (exec_price_float * 0.0023)
+                            profit_loss = net_profit_per_share * exec_qty_int
+                    
                     # 현재 시간을 YYYY-MM-DD HH:MM:SS 포맷으로
                     from datetime import datetime
                     current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                     
                     from utils import create_fire_and_forget_task
                     create_fire_and_forget_task(self.parent.trader.db_manager.save_trade_record(
-                        stock_code, current_time, order_type_str, exec_qty_int, exec_price_float, strategy_name
+                        stock_code, current_time, order_type_str, exec_qty_int, exec_price_float, strategy_name, profit_loss
                     ))
             elif order_status == '접수':
                 self.logger.debug(f"  💵 주문가: {order_price}원 | 주문수량: {order_qty_int:,}주")
@@ -1653,8 +1662,13 @@ class KiwoomWebSocketClient:
                 tic_data['buy_volume'].append(cur_buy_vol)
                 tic_data['sell_volume'].append(cur_sell_vol)
                 
-                # 누적 체결강도(FID 228) 기록 복구
-                tic_data['strength'].append(strength_cumulative)
+                # 누적 체결강도(FID 228) 기록 복구 (0일 경우 이전 봉의 마지막 값 계승)
+                if strength_cumulative > 0:
+                    tic_data['strength'].append(strength_cumulative)
+                else:
+                    prev_strength = tic_data['strength'][-1] if len(tic_data.get('strength', [])) > 0 else 0.0
+                    tic_data['strength'].append(prev_strength)
+                    
                 # ML 학습용 데이터 저장
                 tic_data['TICK_VELOCITY'].append(tick_velocity)
                 # 삭제됨: tic_data['ORDER_BOOK_IMBALANCE'].append(order_book_imbalance)
@@ -1689,8 +1703,8 @@ class KiwoomWebSocketClient:
                 tic_data['buy_volume'][last_index] += cur_buy_vol
                 tic_data['sell_volume'][last_index] += cur_sell_vol
                 
-                # 누적 체결강도 업데이트 (가장 최신 값으로 덮어쓰기)
-                if 'strength' in tic_data:
+                # 누적 체결강도 업데이트 (API에서 0으로 올 경우 덮어쓰기 방지)
+                if 'strength' in tic_data and strength_cumulative > 0:
                     tic_data['strength'][last_index] = strength_cumulative
                 # ML 학습용 데이터 업데이트 (최신값으로 덮어쓰기)
                 if 'TICK_VELOCITY' in tic_data:

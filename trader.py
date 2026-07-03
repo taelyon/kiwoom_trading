@@ -722,9 +722,13 @@ class AutoTrader:
             current_hour = now.hour
             current_minute = now.minute
             
-            # 15:15 자동 청산 체크
-            if current_time_str == "15:15" and not self.auto_liquidation_executed:
-                self.logger.info("🕒 15:15 도달 - 모든 보유 종목 자동 청산 시작")
+            from config_manager import EnvConfigParser
+            config = EnvConfigParser()
+            sell_all_time = config.get('TRADING', 'SELL_ALL_TIME', fallback='15:15')
+            
+            # 자동 청산 체크
+            if current_time_str == sell_all_time and not self.auto_liquidation_executed:
+                self.logger.info(f"🕒 {sell_all_time} 도달 - 모든 보유 종목 자동 청산 시작")
                 self.auto_liquidation_executed = True
                 await self.execute_auto_liquidation_async()
 
@@ -835,6 +839,21 @@ class AutoTrader:
                     self.logger.debug(f"⏳ [{code}] 점심시간(11:30~13:00) 매수 금지 시간대 - 신규 매수 차단")
                 is_buy_check_allowed = False
             
+            # [추가] 매수 종료 시간 설정 (환경변수 연동)
+            from config_manager import EnvConfigParser
+            config = EnvConfigParser()
+            buy_end_time_str = config.get('TRADING', 'BUY_END_TIME', fallback='15:00')
+            try:
+                h, m = map(int, buy_end_time_str.split(':'))
+                buy_end_minutes = h * 60 + m
+            except:
+                buy_end_minutes = 15 * 60  # 파싱 실패 시 기본값 15:00
+                
+            if current_time_minutes >= buy_end_minutes:
+                if is_buy_check_allowed:
+                    self.logger.debug(f"⏳ [{code}] 설정된 매수 종료 시간({buy_end_time_str}) 초과 - 신규 매수 차단")
+                is_buy_check_allowed = False
+                
             if not hasattr(self, '_analyze_debug_codes'):
                 self._analyze_debug_codes = set()
             
