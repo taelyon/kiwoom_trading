@@ -1661,9 +1661,15 @@ class KiwoomWebSocketClient:
                 tic_data['LAST_TIC_CNT'].append(1)
                 
                 if len(tic_data.get('close', [])) == 1:
-                    self.logger.debug(f"🎯 첫 번째 60틱봉 생성: {stock_code}, 가격={current_price}, 순간체결강도 시작")
+                    self.logger.info(f"🎯 [{stock_code}] 첫 번째 60틱봉 시작 | 현재가: {current_price:,}원")
                 else:
-                    self.logger.debug(f"🎼 새로운 60틱봉 생성: {stock_code}")
+                    prev_b = tic_data['buy_volume'][-2] if len(tic_data.get('buy_volume', [])) > 1 else 0
+                    prev_s = tic_data['sell_volume'][-2] if len(tic_data.get('sell_volume', [])) > 1 else 0
+                    prev_str = tic_data['strength'][-2] if len(tic_data.get('strength', [])) > 1 else 0
+                    ratio = (prev_b / (prev_b + prev_s) * 100) if (prev_b + prev_s) > 0 else 50.0
+                    
+                    # 실시간 로그창(웹 대시보드) 표시용 info 출력
+                    self.logger.info(f"🎼 [{stock_code}] 60틱봉 완성 | 현재가:{current_price:,}원 | 매수:{prev_b} vs 매도:{prev_s} (순간매수비율 {ratio:.1f}%) | 체결강도:{prev_str:.1f}%")
 
             else:
                 # 60틱 미만이면 기존 봉 업데이트
