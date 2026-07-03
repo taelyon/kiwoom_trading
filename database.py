@@ -457,8 +457,17 @@ class AsyncDatabaseManager:
                     await cursor.executemany(sql, batch_values)
                 
                 await self._conn.commit()
-                # 데이터 저장 완료 로그 제거 (너무 빈번함)
                 
+                # 데이터 저장 완료 로그 (가장 최신 데이터 기준 출력)
+                if batch_values:
+                    try:
+                        last_row = batch_values[-1]
+                        c_buy = last_row[7]
+                        c_sell = last_row[8]
+                        c_str = last_row[9]
+                        self.logger.info(f"💾 [DB저장] {code} 데이터 {len(batch_values)}건 기록 완료 | 최신 매수:{c_buy} 매도:{c_sell} 체결강도:{c_str}%")
+                    except Exception as e:
+                        self.logger.debug(f"DB 저장 로그 출력 중 오류: {e}")                
         except Exception as ex:
             self.logger.error(f"통합 주식 데이터 저장 실패 ({code}): {ex}", exc_info=True)
     
