@@ -473,7 +473,7 @@ class AsyncDatabaseManager:
                         c_buy = log_row[7]
                         c_sell = log_row[8]
                         c_str = log_row[9]
-                        self.logger.info(f"💾 [DB저장] {code} 데이터 {len(batch_values)}건 기록 완료 | 최근완성 매수:{c_buy} 매도:{c_sell} 체결강도:{c_str}%")
+                        self.logger.debug(f"💾 [DB저장] {code} 데이터 {len(batch_values)}건 기록 완료 | 최근완성 매수:{c_buy} 매도:{c_sell} 체결강도:{c_str}%")
                     except Exception as e:
                         self.logger.debug(f"DB 저장 로그 출력 중 오류: {e}")
         except Exception as ex:

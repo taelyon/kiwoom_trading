@@ -1707,7 +1707,7 @@ class KiwoomWebSocketClient:
                          cur_s = tic_data['sell_volume'][last_index] if len(tic_data.get('sell_volume', [])) > 0 else 0
                          cur_str = tic_data['strength'][last_index] if len(tic_data.get('strength', [])) > 0 else 0
                          ratio = (cur_b / (cur_b + cur_s) * 100) if (cur_b + cur_s) > 0 else 50.0
-                         self.logger.info(f"🎼 [{stock_code}] 60틱봉 완성 | 현재가:{current_price:,}원 | 매수:{cur_b} vs 매도:{cur_s} (순간매수비율 {ratio:.1f}%) | 체결강도:{cur_str:.1f}%")
+                         self.logger.debug(f"🎼 [{stock_code}] 60틱봉 완성 | 현재가:{current_price:,}원 | 매수:{cur_b} vs 매도:{cur_s} (순간매수비율 {ratio:.1f}%) | 체결강도:{cur_str:.1f}%")
 
                 # 최대 데이터 수 제한
                 max_data = 1500
