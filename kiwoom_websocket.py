@@ -1663,13 +1663,7 @@ class KiwoomWebSocketClient:
                 if len(tic_data.get('close', [])) == 1:
                     self.logger.info(f"🎯 [{stock_code}] 첫 번째 60틱봉 시작 | 현재가: {current_price:,}원")
                 else:
-                    prev_b = tic_data['buy_volume'][-2] if len(tic_data.get('buy_volume', [])) > 1 else 0
-                    prev_s = tic_data['sell_volume'][-2] if len(tic_data.get('sell_volume', [])) > 1 else 0
-                    prev_str = tic_data['strength'][-2] if len(tic_data.get('strength', [])) > 1 else 0
-                    ratio = (prev_b / (prev_b + prev_s) * 100) if (prev_b + prev_s) > 0 else 50.0
-                    
-                    # 실시간 로그창(웹 대시보드) 표시용 info 출력
-                    self.logger.info(f"🎼 [{stock_code}] 60틱봉 완성 | 현재가:{current_price:,}원 | 매수:{prev_b} vs 매도:{prev_s} (순간매수비율 {ratio:.1f}%) | 체결강도:{prev_str:.1f}%")
+                    self.logger.debug(f"🎼 새로운 60틱봉 생성: {stock_code}")
 
             else:
                 # 60틱 미만이면 기존 봉 업데이트
@@ -1704,7 +1698,16 @@ class KiwoomWebSocketClient:
                 # 삭제됨: ORDER_BOOK_IMBALANCE 업데이트
 
                 if 'LAST_TIC_CNT' in tic_data:
-                     tic_data['LAST_TIC_CNT'][last_index] = last_tic_cnt + 1
+                     new_cnt = last_tic_cnt + 1
+                     tic_data['LAST_TIC_CNT'][last_index] = new_cnt
+                     
+                     # 방금 틱으로 60틱봉이 딱 완성된 순간 로그 출력
+                     if new_cnt == 60:
+                         cur_b = tic_data['buy_volume'][last_index] if len(tic_data.get('buy_volume', [])) > 0 else 0
+                         cur_s = tic_data['sell_volume'][last_index] if len(tic_data.get('sell_volume', [])) > 0 else 0
+                         cur_str = tic_data['strength'][last_index] if len(tic_data.get('strength', [])) > 0 else 0
+                         ratio = (cur_b / (cur_b + cur_s) * 100) if (cur_b + cur_s) > 0 else 50.0
+                         self.logger.info(f"🎼 [{stock_code}] 60틱봉 완성 | 현재가:{current_price:,}원 | 매수:{cur_b} vs 매도:{cur_s} (순간매수비율 {ratio:.1f}%) | 체결강도:{cur_str:.1f}%")
 
                 # 최대 데이터 수 제한
                 max_data = 1500
