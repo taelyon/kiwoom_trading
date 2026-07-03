@@ -633,7 +633,7 @@ class ChartDataCache:
             # 실시간 전용 배열 보존 (API 조회 데이터에는 없는 필드들)
             if tic_data and 'tic_data' in old_cache and old_cache['tic_data']:
                 old_tic = old_cache['tic_data']
-                preserve_keys = ['buy_volume', 'sell_volume', 'TICK_VELOCITY', 'LAST_TIC_CNT']
+                preserve_keys = ['buy_volume', 'sell_volume', 'strength', 'TICK_VELOCITY', 'LAST_TIC_CNT']
                 new_len = len(tic_data.get('close', []))
                 for p_key in preserve_keys:
                     if p_key in old_tic:
