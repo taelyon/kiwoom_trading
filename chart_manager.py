@@ -626,8 +626,24 @@ class ChartDataCache:
     def save_chart_data(self, code, tic_data, min_data):
         """차트 데이터를 캐시에 저장"""
         try:
+            old_cache = self.cache.get(code, {})
             # 기존 캐시의 previous_close 값 유지
-            previous_close = self.cache.get(code, {}).get('previous_close', 0)
+            previous_close = old_cache.get('previous_close', 0)
+            
+            # 실시간 전용 배열 보존 (API 조회 데이터에는 없는 필드들)
+            if tic_data and 'tic_data' in old_cache and old_cache['tic_data']:
+                old_tic = old_cache['tic_data']
+                preserve_keys = ['buy_volume', 'sell_volume', 'TICK_VELOCITY', 'LAST_TIC_CNT']
+                new_len = len(tic_data.get('close', []))
+                for p_key in preserve_keys:
+                    if p_key in old_tic:
+                        old_list = old_tic[p_key]
+                        if len(old_list) == new_len:
+                            tic_data[p_key] = old_list.copy()
+                        elif len(old_list) > new_len:
+                            tic_data[p_key] = old_list[-new_len:].copy()
+                        else:
+                            tic_data[p_key] = [0.0] * (new_len - len(old_list)) + old_list.copy()
             
             self.cache[code] = {
                 'tic_data': tic_data,
