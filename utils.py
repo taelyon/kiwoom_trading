@@ -125,9 +125,9 @@ def setup_logging():
         is_docker = os.environ.get('RUNTIME_ENV') == 'docker'
         log_level = logging.INFO if is_docker else logging.DEBUG
         
-        # root 로거 설정
+        # root 로거 설정 (전체적으로는 DEBUG 레벨까지 일단 허용)
         root_logger = logging.getLogger()
-        root_logger.setLevel(log_level)
+        root_logger.setLevel(logging.DEBUG)
         
         # 기존 핸들러 제거
         for handler in root_logger.handlers[:]:
@@ -138,12 +138,14 @@ def setup_logging():
         file_handler = TimedRotatingFileHandler(
             log_filename, when='midnight', interval=1, backupCount=7, encoding='utf-8'
         )
-        file_handler.setLevel(log_level)
+        # 파일에는 무조건 DEBUG까지 상세하게 저장되도록 고정
+        file_handler.setLevel(logging.DEBUG)
         file_handler.setFormatter(formatter)
         root_logger.addHandler(file_handler)
         
         # 콘솔/터미널 핸들러
         console_handler = logging.StreamHandler()
+        # 콘솔(화면)에는 환경에 따라(도커면 INFO) 깔끔하게 출력
         console_handler.setLevel(log_level)
         console_handler.setFormatter(formatter)
         root_logger.addHandler(console_handler)
