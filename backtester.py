@@ -360,25 +360,24 @@ class Backtester:
                     if current_code in portfolio:
                         sd = stock_data[current_code]
                         idx = sd['current_idx']
-                        current_price = float(row['close'])
-                        
+                        open_p = float(row['open'])
+                        high_p = float(row['high'])
+                        low_p = float(row['low'])
+                        close_p = float(row['close'])
+
+                        # 양봉/음봉에 따른 시뮬레이션 가격 경로 설정
+                        if close_p >= open_p:
+                            price_path = [open_p, low_p, high_p, close_p]
+                        else:
+                            price_path = [open_p, high_p, low_p, close_p]
+                            
                         pos = portfolio[current_code]
                         buy_price = pos['buy_price']
                         
-                        # highest_price 갱신
-                        if current_price > pos.get('highest_price', buy_price):
-                            pos['highest_price'] = current_price
-                        
-                        highest_price = pos['highest_price']
-                        from_peak_pct = (current_price - highest_price) / highest_price * 100.0 if highest_price > 0 else 0.0
-                        
-                        real_profit_pct = (current_price - buy_price) / buy_price * 100.0 - 0.2
-                        
-                        # eval 호환성 locals_dict 구성
+                        # eval 호환성 base_locals_dict 구성 (현재 봉 기준, 한 번만 생성)
                         start_idx = max(0, idx - 300)
-                        locals_dict = {}
+                        base_locals_dict = {}
                         
-                        # 빠른 3분봉 배열 추출을 위한 인덱스 마스크 계산
                         keep_indices = None
                         if 'period_id' in sd['precomputed']:
                             p_ids = sd['precomputed']['period_id'][start_idx:idx+1]
@@ -390,54 +389,76 @@ class Backtester:
                                 
                         for col_name, col_arr in sd['precomputed'].items():
                             arr_slice = col_arr[start_idx:idx+1]
-                            
                             if col_name.startswith('min3_') and keep_indices is not None:
                                 arr_slice = arr_slice[keep_indices]
-                                
-                            locals_dict[col_name] = arr_slice
+                            base_locals_dict[col_name] = arr_slice
                             if not col_name.startswith('tic_') and not col_name.startswith('min3_'):
-                                locals_dict[f'tic_{col_name}'] = arr_slice
+                                base_locals_dict[f'tic_{col_name}'] = arr_slice
                                 
                         if 'AI_SCORE' in sd['precomputed']:
-                            locals_dict['AI_SCORE'] = float(sd['precomputed']['AI_SCORE'][idx])
+                            base_locals_dict['AI_SCORE'] = float(sd['precomputed']['AI_SCORE'][idx])
                             
-                        locals_dict['code'] = current_code
-                        locals_dict['datetime'] = datetime.now()
-                        locals_dict['current_price'] = current_price
-                        locals_dict['profit_pct'] = real_profit_pct
-                        locals_dict['current_profit_pct'] = real_profit_pct
-                        locals_dict['buy_price'] = buy_price
-                        locals_dict['buy_time'] = pos['buy_time']
-                        locals_dict['holding_amount'] = buy_price * pos['qty']
-                        locals_dict['highest_price'] = highest_price
-                        locals_dict['from_peak_pct'] = from_peak_pct
-                        
                         sell_signal = False
                         sell_ratio = 1.0
                         matched_sell_stg = ""
+                        final_sim_price = close_p
+                        final_profit_pct = 0.0
                         
-                        for stg_name_str, stg_ratio, stg_code in sell_compiled:
-                            # 이미 발동된 이력이 있는 매도 룰은 평가에서 제외 (중복 방지)
-                            if stg_name_str in pos.get('executed_sell_rules', set()):
-                                continue
+                        # OHLC 보간법: 캔들 내부 가격 경로를 순회하며 매도 룰 평가
+                        for sim_price in price_path:
+                            current_price = sim_price
+                            
+                            # highest_price 갱신
+                            if current_price > pos.get('highest_price', buy_price):
+                                pos['highest_price'] = current_price
                                 
-                            try:
-                                if eval(stg_code, globals(), locals_dict):
-                                    sell_signal = True
-                                    sell_ratio = stg_ratio
-                                    matched_sell_stg = stg_name_str
-                                    break
-                            except Exception as e:
-                                eval_errors += 1
-                                if eval_errors <= 5:
-                                    logger.error(f"매도 평가 오류 ({stg_name_str}): {e}")
-                                    debug_logs.append(f"❌ [{current_code}] 매도 평가 오류 ({stg_name_str}): {e}")
+                            highest_price = pos['highest_price']
+                            from_peak_pct = (current_price - highest_price) / highest_price * 100.0 if highest_price > 0 else 0.0
+                            real_profit_pct = (current_price - buy_price) / buy_price * 100.0 - 0.2
+                            
+                            locals_dict = base_locals_dict.copy()
+                            locals_dict['code'] = current_code
+                            locals_dict['datetime'] = datetime.now()
+                            locals_dict['current_price'] = current_price
+                            locals_dict['profit_pct'] = real_profit_pct
+                            locals_dict['current_profit_pct'] = real_profit_pct
+                            locals_dict['buy_price'] = buy_price
+                            locals_dict['buy_time'] = pos['buy_time']
+                            locals_dict['holding_amount'] = buy_price * pos['qty']
+                            locals_dict['highest_price'] = highest_price
+                            locals_dict['from_peak_pct'] = from_peak_pct
+                            
+                            for stg_name_str, stg_ratio, stg_code in sell_compiled:
+                                if stg_name_str in pos.get('executed_sell_rules', set()):
+                                    continue
+                                try:
+                                    if eval(stg_code, globals(), locals_dict):
+                                        sell_signal = True
+                                        sell_ratio = stg_ratio
+                                        matched_sell_stg = stg_name_str
+                                        break
+                                except Exception as e:
+                                    eval_errors += 1
+                                    if eval_errors <= 5:
+                                        logger.error(f"매도 평가 오류 ({stg_name_str}): {e}")
+                                        debug_logs.append(f"❌ [{current_code}] 매도 평가 오류 ({stg_name_str}): {e}")
+                                        
+                            if sell_signal:
+                                final_sim_price = current_price
+                                final_profit_pct = real_profit_pct
+                                break # 매도 조건 달성 시, 남은 가격 경로는 건너뜀
                         
-                        # 오버나잇 방지 강제 청산 및 장마감 강제 청산
-                        if is_force_sell_time or is_market_close:
+                        # 오버나잇 방지 강제 청산 및 장마감 강제 청산 (종가 기준)
+                        if not sell_signal and (is_force_sell_time or is_market_close):
                             sell_signal = True
                             sell_ratio = 1.0
                             matched_sell_stg = "마감 강제청산"
+                            final_sim_price = close_p
+                            final_profit_pct = (final_sim_price - buy_price) / buy_price * 100.0 - 0.2
+                            
+                        # 루프 종료 후, 실제로 체결된 가격으로 변수 복구
+                        current_price = final_sim_price
+                        real_profit_pct = final_profit_pct
                             
                         if sell_signal:
                             sell_qty = int(pos['qty'] * sell_ratio)

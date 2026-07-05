@@ -234,7 +234,7 @@ class AsyncDatabaseManager:
                 # 16개 기본 컬럼 (code, datetime, tic 8개, min3 5개, created_at 1개) + tic 지표 개수 + min 지표 개수
                 placeholders = ", ".join(["?"] * (16 + len(filtered_tic) + len(valid_min_indicators)))
 
-                sql = f"INSERT OR REPLACE INTO stock_data ({columns}) VALUES ({placeholders})"
+                sql = f"INSERT OR IGNORE INTO stock_data ({columns}) VALUES ({placeholders})"
                 
                 # 틱봉 데이터 개수만큼 저장할 데이터 준비
                 batch_values = []
@@ -415,7 +415,57 @@ class AsyncDatabaseManager:
                         self.logger.debug(f"DB 저장 로그 출력 중 오류: {e}")
         except Exception as ex:
             self.logger.error(f"통합 주식 데이터 저장 실패 ({code}): {ex}", exc_info=True)
-    
+
+    async def save_realtime_snapshots(self, code, snapshots):
+        """실시간 완성 스냅샷을 DB에 저장 (미래 참조 방지)"""
+        if not snapshots:
+            return
+
+        try:
+            if not self._conn:
+                await self.init_database()
+
+            async with self._db_lock:
+                cursor = await self._conn.cursor()
+
+                # 첫 번째 스냅샷의 키를 기반으로 동적 INSERT 구문 생성
+                sample_keys = list(snapshots[0].keys())
+                # 'code'와 'datetime' 외의 컬럼들 추출
+                columns = []
+                for k in sample_keys:
+                    columns.append(k)
+                columns.append("created_at")
+
+                placeholders = ", ".join(["?"] * len(columns))
+                columns_str = ", ".join(columns)
+
+                sql = f"INSERT OR REPLACE INTO stock_data ({columns_str}) VALUES ({placeholders})"
+
+                current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                batch_values = []
+                
+                for snap in snapshots:
+                    row_values = []
+                    for k in sample_keys:
+                        val = snap[k]
+                        if isinstance(val, np.generic): val = val.item()
+                        if pd.isna(val) if hasattr(val, '__iter__') or type(val)==float else False: 
+                            row_values.append(None)
+                        else:
+                            row_values.append(val)
+                    row_values.append(current_time)
+                    batch_values.append(tuple(row_values))
+
+                if batch_values:
+                    # 필요한 경우 컬럼 스키마 업데이트 (동적)
+                    # 여기서는 기존 _ensure_table_schema 구조에 맞게 생략하거나 필요시 추가
+                    await cursor.executemany(sql, batch_values)
+                
+                await self._conn.commit()
+                self.logger.debug(f"💾 [스냅샷 저장] {code} 데이터 {len(batch_values)}건 기록 완료")
+        except Exception as ex:
+            self.logger.error(f"스냅샷 데이터 저장 실패 ({code}): {ex}", exc_info=True)
+
     async def _ensure_table_schema(self, cursor, tic_indicators, min_indicators):
         """테이블 스키마에 필요한 컬럼들이 있는지 확인하고 없으면 추가"""
         try:

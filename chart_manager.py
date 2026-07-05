@@ -882,36 +882,6 @@ class ChartDataCache:
                 data = self.cache.get(code)
                 if not data: continue
 
-                original_tic_data = data.get('tic_data')
-                original_min_data = data.get('min_data')
-
-                original_tic_data = data.get('tic_data')
-                original_min_data = data.get('min_data')
-
-                # DataFrame 변환 및 지표 계산 (CPU 바운드 작업을 스레드풀로 오프로드)
-                try:
-                    ws_client = None
-                    if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'login_handler'):
-                        ws_client = getattr(self.parent.login_handler, 'websocket_client', None)
-                    loop = asyncio.get_running_loop()
-                    tic_df, min_df = await loop.run_in_executor(
-                        None, 
-                        self._prepare_data_for_db, 
-                        original_tic_data, 
-                        original_min_data
-                    )
-
-                except Exception as df_ex:
-                    self.logger.error(f"DB 저장용 데이터프레임 변환/지표 계산 실패 ({code}): {df_ex}")
-                    continue
-
-                
-                logging.debug(f"🔍 {code}: tic_data={not tic_df.empty}, min_data={not min_df.empty}")
-                
-                if tic_df.empty or min_df.empty:
-                    logging.warning(f"⚠️ {code}: 데이터 부족으로 저장 건너뜀 (tic: {not tic_df.empty}, min: {not min_df.empty})")
-                    continue
-                
                 # 1분마다 저장 (마지막 저장 시간 확인)
                 last_save = data.get('last_save')
                 if last_save:
@@ -921,36 +891,58 @@ class ChartDataCache:
                         continue
                 
                 logging.debug(f"💾 {code}: DB 저장 시작")
-                
-                # 메모리에서 감시 시작 시간 가져오기
-                monitoring_start_time = None
-                if hasattr(self.parent, 'core_managers') and self.parent.core_managers:
-                    monitoring_start_time = self.parent.core_managers.stock_added_time.get(code)
-                
-                # [추가] 강제 데이터 수집 모드 (과거 데이터 전체 저장)
+
+                # === [1. 실시간 스냅샷 저장 로직] ===
+                queue = data.get('db_save_queue', [])
+                if queue:
+                    rows_to_save = queue[:]
+                    data['db_save_queue'] = []
+                    if hasattr(self.trader.db_manager, 'save_realtime_snapshots'):
+                        await self.trader.db_manager.save_realtime_snapshots(code, rows_to_save)
+                        saved_count += 1
+                        logging.debug(f"✅ {code}: 실시간 스냅샷 DB 저장 완료 ({len(rows_to_save)}건)")
+
+                # === [2. 과거 데이터 일괄 수집 모드 로직 (옵션)] ===
                 from config_manager import EnvConfigParser
-                if EnvConfigParser().getboolean('DATA_SAVING', 'DATA_COLLECTION_MODE', fallback=False):
-                    if monitoring_start_time is not None:
-                        # 중복 로그 방지를 위해 한 번만 출력
+                data_collection_mode = EnvConfigParser().getboolean('DATA_SAVING', 'DATA_COLLECTION_MODE', fallback=False)
+                
+                if data_collection_mode:
+                    # DataFrame 변환 및 지표 계산 (CPU 바운드 작업을 스레드풀로 오프로드)
+                    try:
+                        loop = asyncio.get_running_loop()
+                        tic_df, min_df = await loop.run_in_executor(
+                            None, 
+                            self._prepare_data_for_db, 
+                            data.get('tic_data'), 
+                            data.get('min_data')
+                        )
+                    except Exception as df_ex:
+                        self.logger.error(f"DB 저장용 데이터프레임 변환/지표 계산 실패 ({code}): {df_ex}")
+                        continue
+                    
+                    if not tic_df.empty and not min_df.empty:
+                        # 메모리에서 감시 시작 시간 가져오기
+                        monitoring_start_time = None
+                        if hasattr(self.parent, 'core_managers') and self.parent.core_managers:
+                            monitoring_start_time = self.parent.core_managers.stock_added_time.get(code)
+                        
+                        # 중복 로그 방지
                         if not hasattr(self, '_log_data_collect') or code not in self._log_data_collect:
                             if not hasattr(self, '_log_data_collect'): self._log_data_collect = set()
                             logging.info(f"⚠️ [{code}] 데이터 수집 모드(DATA_COLLECTION_MODE) 켜짐 - 오늘 치 과거 데이터를 전부 강제 저장합니다.")
                             self._log_data_collect.add(code)
-                    monitoring_start_time = None
+                        
+                        await self.trader.db_manager.save_stock_data(
+                            code, 
+                            tic_df.to_dict('list'), 
+                            min_df.to_dict('list'),
+                            None  # 전체 저장을 위해 monitoring_start_time 해제
+                        )
+                        saved_count += 1
+                        logging.debug(f"✅ {code}: 과거 데이터 일괄 저장 완료")
 
-                # 통합 주식 데이터 저장 (틱봉 기준, 분봉 데이터 포함, 메모리 필터링 적용)
-                await self.trader.db_manager.save_stock_data(
-                    code, 
-                    tic_df.to_dict('list'), 
-                    min_df.to_dict('list'),
-                    monitoring_start_time
-                )
-                
                 # 저장 시간 업데이트
                 data['last_save'] = current_time
-                saved_count += 1
-                
-                logging.debug(f"✅ {code}: DB 저장 완료")
                 
                 # 각 종목 처리 후 이벤트 루프에 제어권 반환 (PING 타임아웃 방지)
                 await asyncio.sleep(0.05)
@@ -1405,6 +1397,39 @@ class ChartDataCache:
                         logging.error(f"분봉 지표 계산 실패: {results[1]}")
 
                     chart_cache.cache[stock_code] = cached_data
+
+            # === [스냅샷 저장 로직 추가] ===
+            if is_new_candle:
+                try:
+                    tic_data = cached_data.get('tic_data', {})
+                    min_data = cached_data.get('min_data', {})
+                    
+                    if tic_data and min_data and len(tic_data.get('time', [])) >= 2 and len(min_data.get('time', [])) >= 1:
+                        snapshot = {
+                            'code': stock_code,
+                            'datetime': tic_data['time'][-2]  # 방금 완성된 60틱봉의 시작/생성시간
+                        }
+                        
+                        # 틱봉 지표 저장 (-2 인덱스: 완성된 봉)
+                        for k, v in tic_data.items():
+                            if isinstance(v, list) and len(v) >= 2:
+                                col_name = f"tic_{k.lower()}" if k.lower() != 'time' else 'datetime'
+                                if col_name != 'datetime':
+                                    snapshot[col_name] = v[-2]
+                        
+                        # 3분봉 지표 저장 (-1 인덱스: 현재 찰나의 미완성 봉)
+                        for k, v in min_data.items():
+                            if isinstance(v, list) and len(v) >= 1:
+                                col_name = f"min3_{k.lower()}" if k.lower() != 'time' else None
+                                if col_name:
+                                    snapshot[col_name] = v[-1]
+                        
+                        # 큐에 추가
+                        if 'db_save_queue' not in cached_data:
+                            cached_data['db_save_queue'] = []
+                        cached_data['db_save_queue'].append(snapshot)
+                except Exception as snap_ex:
+                    self.logger.error(f"스냅샷 생성 실패 ({stock_code}): {snap_ex}")
 
             # 새 캔들이 완성되었을 경우 매수 신호 평가 이벤트를 비동기로 백그라운드 발생 (하이브리드 아키텍처)
             if is_new_candle and hasattr(self.parent, 'autotrader') and self.parent.autotrader:
