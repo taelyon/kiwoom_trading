@@ -227,6 +227,17 @@ HTML_CONTENT = """
             box-sizing: border-box;
         }
 
+        /* 달력 아이콘 다크 테마 적용 (흰색으로 반전) */
+        input[type="date"]::-webkit-calendar-picker-indicator {
+            filter: invert(1);
+            cursor: pointer;
+            opacity: 0.8;
+            transition: opacity 0.2s;
+        }
+        input[type="date"]::-webkit-calendar-picker-indicator:hover {
+            opacity: 1;
+        }
+
         body {
             background-color: var(--bg-color);
             background-image: 
