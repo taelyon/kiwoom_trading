@@ -3563,7 +3563,7 @@ HTML_CONTENT = """
 
         // 매매내역 초기화 확인창
         function confirmClearTradeHistory() {
-            if (confirm("⚠️ 주의: 로컬 매매 기록(trade_records)이 모두 삭제됩니다.\n\n정말 초기화하시겠습니까?")) {
+            if (confirm("⚠️ 주의: 로컬 매매 기록(trade_records)이 모두 삭제됩니다.\\n\\n정말 초기화하시겠습니까?")) {
                 ws.send(jsonStr({ type: "reset_trade_history" }));
                 alert("매매내역 초기화를 요청했습니다. 잠시 후 새로고침됩니다.");
                 setTimeout(() => {
