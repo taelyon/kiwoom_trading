@@ -4407,11 +4407,16 @@ async def websocket_handler(websocket):
                         logging.error("❌ db_manager를 찾을 수 없어 매매내역 리셋 실패.")
                         
                 elif msg_type == 'reset_stock_data':
-                    logging.warning("🚨 대시보드 제어: 로컬 DB 주식 데이터(stock_data) 초기화 요청 수신")
+                    logging.warning("🚨 대시보드 제어: 로컬 DB 주식 데이터(stock_data) 및 캐시 초기화 요청 수신")
                     if app.trader and app.trader.db_manager:
                         create_fire_and_forget_task(app.trader.db_manager.clear_tables())
                     else:
                         logging.error("❌ db_manager를 찾을 수 없어 주식 데이터 리셋 실패.")
+                    
+                    # 메모리에 남아있는 차트 캐시도 함께 비우기
+                    if app.chart_cache:
+                        app.chart_cache.cache.clear()
+                        logging.info("🧹 차트 메모리 캐시(app.chart_cache.cache) 초기화 완료")
                         
                 elif msg_type == 'add_monitoring':
                     code = data.get('code')

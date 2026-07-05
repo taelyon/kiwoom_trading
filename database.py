@@ -591,14 +591,16 @@ class AsyncDatabaseManager:
                 
                 # 주식 데이터 삭제 (매매 기록은 영구 보존)
                 await cursor.execute("DELETE FROM stock_data")
-                # await cursor.execute("DELETE FROM trade_records")  # 매매내역 보존을 위해 삭제 주석 처리
+                
+                # 불필요해진 system_config 테이블이 남아있다면 완전히 삭제
+                await cursor.execute("DROP TABLE IF EXISTS system_config")
                 
                 await self._conn.commit()
                 
-                self.logger.info("🧹 데이터베이스 테이블(stock_data) 초기화 완료 (trade_records는 보존됨)")
+                self.logger.info("🧹 데이터베이스 테이블(stock_data) 초기화 및 system_config 삭제 완료")
                 
-                # VACUUM으로 파일 크기 최적화 (선택사항, 시간이 걸릴 수 있음)
-                # await cursor.execute("VACUUM") 
+                # VACUUM으로 SQLite 파일 크기 최적화 (실제 하드디스크 용량 반환)
+                await cursor.execute("VACUUM")
                 
         except Exception as ex:
             self.logger.error(f"데이터베이스 초기화 실패: {ex}", exc_info=True)
