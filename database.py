@@ -106,15 +106,7 @@ class AsyncDatabaseManager:
                     '''
                     await cursor.execute(create_table_sql)
                     
-                    # 시스템 설정 테이블
-                    await cursor.execute('''
-                        CREATE TABLE IF NOT EXISTS system_config (
-                            key TEXT PRIMARY KEY,
-                            value TEXT,
-                            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                        )
-                    ''')
-                    
+
                     # commit은 isolation_level=None이면 자동으로 처리됨
                     self.logger.debug("✅ 데이터베이스 초기화 완료")
                 

@@ -1601,6 +1601,7 @@ HTML_CONTENT = """
 
                         <div style="margin-top: 16px;">
                             <button id="btnRunBacktest" class="btn-primary" style="width: 100%; padding: 14px; font-size: 15px; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 8px; box-shadow: 0 4px 16px rgba(0, 242, 254, 0.2);" onclick="toggleBacktest()">🚀 백테스트 실행</button>
+                            <button id="btnClearDB" class="btn-danger" style="width: 100%; padding: 14px; font-size: 15px; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 8px; margin-top: 10px;" onclick="confirmClearStockData()">🗑️ 데이터베이스 초기화</button>
                         </div>
                     </div>
                 </div>
@@ -3591,6 +3592,14 @@ HTML_CONTENT = """
             }
         }
 
+        // 주식 데이터(stock_data) 초기화 확인창
+        function confirmClearStockData() {
+            if (confirm("⚠️ 주의: 데이터베이스의 모든 종목 데이터(stock_data)가 삭제됩니다.\\n이 작업은 되돌릴 수 없습니다.\\n\\n정말 초기화하시겠습니까?")) {
+                ws.send(jsonStr({ type: "reset_stock_data" }));
+                alert("데이터베이스 초기화를 요청했습니다.");
+            }
+        }
+
         // 매매내역 모달 열기
         function openTradeHistory() {
             document.getElementById('tradeHistoryModal').style.display = 'flex';
@@ -4395,7 +4404,14 @@ async def websocket_handler(websocket):
                     if app.trader and app.trader.db_manager:
                         create_fire_and_forget_task(app.trader.db_manager.clear_trade_records())
                     else:
-                        logging.error("❌ db_manager를 찾을 수 없어 DB 리셋 실패.")
+                        logging.error("❌ db_manager를 찾을 수 없어 매매내역 리셋 실패.")
+                        
+                elif msg_type == 'reset_stock_data':
+                    logging.warning("🚨 대시보드 제어: 로컬 DB 주식 데이터(stock_data) 초기화 요청 수신")
+                    if app.trader and app.trader.db_manager:
+                        create_fire_and_forget_task(app.trader.db_manager.clear_tables())
+                    else:
+                        logging.error("❌ db_manager를 찾을 수 없어 주식 데이터 리셋 실패.")
                         
                 elif msg_type == 'add_monitoring':
                     code = data.get('code')
