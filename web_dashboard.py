@@ -328,6 +328,25 @@ HTML_CONTENT = """
             box-shadow: 0 5px 15px rgba(138, 43, 226, 0.4);
         }
 
+        .btn-danger {
+            background: rgba(255, 23, 68, 0.15);
+            color: #ff5252;
+            border: 1px solid rgba(255, 23, 68, 0.3);
+            border-radius: 12px;
+            padding: 14px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .btn-danger:hover {
+            background: rgba(255, 23, 68, 0.3);
+            border-color: rgba(255, 23, 68, 0.6);
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(255, 23, 68, 0.2);
+        }
+
         /* --- 대시보드 메인 레이아웃 (Dashboard screen) --- */
         #dashboardContainer {
             width: 100%;
@@ -1686,7 +1705,7 @@ HTML_CONTENT = """
                         <span style="color: var(--text-secondary); font-size: 12px;">~</span>
                         <input type="date" id="tradeEndDate" style="background: transparent; border: none; color: white; font-size: 12px; outline: none; cursor: pointer;">
                         <button class="btn-primary" style="padding: 4px 10px; font-size: 12px; border-radius: 4px; margin-left: 4px;" onclick="fetchTradeHistoryWithDates()">조회</button>
-                        <button class="btn-danger" style="padding: 4px 10px; font-size: 12px; border-radius: 4px; margin-left: 4px; background: rgba(239, 68, 68, 0.2); border: 1px solid #ef4444;" onclick="confirmClearTradeHistory()">초기화</button>
+                        <button class="btn-danger" style="padding: 4px 10px; font-size: 12px; border-radius: 4px; margin-left: 4px;" onclick="confirmClearTradeHistory()">초기화</button>
                     </div>
                     <button class="btn-primary" style="padding: 6px 12px; font-size: 12px; border-radius: 6px; background: rgba(59, 130, 246, 0.2); border: 1px solid var(--primary);" onclick="fetchKiwoomHistory()">🔄 키움 거래내역</button>
                 </div>
