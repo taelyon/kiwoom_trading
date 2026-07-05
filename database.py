@@ -106,9 +106,11 @@ class AsyncDatabaseManager:
                     '''
                     await cursor.execute(create_table_sql)
                     
+                    # 레거시 system_config 테이블이 남아있다면 앱 구동 시 자동 삭제
+                    await cursor.execute("DROP TABLE IF EXISTS system_config")
 
                     # commit은 isolation_level=None이면 자동으로 처리됨
-                    self.logger.debug("✅ 데이터베이스 초기화 완료")
+                    self.logger.debug("✅ 데이터베이스 초기화 완료 (레거시 테이블 정리 포함)")
                 
                 # 성공하면 루프 종료
                 break
