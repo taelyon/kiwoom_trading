@@ -111,21 +111,28 @@ class AsyncDatabaseManager:
                     # 레거시 system_config 테이블이 남아있다면 앱 구동 시 자동 삭제
                     await cursor.execute("DROP TABLE IF EXISTS system_config")
 
-                    # 레거시 tic_ 컬럼 정리 (sqlite 3.35.0 이상 지원)
+                    # 레거시 tic_ 컬럼 정리 및 AI 미사용 지표 컬럼 정리 (sqlite 3.35.0 이상 지원)
                     await cursor.execute("PRAGMA table_info(stock_data)")
                     columns_info = await cursor.fetchall()
+                    
+                    # 1. 과거 tic_ 컬럼
                     legacy_cols = [row[1] for row in columns_info if row[1].startswith('tic_') and not row[1].startswith('tick_')]
+                    
+                    # 2. AI 학습/판단에 미사용되어 DB에서 제외하기로 한 컬럼들 (tick_macd_hist는 사용되므로 유지)
+                    unwanted_cols = {'tick_macd', 'tick_macd_signal', 'min3_rsi21', 'min3_macd', 'min3_macd_signal', 'min3_macd_hist'}
+                    legacy_cols.extend([row[1] for row in columns_info if row[1] in unwanted_cols])
+                    
                     if legacy_cols:
-                        self.logger.info(f"🧹 레거시 tic_ 컬럼 발견, 정리를 시도합니다: {legacy_cols}")
+                        self.logger.info(f"🧹 불필요한 DB 컬럼 발견, 정리를 시도합니다: {legacy_cols}")
                         for col in legacy_cols:
                             try:
                                 await cursor.execute(f"ALTER TABLE stock_data DROP COLUMN {col}")
-                                self.logger.info(f"🗑️ 레거시 컬럼 삭제 완료: {col}")
+                                self.logger.info(f"🗑️ 컬럼 삭제 완료: {col}")
                             except Exception as e:
-                                self.logger.warning(f"⚠️ 레거시 컬럼 {col} 삭제 실패 (SQLite 구버전일 수 있음): {e}")
+                                self.logger.warning(f"⚠️ 컬럼 {col} 삭제 실패 (SQLite 구버전일 수 있음): {e}")
 
                     # commit은 isolation_level=None이면 자동으로 처리됨
-                    self.logger.debug("✅ 데이터베이스 초기화 완료 (레거시 테이블/컬럼 정리 포함)")
+                    self.logger.debug("✅ 데이터베이스 초기화 완료 (불필요한 테이블/컬럼 정리 포함)")
                 
                 # 성공하면 루프 종료
                 break
@@ -201,7 +208,8 @@ class AsyncDatabaseManager:
                 normalized_min = [normalize_indicator(ind) for ind in min_indicators]
                 
                 # 허용된 지표만 선택 (DB에 저장하지 않을 지표 명시적 제외)
-                db_exclude_indicators = {'RELATIVE_POSITION', 'MACD', 'MACD_SIGNAL', 'MACD_HIST'}
+                # tick_macd_hist는 AI 피처로 사용되므로 제외 목록에서 뺌
+                db_exclude_indicators = {'RELATIVE_POSITION', 'MACD', 'MACD_SIGNAL'}
                 filtered_tic = [ind for ind in normalized_tic if ind in allowed_indicators and ind not in db_exclude_indicators]
                 filtered_min = [ind for ind in normalized_min if ind in allowed_indicators]
                 
@@ -443,8 +451,13 @@ class AsyncDatabaseManager:
                 await cursor.execute("PRAGMA table_info(stock_data)")
                 existing_columns = [row[1] for row in await cursor.fetchall()]
                 
+                # AI 학습/판단에 미사용되어 DB에 저장하지 않을 컬럼들 (tick_macd_hist는 사용되므로 제외 안함)
+                exclude_from_db = {'tick_macd', 'tick_macd_signal', 'min3_rsi21', 'min3_macd', 'min3_macd_signal', 'min3_macd_hist'}
+                
                 # 없는 컬럼은 ALTER TABLE로 추가 (동적 스키마 진화)
                 for key in sample_keys:
+                    if key in exclude_from_db:
+                        continue
                     if key not in existing_columns and key not in ['created_at']:
                         try:
                             col_type = "TEXT" if key in ['code', 'datetime'] else "REAL"
