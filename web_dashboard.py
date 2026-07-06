@@ -3084,7 +3084,7 @@ HTML_CONTENT = """
 
         // 자동매매 스위치 제어
         function restartSystem() {
-            if(confirm("정말 앱을 재시작하시겠습니까?\n\n(프로그램이 강제 종료된 후 NAS Docker에 의해 즉시 자동 재부팅됩니다. 약 10~20초 뒤 화면이 새로고침 됩니다.)")) {
+            if(confirm("정말 앱을 재시작하시겠습니까?\\n\\n(프로그램이 강제 종료된 후 NAS Docker에 의해 즉시 자동 재부팅됩니다. 약 10~20초 뒤 화면이 새로고침 됩니다.)")) {
                 ws.send(JSON.stringify({ type: 'restart_system' }));
                 alert("재시작 명령이 전송되었습니다. 잠시 후 자동으로 새로고침됩니다.");
                 setTimeout(() => location.reload(), 15000);
@@ -4383,15 +4383,6 @@ async def websocket_handler(websocket):
                 
                 if msg_type == 'toggle_auto_trading':
                     active = data.get('active', False)
-                    # 설정 파일에 자동매매 켜짐/꺼짐 상태 저장
-                    try:
-                        from config_manager import EnvConfigParser
-                        config = EnvConfigParser()
-                        config.set('SETTINGS', 'AUTO_TRADING_ENABLED', 'True' if active else 'False')
-                        config.save()
-                    except Exception as e:
-                        logging.error(f"자동매매 상태 저장 실패: {e}")
-                        
                     if app.autotrader:
                         if active:
                             app.autotrader.start_auto_trading()
