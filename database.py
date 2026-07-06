@@ -106,17 +106,7 @@ class AsyncDatabaseManager:
                     '''
                     await cursor.execute(create_table_sql)
                     
-                    # 감시 이력 테이블 생성
-                    await cursor.execute('''
-                        CREATE TABLE IF NOT EXISTS monitoring_history (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            code TEXT NOT NULL,
-                            condition_name TEXT,
-                            start_time TEXT NOT NULL,
-                            end_time TEXT,
-                            status TEXT DEFAULT 'MONITORING'
-                        )
-                    ''')
+
                     
                     # 레거시 system_config 테이블이 남아있다면 앱 구동 시 자동 삭제
                     await cursor.execute("DROP TABLE IF EXISTS system_config")
@@ -738,40 +728,3 @@ class AsyncDatabaseManager:
             self.logger.error(f"매도 로직 이력 복구 실패 ({code}): {e}")
             
         return executed_strategies
-
-    async def insert_monitoring_start(self, code, condition_name=""):
-        """종목 감시 시작 기록을 DB에 저장"""
-        try:
-            if self._conn is None:
-                await self.init_database()
-                
-            async with self._db_lock:
-                cursor = await self._conn.cursor()
-                current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                await cursor.execute('''
-                    INSERT INTO monitoring_history (code, condition_name, start_time, status)
-                    VALUES (?, ?, ?, 'MONITORING')
-                ''', (code, condition_name, current_time))
-                await self._conn.commit()
-                self.logger.debug(f"👀 [DB] {code} 감시 시작 기록 완료 ({condition_name})")
-        except Exception as ex:
-            self.logger.error(f"감시 시작 기록 실패 ({code}): {ex}", exc_info=True)
-
-    async def update_monitoring_end(self, code):
-        """종목 감시 종료 기록을 DB에 업데이트"""
-        try:
-            if self._conn is None:
-                await self.init_database()
-                
-            async with self._db_lock:
-                cursor = await self._conn.cursor()
-                current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                await cursor.execute('''
-                    UPDATE monitoring_history 
-                    SET end_time = ?, status = 'ENDED'
-                    WHERE code = ? AND status = 'MONITORING'
-                ''', (current_time, code))
-                await self._conn.commit()
-                self.logger.debug(f"🛑 [DB] {code} 감시 종료 기록 완료")
-        except Exception as ex:
-            self.logger.error(f"감시 종료 기록 실패 ({code}): {ex}", exc_info=True)

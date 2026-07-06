@@ -1338,11 +1338,10 @@ class ChartDataCache:
                         if stock_code in portfolio.get('holdings', {}):
                             is_holding = True
                             
-                    # 1. DB에 이탈 시간 업데이트
-                    if hasattr(self.trader, 'db_manager') and self.trader.db_manager:
-                        from utils import create_fire_and_forget_task
-                        create_fire_and_forget_task(self.trader.db_manager.update_monitoring_end(stock_code))
+                            
+                    # 1. DB 이탈 기록 제거됨 (monitoring_history 사용 안함)
                     
+
                     # 2. 매수 차단 목록(Blacklist) 추가
                     if hasattr(self, 'trader') and self.trader:
                         if hasattr(self.trader, 'add_to_blacklist'):

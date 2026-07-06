@@ -1975,10 +1975,9 @@ class KiwoomWebSocketClient:
                         else:
                             self.logger.error(f"❌ chart_cache가 없습니다: {stock_code}")
                             
-                        # DB에 감시 시작 이력 기록
-                        if hasattr(self.parent, 'trader') and self.parent.trader and hasattr(self.parent.trader, 'db_manager') and self.parent.trader.db_manager:
-                            create_fire_and_forget_task(self.parent.trader.db_manager.insert_monitoring_start(stock_code, f"조건검색: {condition_name}"))
-                            
+                        # 감시 시작 로깅
+                        self.logger.debug(f"👀 {stock_code} 감시 시작됨 ({condition_name})")
+
                 elif action_type == 'D':  # DELETE (이탈) # type: ignore
                     self.logger.debug(f"📉 조건검색 실시간 이탈 신호 수신 (무시됨): {stock_code} ({condition_name}, seq: {condition_seq})")
                     self.logger.debug(f"ℹ️ [{stock_code}] 조건검색 이탈 신호는 무시되며, 최고가 대비 10% 하락 시 자체 이탈 처리됩니다.")
