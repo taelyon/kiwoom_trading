@@ -6,13 +6,13 @@ from dotenv import load_dotenv, set_key, find_dotenv
 # 프로젝트에서 관리하는 .env 키 접두사 목록
 _MANAGED_PREFIXES = (
     'STRATEGIES_', 'BUYCOUNT_', 'TRADING_', 'DATA_SAVING_', 'CHART_',
-    'KIWOOM_API_', 'LOGIN_', 'SLACK_', 'SETTINGS_', 'STRATEGY_', 'API_',
+    'KIWOOM_API_', 'LOGIN_', 'SLACK_', 'SETTINGS_', 'STRATEGY_', 'API_', 'SYSTEM_'
 )
 
 # 표준 섹션 이름 (대문자)
 _STANDARD_SECTIONS = frozenset([
     'STRATEGIES', 'BUYCOUNT', 'TRADING', 'DATA_SAVING', 'CHART',
-    'KIWOOM_API', 'LOGIN', 'SLACK', 'SETTINGS', 'API',
+    'KIWOOM_API', 'LOGIN', 'SLACK', 'SETTINGS', 'API', 'SYSTEM'
 ])
 
 

@@ -4504,12 +4504,20 @@ async def websocket_handler(websocket):
                 if msg_type == 'toggle_auto_trading':
                     active = data.get('active', False)
                     if app.autotrader:
+                        # 설정 파일(.env)에 저장하여 재시작 시 유지
+                        if hasattr(app, 'login_handler') and app.login_handler and app.login_handler.config:
+                            try:
+                                app.login_handler.config.set('SYSTEM', 'AUTO_TRADING_ENABLED', 'True' if active else 'False')
+                                app.login_handler.config.save_to_env()
+                            except Exception as e:
+                                logging.error(f"❌ 자동매매 설정 저장 실패: {e}")
+                                
                         if active:
                             app.autotrader.start_auto_trading()
-                            logging.info("🤖 대시보드 제어: 자동매매 감시 시작")
+                            logging.info("🤖 대시보드 제어: 자동매매 감시 시작 및 설정 저장됨")
                         else:
                             app.autotrader.stop_auto_trading()
-                            logging.info("🤖 대시보드 제어: 자동매매 감시 중지")
+                            logging.info("🤖 대시보드 제어: 자동매매 감시 중지 및 설정 저장됨")
                             
                 elif msg_type == 'manual_order':
                     code = data.get('code')
