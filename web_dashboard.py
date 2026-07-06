@@ -4383,6 +4383,15 @@ async def websocket_handler(websocket):
                 
                 if msg_type == 'toggle_auto_trading':
                     active = data.get('active', False)
+                    # 설정 파일에 자동매매 켜짐/꺼짐 상태 저장
+                    try:
+                        from config_manager import EnvConfigParser
+                        config = EnvConfigParser()
+                        config.set('SETTINGS', 'AUTO_TRADING_ENABLED', 'True' if active else 'False')
+                        config.save()
+                    except Exception as e:
+                        logging.error(f"자동매매 상태 저장 실패: {e}")
+                        
                     if app.autotrader:
                         if active:
                             app.autotrader.start_auto_trading()

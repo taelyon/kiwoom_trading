@@ -169,8 +169,16 @@ class TradingApp:
             if not self.autotrader:
                 self.autotrader = AutoTrader(self.trader, self)
                 self.logger.debug("🔍 AutoTrader 객체 생성 완료")
-                self.autotrader.start_auto_trading()
-                self.logger.info(f"✅ 자동매매 루프 기동 완료 ({self.trader.evaluation_interval}초 주기)")
+                
+                from config_manager import EnvConfigParser
+                config = EnvConfigParser()
+                auto_trading_enabled = config.getboolean('SETTINGS', 'AUTO_TRADING_ENABLED', fallback=True)
+                
+                if auto_trading_enabled:
+                    self.autotrader.start_auto_trading()
+                    self.logger.info(f"✅ 자동매매 루프 기동 완료 ({self.trader.evaluation_interval}초 주기)")
+                else:
+                    self.logger.info("⏸️ 설정에 따라 자동매매 루프 기동을 보류합니다. (대시보드에서 켤 수 있습니다)")
 
             # 3. 조건검색 목록조회 (웹소켓 기반)
             try:
