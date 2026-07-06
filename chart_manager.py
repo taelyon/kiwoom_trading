@@ -1412,7 +1412,10 @@ class ChartDataCache:
                         # 틱봉 지표 저장 (-2 인덱스: 완성된 봉)
                         for k, v in tic_data.items():
                             if isinstance(v, list) and len(v) >= 2:
-                                col_name = f"tic_{k.lower()}" if k.lower() != 'time' else 'datetime'
+                                if k == 'TICK_VELOCITY':
+                                    col_name = 'tic_velocity'
+                                else:
+                                    col_name = f"tic_{k.lower()}" if k.lower() != 'time' else 'datetime'
                                 if col_name != 'datetime':
                                     snapshot[col_name] = v[-2]
                         
