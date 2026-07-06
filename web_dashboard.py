@@ -2240,12 +2240,13 @@ HTML_CONTENT = """
                     });
                 } else if (data.type === 'db_summary_result') {
                     const tbody = document.getElementById('dbSummaryTbody');
+                    const recentTbody = document.getElementById('dbRecentTbody');
                     if (tbody) {
                         tbody.innerHTML = '';
-                        if (!data.summary || data.summary.length === 0) {
+                        if (!data.summary || !data.summary.summary || data.summary.summary.length === 0) {
                             tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 20px;">저장된 데이터가 없습니다.</td></tr>';
                         } else {
-                            data.summary.forEach(item => {
+                            data.summary.summary.forEach(item => {
                                 const row = document.createElement('tr');
                                 row.innerHTML = `
                                     <td style="text-align: center; font-weight: bold; color: var(--accent-cyan);">${item.code}</td>
@@ -2254,6 +2255,24 @@ HTML_CONTENT = """
                                     <td style="text-align: center; color: var(--text-secondary);">${item.end_date}</td>
                                 `;
                                 tbody.appendChild(row);
+                            });
+                        }
+                    }
+                    if (recentTbody) {
+                        recentTbody.innerHTML = '';
+                        if (!data.summary || !data.summary.recent_records || data.summary.recent_records.length === 0) {
+                            recentTbody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 20px;">저장된 데이터가 없습니다.</td></tr>';
+                        } else {
+                            data.summary.recent_records.forEach(item => {
+                                const row = document.createElement('tr');
+                                row.innerHTML = `
+                                    <td style="text-align: center; color: var(--text-secondary);">${item.datetime}</td>
+                                    <td style="text-align: center; font-weight: bold; color: var(--accent-cyan);">${item.code}</td>
+                                    <td style="text-align: right; font-weight: bold;">${(item.tick_close || 0).toLocaleString()}</td>
+                                    <td style="text-align: right; font-weight: bold;">${(item.min3_close || 0).toLocaleString()}</td>
+                                    <td style="text-align: right; color: var(--text-secondary);">${(item.volume || 0).toLocaleString()}</td>
+                                `;
+                                recentTbody.appendChild(row);
                             });
                         }
                     }
@@ -3966,7 +3985,8 @@ HTML_CONTENT = """
                 <button onclick="document.getElementById('dbSummaryModal').style.display='none'" style="background: none; border: none; color: var(--text-secondary); font-size: 20px; cursor: pointer;">&times;</button>
             </div>
             <div style="padding: 20px; overflow-y: auto; flex: 1;">
-                <table class="bt-trade-table" style="width: 100%;">
+                <h4 style="margin: 0 0 10px 0; color: var(--text-primary); font-size: 14px;">📋 종목별 데이터 요약</h4>
+                <table class="bt-trade-table" style="width: 100%; margin-bottom: 20px;">
                     <thead>
                         <tr>
                             <th style="text-align: center; color: var(--accent-cyan);">종목코드</th>
@@ -3977,6 +3997,22 @@ HTML_CONTENT = """
                     </thead>
                     <tbody id="dbSummaryTbody">
                         <tr><td colspan="4" style="text-align: center; padding: 20px;">불러오는 중...</td></tr>
+                    </tbody>
+                </table>
+                
+                <h4 style="margin: 0 0 10px 0; color: var(--text-primary); font-size: 14px;">⏱️ 최근 수집된 데이터 (최대 10건)</h4>
+                <table class="bt-trade-table" style="width: 100%;">
+                    <thead>
+                        <tr>
+                            <th style="text-align: center; color: var(--accent-cyan);">일시</th>
+                            <th style="text-align: center; color: var(--accent-cyan);">종목코드</th>
+                            <th style="text-align: right; color: var(--accent-cyan);">틱 종가</th>
+                            <th style="text-align: right; color: var(--accent-cyan);">3분 종가</th>
+                            <th style="text-align: right; color: var(--accent-cyan);">거래량</th>
+                        </tr>
+                    </thead>
+                    <tbody id="dbRecentTbody">
+                        <tr><td colspan="5" style="text-align: center; padding: 20px;">불러오는 중...</td></tr>
                     </tbody>
                 </table>
             </div>

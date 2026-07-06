@@ -741,7 +741,7 @@ class AsyncDatabaseManager:
 
     async def get_db_summary(self):
         """웹 대시보드 표시용 데이터베이스 요약 정보 조회"""
-        summary = []
+        result = {"summary": [], "recent_records": []}
         try:
             if self._conn is None:
                 await self.init_database()
@@ -750,7 +750,7 @@ class AsyncDatabaseManager:
                 # 테이블 존재 여부 확인
                 await cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='stock_data'")
                 if not await cursor.fetchone():
-                    return []
+                    return result
                 
                 await cursor.execute('''
                     SELECT code, COUNT(*) as row_count, MIN(datetime) as min_dt, MAX(datetime) as max_dt
@@ -760,12 +760,30 @@ class AsyncDatabaseManager:
                 ''')
                 rows = await cursor.fetchall()
                 for row in rows:
-                    summary.append({
+                    result["summary"].append({
                         "code": row[0],
                         "row_count": row[1],
                         "start_date": row[2],
                         "end_date": row[3]
                     })
+                
+                # 최근 10개 레코드 조회
+                await cursor.execute('''
+                    SELECT code, datetime, tick_close, min3_close, tick_volume
+                    FROM stock_data
+                    ORDER BY datetime DESC
+                    LIMIT 10
+                ''')
+                recent_rows = await cursor.fetchall()
+                for row in recent_rows:
+                    result["recent_records"].append({
+                        "code": row[0],
+                        "datetime": row[1],
+                        "tick_close": row[2],
+                        "min3_close": row[3],
+                        "volume": row[4]
+                    })
+                    
         except Exception as e:
             self.logger.error(f"DB 요약 조회 실패: {e}")
-        return summary
+        return result
