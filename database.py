@@ -111,8 +111,21 @@ class AsyncDatabaseManager:
                     # 레거시 system_config 테이블이 남아있다면 앱 구동 시 자동 삭제
                     await cursor.execute("DROP TABLE IF EXISTS system_config")
 
+                    # 레거시 tic_ 컬럼 정리 (sqlite 3.35.0 이상 지원)
+                    await cursor.execute("PRAGMA table_info(stock_data)")
+                    columns_info = await cursor.fetchall()
+                    legacy_cols = [row[1] for row in columns_info if row[1].startswith('tic_') and not row[1].startswith('tick_')]
+                    if legacy_cols:
+                        self.logger.info(f"🧹 레거시 tic_ 컬럼 발견, 정리를 시도합니다: {legacy_cols}")
+                        for col in legacy_cols:
+                            try:
+                                await cursor.execute(f"ALTER TABLE stock_data DROP COLUMN {col}")
+                                self.logger.info(f"🗑️ 레거시 컬럼 삭제 완료: {col}")
+                            except Exception as e:
+                                self.logger.warning(f"⚠️ 레거시 컬럼 {col} 삭제 실패 (SQLite 구버전일 수 있음): {e}")
+
                     # commit은 isolation_level=None이면 자동으로 처리됨
-                    self.logger.debug("✅ 데이터베이스 초기화 완료 (레거시 테이블 정리 포함)")
+                    self.logger.debug("✅ 데이터베이스 초기화 완료 (레거시 테이블/컬럼 정리 포함)")
                 
                 # 성공하면 루프 종료
                 break
@@ -767,7 +780,7 @@ class AsyncDatabaseManager:
                         "end_date": row[3]
                     })
                 
-                # 최근 10개 레코드 조회 (모든 컬럼 포함)
+                # 최근 10개 레코드 조회 (모든 컬럼 포함하되 레거시는 제외)
                 await cursor.execute('''
                     SELECT *
                     FROM stock_data
@@ -778,7 +791,9 @@ class AsyncDatabaseManager:
                 recent_rows = await cursor.fetchall()
                 for row in recent_rows:
                     record_dict = dict(zip(columns, row))
-                    result["recent_records"].append(record_dict)
+                    # 레거시 tic_ 컬럼들은 결과에서 제거 (tick_ 로 대체됨)
+                    filtered_dict = {k: v for k, v in record_dict.items() if not (k.startswith('tic_') and not k.startswith('tick_'))}
+                    result["recent_records"].append(filtered_dict)
                     
         except Exception as e:
             self.logger.error(f"DB 요약 조회 실패: {e}")
