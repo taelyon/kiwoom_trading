@@ -1334,6 +1334,8 @@ HTML_CONTENT = """
                         <span class="slider mode-slider"></span>
                     </label>
                 </div>
+                <!-- 시스템 재시작 버튼 -->
+                <button class="btn-primary" onclick="restartSystem()" style="background-color: var(--accent-pink); padding: 4px 10px; font-size: 11px; margin-right: 8px; border-radius: 6px; box-shadow: 0 0 8px rgba(255, 64, 129, 0.3); border: none; cursor: pointer; color: white; white-space: nowrap;">🔄 앱 재시작</button>
                 <!-- 연결 상태 표시 -->
                 <div id="connectionStatus" class="status-badge">
                     <span style="width: 8px; height: 8px; border-radius: 50%; background-color: var(--success); box-shadow: 0 0 8px var(--success);"></span>
@@ -3081,6 +3083,14 @@ HTML_CONTENT = """
         }
 
         // 자동매매 스위치 제어
+        function restartSystem() {
+            if(confirm("정말 앱을 재시작하시겠습니까?\n\n(프로그램이 강제 종료된 후 NAS Docker에 의해 즉시 자동 재부팅됩니다. 약 10~20초 뒤 화면이 새로고침 됩니다.)")) {
+                ws.send(JSON.stringify({ type: 'restart_system' }));
+                alert("재시작 명령이 전송되었습니다. 잠시 후 자동으로 새로고침됩니다.");
+                setTimeout(() => location.reload(), 15000);
+            }
+        }
+
         function toggleAutoTrading(checked) {
             ws.send(jsonStr({
                 type: "toggle_auto_trading",
@@ -4399,6 +4409,16 @@ async def websocket_handler(websocket):
                         logging.warning("🚨 대시보드 긴급 제어: 전량 매도 청산(Safe Out) 실행")
                         create_fire_and_forget_task(app.trading_manager.sell_all_item(is_auto=False))
 
+                elif msg_type == 'restart_system':
+                    logging.warning("🚨 대시보드 제어: 시스템 강제 재시작 요청 수신 (Docker 재부팅)")
+                    
+                    async def delayed_exit():
+                        await asyncio.sleep(1)
+                        import os
+                        os._exit(0)
+                        
+                    create_fire_and_forget_task(delayed_exit())
+                    
                 elif msg_type == 'reset_trade_history':
                     logging.warning("🚨 대시보드 제어: 로컬 DB 매매내역 초기화 요청 수신")
                     if app.trader and app.trader.db_manager:
