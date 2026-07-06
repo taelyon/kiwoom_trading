@@ -738,3 +738,34 @@ class AsyncDatabaseManager:
             self.logger.error(f"매도 로직 이력 복구 실패 ({code}): {e}")
             
         return executed_strategies
+
+    async def get_db_summary(self):
+        """웹 대시보드 표시용 데이터베이스 요약 정보 조회"""
+        summary = []
+        try:
+            if self._conn is None:
+                await self.init_database()
+            async with self._db_lock:
+                cursor = await self._conn.cursor()
+                # 테이블 존재 여부 확인
+                await cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='stock_data'")
+                if not await cursor.fetchone():
+                    return []
+                
+                await cursor.execute('''
+                    SELECT code, COUNT(*) as row_count, MIN(datetime) as min_dt, MAX(datetime) as max_dt
+                    FROM stock_data
+                    GROUP BY code
+                    ORDER BY max_dt DESC
+                ''')
+                rows = await cursor.fetchall()
+                for row in rows:
+                    summary.append({
+                        "code": row[0],
+                        "row_count": row[1],
+                        "start_date": row[2],
+                        "end_date": row[3]
+                    })
+        except Exception as e:
+            self.logger.error(f"DB 요약 조회 실패: {e}")
+        return summary

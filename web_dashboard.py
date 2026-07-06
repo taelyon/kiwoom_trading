@@ -1603,7 +1603,10 @@ HTML_CONTENT = """
 
                         <div style="margin-top: 16px;">
                             <button id="btnRunBacktest" class="btn-primary" style="width: 100%; padding: 14px; font-size: 15px; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 8px; box-shadow: 0 4px 16px rgba(0, 242, 254, 0.2);" onclick="toggleBacktest()">🚀 백테스트 실행</button>
-                            <button id="btnClearDB" class="btn-danger" style="width: 100%; padding: 14px; font-size: 15px; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 8px; margin-top: 10px;" onclick="confirmClearStockData()">🗑️ 데이터베이스 초기화</button>
+                            <div style="display: flex; gap: 10px; margin-top: 10px;">
+                                <button id="btnViewDB" class="btn-primary" style="flex: 1; padding: 14px; font-size: 14px; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 8px; background-color: var(--card-bg); border: 1px solid var(--border-color); color: white;" onclick="showDbSummaryModal()">👀 DB 보기</button>
+                                <button id="btnClearDB" class="btn-danger" style="flex: 1; padding: 14px; font-size: 14px; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 8px;" onclick="confirmClearStockData()">🗑️ DB 초기화</button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -2235,6 +2238,25 @@ HTML_CONTENT = """
                         `;
                         tbody.appendChild(row);
                     });
+                } else if (data.type === 'db_summary_result') {
+                    const tbody = document.getElementById('dbSummaryTbody');
+                    if (tbody) {
+                        tbody.innerHTML = '';
+                        if (!data.summary || data.summary.length === 0) {
+                            tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 20px;">저장된 데이터가 없습니다.</td></tr>';
+                        } else {
+                            data.summary.forEach(item => {
+                                const row = document.createElement('tr');
+                                row.innerHTML = `
+                                    <td style="text-align: center; font-weight: bold; color: var(--accent-cyan);">${item.code}</td>
+                                    <td style="text-align: right; font-weight: bold;">${Number(item.row_count).toLocaleString()}개</td>
+                                    <td style="text-align: center; color: var(--text-secondary);">${item.start_date}</td>
+                                    <td style="text-align: center; color: var(--text-secondary);">${item.end_date}</td>
+                                `;
+                                tbody.appendChild(row);
+                            });
+                        }
+                    }
                 } else if (data.type === 'kiwoom_history_data') {
                     const thead = document.getElementById('tradeHistoryHead');
                     if (thead) {
@@ -3603,6 +3625,12 @@ HTML_CONTENT = """
         }
 
         // 주식 데이터(stock_data) 초기화 확인창
+        function showDbSummaryModal() {
+            document.getElementById('dbSummaryModal').style.display = 'flex';
+            document.getElementById('dbSummaryTbody').innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 20px;">불러오는 중...</td></tr>';
+            ws.send(JSON.stringify({ type: 'get_db_summary' }));
+        }
+
         function confirmClearStockData() {
             if (confirm("⚠️ 주의: 데이터베이스의 모든 종목 데이터(stock_data)가 삭제됩니다.\\n이 작업은 되돌릴 수 없습니다.\\n\\n정말 초기화하시겠습니까?")) {
                 ws.send(jsonStr({ type: "reset_stock_data" }));
@@ -3929,6 +3957,31 @@ HTML_CONTENT = """
             document.getElementById('btStartDate').value = fmt(lastWeek);
         });
     </script>
+    
+    <!-- 데이터베이스 보기 모달 -->
+    <div id="dbSummaryModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 10000; align-items: center; justify-content: center; backdrop-filter: blur(5px);">
+        <div style="background: var(--bg-dark); border: 1px solid var(--border-color); border-radius: 12px; width: 80%; max-width: 800px; max-height: 80%; display: flex; flex-direction: column; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+            <div style="padding: 16px 20px; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center;">
+                <h3 style="margin: 0; color: var(--text-primary); font-size: 16px;">📊 데이터베이스 (stock_data.db) 요약</h3>
+                <button onclick="document.getElementById('dbSummaryModal').style.display='none'" style="background: none; border: none; color: var(--text-secondary); font-size: 20px; cursor: pointer;">&times;</button>
+            </div>
+            <div style="padding: 20px; overflow-y: auto; flex: 1;">
+                <table class="bt-trade-table" style="width: 100%;">
+                    <thead>
+                        <tr>
+                            <th style="text-align: center; color: var(--accent-cyan);">종목코드</th>
+                            <th style="text-align: right; color: var(--accent-cyan);">데이터(Row) 수</th>
+                            <th style="text-align: center; color: var(--accent-cyan);">시작 일시</th>
+                            <th style="text-align: center; color: var(--accent-cyan);">마지막 일시</th>
+                        </tr>
+                    </thead>
+                    <tbody id="dbSummaryTbody">
+                        <tr><td colspan="4" style="text-align: center; padding: 20px;">불러오는 중...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
 </body>
 </html>
 """
@@ -4425,6 +4478,18 @@ async def websocket_handler(websocket):
                         create_fire_and_forget_task(app.trader.db_manager.clear_trade_records())
                     else:
                         logging.error("❌ db_manager를 찾을 수 없어 매매내역 리셋 실패.")
+                        
+                elif msg_type == 'get_db_summary':
+                    if app.trader and app.trader.db_manager:
+                        async def send_summary():
+                            summary = await app.trader.db_manager.get_db_summary()
+                            await safe_send(websocket, json.dumps({
+                                "type": "db_summary_result",
+                                "summary": summary
+                            }))
+                        create_fire_and_forget_task(send_summary())
+                    else:
+                        logging.error("❌ db_manager를 찾을 수 없어 요약 정보를 조회할 수 없습니다.")
                         
                 elif msg_type == 'reset_stock_data':
                     logging.warning("🚨 대시보드 제어: 로컬 DB 주식 데이터(stock_data) 및 캐시 초기화 요청 수신")
