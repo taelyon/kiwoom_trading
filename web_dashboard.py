@@ -2258,21 +2258,56 @@ HTML_CONTENT = """
                             });
                         }
                     }
-                    if (recentTbody) {
+                    const recentThead = document.getElementById('dbRecentThead');
+                    if (recentTbody && recentThead) {
                         recentTbody.innerHTML = '';
+                        recentThead.innerHTML = '';
                         if (!data.summary || !data.summary.recent_records || data.summary.recent_records.length === 0) {
-                            recentTbody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 20px;">저장된 데이터가 없습니다.</td></tr>';
+                            recentTbody.innerHTML = '<tr><td style="text-align: center; padding: 20px;">저장된 데이터가 없습니다.</td></tr>';
                         } else {
-                            data.summary.recent_records.forEach(item => {
-                                const row = document.createElement('tr');
-                                row.innerHTML = `
-                                    <td style="text-align: center; color: var(--text-secondary);">${item.datetime}</td>
-                                    <td style="text-align: center; font-weight: bold; color: var(--accent-cyan);">${item.code}</td>
-                                    <td style="text-align: right; font-weight: bold;">${(item.tick_close || 0).toLocaleString()}</td>
-                                    <td style="text-align: right; font-weight: bold;">${(item.min3_close || 0).toLocaleString()}</td>
-                                    <td style="text-align: right; color: var(--text-secondary);">${(item.volume || 0).toLocaleString()}</td>
-                                `;
-                                recentTbody.appendChild(row);
+                            const records = data.summary.recent_records;
+                            const columns = Object.keys(records[0]);
+                            
+                            // 1. thead 생성
+                            const trHead = document.createElement('tr');
+                            columns.forEach(col => {
+                                const th = document.createElement('th');
+                                th.style.textAlign = "center";
+                                th.style.color = "var(--accent-cyan)";
+                                th.style.whiteSpace = "nowrap";
+                                th.style.padding = "10px";
+                                th.innerText = col;
+                                trHead.appendChild(th);
+                            });
+                            recentThead.appendChild(trHead);
+                            
+                            // 2. tbody 생성
+                            records.forEach(item => {
+                                const trBody = document.createElement('tr');
+                                columns.forEach(col => {
+                                    const td = document.createElement('td');
+                                    td.style.whiteSpace = "nowrap";
+                                    td.style.padding = "10px";
+                                    if (col === 'code') {
+                                        td.style.textAlign = 'center';
+                                        td.style.fontWeight = 'bold';
+                                        td.style.color = 'var(--accent-cyan)';
+                                    } else if (col === 'datetime') {
+                                        td.style.textAlign = 'center';
+                                        td.style.color = 'var(--text-secondary)';
+                                    } else {
+                                        td.style.textAlign = 'right';
+                                    }
+                                    
+                                    let val = item[col];
+                                    if (val !== null && typeof val === 'number') {
+                                        if (val % 1 !== 0) val = val.toFixed(2);
+                                        else val = val.toLocaleString();
+                                    }
+                                    td.innerText = val !== null ? val : '-';
+                                    trBody.appendChild(td);
+                                });
+                                recentTbody.appendChild(trBody);
                             });
                         }
                     }
@@ -4001,20 +4036,16 @@ HTML_CONTENT = """
                 </table>
                 
                 <h4 style="margin: 0 0 10px 0; color: var(--text-primary); font-size: 14px;">⏱️ 최근 수집된 데이터 (최대 10건)</h4>
-                <table class="bt-trade-table" style="width: 100%;">
-                    <thead>
-                        <tr>
-                            <th style="text-align: center; color: var(--accent-cyan);">일시</th>
-                            <th style="text-align: center; color: var(--accent-cyan);">종목코드</th>
-                            <th style="text-align: right; color: var(--accent-cyan);">틱 종가</th>
-                            <th style="text-align: right; color: var(--accent-cyan);">3분 종가</th>
-                            <th style="text-align: right; color: var(--accent-cyan);">거래량</th>
-                        </tr>
-                    </thead>
-                    <tbody id="dbRecentTbody">
-                        <tr><td colspan="5" style="text-align: center; padding: 20px;">불러오는 중...</td></tr>
-                    </tbody>
-                </table>
+                <div style="overflow-x: auto; width: 100%;">
+                    <table class="bt-trade-table" style="width: max-content; min-width: 100%;">
+                        <thead id="dbRecentThead">
+                            <tr><th style="text-align: center; color: var(--accent-cyan);">데이터를 불러오는 중...</th></tr>
+                        </thead>
+                        <tbody id="dbRecentTbody">
+                            <tr><td style="text-align: center; padding: 20px;">불러오는 중...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </div>

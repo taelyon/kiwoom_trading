@@ -767,22 +767,18 @@ class AsyncDatabaseManager:
                         "end_date": row[3]
                     })
                 
-                # 최근 10개 레코드 조회
+                # 최근 10개 레코드 조회 (모든 컬럼 포함)
                 await cursor.execute('''
-                    SELECT code, datetime, tick_close, min3_close, tick_volume
+                    SELECT *
                     FROM stock_data
                     ORDER BY datetime DESC
                     LIMIT 10
                 ''')
+                columns = [desc[0] for desc in cursor.description]
                 recent_rows = await cursor.fetchall()
                 for row in recent_rows:
-                    result["recent_records"].append({
-                        "code": row[0],
-                        "datetime": row[1],
-                        "tick_close": row[2],
-                        "min3_close": row[3],
-                        "volume": row[4]
-                    })
+                    record_dict = dict(zip(columns, row))
+                    result["recent_records"].append(record_dict)
                     
         except Exception as e:
             self.logger.error(f"DB 요약 조회 실패: {e}")
