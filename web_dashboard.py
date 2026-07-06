@@ -3944,7 +3944,7 @@ def get_current_status_data():
         ws_client = getattr(app.login_handler, 'websocket_client', None)
         ws_balance = getattr(ws_client, 'balance_data', {}) if ws_client else {}
         t2 = time.perf_counter()
-        logging.debug(f"📊 [성능측정] 계좌정보 로드: {t2 - t1:.4f}s")
+        # logging.debug(f"📊 [성능측정] 계좌정보 로드: {t2 - t1:.4f}s")
 
         # 2. 자산 현황 요약 계산
         total_purchase = sum(data.get('purchase_amount', 0) for data in ws_balance.values() if isinstance(data, dict))
