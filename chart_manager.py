@@ -938,14 +938,18 @@ class ChartDataCache:
                                 if not hasattr(self, '_log_data_collect'): self._log_data_collect = set()
                                 logging.info(f"⚠️ [{code}] 데이터 수집 모드 켜짐 - 오늘 치 과거 데이터를 강제 저장합니다.")
                                 self._log_data_collect.add(code)
+                            # 전체 저장을 위해 monitoring_start_time 해제
+                            save_start_time = None
                         else:
                             logging.debug(f"🔄 [{code}] 5분 주기 차트 API 데이터 교정(동기화) 완료 및 DB 덮어쓰기 완료.")
+                            # 실전 모드 교정 시에는 감시 기간 동안의 데이터만 덮어쓰도록 유지
+                            save_start_time = monitoring_start_time
                         
                         await self.trader.db_manager.save_stock_data(
                             code, 
                             tick_df.to_dict('list'), 
                             min_df.to_dict('list'),
-                            None  # 전체 저장을 위해 monitoring_start_time 해제
+                            save_start_time
                         )
                         saved_count += 1
                         logging.debug(f"✅ {code}: 과거 데이터 일괄 저장 완료")
