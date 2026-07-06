@@ -83,8 +83,8 @@ class MLTrainingWorker(threading.Thread):
             query = """
                 SELECT *
                 FROM stock_data 
-                WHERE tic_velocity IS NOT NULL 
-                  AND tic_velocity != 0
+                WHERE tick_velocity IS NOT NULL 
+                  AND tick_velocity != 0
             """
             params = []
             if self.start_date:
@@ -113,31 +113,31 @@ class MLTrainingWorker(threading.Thread):
             TARGET_MARGIN = 0.003  # 0.3% (왕복 수수료 0.21% + 최소 마진)
             
             # 종목별 shift를 사용하여 향후 1~20틱의 종가를 수집한 뒤 최고가 산출
-            future_shifts = [df.groupby('code')['tic_close'].shift(-i) for i in range(1, LOOKAHEAD + 1)]
+            future_shifts = [df.groupby('code')['tick_close'].shift(-i) for i in range(1, LOOKAHEAD + 1)]
             df['future_max'] = pd.concat(future_shifts, axis=1).max(axis=1)
             df = df.dropna(subset=['future_max']).copy()
-            df['label'] = (df['future_max'] > (df['tic_close'] * (1 + TARGET_MARGIN))).astype(int)
+            df['label'] = (df['future_max'] > (df['tick_close'] * (1 + TARGET_MARGIN))).astype(int)
             
             # 2. 비율 변환 (가격 자체는 제거)
             # 이미 RELATIVE_POSITION(이격도), STRENGTH(체결강도) 등은 비율임.
             # 추가적으로 필요한 것들 변환
             
-            # [B] tic_velocity 로그 정규화 (극단적 스케일 0~999999 해소)
-            df['tic_velocity'] = np.log1p(df['tic_velocity'])
+            # [B] tick_velocity 로그 정규화 (극단적 스케일 0~999999 해소)
+            df['tick_velocity'] = np.log1p(df['tick_velocity'])
             
             # 거래량 이동평균 비율 (Volume MA Ratio)
             # 현재 거래량 / 20봉 이동평균 거래량
-            df['vol_ma20'] = df.groupby('code')['tic_volume'].transform(lambda x: x.rolling(20, min_periods=1).mean())
-            df['tic_volume_ma_ratio'] = np.where(df['vol_ma20'] > 0, df['tic_volume'] / df['vol_ma20'], 0)
+            df['vol_ma20'] = df.groupby('code')['tick_volume'].transform(lambda x: x.rolling(20, min_periods=1).mean())
+            df['tick_volume_ma_ratio'] = np.where(df['vol_ma20'] > 0, df['tick_volume'] / df['vol_ma20'], 0)
             
             # (삭제됨) 거래 대금 가속도는 거래량 폭발력과 중복도가 높아 제거
 
             import talib
             def calc_new_indicators(g):
-                close = g['tic_close'].values
-                high = g['tic_high'].values
-                low = g['tic_low'].values
-                vol = g['tic_volume'].values
+                close = g['tick_close'].values
+                high = g['tick_high'].values
+                low = g['tick_low'].values
+                vol = g['tick_volume'].values
                 
                 # [C] Rolling VWAP Distance (누적 VWAP → 최근 60봉 Rolling VWAP로 교체)
                 # 누적 VWAP는 오후로 갈수록 둔감해져 단타에 부적합
@@ -146,30 +146,30 @@ class MLTrainingWorker(threading.Thread):
                 rolling_pv = pd.Series(typ * vol).rolling(VWAP_WINDOW, min_periods=1).sum().values
                 rolling_v = pd.Series(vol).rolling(VWAP_WINDOW, min_periods=1).sum().values
                 vwap = np.where(rolling_v > 0, rolling_pv / rolling_v, close)
-                g['tic_vwap_distance'] = np.where(vwap > 0, (close - vwap) / vwap, 0)
+                g['tick_vwap_distance'] = np.where(vwap > 0, (close - vwap) / vwap, 0)
                 
                 # (삭제됨) BB Position
                 
                 # MACD Hist
                 if len(close) >= 26:
                     _, _, h = talib.MACD(close)
-                    g['tic_macd_hist'] = pd.Series(h).fillna(0.0).values
+                    g['tick_macd_hist'] = pd.Series(h).fillna(0.0).values
                 else:
-                    g['tic_macd_hist'] = 0.0
+                    g['tick_macd_hist'] = 0.0
                     
                 # RSI 21
                 if len(close) >= 21:
-                    g['tic_rsi21'] = pd.Series(talib.RSI(close, timeperiod=21)).fillna(50.0).values
+                    g['tick_rsi21'] = pd.Series(talib.RSI(close, timeperiod=21)).fillna(50.0).values
                 else:
-                    g['tic_rsi21'] = 50.0
+                    g['tick_rsi21'] = 50.0
                     
                 # [신규] 최근 10틱 가격 변화율 (가속도)
-                g['tic_price_roc'] = g['tic_close'].pct_change(periods=10).fillna(0.0)
+                g['tick_price_roc'] = g['tick_close'].pct_change(periods=10).fillna(0.0)
                 
                 # [신규] 최근 거래량 가속도 (직전 5틱 볼륨 합계 대비 최근 5틱 볼륨 합계 비)
-                vol_sum_5 = g['tic_volume'].rolling(5).sum()
+                vol_sum_5 = g['tick_volume'].rolling(5).sum()
                 prev_vol_sum_5 = vol_sum_5.shift(5)
-                g['tic_vol_roc'] = pd.Series(np.where(prev_vol_sum_5 > 0, vol_sum_5 / prev_vol_sum_5, 1.0)).fillna(1.0).values
+                g['tick_vol_roc'] = pd.Series(np.where(prev_vol_sum_5 > 0, vol_sum_5 / prev_vol_sum_5, 1.0)).fillna(1.0).values
                     
                 return g
             
@@ -181,42 +181,42 @@ class MLTrainingWorker(threading.Thread):
             df['time_of_day_minute'] = (parsed_time.dt.hour * 60 + parsed_time.dt.minute) - (9 * 60)
             df['time_of_day_minute'] = df['time_of_day_minute'].clip(lower=0, upper=390)
             
-            # [신규 피처] 순간 체결강도 (tic_buy_sell_ratio)
+            # [신규 피처] 순간 체결강도 (tick_buy_sell_ratio)
             # 과거 데이터에는 buy_volume이 없을 수 있으므로 예외처리
-            if 'tic_buy_volume' not in df.columns:
-                df['tic_buy_volume'] = 0
-            df['tic_buy_sell_ratio'] = np.where(df['tic_volume'] > 0, df['tic_buy_volume'] / df['tic_volume'], 0.5)
+            if 'tick_buy_volume' not in df.columns:
+                df['tick_buy_volume'] = 0
+            df['tick_buy_sell_ratio'] = np.where(df['tick_volume'] > 0, df['tick_buy_volume'] / df['tick_volume'], 0.5)
             
             # (삭제됨) 3분봉 추세 동조화는 이진값 노이즈로 작용하여 제거
             
             # [신규 피처] 2. 이동평균선 정배열 척도 (MA Ribbon Distance)
             # 단기 이평(MA5)과 장기 이평(MA20) 간의 간격 비율
-            df['tic_ma_spread'] = np.where(df['tic_ma20'] > 0, (df['tic_ma5'] - df['tic_ma20']) / df['tic_ma20'], 0)
+            df['tick_ma_spread'] = np.where(df['tick_ma20'] > 0, (df['tick_ma5'] - df['tick_ma20']) / df['tick_ma20'], 0)
             
-            df['tic_tail_ratio'] = np.where((df['tic_high'] - df['tic_low']) > 0, (df['tic_high'] - df['tic_close']) / (df['tic_high'] - df['tic_low']), 0)
+            df['tick_tail_ratio'] = np.where((df['tick_high'] - df['tick_low']) > 0, (df['tick_high'] - df['tick_close']) / (df['tick_high'] - df['tick_low']), 0)
             
-            # [신규 피처] 5. 봉 내 가격 변동폭 비율 (tic_spread)
-            df['tic_spread'] = np.where(df['tic_close'] > 0, (df['tic_high'] - df['tic_low']) / df['tic_close'], 0)
+            # [신규 피처] 5. 봉 내 가격 변동폭 비율 (tick_spread)
+            df['tick_spread'] = np.where(df['tick_close'] > 0, (df['tick_high'] - df['tick_low']) / df['tick_close'], 0)
             
             # Feature 목록 정의
             base_features = [
-                'tic_strength', 
-                'tic_velocity', 
+                'tick_strength', 
+                'tick_velocity', 
                 'min3_relative_position',
-                'tic_volume_ma_ratio'
+                'tick_volume_ma_ratio'
             ]
             
             new_features = [
-                'tic_vwap_distance',
-                'tic_macd_hist',
-                'tic_rsi21',
+                'tick_vwap_distance',
+                'tick_macd_hist',
+                'tick_rsi21',
                 'time_of_day_minute',
-                'tic_price_roc',      # 가격 상승 가속도
-                'tic_vol_roc',        # 거래량 폭발 가속도
-                'tic_ma_spread',      # [추가] 이평선 정배열 척도
-                'tic_tail_ratio',     # [추가] 캔들 윗꼬리 비율
-                'tic_buy_sell_ratio', # [추가] 순간 체결강도
-                'tic_spread'          # [추가] 봉 내 가격 변동폭 비율
+                'tick_price_roc',      # 가격 상승 가속도
+                'tick_vol_roc',        # 거래량 폭발 가속도
+                'tick_ma_spread',      # [추가] 이평선 정배열 척도
+                'tick_tail_ratio',     # [추가] 캔들 윗꼬리 비율
+                'tick_buy_sell_ratio', # [추가] 순간 체결강도
+                'tick_spread'          # [추가] 봉 내 가격 변동폭 비율
             ]
             
             features = base_features + new_features

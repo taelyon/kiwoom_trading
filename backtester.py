@@ -151,8 +151,8 @@ class Backtester:
                 
                 # 1. 컬럼명 일괄 변경
                 group_df = group_df.rename(columns={
-                    'tic_open': 'open', 'tic_high': 'high', 'tic_low': 'low', 
-                    'tic_close': 'close', 'tic_volume': 'volume'
+                    'tick_open': 'open', 'tick_high': 'high', 'tick_low': 'low', 
+                    'tick_close': 'close', 'tick_volume': 'volume'
                 })
                 
                 # 1.5 3분봉 데이터 존재 확인
@@ -174,9 +174,9 @@ class Backtester:
                         
                 # 2. DB 지표를 엔진 변수명으로 매핑 (재계산 방지)
                 try:
-                    # 틱 지표 및 분봉 지표 매핑 (tic_ma5 -> MA5, min3_rsi -> MIN3_RSI 등)
+                    # 틱 지표 및 분봉 지표 매핑 (tick_ma5 -> MA5, min3_rsi -> MIN3_RSI 등)
                     for col in group_df.columns:
-                        if col.startswith('tic_'):
+                        if col.startswith('tick_'):
                             upper_name = col[4:].upper()
                             group_df[upper_name] = group_df[col]
                         elif col.startswith('min3_'):
@@ -184,10 +184,10 @@ class Backtester:
                             group_df[upper_name] = group_df[col]
                             
                     # 특수 지표 변수명 명시적 매핑
-                    if 'tic_velocity' in group_df.columns:
-                        group_df['TICK_VELOCITY'] = group_df['tic_velocity']
-                    if 'tic_relative_position' in group_df.columns:
-                        group_df['RELATIVE_POSITION'] = group_df['tic_relative_position']
+                    if 'tick_velocity' in group_df.columns:
+                        group_df['TICK_VELOCITY'] = group_df['tick_velocity']
+                    if 'tick_relative_position' in group_df.columns:
+                        group_df['RELATIVE_POSITION'] = group_df['tick_relative_position']
                 except Exception as e:
                     logger.error(f"지표 매핑 오류 ({current_code}): {e}")
                 
@@ -197,7 +197,7 @@ class Backtester:
                 # 3. AI_SCORE 배치 계산
                 if uses_ai and LGBM_MODEL:
                     try:
-                        f_strength = group_df['tic_strength'].values if 'tic_strength' in group_df.columns else np.zeros(n)
+                        f_strength = group_df['tick_strength'].values if 'tick_strength' in group_df.columns else np.zeros(n)
                         f_velocity = group_df['TICK_VELOCITY'].values if 'TICK_VELOCITY' in group_df.columns else np.full(n, 999999.0)
                         f_relative = group_df['RELATIVE_POSITION'].values if 'RELATIVE_POSITION' in group_df.columns else np.zeros(n)
                         
@@ -244,9 +244,9 @@ class Backtester:
                                 
                             if 'MA5' in group_df.columns and 'MA20' in group_df.columns:
                                 ma20_safe = np.where(group_df['MA20'] == 0, 1e-9, group_df['MA20'])
-                                f_tic_ma_spread = ((group_df['MA5'] - group_df['MA20']) / ma20_safe).fillna(0.0).values
+                                f_tick_ma_spread = ((group_df['MA5'] - group_df['MA20']) / ma20_safe).fillna(0.0).values
                             else:
-                                f_tic_ma_spread = np.zeros(n)
+                                f_tick_ma_spread = np.zeros(n)
                                 
                             if 'close' in group_df.columns and 'volume' in group_df.columns:
                                 amount = group_df['close'] * group_df['volume']
@@ -272,7 +272,7 @@ class Backtester:
                                 f_strength, f_velocity, f_relative, f_ma_ratio,
                                 f_vwap_dist, f_macd_hist, f_rsi, f_time,
                                 f_price_roc, f_vol_roc,
-                                f_tic_ma_spread, f_tic_tail_ratio, f_buy_sell_ratio, f_spread
+                                f_tick_ma_spread, f_tic_tail_ratio, f_buy_sell_ratio, f_spread
                             ))
                         elif num_features == 10:
                             mat = np.column_stack((
@@ -392,8 +392,8 @@ class Backtester:
                             if col_name.startswith('min3_') and keep_indices is not None:
                                 arr_slice = arr_slice[keep_indices]
                             base_locals_dict[col_name] = arr_slice
-                            if not col_name.startswith('tic_') and not col_name.startswith('min3_'):
-                                base_locals_dict[f'tic_{col_name}'] = arr_slice
+                            if not col_name.startswith('tick_') and not col_name.startswith('min3_'):
+                                base_locals_dict[f'tick_{col_name}'] = arr_slice
                                 
                         if 'AI_SCORE' in sd['precomputed']:
                             base_locals_dict['AI_SCORE'] = float(sd['precomputed']['AI_SCORE'][idx])
@@ -549,8 +549,8 @@ class Backtester:
                                         arr_slice = arr_slice[keep_indices]
                                         
                                     locals_dict[col_name] = arr_slice
-                                    if not col_name.startswith('tic_') and not col_name.startswith('min3_'):
-                                        locals_dict[f'tic_{col_name}'] = arr_slice
+                                    if not col_name.startswith('tick_') and not col_name.startswith('min3_'):
+                                        locals_dict[f'tick_{col_name}'] = arr_slice
                                         
                                 if 'AI_SCORE' in sd['precomputed']:
                                     locals_dict['AI_SCORE'] = float(sd['precomputed']['AI_SCORE'][idx])
@@ -676,9 +676,9 @@ class Backtester:
                 if 'min3_close' in df_bnh.columns:
                     close_col = 'min3_close'
                     vol_col = 'min3_volume' if 'min3_volume' in df_bnh.columns else 'volume'
-                elif 'tic_close' in df_bnh.columns:
-                    close_col = 'tic_close'
-                    vol_col = 'tic_volume' if 'tic_volume' in df_bnh.columns else 'volume'
+                elif 'tick_close' in df_bnh.columns:
+                    close_col = 'tick_close'
+                    vol_col = 'tick_volume' if 'tick_volume' in df_bnh.columns else 'volume'
                 else:
                     close_col = 'close'
                     vol_col = 'volume'

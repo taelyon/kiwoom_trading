@@ -1222,10 +1222,10 @@ class TradingManager:
                     # 1순위: 캐시에서 현재가 조회
                     if chart_cache:
                         cached_data = chart_cache.get_cached_data(code)
-                        if cached_data and cached_data.get('tic_data'):
-                            tic_data = cached_data['tic_data']
-                            if tic_data.get('close') and len(tic_data['close']) > 0:
-                                current_price = float(tic_data['close'][-1])
+                        if cached_data and cached_data.get('tick_data'):
+                            tick_data = cached_data['tick_data']
+                            if tick_data.get('close') and len(tick_data['close']) > 0:
+                                current_price = float(tick_data['close'][-1])
                                 price_source = "캐시"
                     
                     # 2순위: REST API 현재가 조회

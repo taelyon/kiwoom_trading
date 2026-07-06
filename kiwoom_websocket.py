@@ -1567,7 +1567,7 @@ class KiwoomWebSocketClient:
         except Exception as e:
             self.logger.error(f"실시간 호가 데이터 처리 실패: {e}", exc_info=True)
 
-    def _update_tic_chart_with_realtime(self, stock_code, cached_data, realtime_data):
+    def _update_tick_chart_with_realtime(self, stock_code, cached_data, realtime_data):
         """틱 차트에 실시간 데이터 추가 (30틱 = 1봉) - 통합된 함수"""
         is_new_candle = False
         try:
@@ -1576,21 +1576,21 @@ class KiwoomWebSocketClient:
                 logging.debug(f"⚠️ 틱 차트 업데이트 건너뜀: {stock_code} (캐시 데이터 없음)")
                 return False
             
-            tic_data = cached_data.get('tic_data', {})
-            if not tic_data:
+            tick_data = cached_data.get('tick_data', {})
+            if not tick_data:
                 logging.debug(f"⚠️ 틱 차트 업데이트 건너뜀: {stock_code} (틱 데이터 없음)")
                 return False
             
             required_keys = ['time', 'open', 'high', 'low', 'close', 'volume', 'buy_volume', 'sell_volume', 
                              'strength', 'TICK_VELOCITY', 'LAST_TIC_CNT']
-            current_len = len(tic_data.get('close', []))
+            current_len = len(tick_data.get('close', []))
             for key in required_keys:
-                if key not in tic_data:
-                    tic_data[key] = []
+                if key not in tick_data:
+                    tick_data[key] = []
                 # 기존 데이터 길이와 맞추기 (특히 buy_volume, sell_volume이 나중에 추가된 경우)
-                if len(tic_data[key]) < current_len:
+                if len(tick_data[key]) < current_len:
                     # 숫자형 데이터는 0으로 채우기
-                    tic_data[key].extend([0.0] * (current_len - len(tic_data[key])))
+                    tick_data[key].extend([0.0] * (current_len - len(tick_data[key])))
 
             # 실시간 지표 가져오기
             realtime_metrics = cached_data.get('realtime_metrics', {})
@@ -1634,8 +1634,8 @@ class KiwoomWebSocketClient:
             
             # API 조회의 마지막 틱 개수 확인
             # LAST_TIC_CNT 리스트의 마지막 값을 가져오거나 없으면 0
-            if 'LAST_TIC_CNT' in tic_data and len(tic_data['LAST_TIC_CNT']) > 0:
-                last_tic_cnt = tic_data['LAST_TIC_CNT'][-1]
+            if 'LAST_TIC_CNT' in tick_data and len(tick_data['LAST_TIC_CNT']) > 0:
+                last_tic_cnt = tick_data['LAST_TIC_CNT'][-1]
             else:
                 last_tic_cnt = 0
             
@@ -1646,35 +1646,35 @@ class KiwoomWebSocketClient:
                 last_tic_cnt = 0
             
             # 기존 봉이 없는 경우 (초기 상태) 또는 60틱이 찬 경우 (새 봉 생성)
-            if len(tic_data.get('close', [])) == 0 or last_tic_cnt >= 60:
+            if len(tick_data.get('close', [])) == 0 or last_tic_cnt >= 60:
                 is_new_candle = True
                 # 새 봉 생성
-                tic_data['time'].append(dt) # type: ignore
-                tic_data['open'].append(current_price)
-                tic_data['high'].append(current_price)
-                tic_data['low'].append(current_price)
-                tic_data['close'].append(current_price)
-                tic_data['volume'].append(volume)
+                tick_data['time'].append(dt) # type: ignore
+                tick_data['open'].append(current_price)
+                tick_data['high'].append(current_price)
+                tick_data['low'].append(current_price)
+                tick_data['close'].append(current_price)
+                tick_data['volume'].append(volume)
                 
                 # 순간 체결강도 보조 데이터
                 cur_buy_vol = volume if is_buy else 0
                 cur_sell_vol = volume if not is_buy else 0
-                tic_data['buy_volume'].append(cur_buy_vol)
-                tic_data['sell_volume'].append(cur_sell_vol)
+                tick_data['buy_volume'].append(cur_buy_vol)
+                tick_data['sell_volume'].append(cur_sell_vol)
                 
                 # 누적 체결강도(FID 228) 기록 복구 (0일 경우 이전 봉의 마지막 값 계승)
                 if strength_cumulative > 0:
-                    tic_data['strength'].append(strength_cumulative)
+                    tick_data['strength'].append(strength_cumulative)
                 else:
-                    prev_strength = tic_data['strength'][-1] if len(tic_data.get('strength', [])) > 0 else 0.0
-                    tic_data['strength'].append(prev_strength)
+                    prev_strength = tick_data['strength'][-1] if len(tick_data.get('strength', [])) > 0 else 0.0
+                    tick_data['strength'].append(prev_strength)
                     
                 # ML 학습용 데이터 저장
-                tic_data['TICK_VELOCITY'].append(tick_velocity)
-                # 삭제됨: tic_data['ORDER_BOOK_IMBALANCE'].append(order_book_imbalance)
-                tic_data['LAST_TIC_CNT'].append(1)
+                tick_data['TICK_VELOCITY'].append(tick_velocity)
+                # 삭제됨: tick_data['ORDER_BOOK_IMBALANCE'].append(order_book_imbalance)
+                tick_data['LAST_TIC_CNT'].append(1)
                 
-                if len(tic_data.get('close', [])) == 1:
+                if len(tick_data.get('close', [])) == 1:
                     self.logger.info(f"🎯 [{stock_code}] 첫 번째 60틱봉 시작 | 현재가: {current_price:,}원")
                 else:
                     self.logger.debug(f"🎼 새로운 60틱봉 생성: {stock_code}")
@@ -1684,50 +1684,50 @@ class KiwoomWebSocketClient:
                 last_index = -1
                 
                 # 종가 업데이트
-                tic_data['close'][last_index] = current_price
+                tick_data['close'][last_index] = current_price
                 
                 # 고가 업데이트 (현재가가 더 높으면)
-                if tic_data['high'][last_index] < current_price:
-                    tic_data['high'][last_index] = current_price
+                if tick_data['high'][last_index] < current_price:
+                    tick_data['high'][last_index] = current_price
                 
                 # 저가 업데이트 (현재가가 더 낮으면)
-                if tic_data['low'][last_index] > current_price:
-                    tic_data['low'][last_index] = current_price
+                if tick_data['low'][last_index] > current_price:
+                    tick_data['low'][last_index] = current_price
                 
                 # 거래량 누적
-                tic_data['volume'][last_index] += volume
+                tick_data['volume'][last_index] += volume
                 
                 # 매수/매도 거래량 누적 (순간 체결강도 보조 데이터)
                 cur_buy_vol = volume if is_buy else 0
                 cur_sell_vol = volume if not is_buy else 0
-                tic_data['buy_volume'][last_index] += cur_buy_vol
-                tic_data['sell_volume'][last_index] += cur_sell_vol
+                tick_data['buy_volume'][last_index] += cur_buy_vol
+                tick_data['sell_volume'][last_index] += cur_sell_vol
                 
                 # 누적 체결강도 업데이트 (API에서 0으로 올 경우 덮어쓰기 방지)
-                if 'strength' in tic_data and strength_cumulative > 0:
-                    tic_data['strength'][last_index] = strength_cumulative
+                if 'strength' in tick_data and strength_cumulative > 0:
+                    tick_data['strength'][last_index] = strength_cumulative
                 # ML 학습용 데이터 업데이트 (최신값으로 덮어쓰기)
-                if 'TICK_VELOCITY' in tic_data:
-                    tic_data['TICK_VELOCITY'][last_index] = tick_velocity
+                if 'TICK_VELOCITY' in tick_data:
+                    tick_data['TICK_VELOCITY'][last_index] = tick_velocity
                 # 삭제됨: ORDER_BOOK_IMBALANCE 업데이트
 
-                if 'LAST_TIC_CNT' in tic_data:
+                if 'LAST_TIC_CNT' in tick_data:
                      new_cnt = last_tic_cnt + 1
-                     tic_data['LAST_TIC_CNT'][last_index] = new_cnt
+                     tick_data['LAST_TIC_CNT'][last_index] = new_cnt
                      
                      # 방금 틱으로 60틱봉이 딱 완성된 순간 로그 출력
                      if new_cnt == 60:
-                         cur_b = tic_data['buy_volume'][last_index] if len(tic_data.get('buy_volume', [])) > 0 else 0
-                         cur_s = tic_data['sell_volume'][last_index] if len(tic_data.get('sell_volume', [])) > 0 else 0
-                         cur_str = tic_data['strength'][last_index] if len(tic_data.get('strength', [])) > 0 else 0
+                         cur_b = tick_data['buy_volume'][last_index] if len(tick_data.get('buy_volume', [])) > 0 else 0
+                         cur_s = tick_data['sell_volume'][last_index] if len(tick_data.get('sell_volume', [])) > 0 else 0
+                         cur_str = tick_data['strength'][last_index] if len(tick_data.get('strength', [])) > 0 else 0
                          ratio = (cur_b / (cur_b + cur_s) * 100) if (cur_b + cur_s) > 0 else 50.0
                          self.logger.debug(f"🎼 [{stock_code}] 60틱봉 완성 | 현재가:{current_price:,}원 | 매수:{cur_b} vs 매도:{cur_s} (순간매수비율 {ratio:.1f}%) | 체결강도:{cur_str:.1f}%")
 
                 # 최대 데이터 수 제한
                 max_data = 1500
                 for key in ['time', 'open', 'high', 'low', 'close', 'volume', 'buy_volume', 'sell_volume', 'strength', 'TICK_VELOCITY', 'LAST_TIC_CNT']:
-                    if key in tic_data and len(tic_data[key]) > max_data:
-                        tic_data[key] = tic_data[key][-max_data:]
+                    if key in tick_data and len(tick_data[key]) > max_data:
+                        tick_data[key] = tick_data[key][-max_data:]
                 
             return is_new_candle
                         
@@ -1852,13 +1852,13 @@ class KiwoomWebSocketClient:
         except Exception as e:
             self.logger.error(f"분봉 데이터 로그 표시 실패: {e}", exc_info=True)
     
-    def _log_last_tic_bar_data(self, stock_code, tic_data, bar_index):
+    def _log_last_tic_bar_data(self, stock_code, tick_data, bar_index):
         """마지막 틱 봉 데이터를 로그에 표시"""
         try:
-            if 'tic_bars' not in tic_data or not tic_data:
+            if 'tick_bars' not in tick_data or not tick_data:
                 return
             
-            bars = tic_data
+            bars = tick_data
             if not bars.get('time') or len(bars['time']) == 0:
                 return
             

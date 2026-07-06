@@ -18,7 +18,7 @@ class ChartDataCache:
             self.logger = logging.getLogger(self.__class__.__name__)
             self.trader = trader            
             self.parent = parent  # TradingApp 객체 저장
-            self.cache = {}  # {종목코드: {'tic_data': {}, 'min_data': {}, 'last_update': datetime}}
+            self.cache = {}  # {종목코드: {'tick_data': {}, 'min_data': {}, 'last_update': datetime}}
             self.api_request_count = 0  # API 요청 카운터
             self.last_api_request_time = 0  # 마지막 API 요청 시간
             
@@ -186,9 +186,9 @@ class ChartDataCache:
             
             # 비동기로 틱 데이터와 분봉 데이터 수집 (순차적으로 수집하여 API 429 에러 완전 방지)
             try:
-                tic_data = await self._collect_tic_data_async(code, max_retries)
+                tick_data = await self._collect_tick_data_async(code, max_retries)
             except Exception as e:
-                tic_data = e
+                tick_data = e
                 
             # API 보호를 위해 잠시 대기
             await asyncio.sleep(0.5)
@@ -199,16 +199,16 @@ class ChartDataCache:
                 min_data = e
             
             # 예외 처리
-            if isinstance(tic_data, Exception):
-                self.logger.error(f"틱 데이터 수집 실패: {tic_data}")
-                tic_data = None
+            if isinstance(tick_data, Exception):
+                self.logger.error(f"틱 데이터 수집 실패: {tick_data}")
+                tick_data = None
             if isinstance(min_data, Exception):
                 self.logger.error(f"분봉 데이터 수집 실패: {min_data}")
                 min_data = None
             
             # 틱 데이터가 None인 경우 빈 딕셔너리로 초기화
-            if tic_data is None:
-                tic_data = {'time': [], 'open': [], 'high': [], 'low': [], 'close': [], 'volume': [], 'strength': []}
+            if tick_data is None:
+                tick_data = {'time': [], 'open': [], 'high': [], 'low': [], 'close': [], 'volume': [], 'strength': []}
                 self.logger.warning(f"틱 데이터가 None입니다. 빈 데이터로 초기화: {code}")
                 
             # 분봉 데이터가 None인 경우 빈 딕셔너리로 초기화
@@ -220,34 +220,34 @@ class ChartDataCache:
             try:
                 loop = asyncio.get_running_loop()
                 # 틱 데이터와 분봉 데이터를 병렬로 계산
-                if tic_data and min_data:
-                    tic_data, min_data = await asyncio.gather(
-                        loop.run_in_executor(None, self._calculate_technical_indicators, tic_data, "tic"),
+                if tick_data and min_data:
+                    tick_data, min_data = await asyncio.gather(
+                        loop.run_in_executor(None, self._calculate_technical_indicators, tick_data, "tick"),
                         loop.run_in_executor(None, self._calculate_technical_indicators, min_data, "minute"),
                         return_exceptions=True
                     )
                     # 예외 처리
-                    if isinstance(tic_data, Exception):
-                        self.logger.error(f"틱 지표 계산 실패: {tic_data}")
-                        tic_data = None
+                    if isinstance(tick_data, Exception):
+                        self.logger.error(f"틱 지표 계산 실패: {tick_data}")
+                        tick_data = None
                     if isinstance(min_data, Exception):
                         self.logger.error(f"분봉 지표 계산 실패: {min_data}")
                         min_data = None
-                elif tic_data:
-                    tic_data = await loop.run_in_executor(None, self._calculate_technical_indicators, tic_data, "tic")
+                elif tick_data:
+                    tick_data = await loop.run_in_executor(None, self._calculate_technical_indicators, tick_data, "tick")
                 elif min_data:
                     min_data = await loop.run_in_executor(None, self._calculate_technical_indicators, min_data, "minute")
             except RuntimeError:
                 # 이벤트 루프가 없으면 동기로 계산
-                if tic_data:
-                    tic_data = self._calculate_technical_indicators(tic_data, "tic")
+                if tick_data:
+                    tick_data = self._calculate_technical_indicators(tick_data, "tick")
                 if min_data:
                     min_data = self._calculate_technical_indicators(min_data, "minute")
             except Exception as calc_ex:
                 self.logger.error(f"기술적 지표 계산 중 오류: {calc_ex}")
             
             # 콜백 즉시 호출 (CLI 환경)
-            self._on_chart_data_ready(code, tic_data, min_data)
+            self._on_chart_data_ready(code, tick_data, min_data)
         except asyncio.CancelledError:
             self.logger.debug(f"데이터 수집 작업 취소됨: {code}")
             
@@ -260,13 +260,13 @@ class ChartDataCache:
                 self.active_chart_tasks.pop(code)
             self.logger.debug(f"✅ 차트 데이터 수집 태스크 정리 완료: {code}")
     
-    async def _collect_tic_data_async(self, code, max_retries=3):
+    async def _collect_tick_data_async(self, code, max_retries=3):
         """틱 데이터 수집 (asyncio 기반)"""
         for attempt in range(max_retries):
             try:
                 # 비동기 API 직접 호출
                 # (API 제한 확인은 kiwoom_rest.py 내에서 처리됨)
-                data = await self.trader.client.get_stock_tic_chart(code, tic_scope=30)
+                data = await self.trader.client.get_stock_tick_chart(code, tick_scope=30)
                 
                 if data:
                     return self._aggregate_30_to_60_ticks(data)
@@ -304,10 +304,10 @@ class ChartDataCache:
         
         return None
     
-    def _on_chart_data_ready(self, code, tic_data, min_data):
+    def _on_chart_data_ready(self, code, tick_data, min_data):
         """차트 데이터 수집 완료 시그널 핸들러"""
         try:
-            self.logger.debug(f"✅ 차트 데이터 수집 완료: {code} (tic: {tic_data is not None}, min: {min_data is not None})")
+            self.logger.debug(f"✅ 차트 데이터 수집 완료: {code} (tic: {tick_data is not None}, min: {min_data is not None})")
             
             # 캐시에 데이터 저장
             if code not in self.cache:
@@ -318,7 +318,7 @@ class ChartDataCache:
                     return
 
                 self.cache[code] = {
-                    'tic_data': None,
+                    'tick_data': None,
                     'min_data': None,
                     'last_update': None,
                     'last_save': None,
@@ -329,7 +329,7 @@ class ChartDataCache:
             # 기술적 지표 계산은 이미 _collect_chart_data_internal에서 완료됨
             # _on_chart_data_ready는 캐시 저장 및 UI 업데이트만 담당
             
-            self.cache[code]['tic_data'] = tic_data
+            self.cache[code]['tick_data'] = tick_data
             self.cache[code]['min_data'] = min_data
             self.cache[code]['last_update'] = datetime.now()
             
@@ -357,7 +357,7 @@ class ChartDataCache:
                 del self.pending_stocks[code]
             
             # 데이터 수집 결과 로그 (간소화)
-            if not tic_data and not min_data:
+            if not tick_data and not min_data:
                 self.logger.warning(f"⚠️ 차트 데이터 수집 실패: {code}")
             
         except Exception as ex:
@@ -376,7 +376,7 @@ class ChartDataCache:
             if code not in self.cache:
                 
                 self.cache[code] = {
-                    'tic_data': None,
+                    'tick_data': None,
                     'min_data': None,
                     'last_update': None,
                     'last_save': None,
@@ -588,26 +588,26 @@ class ChartDataCache:
         try:
             cached_data = self.cache.get(code, None)
             if cached_data:
-                tic_data = cached_data.get('tic_data')
+                tick_data = cached_data.get('tick_data')
                 min_data = cached_data.get('min_data')
-                if tic_data and min_data:
-                    tic_count = len(tic_data.get('close', []))
+                if tick_data and min_data:
+                    tick_count = len(tick_data.get('close', []))
                     min_count = len(min_data.get('close', []))
-                    logging.debug(f"📊 ChartDataCache에서 {code} 데이터 조회 성공 - 틱:{tic_count}개, 분봉:{min_count}개")
+                    logging.debug(f"📊 ChartDataCache에서 {code} 데이터 조회 성공 - 틱:{tick_count}개, 분봉:{min_count}개")
                     return cached_data
                 else:
                     logging.debug(f"📊 ChartDataCache에 {code} 데이터가 있지만 틱/분봉 데이터가 없음")
                     # 상세 디버깅 정보 추가
                     logging.debug(f"📊 {code} 캐시 상세: {cached_data.keys()}")
                     
-                    # tic_data와 min_data의 실제 값 확인
-                    logging.debug(f"📊 {code} tic_data 타입: {type(tic_data)}, 값: {tic_data}")
+                    # tick_data와 min_data의 실제 값 확인
+                    logging.debug(f"📊 {code} tick_data 타입: {type(tick_data)}, 값: {tick_data}")
                     logging.debug(f"📊 {code} min_data 타입: {type(min_data)}, 값: {min_data}")
                     
-                    if tic_data and isinstance(tic_data, dict):
-                        logging.debug(f"📊 {code} 틱데이터 키: {tic_data.keys()}")
-                        if 'close' in tic_data:
-                            logging.debug(f"📊 {code} 틱데이터 close 길이: {len(tic_data.get('close', []))}")
+                    if tick_data and isinstance(tick_data, dict):
+                        logging.debug(f"📊 {code} 틱데이터 키: {tick_data.keys()}")
+                        if 'close' in tick_data:
+                            logging.debug(f"📊 {code} 틱데이터 close 길이: {len(tick_data.get('close', []))}")
                     if min_data and isinstance(min_data, dict):
                         logging.debug(f"📊 {code} 분봉데이터 키: {min_data.keys()}")
                         if 'close' in min_data:
@@ -623,7 +623,7 @@ class ChartDataCache:
             logging.error(f"❌ 캐시 데이터 조회 실패: {code} - {ex}")
             return None
     
-    def save_chart_data(self, code, tic_data, min_data):
+    def save_chart_data(self, code, tick_data, min_data):
         """차트 데이터를 캐시에 저장"""
         try:
             old_cache = self.cache.get(code, {})
@@ -631,35 +631,35 @@ class ChartDataCache:
             previous_close = old_cache.get('previous_close', 0)
             
             # 실시간 전용 배열 보존 (API 조회 데이터에는 없는 필드들)
-            if tic_data and 'tic_data' in old_cache and old_cache['tic_data']:
-                old_tic = old_cache['tic_data']
+            if tick_data and 'tick_data' in old_cache and old_cache['tick_data']:
+                old_tic = old_cache['tick_data']
                 preserve_keys = ['buy_volume', 'sell_volume', 'strength', 'TICK_VELOCITY', 'LAST_TIC_CNT']
-                new_len = len(tic_data.get('close', []))
+                new_len = len(tick_data.get('close', []))
                 for p_key in preserve_keys:
                     if p_key in old_tic:
                         old_list = old_tic[p_key]
                         if len(old_list) == new_len:
-                            tic_data[p_key] = old_list.copy()
+                            tick_data[p_key] = old_list.copy()
                         elif len(old_list) > new_len:
-                            tic_data[p_key] = old_list[-new_len:].copy()
+                            tick_data[p_key] = old_list[-new_len:].copy()
                         else:
-                            tic_data[p_key] = [0.0] * (new_len - len(old_list)) + old_list.copy()
+                            tick_data[p_key] = [0.0] * (new_len - len(old_list)) + old_list.copy()
             
             self.cache[code] = {
-                'tic_data': tic_data,
+                'tick_data': tick_data,
                 'min_data': min_data,
                 'last_update': datetime.now(),
                 'last_save': None,
                 'previous_close': previous_close  # 전일종가 유지
             }
             
-            if not tic_data:
+            if not tick_data:
                 logging.warning(f"⚠️ [캐시 저장] {code} 종목의 틱 차트 데이터가 'None(데이터 없음)' 상태로 저장되었습니다. 향후 클릭 시 API 재요청(16초 지연)을 유발할 수 있습니다.")
             
-            tic_count = len(tic_data.get('close', [])) if tic_data else 0
+            tick_count = len(tick_data.get('close', [])) if tick_data else 0
             min_count = len(min_data.get('close', [])) if min_data else 0
             
-            logging.debug(f"📊 ChartDataCache에 {code} 데이터 저장 완료 - 틱:{tic_count}개, 분봉:{min_count}개")
+            logging.debug(f"📊 ChartDataCache에 {code} 데이터 저장 완료 - 틱:{tick_count}개, 분봉:{min_count}개")
             return True
             
         except Exception as ex:
@@ -681,10 +681,10 @@ class ChartDataCache:
                 # 동기 메서드에서 비동기 호출을 위해 run_until_complete 사용
                 try:
                     loop = asyncio.get_event_loop()
-                    data = loop.run_until_complete(self.trader.client.get_stock_tic_chart(code, tic_scope=30))
+                    data = loop.run_until_complete(self.trader.client.get_stock_tick_chart(code, tick_scope=30))
                 except RuntimeError:
                     # 이벤트 루프가 없으면 새로 생성
-                    data = asyncio.run(self.trader.client.get_stock_tic_chart(code, tic_scope=30))
+                    data = asyncio.run(self.trader.client.get_stock_tick_chart(code, tick_scope=30))
                 
                 # API 응답 상세 로깅
                 if data:
@@ -910,17 +910,17 @@ class ChartDataCache:
                     # DataFrame 변환 및 지표 계산 (CPU 바운드 작업을 스레드풀로 오프로드)
                     try:
                         loop = asyncio.get_running_loop()
-                        tic_df, min_df = await loop.run_in_executor(
+                        tick_df, min_df = await loop.run_in_executor(
                             None, 
                             self._prepare_data_for_db, 
-                            data.get('tic_data'), 
+                            data.get('tick_data'), 
                             data.get('min_data')
                         )
                     except Exception as df_ex:
                         self.logger.error(f"DB 저장용 데이터프레임 변환/지표 계산 실패 ({code}): {df_ex}")
                         continue
                     
-                    if not tic_df.empty and not min_df.empty:
+                    if not tick_df.empty and not min_df.empty:
                         # 메모리에서 감시 시작 시간 가져오기
                         monitoring_start_time = None
                         if hasattr(self.parent, 'core_managers') and self.parent.core_managers:
@@ -934,7 +934,7 @@ class ChartDataCache:
                         
                         await self.trader.db_manager.save_stock_data(
                             code, 
-                            tic_df.to_dict('list'), 
+                            tick_df.to_dict('list'), 
                             min_df.to_dict('list'),
                             None  # 전체 저장을 위해 monitoring_start_time 해제
                         )
@@ -958,7 +958,7 @@ class ChartDataCache:
 
     def _prepare_data_for_db(self, original_tic_data, original_min_data):
         """DB 저장을 위한 Pandas 데이터프레임 생성 및 지표 계산 (CPU 바운드 로직)"""
-        tic_df = pd.DataFrame()
+        tick_df = pd.DataFrame()
         if original_tic_data:
             valid_lists = [v for v in original_tic_data.values() if isinstance(v, list) and len(v) > 0]
             if valid_lists:
@@ -967,7 +967,7 @@ class ChartDataCache:
                 slice_len = min(min_len, 1000)
                 # 가장 뒷부분(최신) 데이터를 가져오도록 수정
                 trimmed_data = {k: v[-slice_len:] for k, v in original_tic_data.items() if isinstance(v, list)}
-                tic_df = pd.DataFrame(trimmed_data)
+                tick_df = pd.DataFrame(trimmed_data)
 
         min_df = pd.DataFrame()
         if original_min_data:
@@ -980,16 +980,16 @@ class ChartDataCache:
                 trimmed_data = {k: v[-slice_len:] for k, v in original_min_data.items() if isinstance(v, list)}
                 min_df = pd.DataFrame(trimmed_data)
 
-        if not tic_df.empty:
-            tic_allowed = [
+        if not tick_df.empty:
+            tick_allowed = [
                 'MA5', 'MA10', 'MA20', 'MA60', 'MA120', 
                 'RSI', 'RSI_SIGNAL', 
                 'VELOCITY', 'LAST_TIC_CNT'
             ]
-            tic_indicators = strategy_utils.KiwoomIndicatorExtractor.extract_chart_indicators(tic_df, allowed_indicators=tic_allowed)
+            tick_indicators = strategy_utils.KiwoomIndicatorExtractor.extract_chart_indicators(tick_df, allowed_indicators=tick_allowed)
             base_cols = {'open', 'high', 'low', 'close', 'volume'}
-            for key, value in tic_indicators.items():
-                if key not in base_cols: tic_df[key] = value
+            for key, value in tick_indicators.items():
+                if key not in base_cols: tick_df[key] = value
 
         if not min_df.empty:
             min_allowed = ['MA5', 'MA10', 'MA20', 'MA60', 'MA120', 'RSI', 'RELATIVE_POSITION']
@@ -998,10 +998,10 @@ class ChartDataCache:
             for key, value in min_indicators.items():
                 if key not in base_cols: min_df[key] = value
 
-        return tic_df, min_df
+        return tick_df, min_df
 
     
-    def log_single_stock_analysis(self, code, tic_data, min_data):
+    def log_single_stock_analysis(self, code, tick_data, min_data):
         """단일 종목 분석표 출력 (차트 데이터 저장 시) - 비활성화됨"""
         try:
             # 종목명 조회
@@ -1104,7 +1104,7 @@ class ChartDataCache:
             indicators = {}
 
             # 허용된 지표 정의 (화이트리스트)
-            if chart_type == "tic":
+            if chart_type == "tick":
                 allowed_set = {
                     'MA5', 'MA10', 'MA20', 'MA60', 'MA120',
                     'RSI', 'RSI_SIGNAL', 'RSI21',
@@ -1166,7 +1166,7 @@ class ChartDataCache:
             # ==========================================
             # 틱 차트 전용 지표 백필 (Backfill) & 병합
             # ==========================================
-            if chart_type == "tic":
+            if chart_type == "tick":
                 try:
                     # 1. TICK_VELOCITY (10틱당 소요 시간 ms)
                     # 계산 (백필용)
@@ -1233,23 +1233,23 @@ class ChartDataCache:
             logging.error(f"❌ 캐시 데이터 조회 실패: {code} - {ex}")
             return None
     
-    def update_realtime_chart_data(self, code, tic_data, min_data):
+    def update_realtime_chart_data(self, code, tick_data, min_data):
         """실시간 차트 데이터 업데이트"""
         try:
             if code not in self.cache:
                 self.cache[code] = {}
             
             # 기존 데이터와 실시간 데이터 병합
-            if 'tic_data' in self.cache[code] and tic_data:
+            if 'tick_data' in self.cache[code] and tick_data:
                 # 틱 데이터 병합
-                existing_tic = self.cache[code]['tic_data']
+                existing_tic = self.cache[code]['tick_data']
                 for key in ['time', 'open', 'high', 'low', 'close', 'volume', 'strength', 'MA5', 'MA10', 'MA20', 'MA50', 'EMA5', 'EMA10', 'EMA20', 'RSI', 'MACD', 'MACD_SIGNAL', 'MACD_HIST']:
-                    if key in tic_data and key in existing_tic:
-                        existing_tic[key].extend(tic_data[key])
+                    if key in tick_data and key in existing_tic:
+                        existing_tic[key].extend(tick_data[key])
                         # 최대 데이터 수 제한
                         if len(existing_tic[key]) > 300:
                             existing_tic[key] = existing_tic[key][-300:]
-                self.cache[code]['tic_data'] = existing_tic
+                self.cache[code]['tick_data'] = existing_tic
             
             if 'min_data' in self.cache[code] and min_data:
                 # 분봉 데이터 병합
@@ -1290,10 +1290,10 @@ class ChartDataCache:
                     self._no_cache_logged.add(stock_code)
                 return
 
-            tic_data = cached_data.get('tic_data')
+            tick_data = cached_data.get('tick_data')
             min_data = cached_data.get('min_data')
 
-            if not tic_data or not isinstance(tic_data, dict) or not min_data or not isinstance(min_data, dict):
+            if not tick_data or not isinstance(tick_data, dict) or not min_data or not isinstance(min_data, dict):
                 self.logger.debug(f"⚠️ 차트 데이터 추가 건너뜀: {stock_code} (데이터 없음 또는 잘못된 타입)")
                 return
 
@@ -1367,7 +1367,7 @@ class ChartDataCache:
             chart_cache.cache[stock_code] = cached_data
 
             # 실시간 데이터를 틱/분봉 데이터에 추가
-            is_new_candle = self.parent.login_handler.websocket_client._update_tic_chart_with_realtime(stock_code, cached_data, realtime_data)
+            is_new_candle = self.parent.login_handler.websocket_client._update_tick_chart_with_realtime(stock_code, cached_data, realtime_data)
             self.parent.login_handler.websocket_client._update_minute_chart_with_realtime(stock_code, cached_data, realtime_data)
 
             # 실시간 기술적 지표 계산 (비동기, ThreadPoolExecutor 사용 - 단, 1초 스로틀링 적용 또는 새 봉 생성 시 강제 업데이트)
@@ -1376,8 +1376,8 @@ class ChartDataCache:
                 self.last_indicator_calc_time[stock_code] = current_time
                 loop = asyncio.get_running_loop()
                 tasks = []
-                if tic_data:
-                    tasks.append(loop.run_in_executor(None, chart_cache._calculate_technical_indicators, tic_data, "tic"))
+                if tick_data:
+                    tasks.append(loop.run_in_executor(None, chart_cache._calculate_technical_indicators, tick_data, "tick"))
                 if min_data:
                     tasks.append(loop.run_in_executor(None, chart_cache._calculate_technical_indicators, min_data, "minute"))
 
@@ -1385,9 +1385,9 @@ class ChartDataCache:
                     results = await asyncio.gather(*tasks, return_exceptions=True)
                     
                     # 결과 처리
-                    if tic_data and not isinstance(results[0], Exception):
-                        cached_data['tic_data'] = results[0]
-                    elif tic_data:
+                    if tick_data and not isinstance(results[0], Exception):
+                        cached_data['tick_data'] = results[0]
+                    elif tick_data:
                         logging.error(f"틱 지표 계산 실패: {results[0]}")
 
                     if min_data and len(results) > 1 and not isinstance(results[1], Exception):
@@ -1400,22 +1400,22 @@ class ChartDataCache:
             # === [스냅샷 저장 로직 추가] ===
             if is_new_candle:
                 try:
-                    tic_data = cached_data.get('tic_data', {})
+                    tick_data = cached_data.get('tick_data', {})
                     min_data = cached_data.get('min_data', {})
                     
-                    if tic_data and min_data and len(tic_data.get('time', [])) >= 2 and len(min_data.get('time', [])) >= 1:
+                    if tick_data and min_data and len(tick_data.get('time', [])) >= 2 and len(min_data.get('time', [])) >= 1:
                         snapshot = {
                             'code': stock_code,
-                            'datetime': tic_data['time'][-2]  # 방금 완성된 60틱봉의 시작/생성시간
+                            'datetime': tick_data['time'][-2]  # 방금 완성된 60틱봉의 시작/생성시간
                         }
                         
                         # 틱봉 지표 저장 (-2 인덱스: 완성된 봉)
-                        for k, v in tic_data.items():
+                        for k, v in tick_data.items():
                             if isinstance(v, list) and len(v) >= 2:
                                 if k == 'TICK_VELOCITY':
-                                    col_name = 'tic_velocity'
+                                    col_name = 'tick_velocity'
                                 else:
-                                    col_name = f"tic_{k.lower()}" if k.lower() != 'time' else 'datetime'
+                                    col_name = f"tick_{k.lower()}" if k.lower() != 'time' else 'datetime'
                                 if col_name != 'datetime':
                                     snapshot[col_name] = v[-2]
                         

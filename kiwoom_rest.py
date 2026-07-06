@@ -585,7 +585,7 @@ class KiwoomRestClient:
             self.logger.error(f"차트 데이터 조회 중 오류: ({type(e).__name__}) {e}", exc_info=True)
             return pd.DataFrame()
     
-    async def get_stock_tic_chart(self, code: str, tic_scope: int = 30, cont_yn: str = 'N', next_key: str = '') -> Dict:
+    async def get_stock_tick_chart(self, code: str, tick_scope: int = 30, cont_yn: str = 'N', next_key: str = '') -> Dict:
         """주식 틱 차트 데이터 조회 (ka10079) - 참고 코드 기반 개선 (비동기)"""
         try:
             await self._ensure_client()
@@ -593,7 +593,7 @@ class KiwoomRestClient:
                 return {}
             
             # API 요청 제한 확인 및 대기
-            await ApiLimitManager.check_api_limit_and_wait_async("틱 차트 조회", request_type="tic_chart")
+            await ApiLimitManager.check_api_limit_and_wait_async("틱 차트 조회", request_type="tick_chart")
             
             # 모의투자 여부에 따라 서버 선택
             server_url = self.mock_url if self.is_mock else self.base_url
@@ -602,7 +602,7 @@ class KiwoomRestClient:
             # ka10079 요청 데이터 (참고 코드와 동일한 구조)
             data = {
                 "stk_cd": code,                    # 종목코드
-                "tic_scope": str(tic_scope),       # 틱범위: 1,3,5,10,30
+                "tick_scope": str(tick_scope),       # 틱범위: 1,3,5,10,30
                 "upd_stkpc_tp": "1"                # 수정주가구분: 0 or 1
             }
             
@@ -615,7 +615,7 @@ class KiwoomRestClient:
                 'api-id': 'ka10079'                                # TR명
             }
             
-            self.logger.debug(f"틱 차트 API 호출: {code}, 틱범위: {tic_scope}, 연속조회: {cont_yn}")
+            self.logger.debug(f"틱 차트 API 호출: {code}, 틱범위: {tick_scope}, 연속조회: {cont_yn}")
             
             # HTTP POST 요청
             # 재시도 로직 적용
@@ -640,14 +640,14 @@ class KiwoomRestClient:
                 self.logger.debug(f"틱 차트 API 응답 성공: {code}")
                 
                 # 틱 차트 데이터 파싱
-                tic_data = self._parse_tic_chart_data(response_data)
+                tick_data = self._parse_tic_chart_data(response_data)
                 
                 # 체결강도 데이터는 제거됨 (ka10046 API 사용 안함)
                 # 체결강도 데이터가 없으면 기본값 0.0으로 설정
-                if 'strength' not in tic_data or not tic_data['strength']:
-                    tic_data['strength'] = [0.0] * len(tic_data.get('close', []))
+                if 'strength' not in tick_data or not tick_data['strength']:
+                    tick_data['strength'] = [0.0] * len(tick_data.get('close', []))
                 
-                return tic_data
+                return tick_data
             else:
                 self.logger.error(f"🚨 [API 오류 확인용] 틱 차트 데이터 조회 실패: HTTP {response.status_code} - 키움 서버가 요청을 거부했습니다. (429 에러일 가능성 높음)", exc_info=True)
                 try:
@@ -688,7 +688,7 @@ class KiwoomRestClient:
             # ka10080 요청 데이터 (분봉 차트)
             data = {
                 "stk_cd": code,
-                "tic_scope": str(period),  # 1:1분, 3:3분, 5:5분, 10:10분, 15:15분, 30:30분, 45:45분, 60:60분
+                "tick_scope": str(period),  # 1:1분, 3:3분, 5:5분, 10:10분, 15:15분, 30:30분, 45:45분, 60:60분
                 "upd_stkpc_tp": "1"
             }
             
@@ -1548,8 +1548,8 @@ class KiwoomRestClient:
                 self.logger.warning("stk_tic_chart_qry 필드가 응답에 없습니다")
                 return {}
             
-            tic_data = data['stk_tic_chart_qry']
-            if not tic_data:
+            tick_data = data['stk_tic_chart_qry']
+            if not tick_data:
                 self.logger.warning("틱 차트 데이터가 비어있습니다")
                 return {}
             
@@ -1566,14 +1566,14 @@ class KiwoomRestClient:
             }
             
             # 디버깅: 원본 데이터 시간 순서 확인
-            if tic_data:
-                original_first = tic_data[0].get('cntr_tm', '')
-                original_last = tic_data[-1].get('cntr_tm', '')
-                self.logger.debug(f"틱 원본 데이터: 총 {len(tic_data)}개, 첫번째={original_first}, 마지막={original_last}")
+            if tick_data:
+                original_first = tick_data[0].get('cntr_tm', '')
+                original_last = tick_data[-1].get('cntr_tm', '')
+                self.logger.debug(f"틱 원본 데이터: 총 {len(tick_data)}개, 첫번째={original_first}, 마지막={original_last}")
                 
                 # 원본 데이터 구조 디버깅 (첫 번째 항목)
-                if tic_data:
-                    first_item = tic_data[0]
+                if tick_data:
+                    first_item = tick_data[0]
                     
                     # 시간 관련 필드들 확인
                     time_fields = ['cntr_tm', 'time', 'timestamp', 'dt', 'date_time']
@@ -1590,10 +1590,10 @@ class KiwoomRestClient:
                         return str(item.get(field))
                 return ''
             
-            tic_data.sort(key=get_sort_key)
+            tick_data.sort(key=get_sort_key)
             
             # 모든 데이터 처리 (정렬 후)
-            data_to_process = tic_data
+            data_to_process = tick_data
             
             # 디버깅: 시간 순서 확인
             if data_to_process:

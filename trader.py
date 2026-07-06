@@ -877,21 +877,21 @@ class AutoTrader:
             if not cache_data:
                 return False
             
-            tic_data = cache_data.get('tic_data', {})
+            tick_data = cache_data.get('tick_data', {})
             min_data = cache_data.get('min_data', {})
             
-            if not tic_data or not min_data:
+            if not tick_data or not min_data:
                 return False
 
             if not hasattr(self.parent, 'objstg') or not self.parent.objstg:
                 return False
             
             previous_close = cache_data.get('previous_close', 0)
-            current_price = tic_data.get('close', [0])[-1] if tic_data.get('close') else 0
-            volume = tic_data.get('volume', [0])[-1] if tic_data.get('volume') else 0
+            current_price = tick_data.get('close', [0])[-1] if tick_data.get('close') else 0
+            volume = tick_data.get('volume', [0])[-1] if tick_data.get('volume') else 0
 
             market_data = {
-                'tic_data': tic_data,
+                'tick_data': tick_data,
                 'min_data': min_data,
                 'current_price': current_price,
                 'volume': volume,

@@ -67,13 +67,13 @@ class AsyncDatabaseManager:
                     ''')
                     
                     # 틱봉 기술적 지표 (최적화됨)
-                    tic_indicators = [
+                    tick_indicators = [
                         'MA5', 'MA10', 'MA20', 'MA60', 'MA120',
                         'RSI', 'RSI_SIGNAL', 'RSI21',
                         'LAST_TIC_CNT',
                         'VELOCITY'
                     ]
-                    tic_indicator_cols = ", ".join([f"tic_{col.lower()} REAL" for col in tic_indicators])
+                    tick_indicator_cols = ", ".join([f"tick_{col.lower()} REAL" for col in tick_indicators])
                     
                     # 3분봉 기술적 지표 (min_target_indicators만)
                     min_indicator_cols = ", ".join([f"min3_{col.lower()} REAL" for col in self.min_target_indicators])
@@ -83,15 +83,15 @@ class AsyncDatabaseManager:
                             code TEXT NOT NULL,
                             datetime TEXT NOT NULL,
                             -- [ 틱봉(60틱) 그룹 ] 기본 OHLCV + 기술적 지표
-                            tic_open REAL,
-                            tic_high REAL,
-                            tic_low REAL,
-                            tic_close REAL,
-                            tic_volume INTEGER,
-                            tic_buy_volume INTEGER,
-                            tic_sell_volume INTEGER,
-                            tic_strength REAL,
-                            {tic_indicator_cols},
+                            tick_open REAL,
+                            tick_high REAL,
+                            tick_low REAL,
+                            tick_close REAL,
+                            tick_volume INTEGER,
+                            tick_buy_volume INTEGER,
+                            tick_sell_volume INTEGER,
+                            tick_strength REAL,
+                            {tick_indicator_cols},
                             -- [ 3분봉 그룹 ] 기본 OHLCV + 기술적 지표
                             min3_open REAL,
                             min3_high REAL,
@@ -132,10 +132,10 @@ class AsyncDatabaseManager:
                     self.logger.error(f"데이터베이스 초기화 실패 (최대 재시도 횟수 초과): {ex}")
                     raise ex
     
-    async def save_stock_data(self, code, tic_data, min_data, monitoring_start_time=None):
+    async def save_stock_data(self, code, tick_data, min_data, monitoring_start_time=None):
         """통합 주식 데이터 저장 (틱봉 기준, 분봉 데이터 포함)"""
         try:
-            if not tic_data or not min_data:
+            if not tick_data or not min_data:
                 return
             
             if self._conn is None:
@@ -149,19 +149,19 @@ class AsyncDatabaseManager:
                 current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 
                 # 틱봉 데이터 기준으로 저장
-                tic_times = tic_data.get('time', [])
-                tic_opens = tic_data.get('open', [])
-                tic_highs = tic_data.get('high', [])
-                tic_lows = tic_data.get('low', [])
-                tic_closes = tic_data.get('close', [])
-                tic_volumes = tic_data.get('volume', [])
-                tic_buy_volumes = tic_data.get('buy_volume', [])
-                tic_sell_volumes = tic_data.get('sell_volume', [])
-                tic_strengths = tic_data.get('strength', [])
+                tick_times = tick_data.get('time', [])
+                tick_opens = tick_data.get('open', [])
+                tick_highs = tick_data.get('high', [])
+                tick_lows = tick_data.get('low', [])
+                tick_closes = tick_data.get('close', [])
+                tick_volumes = tick_data.get('volume', [])
+                tick_buy_volumes = tick_data.get('buy_volume', [])
+                tick_sell_volumes = tick_data.get('sell_volume', [])
+                tick_strengths = tick_data.get('strength', [])
 
                 # 실제 캐시 데이터에서 기술적 지표 키 추출 (OHLCV 제외)
                 basic_keys = {'time', 'open', 'high', 'low', 'close', 'volume', 'buy_volume', 'sell_volume', 'strength'}
-                tic_indicators = [key for key in tic_data.keys() if key not in basic_keys]
+                tick_indicators = [key for key in tick_data.keys() if key not in basic_keys]
                 min_indicators = [key for key in min_data.keys() if key not in basic_keys]
                 
                 # 허용된 지표 목록 (모든 지표 활성화)
@@ -184,7 +184,7 @@ class AsyncDatabaseManager:
                     return mapping.get(name_upper, name_upper)
                 
                 # 정규화 및 필터링
-                normalized_tic = [normalize_indicator(ind) for ind in tic_indicators]
+                normalized_tic = [normalize_indicator(ind) for ind in tick_indicators]
                 normalized_min = [normalize_indicator(ind) for ind in min_indicators]
                 
                 # 허용된 지표만 선택 (DB에 저장하지 않을 지표 명시적 제외)
@@ -207,11 +207,11 @@ class AsyncDatabaseManager:
                 # min_target_indicators = [...] # 삭제됨
                 
                 # 동적으로 컬럼명과 플레이스홀더 생성
-                # tic_ 컬럼은 filtered_tic에 있는 것만 생성 (기본 컬럼 중복 생성 방지)
+                # tick_ 컬럼은 filtered_tic에 있는 것만 생성 (기본 컬럼 중복 생성 방지)
                 base_indicators = {'CLOSE', 'HIGH', 'LOW', 'OPEN', 'VOLUME', 'BUY_VOLUME', 'SELL_VOLUME', 'STRENGTH'}
                 filtered_tic = [col for col in filtered_tic if col not in base_indicators]
                 filtered_tic.sort()
-                tic_indicator_cols = ", ".join([f"tic_{col.lower()}" for col in filtered_tic])
+                tick_indicator_cols = ", ".join([f"tick_{col.lower()}" for col in filtered_tic])
                 
                 # min_ 컬럼은 min_target_indicators에 있고 all_indicators(현재 데이터에 존재하는 지표)에 포함된 것만 생성
                 valid_min_indicators = [col for col in all_indicators if col in self.min_target_indicators]
@@ -219,8 +219,8 @@ class AsyncDatabaseManager:
                 
                 columns = (
                     "code, datetime, "
-                    "tic_open, tic_high, tic_low, tic_close, tic_volume, tic_buy_volume, tic_sell_volume, tic_strength, "
-                    f"{tic_indicator_cols}, "
+                    "tick_open, tick_high, tick_low, tick_close, tick_volume, tick_buy_volume, tick_sell_volume, tick_strength, "
+                    f"{tick_indicator_cols}, "
                     "min3_open, min3_high, min3_low, min3_close, min3_volume, "
                     f"{min_indicator_cols}, "
                     "created_at"
@@ -254,41 +254,41 @@ class AsyncDatabaseManager:
                 import bisect
                 min_timestamps = [m.timestamp() for m in min_times_dt]
                 
-                for i in range(len(tic_times)):
-                    tic_t = tic_times[i]
-                    if hasattr(tic_t, 'strftime'):
-                        tic_dt = tic_t
+                for i in range(len(tick_times)):
+                    tick_t = tick_times[i]
+                    if hasattr(tick_t, 'strftime'):
+                        tick_dt = tick_t
                     else:
                         try:
-                            tic_dt = datetime.strptime(str(tic_t), '%Y-%m-%d %H:%M:%S')
+                            tick_dt = datetime.strptime(str(tick_t), '%Y-%m-%d %H:%M:%S')
                         except ValueError:
                             continue
                     
-                    # 메모리 필터링: tic_dt가 monitoring_start_time 이후인지 검사
-                    if monitoring_start_time and tic_dt < monitoring_start_time:
+                    # 메모리 필터링: tick_dt가 monitoring_start_time 이후인지 검사
+                    if monitoring_start_time and tick_dt < monitoring_start_time:
                         continue
                         
                     # 1. 같은 분(minute) 매칭 우선 시도 (O(1))
-                    key = (tic_dt.year, tic_dt.month, tic_dt.day, tic_dt.hour, tic_dt.minute)
+                    key = (tick_dt.year, tick_dt.month, tick_dt.day, tick_dt.hour, tick_dt.minute)
                     min_idx = min_time_map.get(key, -1)
                     
                     # 2. 매칭 실패 시 가장 가까운 시간 찾기 (이진 탐색, O(log N))
                     if min_idx == -1 and min_timestamps:
-                        tic_ts = tic_dt.timestamp()
-                        idx = bisect.bisect_left(min_timestamps, tic_ts)
+                        tick_ts = tick_dt.timestamp()
+                        idx = bisect.bisect_left(min_timestamps, tick_ts)
                         
                         best_idx = -1
                         min_diff = float('inf')
                         
                         # idx 확인 (우측)
                         if idx < len(min_timestamps):
-                            diff = abs(min_timestamps[idx] - tic_ts)
+                            diff = abs(min_timestamps[idx] - tick_ts)
                             if diff <= 300 and diff < min_diff:
                                 min_diff = diff
                                 best_idx = idx
                         # idx-1 확인 (좌측)
                         if idx > 0:
-                            diff = abs(min_timestamps[idx-1] - tic_ts)
+                            diff = abs(min_timestamps[idx-1] - tick_ts)
                             if diff <= 300 and diff < min_diff:
                                 min_diff = diff
                                 best_idx = idx - 1
@@ -296,35 +296,35 @@ class AsyncDatabaseManager:
                         min_idx = best_idx
                     
                     # datetime 객체를 일반 형식으로 변환
-                    datetime_str = tic_times[i].strftime('%Y-%m-%d %H:%M:%S') if hasattr(tic_times[i], 'strftime') else str(tic_times[i])
+                    datetime_str = tick_times[i].strftime('%Y-%m-%d %H:%M:%S') if hasattr(tick_times[i], 'strftime') else str(tick_times[i])
                     
                     values = [
                         code,
                         datetime_str,
                         # 틱봉 기본 데이터
-                        tic_opens[i] if i < len(tic_opens) else 0,
-                        tic_highs[i] if i < len(tic_highs) else 0,
-                        tic_lows[i] if i < len(tic_lows) else 0,
-                        tic_closes[i] if i < len(tic_closes) else 0,
-                        tic_volumes[i] if i < len(tic_volumes) else 0,
-                        tic_buy_volumes[i] if i < len(tic_buy_volumes) else 0,
-                        tic_sell_volumes[i] if i < len(tic_sell_volumes) else 0,
-                        tic_strengths[i] if i < len(tic_strengths) else 0,
+                        tick_opens[i] if i < len(tick_opens) else 0,
+                        tick_highs[i] if i < len(tick_highs) else 0,
+                        tick_lows[i] if i < len(tick_lows) else 0,
+                        tick_closes[i] if i < len(tick_closes) else 0,
+                        tick_volumes[i] if i < len(tick_volumes) else 0,
+                        tick_buy_volumes[i] if i < len(tick_buy_volumes) else 0,
+                        tick_sell_volumes[i] if i < len(tick_sell_volumes) else 0,
+                        tick_strengths[i] if i < len(tick_strengths) else 0,
                     ]
 
                     # 틱봉 기술적 지표 값 추가
                     for indicator in filtered_tic:
                         try:
                             indicator_data = None
-                            if indicator in tic_data:
-                                indicator_data = tic_data.get(indicator, [])
+                            if indicator in tick_data:
+                                indicator_data = tick_data.get(indicator, [])
                             else:
-                                reverse_mapping = {'STOCH_K': 'stochk', 'STOCH_D': 'stochd'}
+                                reverse_mapping = {'STOCH_K': 'stochk', 'STOCH_D': 'stochd', 'VELOCITY': 'TICK_VELOCITY'}
                                 original_name = reverse_mapping.get(indicator)
-                                if original_name and original_name in tic_data:
-                                    indicator_data = tic_data.get(original_name, [])
+                                if original_name and original_name in tick_data:
+                                    indicator_data = tick_data.get(original_name, [])
                                 else:
-                                    indicator_data = tic_data.get(indicator.lower(), [])
+                                    indicator_data = tick_data.get(indicator.lower(), [])
                             
                             if isinstance(indicator_data, (list, tuple, np.ndarray)):
                                 if i < len(indicator_data):
@@ -478,7 +478,7 @@ class AsyncDatabaseManager:
         except Exception as ex:
             self.logger.error(f"스냅샷 데이터 저장 실패 ({code}): {ex}", exc_info=True)
 
-    async def _ensure_table_schema(self, cursor, tic_indicators, min_indicators):
+    async def _ensure_table_schema(self, cursor, tick_indicators, min_indicators):
         """테이블 스키마에 필요한 컬럼들이 있는지 확인하고 없으면 추가"""
         try:
             # 허용되지 않는 deprecated 컬럼 이름
@@ -492,18 +492,18 @@ class AsyncDatabaseManager:
             new_columns = []
             
             # 0. 기본 컬럼 누락 확인 (예: 나중에 추가된 buy_volume, sell_volume 등)
-            for basic_col in ['tic_buy_volume', 'tic_sell_volume', 'min3_open', 'min3_high', 'min3_low', 'min3_close', 'min3_volume']:
+            for basic_col in ['tick_buy_volume', 'tick_sell_volume', 'min3_open', 'min3_high', 'min3_low', 'min3_close', 'min3_volume']:
                 if basic_col not in existing_columns:
                     new_columns.append(basic_col)
             
             # 1. 틱봉 지표 컬럼 확인
-            for indicator in tic_indicators:
+            for indicator in tick_indicators:
                 if indicator in deprecated_indicators or indicator.upper() in deprecated_indicators:
                     continue
                 
-                tic_col = f"tic_{indicator.lower()}"
-                if tic_col not in existing_columns:
-                    new_columns.append(tic_col)
+                tick_col = f"tick_{indicator.lower()}"
+                if tick_col not in existing_columns:
+                    new_columns.append(tick_col)
                     
             # 2. 분봉 지표 컬럼 확인
             for indicator in min_indicators:
@@ -529,19 +529,19 @@ class AsyncDatabaseManager:
         except Exception as ex:
             self.logger.error(f"❌ 테이블 스키마 확인/업데이트 실패: {ex}", exc_info=True)
     
-    def _find_matching_minute_data(self, tic_time, min_times):
+    def _find_matching_minute_data(self, tick_time, min_times):
         """틱봉 시간에 해당하는 분봉 데이터 인덱스 찾기 (가장 가까운 분봉 찾기)"""
         try:
             if not min_times:
                 return -1
                 
-            # tic_time이 datetime 객체인지 문자열인지 확인
-            if hasattr(tic_time, 'strftime'):
+            # tick_time이 datetime 객체인지 문자열인지 확인
+            if hasattr(tick_time, 'strftime'):
                 # datetime 객체인 경우
-                tic_dt = tic_time
+                tick_dt = tick_time
             else:
                 # 문자열인 경우 파싱
-                tic_dt = datetime.strptime(str(tic_time), '%Y-%m-%d %H:%M:%S')
+                tick_dt = datetime.strptime(str(tick_time), '%Y-%m-%d %H:%M:%S')
             
             best_match_idx = -1
             min_time_diff = float('inf')
@@ -556,10 +556,10 @@ class AsyncDatabaseManager:
                     min_dt = datetime.strptime(str(min_time), '%Y-%m-%d %H:%M:%S')
                 
                 # 시간 차이 계산 (절댓값)
-                time_diff = abs((tic_dt - min_dt).total_seconds())
+                time_diff = abs((tick_dt - min_dt).total_seconds())
                 
                 # 같은 분 내의 데이터를 우선적으로 찾기
-                if tic_dt.replace(second=0, microsecond=0) == min_dt.replace(second=0, microsecond=0):
+                if tick_dt.replace(second=0, microsecond=0) == min_dt.replace(second=0, microsecond=0):
                     return i
                 
                 # 가장 가까운 시간의 분봉 데이터 찾기 (5분 이내)

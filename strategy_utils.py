@@ -338,13 +338,13 @@ class KiwoomIndicatorExtractor:
             additional['is_pullback'] = False
             
             # is_pullback: 최근 고점 대비 하락 여부 (buy_stg_눌림목)
-            if 'tic_high' in indicators:
-                high_array = indicators.get('tic_high')
+            if 'tick_high' in indicators:
+                high_array = indicators.get('tick_high')
                 if isinstance(high_array, np.ndarray) and len(high_array) > 1:
                     recent_highs = high_array[-30:-1] # 현재 봉 제외 최근 30개
                     if len(recent_highs) > 0:
                         highest_recent = np.max(recent_highs)
-                        current_close = indicators.get('tic_close', [0])[-1]
+                        current_close = indicators.get('tick_close', [0])[-1]
                         # 현재 종가가 최근 고점보다 낮으면 눌림목으로 간주
                         additional['is_pullback'] = current_close < highest_recent
             
@@ -355,39 +355,39 @@ class KiwoomIndicatorExtractor:
             return {}
 
 # ==================== 전략 평가용 로컬 변수 빌더 ====================
-def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_info=None, realtime_metrics=None):
+def prepare_buy_strategy_locals(code, tick_chart_data, min_chart_data, portfolio_info=None, realtime_metrics=None):
     """매수 로직 평가를 위한 로컬 변수 생성"""
     logger = logging.getLogger(__name__)
     try:
-        if tic_chart_data.empty:
+        if tick_chart_data.empty:
             return {}
         
         # 기본 지표 추출
-        tic_indicators = KiwoomIndicatorExtractor.extract_chart_indicators(tic_chart_data)
+        tick_indicators = KiwoomIndicatorExtractor.extract_chart_indicators(tick_chart_data)
         min_indicators = KiwoomIndicatorExtractor.extract_chart_indicators(min_chart_data)
-        additional = KiwoomIndicatorExtractor.calculate_additional_indicators(tic_indicators, tic_chart_data)
+        additional = KiwoomIndicatorExtractor.calculate_additional_indicators(tick_indicators, tick_chart_data)
         
         # 로컬 변수 딕셔너리 생성
         locals_dict = {}
         locals_dict.update(additional)
 
-        # 틱 데이터 기반 지표에 'tic_' 접두사 추가
-        for key, value in tic_indicators.items():
-            # 배열 전체를 저장하여 전략에서 tic_close[-1] 형태로 접근 가능하도록 함
+        # 틱 데이터 기반 지표에 'tick_' 접두사 추가
+        for key, value in tick_indicators.items():
+            # 배열 전체를 저장하여 전략에서 tick_close[-1] 형태로 접근 가능하도록 함
             if isinstance(value, np.ndarray):
-                locals_dict[f'tic_{key}'] = value
+                locals_dict[f'tick_{key}'] = value
 
         # 분봉 데이터 기반 지표에 'min3_' 접두사 추가
         for key, value in min_indicators.items():
             if isinstance(value, np.ndarray):
                 locals_dict[f'min3_{key}'] = value
                 
-        # 기본 OHLCV 등 원본 컬럼명 소문자로 그대로 주입 (tic_ 및 min3_ 접두사 추가)
+        # 기본 OHLCV 등 원본 컬럼명 소문자로 그대로 주입 (tick_ 및 min3_ 접두사 추가)
         base_columns = ['open', 'high', 'low', 'close', 'volume', 'strength']
-        if not tic_chart_data.empty:
-            for col in tic_chart_data.columns:
+        if not tick_chart_data.empty:
+            for col in tick_chart_data.columns:
                 if col in base_columns:
-                    locals_dict[f'tic_{col}'] = tic_chart_data[col].values
+                    locals_dict[f'tick_{col}'] = tick_chart_data[col].values
         
         if not min_chart_data.empty:
             for col in min_chart_data.columns:
@@ -402,79 +402,79 @@ def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_
         # 실시간 메트릭(Tick Velocity 등) 추가
         # TICK_VELOCITY (배열 보장 및 Alias 설정)
         tv_array = None
-        if not tic_chart_data.empty and 'TICK_VELOCITY' in tic_chart_data.columns:
-            tv_array = tic_chart_data['TICK_VELOCITY'].values
+        if not tick_chart_data.empty and 'TICK_VELOCITY' in tick_chart_data.columns:
+            tv_array = tick_chart_data['TICK_VELOCITY'].values
         elif realtime_metrics and 'tick_velocity' in realtime_metrics:
             tv_array = np.array([realtime_metrics['tick_velocity']])
         else:
             tv_array = np.array([999999.0])
         
         locals_dict['TICK_VELOCITY'] = tv_array
-        locals_dict['tic_velocity'] = tv_array
+        locals_dict['tick_velocity'] = tv_array
 
         # ORDER_BOOK_IMBALANCE는 삭제되었으나, 이전 AI 모델 하위 호환성을 위해 0.0 고정 배열 주입
         obi_array = np.array([0.0])
             
         locals_dict['ORDER_BOOK_IMBALANCE'] = obi_array
-        locals_dict['tic_order_book_imbalance'] = obi_array
+        locals_dict['tick_order_book_imbalance'] = obi_array
         
         # min3_RELATIVE_POSITION -> min3_relative_position 매핑 (이미 배열임)
         if 'min3_RELATIVE_POSITION' in locals_dict:
             locals_dict['min3_relative_position'] = locals_dict['min3_RELATIVE_POSITION']
         
-        # 기존 데이터프레임에 있는 'tic_', 'min3_' 접두사 컬럼들도 로컬 변수에 추가 (백테스팅 호환성)
+        # 기존 데이터프레임에 있는 'tick_', 'min3_' 접두사 컬럼들도 로컬 변수에 추가 (백테스팅 호환성)
         # DB에서 로드된 데이터는 이미 계산된 지표를 포함할 수 있음
-        for col in tic_chart_data.columns:
-            if col.startswith('tic_') or col.startswith('min3_'):
-                locals_dict[col] = tic_chart_data[col].values
+        for col in tick_chart_data.columns:
+            if col.startswith('tick_') or col.startswith('min3_'):
+                locals_dict[col] = tick_chart_data[col].values
                 
                 # 대소문자 호환성을 위해 대문자 버전도 추가 (예: min3_ma20 -> min3_MA20)
-                # 접두사(tic_, min3_)는 소문자 유지, 나머지 지표명은 대문자로 변환
-                if col.startswith('tic_'):
-                    upper_key = 'tic_' + col[4:].upper()
+                # 접두사(tick_, min3_)는 소문자 유지, 나머지 지표명은 대문자로 변환
+                if col.startswith('tick_'):
+                    upper_key = 'tick_' + col[4:].upper()
                     if upper_key != col:
-                        locals_dict[upper_key] = tic_chart_data[col].values
+                        locals_dict[upper_key] = tick_chart_data[col].values
                 elif col.startswith('min3_'):
                     upper_key = 'min3_' + col[5:].upper()
                     if upper_key != col:
-                        locals_dict[upper_key] = tic_chart_data[col].values
+                        locals_dict[upper_key] = tick_chart_data[col].values
         
         # 백테스팅 특화 변수들
         locals_dict['code'] = code
         locals_dict['current_time'] = datetime.now()
         
         # 거래량 관련 변수
-        if not tic_chart_data.empty:
-            volume_series = tic_chart_data['volume']
+        if not tick_chart_data.empty:
+            volume_series = tick_chart_data['volume']
             if len(volume_series) > 0:
                 locals_dict['avg_volume'] = float(volume_series.mean())
                 locals_dict['volume_ratio'] = float(volume_series.iloc[-1]) / locals_dict['avg_volume'] if locals_dict['avg_volume'] > 0 else 1.0
                 
                 # 최근 10개 틱의 평균 거래량 (현재 포함)
                 if len(volume_series) >= 10:
-                    locals_dict['tic_avg_volume_10'] = volume_series.tail(10).mean()
+                    locals_dict['tick_avg_volume_10'] = volume_series.tail(10).mean()
                     
                 # 거래량 이동평균 비율 (Volume MA Ratio)
                 # (현재 틱 거래량) / (직전 20개 봉 포함 이동평균 거래량)
                 if len(volume_series) >= 20:
                     ma_20_vol = volume_series.tail(20).mean()
                     if ma_20_vol > 0:
-                        locals_dict['tic_volume_ma_ratio'] = volume_series.iloc[-1] / ma_20_vol
+                        locals_dict['tick_volume_ma_ratio'] = volume_series.iloc[-1] / ma_20_vol
                     else:
-                        locals_dict['tic_volume_ma_ratio'] = 0.0
+                        locals_dict['tick_volume_ma_ratio'] = 0.0
                 elif len(volume_series) > 0:
                     # 데이터가 20개가 안 될 경우 현재 있는 데이터만으로 평균 계산
                     ma_vol = volume_series.mean()
                     if ma_vol > 0:
-                        locals_dict['tic_volume_ma_ratio'] = volume_series.iloc[-1] / ma_vol
+                        locals_dict['tick_volume_ma_ratio'] = volume_series.iloc[-1] / ma_vol
                     else:
-                        locals_dict['tic_volume_ma_ratio'] = 0.0
+                        locals_dict['tick_volume_ma_ratio'] = 0.0
                 else:
-                    locals_dict['tic_volume_ma_ratio'] = 0.0
+                    locals_dict['tick_volume_ma_ratio'] = 0.0
 
                 if len(volume_series) >= 5:
                     # 최근 5개 틱의 평균 거래량 (순간 체결량 포착용)
-                    locals_dict['tic_avg_volume_5'] = volume_series.tail(5).mean()
+                    locals_dict['tick_avg_volume_5'] = volume_series.tail(5).mean()
 
         # ==========================================================
         # AI 실시간 추론 (LightGBM Inference)
@@ -483,37 +483,37 @@ def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_
             try:
                 # 입력 벡터 준비 (학습 때와 동일한 순서여야 함: strength, velocity, imbalance, relative_pos)
                 # 데이터가 없으면 기본값 0 처리
-                feature_strength = locals_dict.get('tic_strength', [0])[-1] if isinstance(locals_dict.get('tic_strength'), (list, np.ndarray)) else 0
+                feature_strength = locals_dict.get('tick_strength', [0])[-1] if isinstance(locals_dict.get('tick_strength'), (list, np.ndarray)) else 0
                 
                 # TICK_VELOCITY (배열 보장됨)
-                tv_val = locals_dict.get('tic_velocity')
+                tv_val = locals_dict.get('tick_velocity')
                 raw_velocity = tv_val[-1] if isinstance(tv_val, (list, np.ndarray)) and len(tv_val) > 0 else 999999.0
                 # [B] 로그 정규화 적용 (학습 시와 동일한 변환)
                 feature_velocity = np.log1p(raw_velocity)
 
                 # ORDER_BOOK_IMBALANCE (배열 보장됨)
-                obi_val = locals_dict.get('tic_order_book_imbalance')
+                obi_val = locals_dict.get('tick_order_book_imbalance')
                 feature_imbalance = obi_val[-1] if isinstance(obi_val, (list, np.ndarray)) and len(obi_val) > 0 else 0.0
 
                 feature_relative = locals_dict.get('min3_relative_position', [0])[-1] if isinstance(locals_dict.get('min3_relative_position'), (list, np.ndarray)) else 0
                 
                 # Volume MA Ratio (스칼라 값)
-                feature_ma_ratio = locals_dict.get('tic_volume_ma_ratio', 0.0)
+                feature_ma_ratio = locals_dict.get('tick_volume_ma_ratio', 0.0)
                 
                 
 
                 # 추가 피처 4개 (VWAP, BB, MACD, RSI)
-                vwap_val = locals_dict.get('tic_VWAP', [0])
+                vwap_val = locals_dict.get('tick_VWAP', [0])
                 vwap_last = vwap_val[-1] if isinstance(vwap_val, (list, np.ndarray)) and len(vwap_val) > 0 else 0.0
-                close_val = locals_dict.get('tic_close', [0])
+                close_val = locals_dict.get('tick_close', [0])
                 close_last = close_val[-1] if isinstance(close_val, (list, np.ndarray)) and len(close_val) > 0 else 0.0
                 feature_vwap_dist = (close_last - vwap_last) / vwap_last if vwap_last > 0 else 0.0
                 
                 # (삭제됨) bb_pos_val
-                macd_hist_val = locals_dict.get('tic_MACD_HIST', [0.0])
+                macd_hist_val = locals_dict.get('tick_MACD_HIST', [0.0])
                 feature_macd_hist = macd_hist_val[-1] if isinstance(macd_hist_val, (list, np.ndarray)) and len(macd_hist_val) > 0 else 0.0
                 
-                rsi_val = locals_dict.get('tic_RSI21', [50.0])
+                rsi_val = locals_dict.get('tick_RSI21', [50.0])
                 feature_rsi = rsi_val[-1] if isinstance(rsi_val, (list, np.ndarray)) and len(rsi_val) > 0 else 50.0
                 
                 # 시간 지표 (글로벌 datetime 활용)
@@ -521,13 +521,13 @@ def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_
                 feature_time = max(0, min(390, (now.hour * 60 + now.minute) - (9 * 60)))
                 
                 # [신규 추가] 파생 가속도 지표 (price_roc, vol_roc) 즉석 계산
-                close_arr = locals_dict.get('tic_close', [])
+                close_arr = locals_dict.get('tick_close', [])
                 if isinstance(close_arr, (list, np.ndarray)) and len(close_arr) >= 11:
                     feature_price_roc = (close_arr[-1] - close_arr[-11]) / close_arr[-11] if close_arr[-11] > 0 else 0.0
                 else:
                     feature_price_roc = 0.0
                     
-                vol_arr = locals_dict.get('tic_volume', [])
+                vol_arr = locals_dict.get('tick_volume', [])
                 if isinstance(vol_arr, (list, np.ndarray)) and len(vol_arr) >= 10:
                     vol_sum_recent_5 = sum(vol_arr[-5:])
                     vol_sum_prev_5 = sum(vol_arr[-10:-5])
@@ -536,22 +536,22 @@ def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_
                     feature_vol_roc = 1.0
                 
                 # (삭제됨) feature_min3_trend_agree, feature_tic_amount_spike
-                tic_ma5 = locals_dict.get('tic_MA5', [0])
-                tic_ma20 = locals_dict.get('tic_MA20', [0])
-                feature_tic_ma_spread = (tic_ma5[-1] - tic_ma20[-1]) / tic_ma20[-1] if (len(tic_ma5) > 0 and len(tic_ma20) > 0 and tic_ma20[-1] > 0) else 0.0
+                tick_ma5 = locals_dict.get('tick_MA5', [0])
+                tick_ma20 = locals_dict.get('tick_MA20', [0])
+                feature_tick_ma_spread = (tick_ma5[-1] - tick_ma20[-1]) / tick_ma20[-1] if (len(tick_ma5) > 0 and len(tick_ma20) > 0 and tick_ma20[-1] > 0) else 0.0
                     
-                high_val = locals_dict.get('tic_high', [0])
-                low_val = locals_dict.get('tic_low', [0])
+                high_val = locals_dict.get('tick_high', [0])
+                low_val = locals_dict.get('tick_low', [0])
                 feature_tic_tail_ratio = (high_val[-1] - close_arr[-1]) / (high_val[-1] - low_val[-1]) if (len(high_val) > 0 and len(low_val) > 0 and len(close_arr) > 0 and (high_val[-1] - low_val[-1]) > 0) else 0.0
                 
-                # [신규 추가] 순간 체결강도 (tic_buy_sell_ratio)
-                buy_vol_arr = locals_dict.get('tic_buy_volume', [])
-                vol_arr = locals_dict.get('tic_volume', [])
+                # [신규 추가] 순간 체결강도 (tick_buy_sell_ratio)
+                buy_vol_arr = locals_dict.get('tick_buy_volume', [])
+                vol_arr = locals_dict.get('tick_volume', [])
                 if len(buy_vol_arr) > 0 and len(vol_arr) > 0 and vol_arr[-1] > 0:
                     feature_tic_buy_sell_ratio = buy_vol_arr[-1] / vol_arr[-1]
                 else:
                     feature_tic_buy_sell_ratio = 0.5
-                # [신규 추가] 봉 내 가격 변동폭 비율 (tic_spread)
+                # [신규 추가] 봉 내 가격 변동폭 비율 (tick_spread)
                 if len(high_val) > 0 and len(low_val) > 0 and len(close_arr) > 0 and close_arr[-1] > 0:
                     feature_tic_spread = (high_val[-1] - low_val[-1]) / close_arr[-1]
                 else:
@@ -565,16 +565,16 @@ def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_
                         feature_strength, feature_velocity, feature_relative, feature_ma_ratio,
                         feature_vwap_dist, feature_macd_hist, feature_rsi,
                         feature_time, feature_price_roc, feature_vol_roc,
-                        feature_tic_ma_spread, feature_tic_tail_ratio, feature_tic_buy_sell_ratio, feature_tic_spread
+                        feature_tick_ma_spread, feature_tic_tail_ratio, feature_tic_buy_sell_ratio, feature_tic_spread
                     ]])
                 elif num_features == 15:
                     # 구버전 15개 피처 (bb_position 포함)
-                    feature_bb_pos = locals_dict.get('tic_BB_POSITION', [0.5])[-1] if isinstance(locals_dict.get('tic_BB_POSITION', [0.5]), (list, np.ndarray)) else 0.5
+                    feature_bb_pos = locals_dict.get('tick_BB_POSITION', [0.5])[-1] if isinstance(locals_dict.get('tick_BB_POSITION', [0.5]), (list, np.ndarray)) else 0.5
                     input_vector = np.array([[
                         feature_strength, feature_velocity, feature_relative, feature_ma_ratio,
                         feature_vwap_dist, feature_bb_pos, feature_macd_hist, feature_rsi,
                         feature_time, feature_price_roc, feature_vol_roc,
-                        feature_tic_ma_spread, feature_tic_tail_ratio, feature_tic_buy_sell_ratio, feature_tic_spread
+                        feature_tick_ma_spread, feature_tic_tail_ratio, feature_tic_buy_sell_ratio, feature_tic_spread
                     ]])
                 elif num_features == 13:
                     # 13개 피처 (기존 15개에서 min3_trend_agree, amount_spike 제거)
@@ -582,7 +582,7 @@ def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_
                         feature_strength, feature_velocity, feature_relative, feature_ma_ratio,
                         feature_vwap_dist, feature_bb_pos, feature_macd_hist, feature_rsi,
                         feature_time, feature_price_roc, feature_vol_roc,
-                        feature_tic_ma_spread, feature_tic_tail_ratio
+                        feature_tick_ma_spread, feature_tic_tail_ratio
                     ]])
                 elif num_features == 11:
                     # 이전 11개 피처 (가속도 지표 포함)
@@ -633,7 +633,7 @@ def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_
         logger.error(f"백테스팅 매수 로컬 변수 생성 실패 ({code}): {ex}", exc_info=True)
         return {}
 
-def prepare_sell_strategy_locals(code, tic_chart_data, min_chart_data, buy_price, buy_time, portfolio_info=None, current_price=None, commission_rate=0.00015, tax_rate=0.0018, realtime_metrics=None):
+def prepare_sell_strategy_locals(code, tick_chart_data, min_chart_data, buy_price, buy_time, portfolio_info=None, current_price=None, commission_rate=0.00015, tax_rate=0.0018, realtime_metrics=None):
     """매도 로직 평가를 위한 로컬 변수 생성"""
     logger = logging.getLogger(__name__)
     try:
@@ -641,30 +641,30 @@ def prepare_sell_strategy_locals(code, tic_chart_data, min_chart_data, buy_price
         locals_dict = {}
         
         # 1. 차트 지표 추출 (데이터가 있는 경우에만)
-        if not tic_chart_data.empty:
+        if not tick_chart_data.empty:
             # 기본 지표 추출
-            tic_indicators = KiwoomIndicatorExtractor.extract_chart_indicators(tic_chart_data)
+            tick_indicators = KiwoomIndicatorExtractor.extract_chart_indicators(tick_chart_data)
             min_indicators = KiwoomIndicatorExtractor.extract_chart_indicators(min_chart_data)
-            additional = KiwoomIndicatorExtractor.calculate_additional_indicators(tic_indicators, tic_chart_data)
+            additional = KiwoomIndicatorExtractor.calculate_additional_indicators(tick_indicators, tick_chart_data)
             
             locals_dict.update(additional)
 
-            # 틱 데이터 기반 지표에 'tic_' 접두사 추가
-            for key, value in tic_indicators.items():
+            # 틱 데이터 기반 지표에 'tick_' 접두사 추가
+            for key, value in tick_indicators.items():
                 if isinstance(value, np.ndarray):
-                    locals_dict[f'tic_{key}'] = value
+                    locals_dict[f'tick_{key}'] = value
 
             # 분봉 데이터 기반 지표에 'min3_' 접두사 추가
             for key, value in min_indicators.items():
                 if isinstance(value, np.ndarray):
                     locals_dict[f'min3_{key}'] = value
                     
-            # 기본 OHLCV 등 원본 컬럼명 소문자로 그대로 주입 (tic_ 및 min3_ 접두사 추가)
+            # 기본 OHLCV 등 원본 컬럼명 소문자로 그대로 주입 (tick_ 및 min3_ 접두사 추가)
             base_columns = ['open', 'high', 'low', 'close', 'volume', 'strength']
-            if not tic_chart_data.empty:
-                for col in tic_chart_data.columns:
+            if not tick_chart_data.empty:
+                for col in tick_chart_data.columns:
                     if col in base_columns:
-                        locals_dict[f'tic_{col}'] = tic_chart_data[col].values
+                        locals_dict[f'tick_{col}'] = tick_chart_data[col].values
             
             if not min_chart_data.empty:
                 for col in min_chart_data.columns:
@@ -672,24 +672,24 @@ def prepare_sell_strategy_locals(code, tic_chart_data, min_chart_data, buy_price
                         locals_dict[f'min3_{col}'] = min_chart_data[col].values
             
             # 기존 데이터프레임 컬럼 추가 (백테스팅 호환성)
-            for col in tic_chart_data.columns:
-                if col.startswith('tic_') or col.startswith('min3_'):
-                    locals_dict[col] = tic_chart_data[col].values
+            for col in tick_chart_data.columns:
+                if col.startswith('tick_') or col.startswith('min3_'):
+                    locals_dict[col] = tick_chart_data[col].values
                     # 대문자 버전 추가
-                    if col.startswith('tic_'):
-                        upper_key = 'tic_' + col[4:].upper()
+                    if col.startswith('tick_'):
+                        upper_key = 'tick_' + col[4:].upper()
                         if upper_key != col:
-                            locals_dict[upper_key] = tic_chart_data[col].values
+                            locals_dict[upper_key] = tick_chart_data[col].values
                     elif col.startswith('min3_'):
                         upper_key = 'min3_' + col[5:].upper()
                         if upper_key != col:
-                            locals_dict[upper_key] = tic_chart_data[col].values
+                            locals_dict[upper_key] = tick_chart_data[col].values
 
         # 2. 현재가 설정
         if current_price is None or current_price == 0:
-            if 'tic_close' in locals_dict and len(locals_dict['tic_close']) > 0:
-                current_price = locals_dict['tic_close'][-1]
-                logger.debug(f"[{code}] 매도 평가용 현재가 설정: {current_price} (tic_close[-1])")
+            if 'tick_close' in locals_dict and len(locals_dict['tick_close']) > 0:
+                current_price = locals_dict['tick_close'][-1]
+                logger.debug(f"[{code}] 매도 평가용 현재가 설정: {current_price} (tick_close[-1])")
             else:
                 current_price = 0 # 현재가 없음
 
@@ -722,10 +722,10 @@ def prepare_sell_strategy_locals(code, tic_chart_data, min_chart_data, buy_price
             locals_dict['hold_hours'] = 0
 
         # 매수 후 경과된 봉 개수 계산 (차트 데이터 필요)
-        if buy_time and not tic_chart_data.empty and 'time' in tic_chart_data.columns:
+        if buy_time and not tick_chart_data.empty and 'time' in tick_chart_data.columns:
             try:
-                tic_times = pd.to_datetime(tic_chart_data['time'])
-                locals_dict['bars_since_entry'] = (tic_times > buy_time).sum()
+                tick_times = pd.to_datetime(tick_chart_data['time'])
+                locals_dict['bars_since_entry'] = (tick_times > buy_time).sum()
             except Exception as e:
                 logger.debug(f"[{code}] bars_since_entry 계산 실패: {e}")
                 locals_dict['bars_since_entry'] = 0
@@ -738,21 +738,21 @@ def prepare_sell_strategy_locals(code, tic_chart_data, min_chart_data, buy_price
             
         # TICK_VELOCITY (배열 보장 및 Alias 설정)
         tv_array = None
-        if not tic_chart_data.empty and 'TICK_VELOCITY' in tic_chart_data.columns:
-            tv_array = tic_chart_data['TICK_VELOCITY'].values
+        if not tick_chart_data.empty and 'TICK_VELOCITY' in tick_chart_data.columns:
+            tv_array = tick_chart_data['TICK_VELOCITY'].values
         elif realtime_metrics and 'tick_velocity' in realtime_metrics:
             tv_array = np.array([realtime_metrics['tick_velocity']])
         else:
             tv_array = np.array([999999.0])
         
         locals_dict['TICK_VELOCITY'] = tv_array
-        locals_dict['tic_velocity'] = tv_array
+        locals_dict['tick_velocity'] = tv_array
 
         # ORDER_BOOK_IMBALANCE는 삭제되었으나, 이전 AI 모델 하위 호환성을 위해 0.0 고정 배열 주입
         obi_array = np.array([0.0])
             
         locals_dict['ORDER_BOOK_IMBALANCE'] = obi_array
-        locals_dict['tic_order_book_imbalance'] = obi_array
+        locals_dict['tick_order_book_imbalance'] = obi_array
             
         # min3_RELATIVE_POSITION -> min3_relative_position 매핑
         if 'min3_RELATIVE_POSITION' in locals_dict:
@@ -786,61 +786,61 @@ def prepare_sell_strategy_locals(code, tic_chart_data, min_chart_data, buy_price
         if LGBM_MODEL and 'TICK_VELOCITY' in locals_dict:
             try:
                 # 입력 벡터 준비
-                feature_strength = locals_dict.get('tic_strength', [0])[-1] if isinstance(locals_dict.get('tic_strength'), (list, np.ndarray)) else 0
+                feature_strength = locals_dict.get('tick_strength', [0])[-1] if isinstance(locals_dict.get('tick_strength'), (list, np.ndarray)) else 0
                 
                 # TICK_VELOCITY (배열 보장됨)
-                tv_val = locals_dict.get('tic_velocity')
+                tv_val = locals_dict.get('tick_velocity')
                 raw_velocity = tv_val[-1] if isinstance(tv_val, (list, np.ndarray)) and len(tv_val) > 0 else 999999.0
                 # [B] 로그 정규화 적용 (학습 시와 동일한 변환)
                 feature_velocity = np.log1p(raw_velocity)
 
                 # ORDER_BOOK_IMBALANCE (배열 보장됨)
-                obi_val = locals_dict.get('tic_order_book_imbalance')
+                obi_val = locals_dict.get('tick_order_book_imbalance')
                 feature_imbalance = obi_val[-1] if isinstance(obi_val, (list, np.ndarray)) and len(obi_val) > 0 else 0.0
 
                 feature_relative = locals_dict.get('min3_relative_position', [0])[-1] if isinstance(locals_dict.get('min3_relative_position'), (list, np.ndarray)) else 0
                 
                 # Volume Spike (스칼라 값)
-                feature_spike = locals_dict.get('tic_volume_spike', 0.0)
+                feature_spike = locals_dict.get('tick_volume_spike', 0.0)
                 
                 # 추가 피처 (신규 모델용)
-                feature_turnover = locals_dict.get('tic_turnover', [0])[-1] if isinstance(locals_dict.get('tic_turnover'), (list, np.ndarray)) else 0
+                feature_turnover = locals_dict.get('tick_turnover', [0])[-1] if isinstance(locals_dict.get('tick_turnover'), (list, np.ndarray)) else 0
                 # 호가 잔량
-                sell_1 = locals_dict.get('tic_sell_hoga_size_1', [0])[-1] if isinstance(locals_dict.get('tic_sell_hoga_size_1'), (list, np.ndarray)) else 0
-                sell_2 = locals_dict.get('tic_sell_hoga_size_2', [0])[-1] if isinstance(locals_dict.get('tic_sell_hoga_size_2'), (list, np.ndarray)) else 0
-                sell_3 = locals_dict.get('tic_sell_hoga_size_3', [0])[-1] if isinstance(locals_dict.get('tic_sell_hoga_size_3'), (list, np.ndarray)) else 0
-                buy_1 = locals_dict.get('tic_buy_hoga_size_1', [0])[-1] if isinstance(locals_dict.get('tic_buy_hoga_size_1'), (list, np.ndarray)) else 0
-                buy_2 = locals_dict.get('tic_buy_hoga_size_2', [0])[-1] if isinstance(locals_dict.get('tic_buy_hoga_size_2'), (list, np.ndarray)) else 0
-                buy_3 = locals_dict.get('tic_buy_hoga_size_3', [0])[-1] if isinstance(locals_dict.get('tic_buy_hoga_size_3'), (list, np.ndarray)) else 0
+                sell_1 = locals_dict.get('tick_sell_hoga_size_1', [0])[-1] if isinstance(locals_dict.get('tick_sell_hoga_size_1'), (list, np.ndarray)) else 0
+                sell_2 = locals_dict.get('tick_sell_hoga_size_2', [0])[-1] if isinstance(locals_dict.get('tick_sell_hoga_size_2'), (list, np.ndarray)) else 0
+                sell_3 = locals_dict.get('tick_sell_hoga_size_3', [0])[-1] if isinstance(locals_dict.get('tick_sell_hoga_size_3'), (list, np.ndarray)) else 0
+                buy_1 = locals_dict.get('tick_buy_hoga_size_1', [0])[-1] if isinstance(locals_dict.get('tick_buy_hoga_size_1'), (list, np.ndarray)) else 0
+                buy_2 = locals_dict.get('tick_buy_hoga_size_2', [0])[-1] if isinstance(locals_dict.get('tick_buy_hoga_size_2'), (list, np.ndarray)) else 0
+                buy_3 = locals_dict.get('tick_buy_hoga_size_3', [0])[-1] if isinstance(locals_dict.get('tick_buy_hoga_size_3'), (list, np.ndarray)) else 0
                 
                 # 모델 학습 시 사용된 피처 개수에 맞춰 동적으로 차원 맞추기
                 num_features = LGBM_MODEL.num_feature()
                 if num_features >= 11:
                     # 추가 피처 4개 (VWAP, BB, MACD, RSI)
-                    vwap_val = locals_dict.get('tic_VWAP', [0])
+                    vwap_val = locals_dict.get('tick_VWAP', [0])
                     vwap_last = vwap_val[-1] if isinstance(vwap_val, (list, np.ndarray)) and len(vwap_val) > 0 else 0.0
-                    close_val = locals_dict.get('tic_close', [0])
+                    close_val = locals_dict.get('tick_close', [0])
                     close_last = close_val[-1] if isinstance(close_val, (list, np.ndarray)) and len(close_val) > 0 else 0.0
                     feature_vwap_dist = (close_last - vwap_last) / vwap_last if vwap_last > 0 else 0.0
                     
                     # (삭제됨) bb_pos_val
-                    macd_hist_val = locals_dict.get('tic_MACD_HIST', [0.0])
+                    macd_hist_val = locals_dict.get('tick_MACD_HIST', [0.0])
                     feature_macd_hist = macd_hist_val[-1] if isinstance(macd_hist_val, (list, np.ndarray)) and len(macd_hist_val) > 0 else 0.0
                     
-                    rsi_val = locals_dict.get('tic_RSI21', [50.0])
+                    rsi_val = locals_dict.get('tick_RSI21', [50.0])
                     feature_rsi = rsi_val[-1] if isinstance(rsi_val, (list, np.ndarray)) and len(rsi_val) > 0 else 50.0
                     
                     now = datetime.now()
                     feature_time = max(0, min(390, (now.hour * 60 + now.minute) - (9 * 60)))
                     
                     # [신규 추가] 파생 가속도 지표 (price_roc, vol_roc)
-                    close_arr = locals_dict.get('tic_close', [])
+                    close_arr = locals_dict.get('tick_close', [])
                     if isinstance(close_arr, (list, np.ndarray)) and len(close_arr) >= 11:
                         feature_price_roc = (close_arr[-1] - close_arr[-11]) / close_arr[-11] if close_arr[-11] > 0 else 0.0
                     else:
                         feature_price_roc = 0.0
                         
-                    vol_arr = locals_dict.get('tic_volume', [])
+                    vol_arr = locals_dict.get('tick_volume', [])
                     if isinstance(vol_arr, (list, np.ndarray)) and len(vol_arr) >= 10:
                         vol_sum_recent_5 = sum(vol_arr[-5:])
                         vol_sum_prev_5 = sum(vol_arr[-10:-5])
@@ -849,22 +849,22 @@ def prepare_sell_strategy_locals(code, tic_chart_data, min_chart_data, buy_price
                         feature_vol_roc = 1.0
 
                     # (삭제됨) feature_min3_trend_agree, feature_tic_amount_spike
-                    tic_ma5 = locals_dict.get('tic_MA5', [0])
-                    tic_ma20 = locals_dict.get('tic_MA20', [0])
-                    feature_tic_ma_spread = (tic_ma5[-1] - tic_ma20[-1]) / tic_ma20[-1] if (len(tic_ma5) > 0 and len(tic_ma20) > 0 and tic_ma20[-1] > 0) else 0.0
+                    tick_ma5 = locals_dict.get('tick_MA5', [0])
+                    tick_ma20 = locals_dict.get('tick_MA20', [0])
+                    feature_tick_ma_spread = (tick_ma5[-1] - tick_ma20[-1]) / tick_ma20[-1] if (len(tick_ma5) > 0 and len(tick_ma20) > 0 and tick_ma20[-1] > 0) else 0.0
                         
-                    high_val = locals_dict.get('tic_high', [0])
-                    low_val = locals_dict.get('tic_low', [0])
+                    high_val = locals_dict.get('tick_high', [0])
+                    low_val = locals_dict.get('tick_low', [0])
                     feature_tic_tail_ratio = (high_val[-1] - close_arr[-1]) / (high_val[-1] - low_val[-1]) if (len(high_val) > 0 and len(low_val) > 0 and len(close_arr) > 0 and (high_val[-1] - low_val[-1]) > 0) else 0.0
 
-                    # [신규 추가] 순간 체결강도 (tic_buy_sell_ratio)
-                    buy_vol_arr = locals_dict.get('tic_buy_volume', [])
-                    vol_arr = locals_dict.get('tic_volume', [])
+                    # [신규 추가] 순간 체결강도 (tick_buy_sell_ratio)
+                    buy_vol_arr = locals_dict.get('tick_buy_volume', [])
+                    vol_arr = locals_dict.get('tick_volume', [])
                     if len(buy_vol_arr) > 0 and len(vol_arr) > 0 and vol_arr[-1] > 0:
                         feature_tic_buy_sell_ratio = buy_vol_arr[-1] / vol_arr[-1]
                     else:
                         feature_tic_buy_sell_ratio = 0.5
-                    # [신규 추가] 봉 내 가격 변동폭 비율 (tic_spread)
+                    # [신규 추가] 봉 내 가격 변동폭 비율 (tick_spread)
                     if len(high_val) > 0 and len(low_val) > 0 and len(close_arr) > 0 and close_arr[-1] > 0:
                         feature_tic_spread = (high_val[-1] - low_val[-1]) / close_arr[-1]
                     else:
@@ -876,16 +876,16 @@ def prepare_sell_strategy_locals(code, tic_chart_data, min_chart_data, buy_price
                             feature_strength, feature_velocity, feature_relative, feature_spike,
                             feature_vwap_dist, feature_macd_hist, feature_rsi,
                             feature_time, feature_price_roc, feature_vol_roc,
-                            feature_tic_ma_spread, feature_tic_tail_ratio, feature_tic_buy_sell_ratio, feature_tic_spread
+                            feature_tick_ma_spread, feature_tic_tail_ratio, feature_tic_buy_sell_ratio, feature_tic_spread
                         ]])
                     elif num_features == 15:
                         # 구버전 15개 피처 (bb_position 포함)
-                        feature_bb_pos = locals_dict.get('tic_BB_POSITION', [0.5])[-1] if isinstance(locals_dict.get('tic_BB_POSITION', [0.5]), (list, np.ndarray)) else 0.5
+                        feature_bb_pos = locals_dict.get('tick_BB_POSITION', [0.5])[-1] if isinstance(locals_dict.get('tick_BB_POSITION', [0.5]), (list, np.ndarray)) else 0.5
                         input_vector = np.array([[
                             feature_strength, feature_velocity, feature_relative, feature_spike,
                             feature_vwap_dist, feature_bb_pos, feature_macd_hist, feature_rsi,
                             feature_time, feature_price_roc, feature_vol_roc,
-                            feature_tic_ma_spread, feature_tic_tail_ratio, feature_tic_buy_sell_ratio, feature_tic_spread
+                            feature_tick_ma_spread, feature_tic_tail_ratio, feature_tic_buy_sell_ratio, feature_tic_spread
                         ]])
                     elif num_features == 13:
                         # 13개 피처 (기존 15개에서 min3_trend_agree, amount_spike 제거)
@@ -893,7 +893,7 @@ def prepare_sell_strategy_locals(code, tic_chart_data, min_chart_data, buy_price
                             feature_strength, feature_velocity, feature_relative, feature_spike,
                             feature_vwap_dist, feature_bb_pos, feature_macd_hist, feature_rsi,
                             feature_time, feature_price_roc, feature_vol_roc,
-                            feature_tic_ma_spread, feature_tic_tail_ratio
+                            feature_tick_ma_spread, feature_tic_tail_ratio
                         ]])
                     elif num_features == 11:
                         # 이전 11개 피처 (가속도 포함)
