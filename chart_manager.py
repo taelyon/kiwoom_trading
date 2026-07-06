@@ -894,25 +894,25 @@ class ChartDataCache:
                 
                 logging.debug(f"💾 {code}: DB 저장 시작")
 
+                from config_manager import EnvConfigParser
+                data_collection_mode = EnvConfigParser().getboolean('DATA_SAVING', 'DATA_COLLECTION_MODE', fallback=False)
+
                 # === [1. 실시간 스냅샷 저장 로직] ===
                 queue = data.get('db_save_queue', [])
                 if queue:
                     rows_to_save = queue[:]
-                    data['db_save_queue'] = []
-                    if hasattr(self.trader.db_manager, 'save_realtime_snapshots'):
+                    data['db_save_queue'] = [] # 데이터 수집 모드와 무관하게 큐는 항상 비워 메모리 누수 방지
+                    if data_collection_mode and hasattr(self.trader.db_manager, 'save_realtime_snapshots'):
                         await self.trader.db_manager.save_realtime_snapshots(code, rows_to_save)
                         saved_count += 1
                         logging.debug(f"✅ {code}: 실시간 스냅샷 DB 저장 완료 ({len(rows_to_save)}건)")
 
                 # === [2. 과거 데이터 일괄 수집 모드 로직 (옵션)] ===
-                from config_manager import EnvConfigParser
-                data_collection_mode = EnvConfigParser().getboolean('DATA_SAVING', 'DATA_COLLECTION_MODE', fallback=False)
                 api_sync_pending = data.get('api_sync_pending', False)
+                if api_sync_pending:
+                    data['api_sync_pending'] = False
                 
-                if data_collection_mode or api_sync_pending:
-                    if api_sync_pending:
-                        data['api_sync_pending'] = False
-                    
+                if data_collection_mode:
                     # DataFrame 변환 및 지표 계산 (CPU 바운드 작업을 스레드풀로 오프로드)
                     try:
                         loop = asyncio.get_running_loop()
@@ -932,17 +932,16 @@ class ChartDataCache:
                         if hasattr(self.parent, 'core_managers') and self.parent.core_managers:
                             monitoring_start_time = self.parent.core_managers.stock_added_time.get(code)
                         
-                        # 중복 로그 방지 및 상황별 분기
-                        if data_collection_mode:
-                            if not hasattr(self, '_log_data_collect') or code not in self._log_data_collect:
-                                if not hasattr(self, '_log_data_collect'): self._log_data_collect = set()
-                                logging.info(f"⚠️ [{code}] 데이터 수집 모드 켜짐 - 오늘 치 과거 데이터를 강제 저장합니다.")
-                                self._log_data_collect.add(code)
-                            # 전체 저장을 위해 monitoring_start_time 해제
-                            save_start_time = None
-                        else:
+                        # 중복 로그 방지
+                        if not hasattr(self, '_log_data_collect') or code not in self._log_data_collect:
+                            if not hasattr(self, '_log_data_collect'): self._log_data_collect = set()
+                            logging.info(f"⚠️ [{code}] 데이터 수집 모드 켜짐 - 데이터를 강제 저장합니다.")
+                            self._log_data_collect.add(code)
+                            
+                        # 전체 저장을 위해 monitoring_start_time 해제 (모두 저장)
+                        save_start_time = None
+                        if api_sync_pending:
                             logging.debug(f"🔄 [{code}] 5분 주기 차트 API 데이터 교정(동기화) 완료 및 DB 덮어쓰기 완료.")
-                            # 실전 모드 교정 시에는 감시 기간 동안의 데이터만 덮어쓰도록 유지
                             save_start_time = monitoring_start_time
                         
                         await self.trader.db_manager.save_stock_data(
