@@ -929,8 +929,10 @@ class ChartDataCache:
                     if not tick_df.empty and not min_df.empty:
                         # 메모리에서 감시 시작 시간 가져오기
                         monitoring_start_time = None
-                        if hasattr(self.parent, 'core_managers') and self.parent.core_managers:
-                            monitoring_start_time = self.parent.core_managers.stock_added_time.get(code)
+                        if hasattr(self.parent, 'monitoring_manager') and self.parent.monitoring_manager:
+                            monitoring_start_time = self.parent.monitoring_manager.stock_added_time.get(code)
+                        elif hasattr(self.parent, 'core_manager') and self.parent.core_manager:
+                            monitoring_start_time = self.parent.core_manager.stock_added_time.get(code)
                         
                         # 중복 로그 방지 및 상황별 분기
                         if data_collection_mode:
