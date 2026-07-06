@@ -322,7 +322,8 @@ class ChartDataCache:
                     'min_data': None,
                     'last_update': None,
                     'last_save': None,
-                    'previous_close': 0  # 전일종가 (한 번만 조회)
+                    'previous_close': 0,  # 전일종가 (한 번만 조회)
+                    'api_sync_pending': False
                 }
                 self.logger.debug(f"📝 {code}: 캐시 초기화")
             
@@ -332,6 +333,7 @@ class ChartDataCache:
             self.cache[code]['tick_data'] = tick_data
             self.cache[code]['min_data'] = min_data
             self.cache[code]['last_update'] = datetime.now()
+            self.cache[code]['api_sync_pending'] = True
             
             self.logger.debug(f"💾 {code}: 캐시에 데이터 저장 완료 (총 캐시: {len(self.cache)}개 종목)")
             
@@ -905,8 +907,12 @@ class ChartDataCache:
                 # === [2. 과거 데이터 일괄 수집 모드 로직 (옵션)] ===
                 from config_manager import EnvConfigParser
                 data_collection_mode = EnvConfigParser().getboolean('DATA_SAVING', 'DATA_COLLECTION_MODE', fallback=False)
+                api_sync_pending = data.get('api_sync_pending', False)
                 
-                if data_collection_mode:
+                if data_collection_mode or api_sync_pending:
+                    if api_sync_pending:
+                        data['api_sync_pending'] = False
+                    
                     # DataFrame 변환 및 지표 계산 (CPU 바운드 작업을 스레드풀로 오프로드)
                     try:
                         loop = asyncio.get_running_loop()
@@ -926,11 +932,14 @@ class ChartDataCache:
                         if hasattr(self.parent, 'core_managers') and self.parent.core_managers:
                             monitoring_start_time = self.parent.core_managers.stock_added_time.get(code)
                         
-                        # 중복 로그 방지
-                        if not hasattr(self, '_log_data_collect') or code not in self._log_data_collect:
-                            if not hasattr(self, '_log_data_collect'): self._log_data_collect = set()
-                            logging.info(f"⚠️ [{code}] 데이터 수집 모드(DATA_COLLECTION_MODE) 켜짐 - 오늘 치 과거 데이터를 전부 강제 저장합니다.")
-                            self._log_data_collect.add(code)
+                        # 중복 로그 방지 및 상황별 분기
+                        if data_collection_mode:
+                            if not hasattr(self, '_log_data_collect') or code not in self._log_data_collect:
+                                if not hasattr(self, '_log_data_collect'): self._log_data_collect = set()
+                                logging.info(f"⚠️ [{code}] 데이터 수집 모드 켜짐 - 오늘 치 과거 데이터를 강제 저장합니다.")
+                                self._log_data_collect.add(code)
+                        else:
+                            logging.debug(f"🔄 [{code}] 5분 주기 차트 API 데이터 교정(동기화) 완료 및 DB 덮어쓰기 완료.")
                         
                         await self.trader.db_manager.save_stock_data(
                             code, 
