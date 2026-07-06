@@ -230,7 +230,7 @@ class AsyncDatabaseManager:
                 # 16개 기본 컬럼 (code, datetime, tic 8개, min3 5개, created_at 1개) + tic 지표 개수 + min 지표 개수
                 placeholders = ", ".join(["?"] * (16 + len(filtered_tic) + len(valid_min_indicators)))
 
-                sql = f"INSERT OR IGNORE INTO stock_data ({columns}) VALUES ({placeholders})"
+                sql = f"INSERT OR REPLACE INTO stock_data ({columns}) VALUES ({placeholders})"
                 
                 # 틱봉 데이터 개수만큼 저장할 데이터 준비
                 batch_values = []
