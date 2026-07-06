@@ -4013,8 +4013,8 @@ HTML_CONTENT = """
     </script>
     
     <!-- 데이터베이스 보기 모달 -->
-    <div id="dbSummaryModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 10000; align-items: center; justify-content: center; backdrop-filter: blur(5px);">
-        <div style="background: var(--bg-dark); border: 1px solid var(--border-color); border-radius: 12px; width: 80%; max-width: 800px; max-height: 80%; display: flex; flex-direction: column; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+    <div id="dbSummaryModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 10000; align-items: flex-start; justify-content: center; padding-top: 5vh; backdrop-filter: blur(5px);">
+        <div style="background: var(--bg-dark); border: 1px solid var(--border-color); border-radius: 12px; width: 80%; max-width: 800px; max-height: 85vh; display: flex; flex-direction: column; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
             <div style="padding: 16px 20px; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center;">
                 <h3 style="margin: 0; color: var(--text-primary); font-size: 16px;">📊 데이터베이스 (stock_data.db) 요약</h3>
                 <button onclick="document.getElementById('dbSummaryModal').style.display='none'" style="background: none; border: none; color: var(--text-secondary); font-size: 20px; cursor: pointer;">&times;</button>
