@@ -424,12 +424,22 @@ class AsyncDatabaseManager:
             async with self._db_lock:
                 cursor = await self._conn.cursor()
 
-                # 첫 번째 스냅샷의 키를 기반으로 동적 INSERT 구문 생성
                 sample_keys = list(snapshots[0].keys())
                 
                 # 기존 테이블의 컬럼 목록만 허용하여 스냅샷 저장
                 await cursor.execute("PRAGMA table_info(stock_data)")
                 existing_columns = [row[1] for row in await cursor.fetchall()]
+                
+                # 없는 컬럼은 ALTER TABLE로 추가 (동적 스키마 진화)
+                for key in sample_keys:
+                    if key not in existing_columns and key not in ['created_at']:
+                        try:
+                            col_type = "TEXT" if key in ['code', 'datetime'] else "REAL"
+                            await cursor.execute(f"ALTER TABLE stock_data ADD COLUMN {key} {col_type}")
+                            existing_columns.append(key)
+                            self.logger.info(f"📊 스냅샷 저장 중 새 컬럼 자동 추가: {key}")
+                        except Exception as e:
+                            self.logger.warning(f"⚠️ 컬럼 자동 추가 실패 ({key}): {e}")
                 
                 columns = []
                 for k in sample_keys:
