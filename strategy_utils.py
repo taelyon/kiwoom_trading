@@ -513,7 +513,7 @@ def prepare_buy_strategy_locals(code, tic_chart_data, min_chart_data, portfolio_
                 macd_hist_val = locals_dict.get('tic_MACD_HIST', [0.0])
                 feature_macd_hist = macd_hist_val[-1] if isinstance(macd_hist_val, (list, np.ndarray)) and len(macd_hist_val) > 0 else 0.0
                 
-                rsi_val = locals_dict.get('tic_RSI', [50.0])
+                rsi_val = locals_dict.get('tic_RSI21', [50.0])
                 feature_rsi = rsi_val[-1] if isinstance(rsi_val, (list, np.ndarray)) and len(rsi_val) > 0 else 50.0
                 
                 # 시간 지표 (글로벌 datetime 활용)
@@ -827,7 +827,7 @@ def prepare_sell_strategy_locals(code, tic_chart_data, min_chart_data, buy_price
                     macd_hist_val = locals_dict.get('tic_MACD_HIST', [0.0])
                     feature_macd_hist = macd_hist_val[-1] if isinstance(macd_hist_val, (list, np.ndarray)) and len(macd_hist_val) > 0 else 0.0
                     
-                    rsi_val = locals_dict.get('tic_RSI', [50.0])
+                    rsi_val = locals_dict.get('tic_RSI21', [50.0])
                     feature_rsi = rsi_val[-1] if isinstance(rsi_val, (list, np.ndarray)) and len(rsi_val) > 0 else 50.0
                     
                     now = datetime.now()

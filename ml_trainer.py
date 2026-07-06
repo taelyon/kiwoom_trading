@@ -157,11 +157,11 @@ class MLTrainingWorker(threading.Thread):
                 else:
                     g['tic_macd_hist'] = 0.0
                     
-                # RSI
-                if len(close) >= 14:
-                    g['tic_rsi'] = pd.Series(talib.RSI(close, timeperiod=14)).fillna(50.0).values
+                # RSI 21
+                if len(close) >= 21:
+                    g['tic_rsi21'] = pd.Series(talib.RSI(close, timeperiod=21)).fillna(50.0).values
                 else:
-                    g['tic_rsi'] = 50.0
+                    g['tic_rsi21'] = 50.0
                     
                 # [신규] 최근 10틱 가격 변화율 (가속도)
                 g['tic_price_roc'] = g['tic_close'].pct_change(periods=10).fillna(0.0)
@@ -209,7 +209,7 @@ class MLTrainingWorker(threading.Thread):
             new_features = [
                 'tic_vwap_distance',
                 'tic_macd_hist',
-                'tic_rsi',
+                'tic_rsi21',
                 'time_of_day_minute',
                 'tic_price_roc',      # 가격 상승 가속도
                 'tic_vol_roc',        # 거래량 폭발 가속도
