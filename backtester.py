@@ -215,7 +215,7 @@ class Backtester:
                         f_vwap_dist = (close_vals - vwap_vals) / vwap_safe
                         
                         f_macd_hist = group_df['MACD_HIST'].values if 'MACD_HIST' in group_df.columns else np.zeros(n)
-                        f_rsi = group_df['RSI'].values if 'RSI' in group_df.columns else np.full(n, 50.0)
+                        f_rsi = group_df['RSI21'].values if 'RSI21' in group_df.columns else np.full(n, 50.0)
                         
                         dt_series = pd.to_datetime(group_df['datetime'], errors='coerce')
                         f_time = np.clip((dt_series.dt.hour * 60 + dt_series.dt.minute).values - 540, 0, 390)
