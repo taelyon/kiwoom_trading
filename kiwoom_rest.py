@@ -602,7 +602,7 @@ class KiwoomRestClient:
             # ka10079 요청 데이터 (참고 코드와 동일한 구조)
             data = {
                 "stk_cd": code,                    # 종목코드
-                "tick_scope": str(tick_scope),       # 틱범위: 1,3,5,10,30
+                "tic_scope": str(tick_scope),       # 틱범위: 1,3,5,10,30
                 "upd_stkpc_tp": "1"                # 수정주가구분: 0 or 1
             }
             
@@ -688,7 +688,7 @@ class KiwoomRestClient:
             # ka10080 요청 데이터 (분봉 차트)
             data = {
                 "stk_cd": code,
-                "tick_scope": str(period),  # 1:1분, 3:3분, 5:5분, 10:10분, 15:15분, 30:30분, 45:45분, 60:60분
+                "tic_scope": str(period),  # 1:1분, 3:3분, 5:5분, 10:10분, 15:15분, 30:30분, 45:45분, 60:60분
                 "upd_stkpc_tp": "1"
             }
             
