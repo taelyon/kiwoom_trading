@@ -806,7 +806,26 @@ class AsyncDatabaseManager:
                     record_dict = dict(zip(columns, row))
                     # 레거시 tic_ 컬럼들은 결과에서 제거 (tick_ 로 대체됨)
                     filtered_dict = {k: v for k, v in record_dict.items() if not (k.startswith('tic_') and not k.startswith('tick_'))}
-                    result["recent_records"].append(filtered_dict)
+                    
+                    # UI에 보여질 컬럼 순서 재정렬 (가독성 향상)
+                    def sort_key(k):
+                        if k == 'code': return (0, 0)
+                        if k == 'datetime': return (0, 1)
+                        if k.startswith('tick_'):
+                            base = ['open', 'high', 'low', 'close', 'volume', 'buy_volume', 'sell_volume', 'strength', 'velocity', 'last_tic_cnt']
+                            for i, b in enumerate(base):
+                                if k == f'tick_{b}': return (1, i)
+                            return (2, k)  # 나머지 tick_ 지표들
+                        if k.startswith('min3_'):
+                            base = ['open', 'high', 'low', 'close', 'volume']
+                            for i, b in enumerate(base):
+                                if k == f'min3_{b}': return (3, i)
+                            return (4, k)  # 나머지 min3_ 지표들
+                        if k == 'created_at': return (9, 0)
+                        return (8, k)
+                    
+                    sorted_dict = {k: filtered_dict[k] for k in sorted(filtered_dict.keys(), key=sort_key)}
+                    result["recent_records"].append(sorted_dict)
                     
         except Exception as e:
             self.logger.error(f"DB 요약 조회 실패: {e}")
