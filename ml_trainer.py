@@ -291,7 +291,7 @@ class MLTrainingWorker(threading.Thread):
             raw_importance = model.feature_importance(importance_type='gain')
             importance = list(zip(features, raw_importance))
             importance.sort(key=lambda x: x[1], reverse=True)
-            top_features = ", ".join([f"{f}:{int(score)}" for f, score in importance[:3]])
+            top_features = ", ".join([f"{f}:{int(score)}" for f, score in importance])
             
             import json
             metrics = {
