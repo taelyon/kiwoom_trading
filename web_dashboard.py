@@ -4019,8 +4019,8 @@ HTML_CONTENT = """
                 <h3 style="margin: 0; color: var(--text-primary); font-size: 16px;">📊 데이터베이스 (stock_data.db) 요약</h3>
                 <button onclick="document.getElementById('dbSummaryModal').style.display='none'" style="background: none; border: none; color: var(--text-secondary); font-size: 20px; cursor: pointer;">&times;</button>
             </div>
-            <div style="padding: 20px; overflow-y: auto; flex: 1;">
-                <h4 style="margin: 0 0 10px 0; color: var(--text-primary); font-size: 14px;">📋 종목별 데이터 요약</h4>
+            <div style="padding: 0 20px 20px 20px; overflow-y: auto; flex: 1;">
+                <h4 style="margin: 20px 0 10px 0; color: var(--text-primary); font-size: 14px;">📋 종목별 데이터 요약</h4>
                 <table class="bt-trade-table" style="width: 100%; margin-bottom: 20px;">
                     <thead>
                         <tr>
@@ -4035,7 +4035,7 @@ HTML_CONTENT = """
                     </tbody>
                 </table>
                 
-                <h4 style="margin: 0 0 10px 0; color: var(--text-primary); font-size: 14px;">⏱️ 최근 수집된 데이터 (최대 10건)</h4>
+                <h4 style="margin: 20px 0 10px 0; color: var(--text-primary); font-size: 14px;">⏱️ 최근 수집된 데이터 (최대 10건)</h4>
                 <div style="overflow-x: auto; width: 100%;">
                     <table class="bt-trade-table" style="width: max-content; min-width: 100%;">
                         <thead id="dbRecentThead">
