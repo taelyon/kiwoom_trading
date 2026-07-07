@@ -1553,7 +1553,7 @@ class KiwoomRestClient:
                 self.logger.warning("틱 차트 데이터가 비어있습니다")
                 return {}
             
-            # 필요한 필드 추출 (체결강도 필드 추가)
+            # 필요한 필드 추출 (체결강도, 매수/매도 거래량 필드 추가)
             parsed_data = {
                 'time': [],
                 'open': [],
@@ -1561,7 +1561,9 @@ class KiwoomRestClient:
                 'low': [],
                 'close': [],
                 'volume': [],
-                'strength': [],  # 체결강도 필드 추가
+                'buy_volume': [],
+                'sell_volume': [],
+                'strength': [],
                 'last_tic_cnt': []
             }
             
@@ -1668,9 +1670,28 @@ class KiwoomRestClient:
                 parsed_data['close'].append(close_price)
                 parsed_data['volume'].append(volume)
                 
-                # 체결강도 데이터는 제거됨 (ka10046 API 사용 안함)
-                # 기본값 0.0으로 설정
-                parsed_data['strength'].append(0.0)
+                # 과거 API(opt10079 등)에서는 매수/매도 거래량 및 체결강도를 제공하지 않으므로, 기계학습 모델의
+                # 데이터 파편화(NaN, 0.0) 방지를 위해 시가/종가 기반으로 근사치를 추정하여 채움.
+                if close_price > open_price:     # 양봉: 매수 우위
+                    buy_vol = int(volume * 0.7)
+                    sell_vol = volume - buy_vol
+                elif close_price < open_price:   # 음봉: 매도 우위
+                    sell_vol = int(volume * 0.7)
+                    buy_vol = volume - sell_vol
+                else:                            # 도지: 중립
+                    buy_vol = volume // 2
+                    sell_vol = volume - buy_vol
+                
+                # 체결강도 근사치 계산 (매수/매도 비율 * 100)
+                strength = 100.0
+                if sell_vol > 0:
+                    strength = round((buy_vol / sell_vol) * 100.0, 2)
+                elif buy_vol > 0:
+                    strength = 200.0
+                
+                parsed_data['buy_volume'].append(buy_vol)
+                parsed_data['sell_volume'].append(sell_vol)
+                parsed_data['strength'].append(strength)
                 
                 # 마지막틱갯수 (last_tic_cnt) 필드 추가
                 last_tic_cnt = item.get('last_tic_cnt', '')
