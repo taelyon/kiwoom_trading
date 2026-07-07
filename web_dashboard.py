@@ -2161,7 +2161,7 @@ HTML_CONTENT = """
                         if (data.metrics) {
                             document.getElementById('mlValAuc').innerText = data.metrics.auc.toFixed(4);
                             document.getElementById('mlTrainAuc').innerText = data.metrics.train_auc.toFixed(4);
-                            document.getElementById('mlDataRows').innerText = data.metrics.data_rows.toLocaleString() + '개';
+                            document.getElementById('mlDataRows').innerText = data.metrics.data_rows.toLocaleString();
                             renderFeatureChart(data.metrics.feature_importance);
                         }
                         fetchModelHistory(); // 학습 완료 후 목록 갱신
