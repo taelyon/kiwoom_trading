@@ -1283,6 +1283,11 @@ HTML_CONTENT = """
         .bt-trade-table td.text-center {
             text-align: center;
         }
+        
+        /* 종목별 데이터 요약 테이블에서는 고정 헤더(sticky) 해제 */
+        #dbSummaryModal .bt-trade-table th {
+            position: static;
+        }
     </style>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js" crossorigin="anonymous"></script>
