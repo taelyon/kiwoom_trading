@@ -734,7 +734,8 @@ class ChartDataCache:
         n = len(data['close'])
         agg_data = {
             'time': [], 'open': [], 'high': [], 'low': [], 'close': [], 
-            'volume': [], 'strength': [], 'last_tic_cnt': []
+            'volume': [], 'strength': [], 'last_tic_cnt': [],
+            'buy_volume': [], 'sell_volume': []
         }
         
         for i in range(0, n, 2):
@@ -746,6 +747,14 @@ class ChartDataCache:
                 agg_data['low'].append(min(data['low'][i], data['low'][i+1]))
                 agg_data['close'].append(data['close'][i+1])
                 agg_data['volume'].append(data['volume'][i] + data['volume'][i+1])
+                
+                b1 = data['buy_volume'][i] if 'buy_volume' in data and len(data['buy_volume']) > i else 0
+                b2 = data['buy_volume'][i+1] if 'buy_volume' in data and len(data['buy_volume']) > i+1 else 0
+                agg_data['buy_volume'].append(b1 + b2)
+                
+                s_v1 = data['sell_volume'][i] if 'sell_volume' in data and len(data['sell_volume']) > i else 0
+                s_v2 = data['sell_volume'][i+1] if 'sell_volume' in data and len(data['sell_volume']) > i+1 else 0
+                agg_data['sell_volume'].append(s_v1 + s_v2)
                 
                 s1 = data['strength'][i] if 'strength' in data and len(data['strength']) > i else 0
                 s2 = data['strength'][i+1] if 'strength' in data and len(data['strength']) > i+1 else 0
@@ -772,6 +781,12 @@ class ChartDataCache:
                 agg_data['low'].append(data['low'][i])
                 agg_data['close'].append(data['close'][i])
                 agg_data['volume'].append(data['volume'][i])
+                
+                b1 = data['buy_volume'][i] if 'buy_volume' in data and len(data['buy_volume']) > i else 0
+                agg_data['buy_volume'].append(b1)
+                
+                s_v1 = data['sell_volume'][i] if 'sell_volume' in data and len(data['sell_volume']) > i else 0
+                agg_data['sell_volume'].append(s_v1)
                 
                 s1 = data['strength'][i] if 'strength' in data and len(data['strength']) > i else 0
                 agg_data['strength'].append(s1)
