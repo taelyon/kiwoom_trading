@@ -623,6 +623,14 @@ class KiwoomRestClient:
             for attempt in range(max_retries + 1):
                 try:
                     response = await self.client.post(url, headers=headers, json=data, timeout=60.0)
+                    if response.status_code == 429:
+                        if attempt < max_retries:
+                            self.logger.warning(f"틱 차트 조회 429 에러(한도 초과). 3.5초 대기 후 재시도 ({attempt+1}/{max_retries})... {code}")
+                            await asyncio.sleep(3.5)
+                            continue
+                        else:
+                            self.logger.error(f"틱 차트 조회 429 에러 최대 재시도 초과: {code}")
+                            break
                     break 
                 except httpx.RequestError as timeout_err:
                      if attempt < max_retries:
@@ -706,6 +714,14 @@ class KiwoomRestClient:
             for attempt in range(max_retries + 1):
                 try:
                     response = await self.client.post(url, headers=headers, json=data, timeout=60.0)
+                    if response.status_code == 429:
+                        if attempt < max_retries:
+                            self.logger.warning(f"분봉 차트 조회 429 에러(한도 초과). 3.5초 대기 후 재시도 ({attempt+1}/{max_retries})... {code}")
+                            await asyncio.sleep(3.5)
+                            continue
+                        else:
+                            self.logger.error(f"분봉 차트 조회 429 에러 최대 재시도 초과: {code}")
+                            break
                     break
                 except httpx.RequestError as timeout_err:
                      if attempt < max_retries:

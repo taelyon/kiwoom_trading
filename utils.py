@@ -238,7 +238,7 @@ class ApiLimitManager:
             queue_key = request_type
             if request_type in ['tic_chart', 'minute_chart', 'tic', 'minute']:
                 queue_key = 'chart_req'
-                interval = 1.2  # 차트 요청 간격 1.2초로 설정하여 429 예방 (기존 1.0초 대비 안전 마진 확보)
+                interval = 1.5  # 차트 요청 간격 1.5초로 설정하여 429 예방 (안전 마진 대폭 확보)
             
             # 임계 영역 보호 - 스레드 락 적용으로 레이스 컨디션 차단
             with cls._lock:
