@@ -486,6 +486,11 @@ class AsyncDatabaseManager:
                     for k in columns:  # 필터링된 columns 기준
                         if k == "created_at": continue
                         val = snap.get(k, None)
+                        
+                        # datetime 객체인 경우 명시적으로 문자열 변환 (T 포함 방지)
+                        if k == "datetime" and hasattr(val, "strftime"):
+                            val = val.strftime('%Y-%m-%d %H:%M:%S')
+                            
                         if isinstance(val, np.generic): val = val.item()
                         if pd.isna(val) if hasattr(val, '__iter__') or type(val)==float else False: 
                             row_values.append(None)
