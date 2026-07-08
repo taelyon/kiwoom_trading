@@ -415,7 +415,7 @@ class Backtester:
                     prog = 30 + int((time_idx / total_times) * 60)
                     progress_callback(prog, f"시뮬레이션 진행 중... ({time_idx}/{total_times}) 틱")
                 
-                current_time_str = str(current_time)
+                current_time_str = str(current_time).replace('T', ' ')
                 time_part = current_time_str[11:16].replace(":", "") if len(current_time_str) >= 16 else ""
                 is_market_close = (time_part >= "1518")
                 is_lunch_time = ("1130" <= time_part < "1300") # 점심시간 체크
@@ -673,7 +673,7 @@ class Backtester:
                 # 마지막 가격은 precomputed 의 마지막 값을 참조
                 sd = stock_data[current_code]
                 last_price = float(sd['precomputed']['close'][-1])
-                last_time = str(sd['precomputed']['datetime'][-1])
+                last_time = str(sd['precomputed']['datetime'][-1]).replace('T', ' ')
                 
                 sell_qty = pos['qty']
                 trade_profit = (last_price - pos['buy_price']) * sell_qty
