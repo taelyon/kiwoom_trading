@@ -1603,7 +1603,7 @@ class KiwoomWebSocketClient:
             # 실시간 지표 가져오기
             realtime_metrics = cached_data.get('realtime_metrics', {})
             tick_velocity = realtime_metrics.get('tick_velocity', 0.0)
-            # 삭제됨: order_book_imbalance = realtime_metrics.get('order_book_imbalance', 0.0)
+            order_book_imbalance = realtime_metrics.get('order_book_imbalance', 0.5)
             
             # 최신 호가창 뎁스 데이터 가져오기 (실시간 지표 또는 차트 데이터 갱신)
             sell_hoga_1 = realtime_metrics.get('sell_hoga_1', 0)
