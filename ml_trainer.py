@@ -170,6 +170,9 @@ class MLTrainingWorker(threading.Thread):
                 vol_sum_5 = g['tick_volume'].rolling(5).sum()
                 prev_vol_sum_5 = vol_sum_5.shift(5)
                 g['tick_vol_roc'] = pd.Series(np.where(prev_vol_sum_5 > 0, vol_sum_5 / prev_vol_sum_5, 1.0)).fillna(1.0).values
+                
+                # [신규 추가] 볼린저 밴드 표준편차 (그룹 내 연산)
+                g['std20'] = g['tick_close'].rolling(20, min_periods=1).std(ddof=1).fillna(0)
                     
                 return g
             
@@ -202,10 +205,8 @@ class MLTrainingWorker(threading.Thread):
             df['tick_disparity20'] = np.where(df['tick_ma20'] > 0, (df['tick_close'] / df['tick_ma20']) * 100, 100.0)
             
             # [신규 추가] 7. 볼린저 밴드 포지션 (tick_bb_position)
-            # 20틱 기준 표준편차 계산
-            std20 = df.groupby('code')['tick_close'].transform(lambda x: x.rolling(20, min_periods=1).std(ddof=1)).fillna(0)
-            bb_upper = df['tick_ma20'] + (2 * std20)
-            bb_lower = df['tick_ma20'] - (2 * std20)
+            bb_upper = df['tick_ma20'] + (2 * df['std20'])
+            bb_lower = df['tick_ma20'] - (2 * df['std20'])
             df['tick_bb_position'] = np.where((bb_upper - bb_lower) > 0, (df['tick_close'] - bb_lower) / (bb_upper - bb_lower), 0.5)
             df['tick_bb_position'] = df['tick_bb_position'].fillna(0.5)
             
