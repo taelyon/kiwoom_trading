@@ -318,7 +318,7 @@ class AsyncDatabaseManager:
                         min_idx = best_idx
                     
                     # datetime 객체를 일반 형식으로 변환
-                    datetime_str = tick_times[i].strftime('%Y-%m-%d %H:%M:%S') if hasattr(tick_times[i], 'strftime') else str(tick_times[i])
+                    datetime_str = tick_times[i].strftime('%Y-%m-%d %H:%M:%S') if hasattr(tick_times[i], 'strftime') else str(tick_times[i]).replace('T', ' ')
                     
                     values = [
                         code,
@@ -489,9 +489,11 @@ class AsyncDatabaseManager:
                         val = snap.get(k, None)
                         
                         # datetime 객체인 경우 명시적으로 문자열 변환 (T 포함 방지)
-                        if k == "datetime" and hasattr(val, "strftime"):
-                            val = val.strftime('%Y-%m-%d %H:%M:%S')
-                            
+                        if k == "datetime":
+                            if hasattr(val, "strftime"):
+                                val = val.strftime('%Y-%m-%d %H:%M:%S')
+                            else:
+                                val = str(val).replace('T', ' ')
                         if isinstance(val, np.generic): val = val.item()
                         if pd.isna(val) if hasattr(val, '__iter__') or type(val)==float else False: 
                             row_values.append(None)
