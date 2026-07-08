@@ -556,10 +556,39 @@ def prepare_buy_strategy_locals(code, tick_chart_data, min_chart_data, portfolio
                     feature_tic_spread = (high_val[-1] - low_val[-1]) / close_arr[-1]
                 else:
                     feature_tic_spread = 0.0
+                    
+                # [신규 추가] 틱 이격도 (tick_disparity20)
+                tick_ma20_last = tick_ma20[-1] if (len(tick_ma20) > 0) else 0.0
+                if tick_ma20_last > 0 and close_last > 0:
+                    feature_tic_disparity20 = (close_last / tick_ma20_last) * 100
+                else:
+                    feature_tic_disparity20 = 100.0
+                
+                # [신규 추가] 볼린저 밴드 포지션 (tick_bb_position)
+                if isinstance(close_arr, (list, np.ndarray)) and len(close_arr) >= 20:
+                    recent_closes = close_arr[-20:]
+                    std20 = np.std(recent_closes, ddof=1)
+                    bb_upper = tick_ma20_last + (2 * std20)
+                    bb_lower = tick_ma20_last - (2 * std20)
+                    if (bb_upper - bb_lower) > 0:
+                        feature_tic_bb_position = (close_last - bb_lower) / (bb_upper - bb_lower)
+                    else:
+                        feature_tic_bb_position = 0.5
+                else:
+                    feature_tic_bb_position = 0.5
                 
                 # 모델 학습 시 사용된 피처 개수에 맞춰 동적으로 차원 맞추기
                 num_features = LGBM_MODEL.num_feature()
-                if num_features == 14:
+                if num_features == 16:
+                    # 최신 16개 피처 (disparity20, bb_position 추가됨)
+                    input_vector = np.array([[
+                        feature_strength, feature_velocity, feature_relative, feature_ma_ratio,
+                        feature_vwap_dist, feature_macd_hist, feature_rsi,
+                        feature_time, feature_price_roc, feature_vol_roc,
+                        feature_tick_ma_spread, feature_tic_tail_ratio, feature_tic_buy_sell_ratio, feature_tic_spread,
+                        feature_tic_disparity20, feature_tic_bb_position
+                    ]])
+                elif num_features == 14:
                     # 최신 14개 피처 (기존 15개에서 bb_position 제거됨)
                     input_vector = np.array([[
                         feature_strength, feature_velocity, feature_relative, feature_ma_ratio,
@@ -870,7 +899,36 @@ def prepare_sell_strategy_locals(code, tick_chart_data, min_chart_data, buy_pric
                     else:
                         feature_tic_spread = 0.0
 
-                    if num_features == 14:
+                    # [신규 추가] 틱 이격도 (tick_disparity20)
+                    tick_ma20_last = tick_ma20[-1] if (len(tick_ma20) > 0) else 0.0
+                    if tick_ma20_last > 0 and close_last > 0:
+                        feature_tic_disparity20 = (close_last / tick_ma20_last) * 100
+                    else:
+                        feature_tic_disparity20 = 100.0
+                    
+                    # [신규 추가] 볼린저 밴드 포지션 (tick_bb_position)
+                    if isinstance(close_arr, (list, np.ndarray)) and len(close_arr) >= 20:
+                        recent_closes = close_arr[-20:]
+                        std20 = np.std(recent_closes, ddof=1)
+                        bb_upper = tick_ma20_last + (2 * std20)
+                        bb_lower = tick_ma20_last - (2 * std20)
+                        if (bb_upper - bb_lower) > 0:
+                            feature_tic_bb_position = (close_last - bb_lower) / (bb_upper - bb_lower)
+                        else:
+                            feature_tic_bb_position = 0.5
+                    else:
+                        feature_tic_bb_position = 0.5
+
+                    if num_features == 16:
+                        # 최신 16개 피처 (disparity20, bb_position 추가됨)
+                        input_vector = np.array([[
+                            feature_strength, feature_velocity, feature_relative, feature_spike,
+                            feature_vwap_dist, feature_macd_hist, feature_rsi,
+                            feature_time, feature_price_roc, feature_vol_roc,
+                            feature_tick_ma_spread, feature_tic_tail_ratio, feature_tic_buy_sell_ratio, feature_tic_spread,
+                            feature_tic_disparity20, feature_tic_bb_position
+                        ]])
+                    elif num_features == 14:
                         # 최신 14개 피처 (기존 15개에서 bb_position 제거됨)
                         input_vector = np.array([[
                             feature_strength, feature_velocity, feature_relative, feature_spike,

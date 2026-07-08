@@ -198,6 +198,17 @@ class MLTrainingWorker(threading.Thread):
             # [신규 피처] 5. 봉 내 가격 변동폭 비율 (tick_spread)
             df['tick_spread'] = np.where(df['tick_close'] > 0, (df['tick_high'] - df['tick_low']) / df['tick_close'], 0)
             
+            # [신규 추가] 6. 틱 이격도 (tick_disparity20)
+            df['tick_disparity20'] = np.where(df['tick_ma20'] > 0, (df['tick_close'] / df['tick_ma20']) * 100, 100.0)
+            
+            # [신규 추가] 7. 볼린저 밴드 포지션 (tick_bb_position)
+            # 20틱 기준 표준편차 계산
+            std20 = df.groupby('code')['tick_close'].transform(lambda x: x.rolling(20, min_periods=1).std(ddof=1)).fillna(0)
+            bb_upper = df['tick_ma20'] + (2 * std20)
+            bb_lower = df['tick_ma20'] - (2 * std20)
+            df['tick_bb_position'] = np.where((bb_upper - bb_lower) > 0, (df['tick_close'] - bb_lower) / (bb_upper - bb_lower), 0.5)
+            df['tick_bb_position'] = df['tick_bb_position'].fillna(0.5)
+            
             # Feature 목록 정의
             base_features = [
                 'tick_strength', 
@@ -216,7 +227,9 @@ class MLTrainingWorker(threading.Thread):
                 'tick_ma_spread',      # [추가] 이평선 정배열 척도
                 'tick_tail_ratio',     # [추가] 캔들 윗꼬리 비율
                 'tick_buy_sell_ratio', # [추가] 순간 체결강도
-                'tick_spread'          # [추가] 봉 내 가격 변동폭 비율
+                'tick_spread',         # [추가] 봉 내 가격 변동폭 비율
+                'tick_disparity20',    # [추가] 20틱 이평 이격도
+                'tick_bb_position'     # [추가] 볼린저밴드 상단/하단 위치
             ]
             
             features = base_features + new_features
