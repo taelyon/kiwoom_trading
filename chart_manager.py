@@ -1497,16 +1497,20 @@ class ChartDataCache:
             total_buy_hoga = order_book_data.get('total_buy_hoga', 0)
             
             # 호가 불균형 계산 (Order Book Imbalance)
-            # (매수 잔량 - 매도 잔량) / (매수 잔량 + 매도 잔량)
-            if total_buy_hoga + total_sell_hoga > 0:
-                imbalance = (total_buy_hoga - total_sell_hoga) / (total_buy_hoga + total_sell_hoga)
+            # 키움 API 129(매수비율) 데이터를 바로 활용 (0.0 ~ 1.0 스케일로 변환)
+            if 'buy_ratio' in order_book_data and order_book_data['buy_ratio'] > 0:
+                imbalance = order_book_data['buy_ratio'] / 100.0
+            elif total_buy_hoga + total_sell_hoga > 0:
+                # 129 데이터가 유효하지 않을 경우 자체 계산(백업)
+                imbalance = total_buy_hoga / (total_buy_hoga + total_sell_hoga)
             else:
-                imbalance = 0.0
+                imbalance = 0.5
                 
             # 실시간 메트릭 저장
             if 'realtime_metrics' not in cached_data:
                 cached_data['realtime_metrics'] = {}
             
+            cached_data['realtime_metrics']['order_book_imbalance'] = imbalance
             cached_data['realtime_metrics']['total_sell_hoga'] = total_sell_hoga
             cached_data['realtime_metrics']['total_buy_hoga'] = total_buy_hoga
             

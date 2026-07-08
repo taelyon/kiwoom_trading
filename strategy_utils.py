@@ -577,10 +577,26 @@ def prepare_buy_strategy_locals(code, tick_chart_data, min_chart_data, portfolio
                 else:
                     feature_tic_bb_position = 0.5
                 
+                # [신규 추가] 8. 호가 잔량 비율 (tick_imbalance)
+                imbalance_arr = locals_dict.get('tick_imbalance', [])
+                if len(imbalance_arr) > 0:
+                    feature_tic_imbalance = imbalance_arr[-1]
+                else:
+                    feature_tic_imbalance = 0.5
+                
                 # 모델 학습 시 사용된 피처 개수에 맞춰 동적으로 차원 맞추기
                 num_features = LGBM_MODEL.num_feature()
-                if num_features == 16:
-                    # 최신 16개 피처 (disparity20, bb_position 추가됨)
+                if num_features == 17:
+                    # 최신 17개 피처 (imbalance 추가됨)
+                    input_vector = np.array([[
+                        feature_strength, feature_velocity, feature_relative, feature_ma_ratio,
+                        feature_vwap_dist, feature_macd_hist, feature_rsi,
+                        feature_time, feature_price_roc, feature_vol_roc,
+                        feature_tick_ma_spread, feature_tic_tail_ratio, feature_tic_buy_sell_ratio, feature_tic_spread,
+                        feature_tic_disparity20, feature_tic_bb_position, feature_tic_imbalance
+                    ]])
+                elif num_features == 16:
+                    # 이전 16개 피처 (disparity20, bb_position 추가됨)
                     input_vector = np.array([[
                         feature_strength, feature_velocity, feature_relative, feature_ma_ratio,
                         feature_vwap_dist, feature_macd_hist, feature_rsi,
@@ -919,7 +935,23 @@ def prepare_sell_strategy_locals(code, tick_chart_data, min_chart_data, buy_pric
                     else:
                         feature_tic_bb_position = 0.5
 
-                    if num_features == 16:
+                    # [신규 추가] 8. 호가 잔량 비율 (tick_imbalance)
+                    imbalance_arr = locals_dict.get('tick_imbalance', [])
+                    if len(imbalance_arr) > 0:
+                        feature_tic_imbalance = imbalance_arr[-1]
+                    else:
+                        feature_tic_imbalance = 0.5
+
+                    if num_features == 17:
+                        # 최신 17개 피처 (imbalance 추가됨)
+                        input_vector = np.array([[
+                            feature_strength, feature_velocity, feature_relative, feature_spike,
+                            feature_vwap_dist, feature_macd_hist, feature_rsi,
+                            feature_time, feature_price_roc, feature_vol_roc,
+                            feature_tick_ma_spread, feature_tic_tail_ratio, feature_tic_buy_sell_ratio, feature_tic_spread,
+                            feature_tic_disparity20, feature_tic_bb_position, feature_tic_imbalance
+                        ]])
+                    elif num_features == 16:
                         # 최신 16개 피처 (disparity20, bb_position 추가됨)
                         input_vector = np.array([[
                             feature_strength, feature_velocity, feature_relative, feature_spike,

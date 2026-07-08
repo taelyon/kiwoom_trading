@@ -264,7 +264,40 @@ class Backtester:
                             else:
                                 f_tic_tail_ratio = np.zeros(n)
                                 
-                        if num_features >= 16:
+                        if num_features >= 17:
+                            # 17차원 최신 피처 매핑
+                            f_buy_sell_ratio = np.where(vol > 0, group_df['buy_volume'].values / vol, 0.5) if 'buy_volume' in group_df.columns else np.full(n, 0.5)
+                            
+                            if 'high' in group_df.columns and 'low' in group_df.columns and 'close' in group_df.columns:
+                                close_safe = np.where(group_df['close'] == 0, 1e-9, group_df['close'])
+                                f_spread = ((group_df['high'] - group_df['low']) / close_safe).fillna(0.0).values
+                            else:
+                                f_spread = np.zeros(n)
+                                
+                            if 'close' in group_df.columns and 'MA20' in group_df.columns:
+                                ma20_safe = np.where(group_df['MA20'] == 0, 1e-9, group_df['MA20'])
+                                f_disparity = ((group_df['close'] / ma20_safe) * 100).fillna(100.0).values
+                                
+                                std20 = group_df['close'].rolling(20, min_periods=1).std(ddof=1).fillna(0).values
+                                bb_upper = group_df['MA20'].values + (2 * std20)
+                                bb_lower = group_df['MA20'].values - (2 * std20)
+                                bb_diff = bb_upper - bb_lower
+                                bb_diff_safe = np.where(bb_diff <= 0, 1e-9, bb_diff)
+                                f_bb_pos = np.where(bb_diff > 0, (group_df['close'].values - bb_lower) / bb_diff_safe, 0.5)
+                            else:
+                                f_disparity = np.full(n, 100.0)
+                                f_bb_pos = np.full(n, 0.5)
+
+                            f_imbalance = group_df['tick_imbalance'].fillna(0.5).values if 'tick_imbalance' in group_df.columns else np.full(n, 0.5)
+                                
+                            mat = np.column_stack((
+                                f_strength, f_velocity, f_relative, f_ma_ratio,
+                                f_vwap_dist, f_macd_hist, f_rsi, f_time,
+                                f_price_roc, f_vol_roc,
+                                f_tick_ma_spread, f_tic_tail_ratio, f_buy_sell_ratio, f_spread,
+                                f_disparity, f_bb_pos, f_imbalance
+                            ))
+                        elif num_features == 16:
                             # 16차원 최신 피처 매핑
                             f_buy_sell_ratio = np.where(vol > 0, group_df['buy_volume'].values / vol, 0.5) if 'buy_volume' in group_df.columns else np.full(n, 0.5)
                             

@@ -210,6 +210,12 @@ class MLTrainingWorker(threading.Thread):
             df['tick_bb_position'] = np.where((bb_upper - bb_lower) > 0, (df['tick_close'] - bb_lower) / (bb_upper - bb_lower), 0.5)
             df['tick_bb_position'] = df['tick_bb_position'].fillna(0.5)
             
+            # [신규 추가] 8. 호가 잔량 비율 (tick_imbalance)
+            if 'tick_imbalance' in df.columns:
+                df['tick_imbalance'] = df['tick_imbalance'].fillna(0.5)
+            else:
+                df['tick_imbalance'] = 0.5
+            
             # Feature 목록 정의
             base_features = [
                 'tick_strength', 
@@ -230,7 +236,8 @@ class MLTrainingWorker(threading.Thread):
                 'tick_buy_sell_ratio', # [추가] 순간 체결강도
                 'tick_spread',         # [추가] 봉 내 가격 변동폭 비율
                 'tick_disparity20',    # [추가] 20틱 이평 이격도
-                'tick_bb_position'     # [추가] 볼린저밴드 상단/하단 위치
+                'tick_bb_position',    # [추가] 볼린저밴드 상단/하단 위치
+                'tick_imbalance'       # [추가] 실시간 호가 잔량 비율
             ]
             
             features = base_features + new_features

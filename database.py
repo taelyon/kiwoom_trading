@@ -189,7 +189,8 @@ class AsyncDatabaseManager:
                     'MA5', 'MA10', 'MA20', 'MA60', 'MA120',
                     'RSI', 'RSI_SIGNAL', 'RSI21', 'LAST_TIC_CNT',
                     'VELOCITY', 'RELATIVE_POSITION',
-                    'MACD', 'MACD_SIGNAL', 'MACD_HIST'
+                    'MACD', 'MACD_SIGNAL', 'MACD_HIST',
+                    'IMBALANCE'
                 }
                 
                 # 지표 이름 정규화 및 필터링

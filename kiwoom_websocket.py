@@ -1548,9 +1548,17 @@ class KiwoomWebSocketClient:
                     buy_hoga_2 = int(values.get('72', '0').replace(',', '').replace('+', '').replace('-', '') or 0)
                     buy_hoga_3 = int(values.get('73', '0').replace(',', '').replace('+', '').replace('-', '') or 0)
                         
+                    # 129 (매수비율) 파싱
+                    try:
+                        buy_ratio_raw = values.get('129', '0')
+                        buy_ratio = float(buy_ratio_raw.replace(',', '').replace('+', '').replace('-', '')) if buy_ratio_raw else 0.0
+                    except Exception:
+                        buy_ratio = 0.0
+                        
                     order_book_info = {
                         'total_sell_hoga': total_sell_hoga,
                         'total_buy_hoga': total_buy_hoga,
+                        'buy_ratio': buy_ratio,
                         'sell_hoga_1': sell_hoga_1,
                         'sell_hoga_2': sell_hoga_2,
                         'sell_hoga_3': sell_hoga_3,
@@ -1582,7 +1590,7 @@ class KiwoomWebSocketClient:
                 return False
             
             required_keys = ['time', 'open', 'high', 'low', 'close', 'volume', 'buy_volume', 'sell_volume', 
-                             'strength', 'TICK_VELOCITY', 'LAST_TIC_CNT']
+                             'strength', 'TICK_VELOCITY', 'LAST_TIC_CNT', 'imbalance']
             current_len = len(tick_data.get('close', []))
             for key in required_keys:
                 if key not in tick_data:
@@ -1671,7 +1679,7 @@ class KiwoomWebSocketClient:
                     
                 # ML 학습용 데이터 저장
                 tick_data['TICK_VELOCITY'].append(tick_velocity)
-                # 삭제됨: tick_data['ORDER_BOOK_IMBALANCE'].append(order_book_imbalance)
+                tick_data['imbalance'].append(order_book_imbalance)
                 tick_data['LAST_TIC_CNT'].append(1)
                 
                 if len(tick_data.get('close', [])) == 1:
@@ -1709,7 +1717,8 @@ class KiwoomWebSocketClient:
                 # ML 학습용 데이터 업데이트 (최신값으로 덮어쓰기)
                 if 'TICK_VELOCITY' in tick_data:
                     tick_data['TICK_VELOCITY'][last_index] = tick_velocity
-                # 삭제됨: ORDER_BOOK_IMBALANCE 업데이트
+                if 'imbalance' in tick_data:
+                    tick_data['imbalance'][last_index] = order_book_imbalance
 
                 if 'LAST_TIC_CNT' in tick_data:
                      new_cnt = last_tic_cnt + 1
@@ -1725,7 +1734,7 @@ class KiwoomWebSocketClient:
 
                 # 최대 데이터 수 제한
                 max_data = 1500
-                for key in ['time', 'open', 'high', 'low', 'close', 'volume', 'buy_volume', 'sell_volume', 'strength', 'TICK_VELOCITY', 'LAST_TIC_CNT']:
+                for key in ['time', 'open', 'high', 'low', 'close', 'volume', 'buy_volume', 'sell_volume', 'strength', 'TICK_VELOCITY', 'LAST_TIC_CNT', 'imbalance']:
                     if key in tick_data and len(tick_data[key]) > max_data:
                         tick_data[key] = tick_data[key][-max_data:]
                 
