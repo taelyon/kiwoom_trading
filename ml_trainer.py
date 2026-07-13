@@ -226,13 +226,13 @@ class MLTrainingWorker(threading.Thread):
                 vol_sum_5 = g['tick_volume'].rolling(5).sum()
                 prev_vol_sum_5 = vol_sum_5.shift(5)
                 g['tick_vol_roc'] = pd.Series(np.where(prev_vol_sum_5 > 0, vol_sum_5 / prev_vol_sum_5, 1.0)).fillna(1.0).values
-                
-                # [신규 추가] 볼린저 밴드 표준편차 (그룹 내 연산)
-                g['std20'] = g['tick_close'].rolling(20, min_periods=1).std(ddof=1).fillna(0)
                     
                 return g
             
             df = df.groupby('code', group_keys=False).apply(calc_new_indicators)
+            
+            # [신규 추가] 볼린저 밴드 표준편차 (그룹 내 연산 - apply 외부에서 transform으로 안전하게 연산)
+            df['std20'] = df.groupby('code')['tick_close'].transform(lambda x: x.rolling(20, min_periods=1).std(ddof=1).fillna(0))
             
             # (삭제됨) 시간 지표 추가 (time_of_day_minute) 제거
             
