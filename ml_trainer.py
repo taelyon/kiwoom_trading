@@ -106,17 +106,40 @@ class MLTrainingWorker(threading.Thread):
             # === Feature Engineering (비율/속도 변환) ===
             # 종목별로 그룹화하여 계산 필요
             
-            # 1. Target 생성 (향후 N틱 내 최고가가 수수료+슬리피지를 커버할 만큼 상승했는지)
-            # 기존: 정확히 5틱 뒤 종가만 비교 → 실전과 괴리 (5틱 뒤에 내려와도 중간에 올랐으면 익절 가능)
-            # 개선: 향후 20틱 중 최고가가 목표 수익률을 한 번이라도 돌파했으면 1로 학습
-            LOOKAHEAD = 20  # 향후 20틱 (약 3~10분)
-            TARGET_MARGIN = 0.003  # 0.3% (왕복 수수료 0.21% + 최소 마진)
+            # 1. Target 생성 (Path Dependence 고려)
+            # 기존: 종가만 비교 → 캔들 내에서 발생한 익절/손절 변동성 무시
+            # 개선: 미래 60틱 내 고가(high)가 익절선(+1.2%)에 먼저 닿는지, 저가(low)가 손절선(-1.5%)에 먼저 닿는지 확인
+            LOOKAHEAD = 60  # 향후 60틱 (약 10~30분)
+            TARGET_PCT = 0.012  # +1.2% (1차 익절 도달 기준)
+            STOP_PCT = -0.015   # -1.5% (기계적/빠른 손절 방어선)
             
-            # 종목별 shift를 사용하여 향후 1~20틱의 종가를 수집한 뒤 최고가 산출
-            future_shifts = [df.groupby('code')['tick_close'].shift(-i) for i in range(1, LOOKAHEAD + 1)]
-            df['future_max'] = pd.concat(future_shifts, axis=1).max(axis=1)
-            df = df.dropna(subset=['future_max']).copy()
-            df['label'] = (df['future_max'] > (df['tick_close'] * (1 + TARGET_MARGIN))).astype(int)
+            # 향후 1~60틱 고가/저가 매트릭스 생성
+            future_high_shifts = [df.groupby('code')['tick_high'].shift(-i) for i in range(1, LOOKAHEAD + 1)]
+            future_low_shifts = [df.groupby('code')['tick_low'].shift(-i) for i in range(1, LOOKAHEAD + 1)]
+            
+            future_high_prices = pd.concat(future_high_shifts, axis=1)
+            future_low_prices = pd.concat(future_low_shifts, axis=1)
+            
+            # 60틱이 안 되는 가장 최근 데이터들은 드롭 (미래를 알 수 없으므로 학습 제외)
+            df = df.dropna(subset=future_high_prices.columns, how='any').copy()
+            future_high_prices = future_high_prices.loc[df.index]
+            future_low_prices = future_low_prices.loc[df.index]
+            
+            # 변화율 매트릭스 (기준은 매수 시점의 현재 캔들 종가)
+            future_high_returns = (future_high_prices.div(df['tick_close'], axis=0)) - 1.0
+            future_low_returns = (future_low_prices.div(df['tick_close'], axis=0)) - 1.0
+            
+            # 조건 도달 확인
+            target_hits = (future_high_returns >= TARGET_PCT)
+            stop_hits = (future_low_returns <= STOP_PCT)
+            
+            # 도달한 첫 번째 시점(컬럼 인덱스) 구하기. 도달하지 않으면 무한대(inf) 부여
+            target_idx = np.where(target_hits.any(axis=1), target_hits.values.argmax(axis=1), float('inf'))
+            stop_idx = np.where(stop_hits.any(axis=1), stop_hits.values.argmax(axis=1), float('inf'))
+            
+            # 손절보다 익절에 먼저 도달한 경우만 1 
+            # (같은 캔들에서 둘 다 터치한 경우 target_idx == stop_idx 이며, 이는 False가 되어 보수적으로 0점(손절) 처리됨)
+            df['label'] = (target_idx < stop_idx).astype(int)
             
             # 2. 비율 변환 (가격 자체는 제거)
             # 이미 RELATIVE_POSITION(이격도), STRENGTH(체결강도) 등은 비율임.
@@ -178,11 +201,7 @@ class MLTrainingWorker(threading.Thread):
             
             df = df.groupby('code', group_keys=False).apply(calc_new_indicators)
             
-            # 시간 지표 추가 (장 시작 후 몇 분이 지났는지)
-            parsed_time = pd.to_datetime(df['datetime'], errors='coerce')
-            parsed_time = parsed_time.fillna(pd.to_datetime('2000-01-01 12:00:00'))
-            df['time_of_day_minute'] = (parsed_time.dt.hour * 60 + parsed_time.dt.minute) - (9 * 60)
-            df['time_of_day_minute'] = df['time_of_day_minute'].clip(lower=0, upper=390)
+            # (삭제됨) 시간 지표 추가 (time_of_day_minute) 제거
             
             # [신규 피처] 순간 체결강도 (tick_buy_sell_ratio)
             # 과거 데이터에는 buy_volume이 없을 수 있으므로 예외처리
@@ -228,7 +247,7 @@ class MLTrainingWorker(threading.Thread):
                 'tick_vwap_distance',
                 'tick_macd_hist',
                 'tick_rsi21',
-                'time_of_day_minute',
+                # 'time_of_day_minute', (제거됨)
                 'tick_price_roc',      # 가격 상승 가속도
                 'tick_vol_roc',        # 거래량 폭발 가속도
                 'tick_ma_spread',      # [추가] 이평선 정배열 척도
