@@ -190,6 +190,7 @@ class MLTrainingWorker(threading.Thread):
 
             import talib
             def calc_new_indicators(g):
+                g = g.copy()
                 close = g['tick_close'].values
                 high = g['tick_high'].values
                 low = g['tick_low'].values
@@ -203,8 +204,6 @@ class MLTrainingWorker(threading.Thread):
                 rolling_v = pd.Series(vol).rolling(VWAP_WINDOW, min_periods=1).sum().values
                 vwap = np.where(rolling_v > 0, rolling_pv / rolling_v, close)
                 g['tick_vwap_distance'] = np.where(vwap > 0, (close - vwap) / vwap, 0)
-                
-                # (삭제됨) BB Position
                 
                 # MACD Hist
                 if len(close) >= 26:
@@ -230,6 +229,10 @@ class MLTrainingWorker(threading.Thread):
                 return g
             
             df = df.groupby('code', group_keys=False).apply(calc_new_indicators)
+            
+            # pandas 2.0+ 에서 groupby.apply 결과가 인덱스로 'code'를 가질 수 있는 문제 방어
+            if 'code' not in df.columns:
+                df = df.reset_index()
             
             # [신규 추가] 볼린저 밴드 표준편차 (그룹 내 연산 - apply 외부에서 transform으로 안전하게 연산)
             df['std20'] = df.groupby('code')['tick_close'].transform(lambda x: x.rolling(20, min_periods=1).std(ddof=1).fillna(0))
