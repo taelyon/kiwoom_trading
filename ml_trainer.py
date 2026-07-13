@@ -144,7 +144,7 @@ class MLTrainingWorker(threading.Thread):
             # 개선: 미래 60틱 내 고가(high)가 익절선(+1.2%)에 먼저 닿는지, 저가(low)가 손절선(-1.5%)에 먼저 닿는지 확인
             LOOKAHEAD = 60  # 향후 60틱 (약 10~30분)
             TARGET_PCT = 0.012  # +1.2% (1차 익절 도달 기준)
-            STOP_PCT = -0.015   # -1.5% (기계적/빠른 손절 방어선)
+            STOP_PCT = -0.020   # -2.0% (기계적/빠른 손절 방어선과 동기화)
             
             # 향후 1~60틱 고가/저가 매트릭스 생성
             future_high_shifts = [df.groupby('code')['tick_high'].shift(-i) for i in range(1, LOOKAHEAD + 1)]
@@ -236,11 +236,7 @@ class MLTrainingWorker(threading.Thread):
             
             # (삭제됨) 시간 지표 추가 (time_of_day_minute) 제거
             
-            # [신규 피처] 순간 체결강도 (tick_buy_sell_ratio)
-            # 과거 데이터에는 buy_volume이 없을 수 있으므로 예외처리
-            if 'tick_buy_volume' not in df.columns:
-                df['tick_buy_volume'] = 0
-            df['tick_buy_sell_ratio'] = np.where(df['tick_volume'] > 0, df['tick_buy_volume'] / df['tick_volume'], 0.5)
+            # (삭제됨) 순간 체결강도(tick_buy_sell_ratio)는 모델 중요도(Gain)가 매우 낮아 노이즈 감소를 위해 제거
             
             # (삭제됨) 3분봉 추세 동조화는 이진값 노이즈로 작용하여 제거
             
@@ -285,7 +281,6 @@ class MLTrainingWorker(threading.Thread):
                 'tick_vol_roc',        # 거래량 폭발 가속도
                 'tick_ma_spread',      # [추가] 이평선 정배열 척도
                 'tick_tail_ratio',     # [추가] 캔들 윗꼬리 비율
-                'tick_buy_sell_ratio', # [추가] 순간 체결강도
                 'tick_spread',         # [추가] 봉 내 가격 변동폭 비율
                 'tick_disparity20',    # [추가] 20틱 이평 이격도
                 'tick_bb_position',    # [추가] 볼린저밴드 상단/하단 위치
