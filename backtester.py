@@ -52,8 +52,8 @@ class Backtester:
             conn.close()
             
             if not kosdaq_df.empty:
-                df['dt_obj'] = pd.to_datetime(df['datetime'], format='%Y%m%d%H%M%S', errors='coerce')
-                kosdaq_df['dt_obj'] = pd.to_datetime(kosdaq_df['kosdaq_time'], format='%Y%m%d%H%M%S', errors='coerce')
+                df['dt_obj'] = pd.to_datetime(df['datetime'], errors='coerce')
+                kosdaq_df['dt_obj'] = pd.to_datetime(kosdaq_df['kosdaq_time'], errors='coerce')
                 
                 kosdaq_df = kosdaq_df.sort_values('dt_obj').dropna(subset=['dt_obj'])
                 

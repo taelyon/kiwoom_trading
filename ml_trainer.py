@@ -109,9 +109,9 @@ class MLTrainingWorker(threading.Thread):
                 kosdaq_df = pd.read_sql(kosdaq_query, conn)
                 
                 if not kosdaq_df.empty:
-                    # datetime 컬럼이 "YYYYMMDDHHMMSS" 형식이므로 datetime 객체로 변환하여 asof 병합
-                    df['dt_obj'] = pd.to_datetime(df['datetime'], format='%Y%m%d%H%M%S', errors='coerce')
-                    kosdaq_df['dt_obj'] = pd.to_datetime(kosdaq_df['kosdaq_time'], format='%Y%m%d%H%M%S', errors='coerce')
+                    # datetime 형식이 YYYYMMDDHHMMSS 와 YYYY-MM-DD HH:MM:SS 혼용될 수 있으므로 format 파라미터 제거
+                    df['dt_obj'] = pd.to_datetime(df['datetime'], errors='coerce')
+                    kosdaq_df['dt_obj'] = pd.to_datetime(kosdaq_df['kosdaq_time'], errors='coerce')
                     
                     kosdaq_df = kosdaq_df.sort_values('dt_obj').dropna(subset=['dt_obj'])
                     
