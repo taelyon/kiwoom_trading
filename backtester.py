@@ -503,6 +503,10 @@ class Backtester:
                                 
                         if 'AI_SCORE' in sd['precomputed']:
                             base_locals_dict['AI_SCORE'] = float(sd['precomputed']['AI_SCORE'][idx])
+                        
+                        # market_kosdaq_roc도 스칼라로 변환 (배열이면 and 연산 시 에러 발생)
+                        if 'market_kosdaq_roc' in sd['precomputed']:
+                            base_locals_dict['market_kosdaq_roc'] = float(sd['precomputed']['market_kosdaq_roc'][idx])
                             
                         sell_signal = False
                         sell_ratio = 1.0
@@ -660,6 +664,10 @@ class Backtester:
                                         
                                 if 'AI_SCORE' in sd['precomputed']:
                                     locals_dict['AI_SCORE'] = float(sd['precomputed']['AI_SCORE'][idx])
+                                
+                                # market_kosdaq_roc도 스칼라로 변환 (배열이면 and 연산 시 에러 발생)
+                                if 'market_kosdaq_roc' in sd['precomputed']:
+                                    locals_dict['market_kosdaq_roc'] = float(sd['precomputed']['market_kosdaq_roc'][idx])
                                 
                                 locals_dict['code'] = current_code
                                 locals_dict['datetime'] = datetime.now()
