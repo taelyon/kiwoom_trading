@@ -748,6 +748,80 @@ class KiwoomRestClient:
         except Exception as e:
             self.logger.error(f"분봉 차트 데이터 조회 중 오류: ({type(e).__name__}) {e}", exc_info=True)
             return {}
+
+    async def get_industry_current_price(self, inds_cd: str = '101') -> Dict:
+        """업종현재가요청 (ka20001) - 실시간 업종 지수"""
+        try:
+            if not await self.check_token_validity():
+                return {}
+            
+            server_url = self.mock_url if self.is_mock else self.base_url
+            url = f"{server_url}/api/dostk/sect"
+            
+            headers = {
+                'Content-Type': 'application/json;charset=UTF-8',
+                'authorization': f'Bearer {self.access_token}',
+                'api-id': 'ka20001',
+            }
+            
+            payload = {
+                'inds_cd': inds_cd,
+            }
+                
+            await self._ensure_client()
+            response = await self.client.post(url, headers=headers, json=payload, timeout=5.0)
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                self.logger.error(f"업종 현재가 조회 실패: {response.status_code}", exc_info=True)
+                return {}
+                
+        except Exception as e:
+            self.logger.error(f"업종 현재가 조회 중 오류: ({type(e).__name__}) {e}", exc_info=True)
+            return {}
+
+    async def get_industry_minute_chart(self, inds_cd: str = '101', tic_scope: str = '3', base_dt: str = '', cont_yn: str = 'N', next_key: str = '') -> Dict:
+        """업종분봉조회요청 (ka20005) - 과거/오늘 업종 분봉 데이터"""
+        try:
+            if not await self.check_token_validity():
+                return {}
+            
+            await ApiLimitManager.check_api_limit_and_wait_async("업종 분봉 차트 조회", request_type="tick_chart")
+            
+            server_url = self.mock_url if self.is_mock else self.base_url
+            url = f"{server_url}/api/dostk/chart"
+            
+            headers = {
+                'Content-Type': 'application/json;charset=UTF-8',
+                'authorization': f'Bearer {self.access_token}',
+                'cont-yn': cont_yn,
+                'next-key': next_key,
+                'api-id': 'ka20005',
+            }
+            
+            payload = {
+                'inds_cd': inds_cd,
+                'tic_scope': tic_scope,
+            }
+            if base_dt:
+                payload['base_dt'] = base_dt
+                
+            await self._ensure_client()
+            response = await self.client.post(url, headers=headers, json=payload, timeout=10.0)
+            
+            if response.status_code == 200:
+                data = response.json()
+                data['next-key'] = response.headers.get('next-key', '')
+                data['cont-yn'] = response.headers.get('cont-yn', 'N')
+                return data
+            else:
+                self.logger.error(f"업종 분봉 데이터 조회 실패: {response.status_code}", exc_info=True)
+                return {}
+                
+        except Exception as e:
+            self.logger.error(f"업종 분봉 데이터 조회 중 오류: ({type(e).__name__}) {e}", exc_info=True)
+            return {}
     
     async def get_deposit_detail(self) -> Dict:
         """예수금상세현황요청 (kt00001) - 키움 REST API (비동기)

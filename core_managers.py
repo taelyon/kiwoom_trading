@@ -1774,7 +1774,106 @@ class MLManager:
         if self.scheduler_task:
             self.scheduler_task.cancel()
             self.logger.info("⏹️ ML 매니저 스케줄러 루프 중지됨")
-
+class MarketIndexManager:
+    """코스닥 등 시장 지수 데이터 수집 및 관리 매니저"""
+    def __init__(self, kiwoom_client, db_manager):
+        self.logger = logging.getLogger(self.__class__.__name__)
+        self.kiwoom = kiwoom_client
+        self.db = db_manager
+        self.is_fetching = False
+        self._task = None
+        
+    def start(self):
+        if not self._task:
+            self._task = create_fire_and_forget_task(self._main_loop())
+            
+    def stop(self):
+        if self._task:
+            self._task.cancel()
+            
+    async def _main_loop(self):
+        try:
+            await asyncio.sleep(5) # 로그인 후 안정화 대기
+            await self._backfill_history_if_needed()
+            
+            while True:
+                now = datetime.now()
+                # 08:50 ~ 15:30 에만 폴링 (장 시간)
+                if 8 <= now.hour <= 15:
+                    await self._update_realtime_kosdaq()
+                await asyncio.sleep(60) # 1분 간격
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            self.logger.error(f"시장 지수 매니저 오류: {e}", exc_info=True)
+            
+    async def _update_realtime_kosdaq(self):
+        try:
+            # ka20005 1분봉 조회로 현재 지수와 오늘 시가를 안전하게 확보
+            res = await self.kiwoom.get_industry_minute_chart('101', '1', cont_yn='N')
+            if res and 'inds_min_pole_qry' in res and len(res['inds_min_pole_qry']) > 0:
+                data_list = res['inds_min_pole_qry']
+                latest = data_list[0]
+                
+                today_str = datetime.now().strftime("%Y%m%d")
+                today_open = None
+                
+                # 과거(가장 밑)부터 탐색하여 오늘의 첫 봉 시가 확인
+                for item in reversed(data_list):
+                    dt_str = item.get('dt', '') or item.get('cntr_tm', '')
+                    if dt_str.startswith(today_str):
+                        today_open = float(item.get('open_pric', 0)) / 100.0
+                        break
+                        
+                if today_open is None or today_open == 0:
+                    today_open = float(latest.get('open_pric', 0)) / 100.0 # fallback
+                    
+                current_price = float(latest.get('cur_prc', 0)) / 100.0
+                
+                if today_open > 0:
+                    self.kosdaq_roc = (current_price - today_open) / today_open
+                    self.kosdaq_current = current_price
+                    # self.logger.debug(f"📈 실시간 KOSDAQ 업데이트: 지수 {self.kosdaq_current:.2f}, 당일 등락률 {self.kosdaq_roc*100:.2f}%")
+        except Exception as e:
+            self.logger.error(f"코스닥 실시간 업데이트 실패: {e}")
+                
+    async def _backfill_history_if_needed(self):
+        if self.db._conn is None:
+            await self.db.init_database()
+            
+        async with self.db._db_lock:
+            cursor = await self.db._conn.cursor()
+            await cursor.execute("SELECT COUNT(*) FROM kosdaq_3m")
+            count = (await cursor.fetchone())[0]
+            
+        if count > 0:
+            self.logger.info(f"📈 코스닥 3분봉 데이터 존재함 (건수: {count}건)")
+            return
+            
+        self.logger.info("📈 코스닥 3분봉 데이터가 없어 과거 데이터를 다운로드합니다...")
+        next_key = ''
+        cont_yn = 'N'
+        
+        for i in range(15): # 약 수십일치 다운로드
+            self.logger.info(f"코스닥 분봉 조회 중... (페이지 {i+1})")
+            res = await self.kiwoom.get_industry_minute_chart('101', '3', cont_yn=cont_yn, next_key=next_key)
+            
+            if not res or 'inds_min_pole_qry' not in res:
+                self.logger.warning("코스닥 분봉 조회 실패 또는 데이터 없음")
+                break
+                
+            data_list = res['inds_min_pole_qry']
+            if not data_list:
+                break
+                
+            await self.db.save_kosdaq_data(data_list)
+            
+            cont_yn = res.get('cont-yn', 'N')
+            next_key = res.get('next-key', '')
+            
+            if cont_yn != 'Y' or not next_key:
+                break
+            await asyncio.sleep(1.5) # 초당 1회 제한 방지
 
 __all__ = [
     'LoginHandler',
@@ -1785,4 +1884,5 @@ __all__ = [
     'AccountManager',
     'ConditionSearchManager',
     'MLManager',
+    'MarketIndexManager',
 ]

@@ -103,6 +103,39 @@ class MLTrainingWorker(threading.Thread):
 
             self.progress_signal.emit(f"🔍 [ML] 데이터 전처리 중... (Rows: {len(df)})")
 
+            # === KOSDAQ 지수 데이터 병합 ===
+            try:
+                kosdaq_query = "SELECT datetime as kosdaq_time, close as kosdaq_close, open as kosdaq_open FROM kosdaq_3m"
+                kosdaq_df = pd.read_sql(kosdaq_query, conn)
+                
+                if not kosdaq_df.empty:
+                    # datetime 컬럼이 "YYYYMMDDHHMMSS" 형식이므로 datetime 객체로 변환하여 asof 병합
+                    df['dt_obj'] = pd.to_datetime(df['datetime'], format='%Y%m%d%H%M%S', errors='coerce')
+                    kosdaq_df['dt_obj'] = pd.to_datetime(kosdaq_df['kosdaq_time'], format='%Y%m%d%H%M%S', errors='coerce')
+                    
+                    kosdaq_df = kosdaq_df.sort_values('dt_obj').dropna(subset=['dt_obj'])
+                    
+                    # 당일 KOSDAQ 시가 계산
+                    kosdaq_df['date'] = kosdaq_df['dt_obj'].dt.date
+                    daily_open = kosdaq_df.groupby('date')['kosdaq_open'].transform('first')
+                    
+                    # KOSDAQ 등락률 (현재지수 vs 당일시가)
+                    kosdaq_df['market_kosdaq_roc'] = np.where(daily_open > 0, 
+                                                            (kosdaq_df['kosdaq_close'] - daily_open) / daily_open, 
+                                                            0.0)
+                    
+                    # 매수 시점(틱) 기준 가장 최근의 KOSDAQ 분봉 데이터 매칭
+                    df = df.sort_values('dt_obj').dropna(subset=['dt_obj'])
+                    df = pd.merge_asof(df, kosdaq_df[['dt_obj', 'market_kosdaq_roc']], on='dt_obj', direction='backward')
+                    
+                    # 기존 로직을 위해 원래 정렬 순서로 복구
+                    df = df.sort_values(['code', 'datetime'])
+                else:
+                    df['market_kosdaq_roc'] = 0.0
+            except Exception as e:
+                self.logger.error(f"KOSDAQ 병합 중 오류: {e}")
+                df['market_kosdaq_roc'] = 0.0
+
             # === Feature Engineering (비율/속도 변환) ===
             # 종목별로 그룹화하여 계산 필요
             
@@ -256,7 +289,8 @@ class MLTrainingWorker(threading.Thread):
                 'tick_spread',         # [추가] 봉 내 가격 변동폭 비율
                 'tick_disparity20',    # [추가] 20틱 이평 이격도
                 'tick_bb_position',    # [추가] 볼린저밴드 상단/하단 위치
-                'tick_imbalance'       # [추가] 실시간 호가 잔량 비율
+                'tick_imbalance',      # [추가] 실시간 호가 잔량 비율
+                'market_kosdaq_roc'    # [추가] 당일 코스닥 등락률
             ]
             
             features = base_features + new_features

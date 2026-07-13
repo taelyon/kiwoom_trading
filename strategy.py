@@ -324,8 +324,10 @@ class KiwoomStrategy:
                         previous_close = cache_data.get('previous_close', 0)
                         current_open = cache_data.get('current_open', 0)
                         realtime_metrics = cache_data.get('realtime_metrics', {})
-                        
-                        
+                        if hasattr(self.parent, 'market_index_manager') and self.parent.market_index_manager:
+                            realtime_metrics['market_kosdaq_roc'] = getattr(self.parent.market_index_manager, 'kosdaq_roc', 0.0)
+                        else:
+                            realtime_metrics['market_kosdaq_roc'] = 0.0
 
                         if tic_data and len(tic_data.get('close', [])) > 0:
                             try:
@@ -555,6 +557,10 @@ class KiwoomStrategy:
                     previous_close = cache_data.get('previous_close', 0)
                     current_open = cache_data.get('current_open', 0)
                     realtime_metrics = cache_data.get('realtime_metrics', {})
+                    if hasattr(self.parent, 'market_index_manager') and self.parent.market_index_manager:
+                        realtime_metrics['market_kosdaq_roc'] = getattr(self.parent.market_index_manager, 'kosdaq_roc', 0.0)
+                    else:
+                        realtime_metrics['market_kosdaq_roc'] = 0.0
                     if tic_data:
                         try:
                             # DataFrame 생성 시 모든 배열 길이가 동일해야 함.

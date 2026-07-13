@@ -44,6 +44,36 @@ class Backtester:
         # SQLite에 중복 컬럼이 저장되었을 경우(예: 과거 버그로 인한 중복) 방어
         df = df.loc[:, ~df.columns.duplicated()]
         
+        # KOSDAQ 지수 데이터 로드 및 병합
+        try:
+            conn = sqlite3.connect(self.db_path)
+            kosdaq_query = "SELECT datetime as kosdaq_time, close as kosdaq_close, open as kosdaq_open FROM kosdaq_3m"
+            kosdaq_df = pd.read_sql(kosdaq_query, conn)
+            conn.close()
+            
+            if not kosdaq_df.empty:
+                df['dt_obj'] = pd.to_datetime(df['datetime'], format='%Y%m%d%H%M%S', errors='coerce')
+                kosdaq_df['dt_obj'] = pd.to_datetime(kosdaq_df['kosdaq_time'], format='%Y%m%d%H%M%S', errors='coerce')
+                
+                kosdaq_df = kosdaq_df.sort_values('dt_obj').dropna(subset=['dt_obj'])
+                
+                kosdaq_df['date'] = kosdaq_df['dt_obj'].dt.date
+                daily_open = kosdaq_df.groupby('date')['kosdaq_open'].transform('first')
+                kosdaq_df['market_kosdaq_roc'] = np.where(daily_open > 0, 
+                                                        (kosdaq_df['kosdaq_close'] - daily_open) / daily_open, 
+                                                        0.0)
+                
+                df = df.sort_values('dt_obj').dropna(subset=['dt_obj'])
+                df = pd.merge_asof(df, kosdaq_df[['dt_obj', 'market_kosdaq_roc']], on='dt_obj', direction='backward')
+                df['market_kosdaq_roc'] = df['market_kosdaq_roc'].fillna(0.0)
+                df = df.sort_values('datetime')
+                df.drop(columns=['dt_obj'], inplace=True)
+            else:
+                df['market_kosdaq_roc'] = 0.0
+        except Exception as e:
+            logger.error(f"KOSDAQ 병합 중 오류: {e}")
+            df['market_kosdaq_roc'] = 0.0
+        
         return df
 
 
@@ -83,28 +113,6 @@ class Backtester:
                 else:
                     logger.warning(f"설정된 전략 '{stg_name}'을 찾을 수 없어 빈 전략으로 실행합니다.")
             
-            # [추가] 코스닥 지수 필터 데이터 로드
-            from config_manager import get_config
-            market_settings = get_config().get_market_filter_settings()
-            market_drops_by_date = {}
-            if market_settings['use_market_filter']:
-                try:
-                    import yfinance as yf
-                    from datetime import datetime, timedelta
-                    start_dt = datetime.strptime(start_date, '%Y-%m-%d') - timedelta(days=10)
-                    end_dt = datetime.strptime(end_date, '%Y-%m-%d') + timedelta(days=2)
-                    ticker = yf.Ticker("^KQ11")
-                    kq_df = ticker.history(start=start_dt.strftime('%Y-%m-%d'), end=end_dt.strftime('%Y-%m-%d'))
-                    if not kq_df.empty:
-                        kq_df['prev_close'] = kq_df['Close'].shift(1)
-                        kq_df['drop'] = ((kq_df['Close'] / kq_df['prev_close']) - 1.0) * 100
-                        for idx, row in kq_df.iterrows():
-                            date_str = idx.strftime('%Y-%m-%d')
-                            market_drops_by_date[date_str] = row['drop']
-                    logger.info(f"✅ 코스닥 시장 지수({len(market_drops_by_date)}일) 필터 데이터 로드 완료")
-                except Exception as e:
-                    logger.error(f"코스닥 시장 지수 로드 실패: {e}")
-
             portfolio = {} # code -> {'buy_price': float, 'qty': int, 'buy_time': str}
             trades = []
             
@@ -312,12 +320,14 @@ class Backtester:
 
                             f_imbalance = group_df['tick_imbalance'].fillna(0.5).values if 'tick_imbalance' in group_df.columns else np.full(n, 0.5)
                                 
+                            f_market_kosdaq_roc = group_df['market_kosdaq_roc'].fillna(0.0).values if 'market_kosdaq_roc' in group_df.columns else np.zeros(n)
+                            
                             mat = np.column_stack((
                                 f_strength, f_velocity, f_relative, f_ma_ratio,
-                                f_vwap_dist, f_macd_hist, f_rsi, f_time,
+                                f_vwap_dist, f_macd_hist, f_rsi,
                                 f_price_roc, f_vol_roc,
                                 f_tick_ma_spread, f_tic_tail_ratio, f_buy_sell_ratio, f_spread,
-                                f_disparity, f_bb_pos, f_imbalance
+                                f_disparity, f_bb_pos, f_imbalance, f_market_kosdaq_roc
                             ))
                         elif num_features == 16:
                             # 16차원 새로운 피처 매핑 (imbalance 포함, time 제거)
@@ -445,13 +455,6 @@ class Backtester:
                 is_lunch_time = ("1130" <= time_part < "1300") # 점심시간 체크
                 is_buy_blocked_time = (time_part >= buy_end_time_str)
                 is_force_sell_time = sell_all_enabled and (time_part >= sell_all_time_str)
-                
-                is_market_crash = False
-                if market_settings.get('use_market_filter', False):
-                    daily_drop = market_drops_by_date.get(current_date, 0.0)
-                    if daily_drop < market_settings.get('market_drop_limit', -0.5):
-                        is_market_crash = True
-                
                 
                 # 1. 매도 평가 (현재 보유 종목 중 time_df에 존재하는 것)
                 for _, row in time_df.iterrows():
@@ -601,8 +604,8 @@ class Backtester:
                                     portfolio[current_code].setdefault('executed_sell_rules', set()).add(matched_sell_stg)
                                     debug_logs.append(f"   📌 [{current_code}] 분할매도 ({int(sell_ratio*100)}%) → 잔여 {portfolio[current_code]['qty']}주")
                                     
-                # 2. 매수 평가 (보유 슬롯이 비어있고, 점심/차단시간/투매장이 아닐 때만)
-                if not is_market_close and not is_lunch_time and not is_buy_blocked_time and not is_market_crash:
+                # 2. 매수 평가 (보유 슬롯이 비어있고, 점심시간이 아닐 때만, 그리고 매수 차단 시간이 아닐 때만)
+                if not is_market_close and not is_lunch_time and not is_buy_blocked_time:
                     if 'AI_SCORE' in time_df.columns:
                         buy_candidates = time_df.sort_values(by='AI_SCORE', ascending=False)
                     else:

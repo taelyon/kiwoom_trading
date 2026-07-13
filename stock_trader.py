@@ -220,6 +220,16 @@ class TradingApp:
             except Exception as queue_ex:
                 self.logger.error(f"❌ API 큐 처리 시작 실패: {queue_ex}", exc_info=True)
 
+            # 8. 시장 지수 (코스닥 등) 관리 매니저 시작
+            try:
+                from core_managers import MarketIndexManager
+                if not hasattr(self, 'market_index_manager') or not self.market_index_manager:
+                    self.market_index_manager = MarketIndexManager(self.login_handler.kiwoom_client, self.trader.db_manager)
+                    self.market_index_manager.start()
+                    self.logger.debug("✅ 시장 지수 관리 매니저 시작 완료")
+            except Exception as market_ex:
+                self.logger.error(f"❌ 시장 지수 관리 매니저 시작 실패: {market_ex}", exc_info=True)
+
             self._post_login_setup_done = True
             self.logger.info("✨ 거래 시스템 초기화 및 시작 처리가 성공적으로 완료되었습니다.")
             

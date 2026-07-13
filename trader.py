@@ -629,11 +629,6 @@ class AutoTrader:
         self.auto_liquidation_executed = False
         self.daily_report_sent = False
         self._loop_task = None
-        
-        # Market Filter variables
-        self.market_index_drop = 0.0
-        self.last_market_fetch_time = 0
-        
         self.logger.debug("AutoTrader 초기화 완료")
         
     def start_auto_trading(self):
@@ -651,34 +646,6 @@ class AutoTrader:
                 self._loop_task.cancel()
                 self._loop_task = None
             self.logger.info("🛑 자동매매 비동기 루프 중지")
-
-    async def fetch_market_index(self):
-        """1분 주기로 KOSDAQ 지수를 가져와 추세 파악"""
-        import time
-        now = time.time()
-        # 1분(60초)마다 한 번씩만 갱신
-        if now - self.last_market_fetch_time < 60:
-            return
-            
-        try:
-            def get_kq_trend():
-                import yfinance as yf
-                ticker = yf.Ticker("^KQ11") # KOSDAQ
-                df = ticker.history(period="5d")
-                if len(df) >= 2:
-                    prev_close = df['Close'].iloc[-2]
-                    current = df['Close'].iloc[-1]
-                    if prev_close > 0:
-                        return ((current / prev_close) - 1.0) * 100
-                return 0.0
-                
-            drop = await asyncio.to_thread(get_kq_trend)
-            self.market_index_drop = drop
-            self.last_market_fetch_time = now
-            # self.logger.debug(f"📊 현재 코스닥 지수 등락률: {drop:.2f}%")
-        except Exception as e:
-            self.logger.error(f"Market index fetch error: {e}")
-
 
     async def _auto_trading_loop(self):
         """asyncio 기반 주기적 매매 감시 루프"""
@@ -755,14 +722,9 @@ class AutoTrader:
             current_hour = now.hour
             current_minute = now.minute
             
-            from config_manager import get_config
-            config = get_config()
+            from config_manager import EnvConfigParser
+            config = EnvConfigParser()
             sell_all_time = config.get('TRADING', 'SELL_ALL_TIME', fallback='15:15')
-            
-            # 지수 필터 업데이트 (설정이 켜져 있을 때만)
-            market_settings = config.get_market_filter_settings()
-            if market_settings['use_market_filter']:
-                await self.fetch_market_index()
             
             # 자동 청산 체크
             if current_time_str == sell_all_time and not self.auto_liquidation_executed:
@@ -891,14 +853,6 @@ class AutoTrader:
                 if is_buy_check_allowed:
                     self.logger.debug(f"⏳ [{code}] 설정된 매수 종료 시간({buy_end_time_str}) 초과 - 신규 매수 차단")
                 is_buy_check_allowed = False
-                
-            # [추가] 시장 지수 폭락(투매장) 매수 차단 (환경변수 연동)
-            market_settings = config.get_market_filter_settings()
-            if market_settings['use_market_filter'] and self.market_index_drop < market_settings['market_drop_limit']:
-                if is_buy_check_allowed:
-                    self.logger.debug(f"📉 [{code}] 코스닥 투매장 방어 (현재 지수 등락률 {self.market_index_drop:.2f}% < 커트라인 {market_settings['market_drop_limit']}%) - 신규 매수 차단")
-                is_buy_check_allowed = False
-
                 
             if not hasattr(self, '_analyze_debug_codes'):
                 self._analyze_debug_codes = set()

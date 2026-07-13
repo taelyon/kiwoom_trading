@@ -292,16 +292,6 @@ class EnvConfigParser:
             'sell_all_enabled': sell_all_enabled
         }
 
-    def get_market_filter_settings(self):
-        """시장 지수 추세 필터 설정 반환"""
-        use_market_filter = self.getboolean('TRADING', 'use_market_filter', True)
-        market_drop_limit = self.getfloat('TRADING', 'market_drop_limit', -0.5)
-        
-        return {
-            'use_market_filter': use_market_filter,
-            'market_drop_limit': market_drop_limit
-        }
-
 def get_config():
     """싱글톤 EnvConfigParser 인스턴스를 반환하는 편의 함수"""
     return EnvConfigParser()

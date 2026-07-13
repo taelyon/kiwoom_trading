@@ -584,16 +584,22 @@ def prepare_buy_strategy_locals(code, tick_chart_data, min_chart_data, portfolio
                 else:
                     feature_tic_imbalance = 0.5
                 
+                # [신규 추가] 9. 당일 코스닥 등락률 (market_kosdaq_roc)
+                feature_market_kosdaq_roc = 0.0
+                if realtime_metrics and 'market_kosdaq_roc' in realtime_metrics:
+                    feature_market_kosdaq_roc = realtime_metrics['market_kosdaq_roc']
+                
                 # 모델 학습 시 사용된 피처 개수에 맞춰 동적으로 차원 맞추기
                 num_features = LGBM_MODEL.num_feature()
                 if num_features == 17:
-                    # 최신 17개 피처 (imbalance 추가됨)
+                    # 최신 17개 피처 (kosdaq_roc 추가, time 제거)
                     input_vector = np.array([[
                         feature_strength, feature_velocity, feature_relative, feature_ma_ratio,
                         feature_vwap_dist, feature_macd_hist, feature_rsi,
-                        feature_time, feature_price_roc, feature_vol_roc,
+                        feature_price_roc, feature_vol_roc,
                         feature_tick_ma_spread, feature_tic_tail_ratio, feature_tic_buy_sell_ratio, feature_tic_spread,
-                        feature_tic_disparity20, feature_tic_bb_position, feature_tic_imbalance
+                        feature_tic_disparity20, feature_tic_bb_position, feature_tic_imbalance,
+                        feature_market_kosdaq_roc
                     ]])
                 elif num_features == 16:
                     # 새로운 16개 피처 (imbalance 포함, time_of_day_minute 제거)
@@ -942,14 +948,20 @@ def prepare_sell_strategy_locals(code, tick_chart_data, min_chart_data, buy_pric
                     else:
                         feature_tic_imbalance = 0.5
 
+                    # [신규 추가] 9. 당일 코스닥 등락률 (market_kosdaq_roc)
+                    feature_market_kosdaq_roc = 0.0
+                    if realtime_metrics and 'market_kosdaq_roc' in realtime_metrics:
+                        feature_market_kosdaq_roc = realtime_metrics['market_kosdaq_roc']
+
                     if num_features == 17:
-                        # 최신 17개 피처 (imbalance 추가됨)
+                        # 최신 17개 피처 (kosdaq_roc 추가, time 제거)
                         input_vector = np.array([[
                             feature_strength, feature_velocity, feature_relative, feature_ma_ratio,
                             feature_vwap_dist, feature_macd_hist, feature_rsi,
-                            feature_time, feature_price_roc, feature_vol_roc,
+                            feature_price_roc, feature_vol_roc,
                             feature_tick_ma_spread, feature_tic_tail_ratio, feature_tic_buy_sell_ratio, feature_tic_spread,
-                            feature_tic_disparity20, feature_tic_bb_position, feature_tic_imbalance
+                            feature_tic_disparity20, feature_tic_bb_position, feature_tic_imbalance,
+                            feature_market_kosdaq_roc
                         ]])
                     elif num_features == 16:
                         # 새로운 16개 피처 (imbalance 포함, time 제거)

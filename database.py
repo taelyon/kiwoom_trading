@@ -106,8 +106,18 @@ class AsyncDatabaseManager:
                     '''
                     await cursor.execute(create_table_sql)
                     
-
-                    
+                    # 업종 3분봉(지수) 데이터용 테이블 (KOSDAQ 등)
+                    await cursor.execute('''
+                        CREATE TABLE IF NOT EXISTS kosdaq_3m (
+                            datetime TEXT PRIMARY KEY,
+                            open REAL,
+                            high REAL,
+                            low REAL,
+                            close REAL,
+                            volume INTEGER,
+                            amount REAL
+                        )
+                    ''')
                     # 레거시 system_config 테이블이 남아있다면 앱 구동 시 자동 삭제
                     await cursor.execute("DROP TABLE IF EXISTS system_config")
 
@@ -609,6 +619,50 @@ class AsyncDatabaseManager:
         except Exception as ex:
             self.logger.error(f"분봉 데이터 매칭 실패: {ex}")
             return -1
+
+    async def save_kosdaq_data(self, data_list):
+        """KOSDAQ 3분봉(지수) 데이터 저장 (비동기 I/O)"""
+        if not data_list:
+            return
+            
+        try:
+            if self._conn is None:
+                await self.init_database()
+                
+            async with self._db_lock:
+                cursor = await self._conn.cursor()
+                
+                # data_list: list of dict {'dt': ..., 'open_pric': ..., 'high_pric': ..., 'low_pric': ..., 'cur_prc': ..., 'trde_qty': ..., 'trde_prica': ...}
+                records = []
+                for item in data_list:
+                    # 'dt'가 분봉인 경우 YYYYMMDDHHMMSS 형태일 수 있음
+                    # 현재가 등은 소수점 제거된 100배 값이므로 100으로 나눔
+                    dt_str = item.get('dt', '') or item.get('cntr_tm', '') # 분봉의 경우 체결시간 (cntr_tm)일 수 있음
+                    
+                    try:
+                        open_p = float(item.get('open_pric', 0)) / 100.0
+                        high_p = float(item.get('high_pric', 0)) / 100.0
+                        low_p = float(item.get('low_pric', 0)) / 100.0
+                        close_p = float(item.get('cur_prc', 0)) / 100.0
+                        vol = int(item.get('trde_qty', 0))
+                        amt = float(item.get('trde_prica', 0)) # 거래대금
+                        
+                        records.append((dt_str, open_p, high_p, low_p, close_p, vol, amt))
+                    except (ValueError, TypeError):
+                        continue
+                        
+                if records:
+                    await cursor.executemany('''
+                        INSERT OR REPLACE INTO kosdaq_3m 
+                        (datetime, open, high, low, close, volume, amount)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ''', records)
+                    await self._conn.commit()
+                    self.logger.info(f"✅ KOSDAQ 3분봉 데이터 {len(records)}건 저장 완료")
+                    
+        except Exception as e:
+            self.logger.error(f"KOSDAQ 데이터 저장 중 오류: {e}", exc_info=True)
+
     
     async def save_trade_record(self, code, datetime_str, order_type, quantity, price, strategy="", profit_loss=0.0):
         """매매 기록 저장 (비동기 I/O)"""
