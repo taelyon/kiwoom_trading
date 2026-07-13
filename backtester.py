@@ -177,6 +177,10 @@ class Backtester:
             for current_code, group_df in grouped:
                 code_idx += 1
                 group_df = group_df.reset_index(drop=True)
+                
+                # 중복 컬럼 제거 (LEFT JOIN 시 t.* 와 m.* 이름이 중복되는 경우 대비)
+                group_df = group_df.loc[:, ~group_df.columns.duplicated(keep='last')]
+                
                 first_eval_logged = False
                 
                 # 1. 컬럼명 일괄 변경
