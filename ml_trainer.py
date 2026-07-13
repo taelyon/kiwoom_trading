@@ -144,7 +144,7 @@ class MLTrainingWorker(threading.Thread):
             # 개선: 미래 60틱 내 고가(high)가 익절선(+1.2%)에 먼저 닿는지, 저가(low)가 손절선(-1.5%)에 먼저 닿는지 확인
             LOOKAHEAD = 60  # 향후 60틱 (약 10~30분)
             TARGET_PCT = 0.012  # +1.2% (1차 익절 도달 기준)
-            STOP_PCT = -0.020   # -2.0% (기계적/빠른 손절 방어선과 동기화)
+            STOP_PCT = -0.015   # -1.5% (기계적 손절 방어선과 동기화)
             
             # 향후 1~60틱 고가/저가 매트릭스 생성
             future_high_shifts = [df.groupby('code')['tick_high'].shift(-i) for i in range(1, LOOKAHEAD + 1)]

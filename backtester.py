@@ -528,7 +528,7 @@ class Backtester:
                             
                             locals_dict = base_locals_dict.copy()
                             locals_dict['code'] = current_code
-                            locals_dict['datetime'] = datetime.now()
+                            locals_dict['datetime'] = row['datetime']
                             locals_dict['current_price'] = current_price
                             locals_dict['profit_pct'] = real_profit_pct
                             locals_dict['current_profit_pct'] = real_profit_pct
@@ -670,7 +670,7 @@ class Backtester:
                                     locals_dict['market_kosdaq_roc'] = float(sd['precomputed']['market_kosdaq_roc'][idx])
                                 
                                 locals_dict['code'] = current_code
-                                locals_dict['datetime'] = datetime.now()
+                                locals_dict['datetime'] = row['datetime']
                                 locals_dict['current_price'] = current_price
                                 
                                 buy_signal = False
