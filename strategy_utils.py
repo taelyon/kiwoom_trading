@@ -588,6 +588,7 @@ def prepare_buy_strategy_locals(code, tick_chart_data, min_chart_data, portfolio
                 feature_market_kosdaq_roc = 0.0
                 if realtime_metrics and 'market_kosdaq_roc' in realtime_metrics:
                     feature_market_kosdaq_roc = realtime_metrics['market_kosdaq_roc']
+                locals_dict['market_kosdaq_roc'] = feature_market_kosdaq_roc
                 
                 # 모델 학습 시 사용된 피처 개수에 맞춰 동적으로 차원 맞추기
                 num_features = LGBM_MODEL.num_feature()
@@ -952,6 +953,7 @@ def prepare_sell_strategy_locals(code, tick_chart_data, min_chart_data, buy_pric
                     feature_market_kosdaq_roc = 0.0
                     if realtime_metrics and 'market_kosdaq_roc' in realtime_metrics:
                         feature_market_kosdaq_roc = realtime_metrics['market_kosdaq_roc']
+                    locals_dict['market_kosdaq_roc'] = feature_market_kosdaq_roc
 
                     if num_features == 17:
                         # 최신 17개 피처 (kosdaq_roc 추가, time 제거)
