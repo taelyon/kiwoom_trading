@@ -8,3 +8,4 @@ pandas
 TA-Lib
 websockets
 scikit-learn
+yfinance

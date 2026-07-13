@@ -83,6 +83,28 @@ class Backtester:
                 else:
                     logger.warning(f"설정된 전략 '{stg_name}'을 찾을 수 없어 빈 전략으로 실행합니다.")
             
+            # [추가] 코스닥 지수 필터 데이터 로드
+            from config_manager import get_config
+            market_settings = get_config().get_market_filter_settings()
+            market_drops_by_date = {}
+            if market_settings['use_market_filter']:
+                try:
+                    import yfinance as yf
+                    from datetime import datetime, timedelta
+                    start_dt = datetime.strptime(start_date, '%Y-%m-%d') - timedelta(days=10)
+                    end_dt = datetime.strptime(end_date, '%Y-%m-%d') + timedelta(days=2)
+                    ticker = yf.Ticker("^KQ11")
+                    kq_df = ticker.history(start=start_dt.strftime('%Y-%m-%d'), end=end_dt.strftime('%Y-%m-%d'))
+                    if not kq_df.empty:
+                        kq_df['prev_close'] = kq_df['Close'].shift(1)
+                        kq_df['drop'] = ((kq_df['Close'] / kq_df['prev_close']) - 1.0) * 100
+                        for idx, row in kq_df.iterrows():
+                            date_str = idx.strftime('%Y-%m-%d')
+                            market_drops_by_date[date_str] = row['drop']
+                    logger.info(f"✅ 코스닥 시장 지수({len(market_drops_by_date)}일) 필터 데이터 로드 완료")
+                except Exception as e:
+                    logger.error(f"코스닥 시장 지수 로드 실패: {e}")
+
             portfolio = {} # code -> {'buy_price': float, 'qty': int, 'buy_time': str}
             trades = []
             
@@ -424,6 +446,13 @@ class Backtester:
                 is_buy_blocked_time = (time_part >= buy_end_time_str)
                 is_force_sell_time = sell_all_enabled and (time_part >= sell_all_time_str)
                 
+                is_market_crash = False
+                if market_settings.get('use_market_filter', False):
+                    daily_drop = market_drops_by_date.get(current_date, 0.0)
+                    if daily_drop < market_settings.get('market_drop_limit', -0.5):
+                        is_market_crash = True
+                
+                
                 # 1. 매도 평가 (현재 보유 종목 중 time_df에 존재하는 것)
                 for _, row in time_df.iterrows():
                     current_code = row['code']
@@ -572,8 +601,8 @@ class Backtester:
                                     portfolio[current_code].setdefault('executed_sell_rules', set()).add(matched_sell_stg)
                                     debug_logs.append(f"   📌 [{current_code}] 분할매도 ({int(sell_ratio*100)}%) → 잔여 {portfolio[current_code]['qty']}주")
                                     
-                # 2. 매수 평가 (보유 슬롯이 비어있고, 점심시간이 아닐 때만, 그리고 매수 차단 시간이 아닐 때만)
-                if not is_market_close and not is_lunch_time and not is_buy_blocked_time:
+                # 2. 매수 평가 (보유 슬롯이 비어있고, 점심/차단시간/투매장이 아닐 때만)
+                if not is_market_close and not is_lunch_time and not is_buy_blocked_time and not is_market_crash:
                     if 'AI_SCORE' in time_df.columns:
                         buy_candidates = time_df.sort_values(by='AI_SCORE', ascending=False)
                     else:
