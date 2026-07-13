@@ -90,7 +90,17 @@ def evaluate_strategies(strategies, safe_locals, code="", strategy_type=""):
                 logger.debug(f"🔍 [{code}] 조건: {condition}")
                 logger.debug(f"🔍 [{code}] 현재 수익률: {current_profit:.2f}%")
                 
-            result = eval(condition, STRATEGY_SAFE_GLOBALS, safe_locals)
+            try:
+                result = eval(condition, STRATEGY_SAFE_GLOBALS, safe_locals)
+            except ValueError as e:
+                if "truth value of an array" in str(e):
+                    logger.error(f"Value Error Detail in eval: {e}")
+                    for k, v in safe_locals.items():
+                        if isinstance(v, (np.ndarray, pd.Series, pd.DataFrame)):
+                            logger.error(f"{k}: {type(v)} shape={getattr(v, 'shape', 'unknown')}")
+                        else:
+                            logger.error(f"{k}: {type(v)} = {v}")
+                raise
             
             # 결과가 배열인 경우 마지막 값(최신)을 사용
             if isinstance(result, (np.ndarray, list, pd.Series)):
