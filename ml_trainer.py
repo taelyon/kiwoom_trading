@@ -190,49 +190,46 @@ class MLTrainingWorker(threading.Thread):
 
             import talib
             def calc_new_indicators(g):
-                g = g.copy()
                 close = g['tick_close'].values
                 high = g['tick_high'].values
                 low = g['tick_low'].values
                 vol = g['tick_volume'].values
                 
-                # [C] Rolling VWAP Distance (누적 VWAP → 최근 60봉 Rolling VWAP로 교체)
-                # 누적 VWAP는 오후로 갈수록 둔감해져 단타에 부적합
-                VWAP_WINDOW = 60  # 최근 60봉 (약 1시간)
+                VWAP_WINDOW = 60
                 typ = (high + low + close) / 3
                 rolling_pv = pd.Series(typ * vol).rolling(VWAP_WINDOW, min_periods=1).sum().values
                 rolling_v = pd.Series(vol).rolling(VWAP_WINDOW, min_periods=1).sum().values
                 vwap = np.where(rolling_v > 0, rolling_pv / rolling_v, close)
-                g['tick_vwap_distance'] = np.where(vwap > 0, (close - vwap) / vwap, 0)
+                tick_vwap_distance = np.where(vwap > 0, (close - vwap) / vwap, 0)
                 
-                # MACD Hist
                 if len(close) >= 26:
                     _, _, h = talib.MACD(close)
-                    g['tick_macd_hist'] = pd.Series(h).fillna(0.0).values
+                    tick_macd_hist = pd.Series(h).fillna(0.0).values
                 else:
-                    g['tick_macd_hist'] = 0.0
+                    tick_macd_hist = np.zeros(len(close))
                     
-                # RSI 21
                 if len(close) >= 21:
-                    g['tick_rsi21'] = pd.Series(talib.RSI(close, timeperiod=21)).fillna(50.0).values
+                    tick_rsi21 = pd.Series(talib.RSI(close, timeperiod=21)).fillna(50.0).values
                 else:
-                    g['tick_rsi21'] = 50.0
+                    tick_rsi21 = np.full(len(close), 50.0)
                     
-                # [신규] 최근 10틱 가격 변화율 (가속도)
-                g['tick_price_roc'] = g['tick_close'].pct_change(periods=10).fillna(0.0)
+                tick_price_roc = g['tick_close'].pct_change(periods=10).fillna(0.0).values
                 
-                # [신규] 최근 거래량 가속도 (직전 5틱 볼륨 합계 대비 최근 5틱 볼륨 합계 비)
                 vol_sum_5 = g['tick_volume'].rolling(5).sum()
                 prev_vol_sum_5 = vol_sum_5.shift(5)
-                g['tick_vol_roc'] = pd.Series(np.where(prev_vol_sum_5 > 0, vol_sum_5 / prev_vol_sum_5, 1.0)).fillna(1.0).values
+                tick_vol_roc = pd.Series(np.where(prev_vol_sum_5 > 0, vol_sum_5 / prev_vol_sum_5, 1.0)).fillna(1.0).values
                     
-                return g
+                return pd.DataFrame({
+                    'tick_vwap_distance': tick_vwap_distance,
+                    'tick_macd_hist': tick_macd_hist,
+                    'tick_rsi21': tick_rsi21,
+                    'tick_price_roc': tick_price_roc,
+                    'tick_vol_roc': tick_vol_roc
+                }, index=g.index)
             
-            df = df.groupby('code', group_keys=False).apply(calc_new_indicators)
-            
-            # pandas 2.0+ 에서 groupby.apply 결과가 인덱스로 'code'를 가질 수 있는 문제 방어
-            if 'code' not in df.columns:
-                df = df.reset_index()
+            new_cols = df.groupby('code', group_keys=False).apply(calc_new_indicators)
+            for col in new_cols.columns:
+                df[col] = new_cols[col]
             
             # [신규 추가] 볼린저 밴드 표준편차 (그룹 내 연산 - apply 외부에서 transform으로 안전하게 연산)
             df['std20'] = df.groupby('code')['tick_close'].transform(lambda x: x.rolling(20, min_periods=1).std(ddof=1).fillna(0))
