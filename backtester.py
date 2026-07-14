@@ -460,8 +460,9 @@ class Backtester:
                         debug_logs.append(f"⚠️ [{current_date}] 일일 데이터 종료로 인한 잔여 포지션 {len(portfolio)}개 강제 청산 (오버나잇 방지)")
                         for p_code, pos in list(portfolio.items()):
                             sd = stock_data[p_code]
-                            last_price = float(sd['precomputed']['close'][sd['current_idx']])
-                            last_time = str(sd['precomputed']['datetime'][sd['current_idx']]).replace('T', ' ')
+                            safe_idx = min(sd['current_idx'], len(sd['precomputed']['close']) - 1)
+                            last_price = float(sd['precomputed']['close'][safe_idx])
+                            last_time = str(sd['precomputed']['datetime'][safe_idx]).replace('T', ' ')
                             
                             sell_qty = pos['qty']
                             trade_profit = (last_price - pos['buy_price']) * sell_qty
