@@ -224,6 +224,19 @@ class Backtester:
                         group_df['RELATIVE_POSITION'] = group_df['tick_relative_position']
                 except Exception as e:
                     logger.error(f"지표 매핑 오류 ({current_code}): {e}")
+                    
+                # 2.5 누락된 파생 지표(VWAP 등) 백필 계산
+                if 'VWAP' not in group_df.columns:
+                    try:
+                        typ = (group_df['high'] + group_df['low'] + group_df['close']) / 3
+                        vol = group_df['volume']
+                        VWAP_WINDOW = 60
+                        rolling_pv = pd.Series(typ * vol).rolling(VWAP_WINDOW, min_periods=1).sum().values
+                        rolling_v = pd.Series(vol).rolling(VWAP_WINDOW, min_periods=1).sum().values
+                        group_df['VWAP'] = np.where(rolling_v > 0, rolling_pv / rolling_v, group_df['close'])
+                    except Exception as e:
+                        logger.error(f"VWAP 계산 오류 ({current_code}): {e}")
+                        group_df['VWAP'] = group_df['close']
                 
                 n = len(group_df)
                 group_df['AI_SCORE'] = 0.0
