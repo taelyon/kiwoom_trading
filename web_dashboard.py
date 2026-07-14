@@ -14,6 +14,81 @@ import math
 import multiprocessing as mp
 import queue
 import traceback
+import itertools
+import re
+
+def run_batch_backtest_process_worker(q, s_date, e_date, c, buy_stg=None, sell_stg=None, initial_capital=10000000, buycount=3):
+    """일괄 백테스트를 수행하는 워커. 가능한 모든 매수 조건 조합을 생성하여 테스트합니다."""
+    try:
+        from backtester import Backtester
+        
+        # 1. 매수 조건 파싱 및 분리
+        if not buy_stg or len(buy_stg) == 0:
+            raise ValueError("매수 로직이 없습니다.")
+            
+        base_stg = buy_stg[0]
+        content = base_stg.get('content', '')
+        
+        # ' and ' 기준으로 분리 (대소문자 무시)
+        conditions = [cond.strip() for cond in re.split(r'\s+and\s+', content, flags=re.IGNORECASE) if cond.strip()]
+        if len(conditions) == 0:
+            raise ValueError("유효한 매수 조건이 없습니다.")
+            
+        # 모든 조합 생성
+        all_combos = []
+        for r in range(1, len(conditions) + 1):
+            combos = itertools.combinations(conditions, r)
+            for combo in combos:
+                all_combos.append(list(combo))
+                
+        total_runs = len(all_combos)
+        q.put({"type": "batch_backtest_progress", "progress": 0, "msg": f"총 {total_runs}개의 조합 생성을 완료했습니다. 백테스트를 시작합니다.", "current": 0, "total": total_runs})
+        
+        batch_results = []
+        
+        for idx, combo in enumerate(all_combos):
+            combo_content = " and ".join(combo)
+            combo_name = f"조합 {idx+1}"
+            
+            combo_buy_stg = [{"name": combo_name, "content": combo_content}]
+            
+            q.put({"type": "batch_backtest_progress", "progress": int((idx / total_runs) * 100), "msg": f"[{idx+1}/{total_runs}] 조합 테스트 중...", "current": idx+1, "total": total_runs})
+            
+            bt = Backtester()
+            
+            # 진행률 업데이트 콜백 (내부 진행률은 무시하고 메인 진행률만 전달)
+            def dummy_cb(p, m): pass
+                
+            res = bt.run(s_date, e_date, c, progress_callback=dummy_cb, custom_buy=combo_buy_stg, custom_sell=sell_stg, initial_capital=initial_capital, buycount=buycount)
+            
+            if "error" not in res:
+                # 결과 요약 저장
+                summary = res.get('summary', {})
+                batch_results.append({
+                    "id": idx + 1,
+                    "combo_name": combo_name,
+                    "conditions": combo,
+                    "condition_count": len(combo),
+                    "full_content": combo_content,
+                    "total_profit": summary.get('total_profit', 0),
+                    "win_rate": summary.get('win_rate', 0.0),
+                    "mdd": summary.get('mdd', 0.0),
+                    "total_trades": summary.get('total_trades', 0)
+                })
+        
+        # 수익금액(total_profit) 기준 내림차순 정렬
+        batch_results.sort(key=lambda x: x['total_profit'], reverse=True)
+        
+        q.put({
+            "type": "batch_backtest_result",
+            "data": batch_results
+        })
+    except Exception as e:
+        q.put({
+            "type": "backtest_error",
+            "error": f"일괄 실행 오류: {str(e)}",
+            "traceback": traceback.format_exc()
+        })
 
 def run_backtest_process_worker(q, s_date, e_date, c, buy_stg=None, sell_stg=None, initial_capital=10000000, buycount=3):
     """독립된 프로세스에서 백테스터를 실행하고 큐를 통해 상태를 보고하는 워커 함수"""
@@ -1606,7 +1681,10 @@ HTML_CONTENT = """
                         </div>
 
                         <div style="margin-top: 16px;">
-                            <button id="btnRunBacktest" class="btn-primary" style="width: 100%; padding: 14px; font-size: 15px; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 8px; box-shadow: 0 4px 16px rgba(0, 242, 254, 0.2);" onclick="toggleBacktest()">🚀 백테스트 실행</button>
+                            <div style="display: flex; gap: 10px;">
+                                <button id="btnRunBacktest" class="btn-primary" style="flex: 1; padding: 14px; font-size: 15px; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 8px; box-shadow: 0 4px 16px rgba(0, 242, 254, 0.2);" onclick="toggleBacktest()">🚀 백테스트 실행</button>
+                                <button id="btnBatchRun" class="btn-secondary" style="flex: 1; padding: 14px; font-size: 15px; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 8px; box-shadow: 0 4px 16px rgba(162, 155, 254, 0.2); background: linear-gradient(135deg, #a29bfe, #6c5ce7); color: white; border: none; cursor: pointer;" onclick="toggleBatchRun()">🤖 조건 일괄 실행</button>
+                            </div>
                             <div style="display: flex; gap: 10px; margin-top: 10px;">
                                 <button id="btnViewDB" class="btn-primary" style="flex: 1; padding: 14px; font-size: 14px; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 8px; background-color: var(--card-bg); border: 1px solid var(--border-color); color: white;" onclick="showDbSummaryModal()">👀 DB 보기</button>
                                 <button id="btnClearDB" class="btn-danger" style="flex: 1; padding: 14px; font-size: 14px; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 8px;" onclick="confirmClearStockData()">🗑️ DB 초기화</button>
@@ -1740,6 +1818,37 @@ HTML_CONTENT = """
             </div>
         </div>
     </div> <!-- // tradeHistoryModal 종료 -->
+    
+    <!-- 일괄 실행 결과 모달 -->
+    <div id="batchResultModal" class="modal-overlay" style="display:none; z-index: 9999;">
+        <div class="modal-container" style="max-width: 900px;">
+            <div class="modal-header">
+                <h2>🤖 매수조건 일괄 실행 결과</h2>
+                <button class="close-btn" onclick="closeBatchResultModal()">&times;</button>
+            </div>
+            <div class="modal-body" style="max-height: 60vh; overflow-y: auto;">
+                <table class="portfolio-table" style="width: 100%;">
+                    <thead>
+                        <tr>
+                            <th style="width: 60px;">순위</th>
+                            <th style="width: 80px;">조건 조합</th>
+                            <th>상세 조건식</th>
+                            <th style="width: 70px;">거래횟수</th>
+                            <th style="width: 70px;">승률</th>
+                            <th style="width: 70px;">MDD</th>
+                            <th style="width: 120px;">총 손익금액</th>
+                        </tr>
+                    </thead>
+                    <tbody id="batchResultBody">
+                        <tr><td colspan="7" class="text-center" id="batchResultStatusText">실행 대기 중...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="modal-footer" style="padding: 15px; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end;">
+                <button class="btn-primary" style="padding: 8px 16px; border-radius: 6px;" onclick="closeBatchResultModal()">닫기</button>
+            </div>
+        </div>
+    </div> <!-- // batchResultModal 종료 -->
         <!-- 4. ML AI 학습 뷰 -->
         <div id="mlTrainView" class="view-container view-hidden">
             
@@ -2030,6 +2139,11 @@ HTML_CONTENT = """
                             console.error("배치 렌더링 실패:", e);
                         }
                     }
+                } else if (data.type === 'batch_backtest_progress') {
+                    document.getElementById('batchResultModal').style.display = 'flex';
+                    document.getElementById('batchResultStatusText').innerText = data.msg;
+                } else if (data.type === 'batch_backtest_result') {
+                    renderBatchResultModal(data.data);
                 } else if (data.type === 'backtest_error') {
                     isBacktesting = false;
                     document.getElementById('btnRunBacktest').disabled = false;
@@ -4014,6 +4128,76 @@ HTML_CONTENT = """
             document.getElementById('btEndDate').value = fmt(today);
             document.getElementById('btStartDate').value = fmt(lastWeek);
         });
+        function toggleBatchRun() {
+            if (isBacktesting) {
+                alert("현재 백테스트 또는 다른 작업이 실행 중입니다.");
+                return;
+            }
+            const buyVal = document.getElementById('btBuyStrategy').value;
+            const sellVal = document.getElementById('btSellStrategy').value;
+            if (!buyVal || buyVal.trim() === '') {
+                alert("매수 로직을 입력하세요.");
+                return;
+            }
+            
+            let buyJson = [];
+            let sellJson = [];
+            try {
+                buyJson = JSON.parse(buyVal);
+                if (sellVal.trim() !== '') {
+                    sellJson = JSON.parse(sellVal);
+                }
+            } catch (e) {
+                alert("JSON 파싱 오류! 올바른 JSON 형식이 아닙니다.\\n\\n" + e.message);
+                return;
+            }
+            
+            isBacktesting = true;
+            document.getElementById('batchResultModal').style.display = 'flex';
+            document.getElementById('batchResultBody').innerHTML = '<tr><td colspan="7" class="text-center" id="batchResultStatusText">조합 생성 및 백테스트 준비 중...</td></tr>';
+            
+            ws.send(JSON.stringify({
+                type: 'run_batch_backtest',
+                start_date: document.getElementById('btStartDate').value.replace(/-/g, ''),
+                end_date: document.getElementById('btEndDate').value.replace(/-/g, ''),
+                code: 'ALL',
+                custom_buy: buyJson,
+                custom_sell: sellJson,
+                initial_capital: parseFloat(document.getElementById('btInitialCapital').value.replace(/,/g, '')),
+                buycount: parseInt(document.getElementById('btBuyCount').value)
+            }));
+        }
+        
+        function closeBatchResultModal() {
+            document.getElementById('batchResultModal').style.display = 'none';
+        }
+        
+        function renderBatchResultModal(results) {
+            isBacktesting = false;
+            const tbody = document.getElementById('batchResultBody');
+            tbody.innerHTML = '';
+            
+            if (!results || results.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" class="text-center">조합 생성 실패 또는 결과가 없습니다.</td></tr>';
+                return;
+            }
+            
+            results.forEach((res, index) => {
+                const tr = document.createElement('tr');
+                const pColor = res.total_profit > 0 ? 'var(--success)' : (res.total_profit < 0 ? 'var(--danger)' : 'white');
+                
+                tr.innerHTML = `
+                    <td class="text-center">${index + 1}</td>
+                    <td class="text-center" style="font-weight: bold; color: #a29bfe;">${res.combo_name}</td>
+                    <td style="font-size: 11px; word-break: break-all; color: #00f2fe;">${res.full_content}</td>
+                    <td class="text-center">${res.total_trades}</td>
+                    <td class="text-center">${res.win_rate.toFixed(1)}%</td>
+                    <td class="text-center">${res.mdd.toFixed(2)}%</td>
+                    <td class="text-right" style="color: ${pColor}; font-weight: bold;">${res.total_profit.toLocaleString()}원</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
     </script>
     
     <!-- 데이터베이스 보기 모달 -->
@@ -4863,6 +5047,73 @@ async def websocket_handler(websocket):
                             "error": "사용자에 의해 백테스팅이 중단되었습니다.",
                             "traceback": ""
                         }))
+
+                elif msg_type == 'run_batch_backtest':
+                    start_date = data.get('start_date')
+                    end_date = data.get('end_date')
+                    code = data.get('code', 'ALL')
+                    custom_buy = data.get('custom_buy')
+                    custom_sell = data.get('custom_sell')
+                    initial_capital = data.get('initial_capital', 10000000)
+                    buycount = data.get('buycount', 3)
+                    
+                    logging.debug(f"📊 대시보드 제어: 일괄 백테스팅 요청 ({start_date} ~ {end_date})")
+                    
+                    main_loop = None
+                    try:
+                        main_loop = asyncio.get_running_loop()
+                    except RuntimeError:
+                        if app and hasattr(app, 'loop') and app.loop:
+                            main_loop = app.loop
+                    
+                    ctx = mp.get_context('spawn')
+                    q = ctx.Queue()
+                    global active_backtests
+                    if websocket in active_backtests:
+                        old_p = active_backtests[websocket]
+                        if old_p.is_alive():
+                            old_p.terminate()
+                            old_p.join(timeout=1.0)
+                            
+                    p = ctx.Process(target=run_batch_backtest_process_worker, args=(q, start_date, end_date, code, custom_buy, custom_sell, initial_capital, buycount), daemon=True)
+                    active_backtests[websocket] = p
+                    p.start()
+                    
+                    async def monitor_batch_backtest_process():
+                        try:
+                            while p.is_alive() or not q.empty():
+                                try:
+                                    msg = q.get_nowait()
+                                    if msg["type"] == "batch_backtest_progress":
+                                        logging.debug(f"📊 [일괄 백테스트] {msg['msg']}")
+                                        await safe_send(websocket, json.dumps(msg))
+                                    elif msg["type"] == "batch_backtest_result":
+                                        await safe_send(websocket, json.dumps(msg))
+                                        break
+                                    elif msg["type"] == "backtest_error":
+                                        logging.error(f"일괄 백테스팅 프로세스 오류: {msg['error']}")
+                                        await safe_send(websocket, json.dumps({
+                                            "type": "backtest_error",
+                                            "error": msg["error"],
+                                            "traceback": msg.get("traceback", "")
+                                        }))
+                                        break
+                                except queue.Empty:
+                                    await asyncio.sleep(0.1)
+                            
+                            p.join(timeout=1.0)
+                            if p.is_alive():
+                                p.terminate()
+                                
+                            if active_backtests.get(websocket) == p:
+                                del active_backtests[websocket]
+                        except Exception as e:
+                            logging.error(f"일괄 백테스팅 모니터링 오류: {e}", exc_info=True)
+                    
+                    if main_loop:
+                        main_loop.create_task(monitor_batch_backtest_process())
+                    else:
+                        asyncio.create_task(monitor_batch_backtest_process())
 
                 elif msg_type == 'get_trade_history':
                     start_date = data.get('start_date')
