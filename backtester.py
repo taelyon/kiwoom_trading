@@ -456,6 +456,41 @@ class Backtester:
             for current_time, time_df in grouped_by_time:
                 date_str = str(current_time)[:10]
                 if current_date != date_str:
+                    if current_date is not None and portfolio:
+                        debug_logs.append(f"⚠️ [{current_date}] 일일 데이터 종료로 인한 잔여 포지션 {len(portfolio)}개 강제 청산 (오버나잇 방지)")
+                        for p_code, pos in list(portfolio.items()):
+                            sd = stock_data[p_code]
+                            last_price = float(sd['precomputed']['close'][sd['current_idx']])
+                            last_time = str(sd['precomputed']['datetime'][sd['current_idx']]).replace('T', ' ')
+                            
+                            sell_qty = pos['qty']
+                            trade_profit = (last_price - pos['buy_price']) * sell_qty
+                            trade_profit -= (pos['buy_price'] * sell_qty * 0.002)
+                            total_profit += trade_profit
+                            capital += trade_profit
+                            if trade_profit > 0: win_count += 1
+                            else: loss_count += 1
+                            real_profit_pct = (last_price - pos['buy_price']) / pos['buy_price'] * 100.0 - 0.2
+                            
+                            profit_emoji = '🟢' if trade_profit >= 0 else '🔴'
+                            debug_logs.append(f"{profit_emoji} [{p_code}] 데이터마감 강제청산 | {pos['buy_price']:,.0f}→{last_price:,.0f} ({real_profit_pct:+.2f}%) | 손익: {trade_profit:+,.0f}원")
+                            
+                            trades.append({
+                                'code': p_code,
+                                'buy_time': pos['buy_time'],
+                                'sell_time': last_time,
+                                'buy_price': pos['buy_price'],
+                                'sell_price': last_price,
+                                'qty': sell_qty,
+                                'profit_pct': real_profit_pct,
+                                'profit_amount': trade_profit,
+                                'buy_stg': pos['stg'],
+                                'sell_stg': "데이터마감 강제청산"
+                            })
+                            max_capital = max(max_capital, capital)
+                            mdd = max(mdd, (max_capital - capital) / max_capital * 100.0)
+                        portfolio.clear()
+                        
                     current_date = date_str
                     daily_blacklist.clear()
                     cooldown_list.clear()
