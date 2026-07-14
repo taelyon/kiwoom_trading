@@ -4191,8 +4191,8 @@ HTML_CONTENT = """
             
             ws.send(JSON.stringify({
                 type: 'run_batch_backtest',
-                start_date: document.getElementById('btStartDate').value.replace(/-/g, ''),
-                end_date: document.getElementById('btEndDate').value.replace(/-/g, ''),
+                start_date: document.getElementById('btStartDate').value,
+                end_date: document.getElementById('btEndDate').value,
                 code: 'ALL',
                 custom_buy: buyJson,
                 custom_sell: sellJson,
