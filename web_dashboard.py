@@ -5068,7 +5068,6 @@ async def websocket_handler(websocket):
                     
                     ctx = mp.get_context('spawn')
                     q = ctx.Queue()
-                    global active_backtests
                     if websocket in active_backtests:
                         old_p = active_backtests[websocket]
                         if old_p.is_alive():
