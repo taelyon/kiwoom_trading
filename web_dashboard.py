@@ -34,12 +34,16 @@ def run_batch_backtest_process_worker(q, s_date, e_date, c, buy_stg=None, sell_s
         if len(conditions) == 0:
             raise ValueError("유효한 매수 조건이 없습니다.")
             
-        # 모든 조합 생성
-        all_combos = []
-        for r in range(1, len(conditions) + 1):
-            combos = itertools.combinations(conditions, r)
-            for combo in combos:
-                all_combos.append(list(combo))
+        # 조건이 1개뿐이면 분리할 것이 없으므로 원본 그대로 1회 실행
+        if len(conditions) == 1:
+            all_combos = [conditions]
+        else:
+            # 모든 조합 생성
+            all_combos = []
+            for r in range(1, len(conditions) + 1):
+                combos = itertools.combinations(conditions, r)
+                for combo in combos:
+                    all_combos.append(list(combo))
                 
         total_runs = len(all_combos)
         q.put({"type": "batch_backtest_progress", "progress": 0, "msg": f"총 {total_runs}개의 조합 생성을 완료했습니다. 백테스트를 시작합니다.", "current": 0, "total": total_runs})
@@ -54,25 +58,55 @@ def run_batch_backtest_process_worker(q, s_date, e_date, c, buy_stg=None, sell_s
             
             q.put({"type": "batch_backtest_progress", "progress": int((idx / total_runs) * 100), "msg": f"[{idx+1}/{total_runs}] 조합 테스트 중...", "current": idx+1, "total": total_runs})
             
-            bt = Backtester()
-            
-            # 진행률 업데이트 콜백 (내부 진행률은 무시하고 메인 진행률만 전달)
-            def dummy_cb(p, m): pass
+            try:
+                bt = Backtester()
                 
-            res = bt.run(s_date, e_date, c, progress_callback=dummy_cb, custom_buy=combo_buy_stg, custom_sell=sell_stg, initial_capital=initial_capital, buycount=buycount)
-            
-            if "error" not in res:
-                # 결과 요약 저장 (backtester는 루트 레벨에 키를 반환)
+                # 진행률 업데이트 콜백 (내부 진행률은 무시하고 메인 진행률만 전달)
+                def dummy_cb(p, m): pass
+                    
+                res = bt.run(s_date, e_date, c, progress_callback=dummy_cb, custom_buy=combo_buy_stg, custom_sell=sell_stg, initial_capital=initial_capital, buycount=buycount)
+                
+                if "error" in res:
+                    # 에러가 있어도 결과에 에러 정보를 포함하여 전달
+                    q.put({"type": "batch_backtest_progress", "progress": int(((idx+1) / total_runs) * 100), "msg": f"[{idx+1}/{total_runs}] 조합 오류: {res.get('error', '알 수 없는 오류')}"})
+                    batch_results.append({
+                        "id": idx + 1,
+                        "combo_name": combo_name,
+                        "conditions": combo,
+                        "condition_count": len(combo),
+                        "full_content": combo_content,
+                        "total_profit": 0,
+                        "win_rate": 0.0,
+                        "mdd": 0.0,
+                        "total_trades": 0,
+                        "error": res.get('error', '')
+                    })
+                else:
+                    # 결과 요약 저장 (backtester는 루트 레벨에 키를 반환)
+                    batch_results.append({
+                        "id": idx + 1,
+                        "combo_name": combo_name,
+                        "conditions": combo,
+                        "condition_count": len(combo),
+                        "full_content": combo_content,
+                        "total_profit": res.get('total_profit', 0),
+                        "win_rate": res.get('win_rate', 0.0),
+                        "mdd": res.get('mdd', 0.0),
+                        "total_trades": res.get('total_trades', 0)
+                    })
+            except Exception as run_err:
+                q.put({"type": "batch_backtest_progress", "progress": int(((idx+1) / total_runs) * 100), "msg": f"[{idx+1}/{total_runs}] 실행 예외: {str(run_err)}"})
                 batch_results.append({
                     "id": idx + 1,
                     "combo_name": combo_name,
                     "conditions": combo,
                     "condition_count": len(combo),
                     "full_content": combo_content,
-                    "total_profit": res.get('total_profit', 0),
-                    "win_rate": res.get('win_rate', 0.0),
-                    "mdd": res.get('mdd', 0.0),
-                    "total_trades": res.get('total_trades', 0)
+                    "total_profit": 0,
+                    "win_rate": 0.0,
+                    "mdd": 0.0,
+                    "total_trades": 0,
+                    "error": str(run_err)
                 })
         
         # 수익금액(total_profit) 기준 내림차순 정렬
@@ -4183,17 +4217,31 @@ HTML_CONTENT = """
             
             results.forEach((res, index) => {
                 const tr = document.createElement('tr');
+                const hasError = res.error && res.error.length > 0;
                 const pColor = res.total_profit > 0 ? 'var(--success)' : (res.total_profit < 0 ? 'var(--danger)' : 'white');
                 
-                tr.innerHTML = `
-                    <td class="text-center">${index + 1}</td>
-                    <td class="text-center" style="font-weight: bold; color: #a29bfe;">${res.combo_name}</td>
-                    <td style="font-size: 11px; word-break: break-all; color: #00f2fe;">${res.full_content}</td>
-                    <td class="text-center">${res.total_trades}</td>
-                    <td class="text-center">${res.win_rate.toFixed(1)}%</td>
-                    <td class="text-center">${res.mdd.toFixed(2)}%</td>
-                    <td class="text-right" style="color: ${pColor}; font-weight: bold;">${res.total_profit.toLocaleString()}원</td>
-                `;
+                if (hasError) {
+                    tr.style.opacity = '0.6';
+                    tr.innerHTML = `
+                        <td class="text-center">${index + 1}</td>
+                        <td class="text-center" style="font-weight: bold; color: #a29bfe;">${res.combo_name}</td>
+                        <td style="font-size: 11px; word-break: break-all;"><span style="color: #00f2fe;">${res.full_content}</span><br><span style="color: var(--danger);">⚠️ ${res.error}</span></td>
+                        <td class="text-center">-</td>
+                        <td class="text-center">-</td>
+                        <td class="text-center">-</td>
+                        <td class="text-right" style="color: var(--danger);">오류</td>
+                    `;
+                } else {
+                    tr.innerHTML = `
+                        <td class="text-center">${index + 1}</td>
+                        <td class="text-center" style="font-weight: bold; color: #a29bfe;">${res.combo_name}</td>
+                        <td style="font-size: 11px; word-break: break-all; color: #00f2fe;">${res.full_content}</td>
+                        <td class="text-center">${res.total_trades}</td>
+                        <td class="text-center">${res.win_rate.toFixed(1)}%</td>
+                        <td class="text-center">${res.mdd.toFixed(2)}%</td>
+                        <td class="text-right" style="color: ${pColor}; font-weight: bold;">${res.total_profit.toLocaleString()}원</td>
+                    `;
+                }
                 tbody.appendChild(tr);
             });
         }
