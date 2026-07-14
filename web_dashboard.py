@@ -62,18 +62,17 @@ def run_batch_backtest_process_worker(q, s_date, e_date, c, buy_stg=None, sell_s
             res = bt.run(s_date, e_date, c, progress_callback=dummy_cb, custom_buy=combo_buy_stg, custom_sell=sell_stg, initial_capital=initial_capital, buycount=buycount)
             
             if "error" not in res:
-                # 결과 요약 저장
-                summary = res.get('summary', {})
+                # 결과 요약 저장 (backtester는 루트 레벨에 키를 반환)
                 batch_results.append({
                     "id": idx + 1,
                     "combo_name": combo_name,
                     "conditions": combo,
                     "condition_count": len(combo),
                     "full_content": combo_content,
-                    "total_profit": summary.get('total_profit', 0),
-                    "win_rate": summary.get('win_rate', 0.0),
-                    "mdd": summary.get('mdd', 0.0),
-                    "total_trades": summary.get('total_trades', 0)
+                    "total_profit": res.get('total_profit', 0),
+                    "win_rate": res.get('win_rate', 0.0),
+                    "mdd": res.get('mdd', 0.0),
+                    "total_trades": res.get('total_trades', 0)
                 })
         
         # 수익금액(total_profit) 기준 내림차순 정렬
