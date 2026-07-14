@@ -347,9 +347,7 @@ class Backtester:
                                 f_disparity, f_bb_pos, f_imbalance, f_market_kosdaq_roc
                             ))
                         elif num_features == 16:
-                            # 16차원 새로운 피처 매핑 (imbalance 포함, time 제거)
-                            f_buy_sell_ratio = np.where(vol > 0, group_df['buy_volume'].values / vol, 0.5) if 'buy_volume' in group_df.columns else np.full(n, 0.5)
-                            
+                            # 16차원 피처 매핑 (buy_sell_ratio 삭제, kosdaq_roc 추가됨)
                             if 'high' in group_df.columns and 'low' in group_df.columns and 'close' in group_df.columns:
                                 close_safe = np.where(group_df['close'] == 0, 1e-9, group_df['close'])
                                 f_spread = ((group_df['high'] - group_df['low']) / close_safe).fillna(0.0).values
@@ -371,13 +369,14 @@ class Backtester:
                                 f_bb_pos = np.full(n, 0.5)
                             
                             f_imbalance = group_df['tick_imbalance'].fillna(0.5).values if 'tick_imbalance' in group_df.columns else np.full(n, 0.5)
+                            f_market_kosdaq_roc = group_df['market_kosdaq_roc'].fillna(0.0).values if 'market_kosdaq_roc' in group_df.columns else np.zeros(n)
                                 
                             mat = np.column_stack((
                                 f_strength, f_velocity, f_relative, f_ma_ratio,
                                 f_vwap_dist, f_macd_hist, f_rsi,
                                 f_price_roc, f_vol_roc,
-                                f_tick_ma_spread, f_tic_tail_ratio, f_buy_sell_ratio, f_spread,
-                                f_disparity, f_bb_pos, f_imbalance
+                                f_tick_ma_spread, f_tic_tail_ratio, f_spread,
+                                f_disparity, f_bb_pos, f_imbalance, f_market_kosdaq_roc
                             ))
                         elif num_features == 14:
                             # 14차원 구버전 피처
