@@ -4743,7 +4743,7 @@ async def websocket_handler(websocket):
                         if hasattr(app, 'login_handler') and app.login_handler and app.login_handler.config:
                             try:
                                 app.login_handler.config.set('SYSTEM', 'AUTO_TRADING_ENABLED', 'True' if active else 'False')
-                                app.login_handler.config.save_to_env()
+                                app.login_handler.config.save_config()
                             except Exception as e:
                                 logging.error(f"❌ 자동매매 설정 저장 실패: {e}")
                                 
