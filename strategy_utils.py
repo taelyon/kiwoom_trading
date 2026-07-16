@@ -682,8 +682,7 @@ def prepare_buy_strategy_locals(code, tick_chart_data, min_chart_data, portfolio
                     input_vector = np.array([[
                         feature_strength, feature_velocity, feature_relative, feature_spike
                     ]])
-                elif num_features == 5:
-                    input_vector = np.array([[feature_strength, feature_velocity, feature_imbalance, feature_relative, feature_spike]])
+
                 else:
                     # 예외 발생 시 안전하게 0 리턴 처리 (크래시 방지)
                     logger.warning(f"⚠️ strategy_utils(Buy)에 {num_features}개 피처에 대한 매핑 로직이 구현되지 않았습니다. 기본 0.0 값으로 평가됩니다.")
@@ -1028,8 +1027,6 @@ def prepare_sell_strategy_locals(code, tick_chart_data, min_chart_data, buy_pric
                             feature_vwap_dist, feature_bb_pos, feature_macd_hist, feature_rsi,
                             feature_time, feature_price_roc, feature_vol_roc
                         ]])
-                elif num_features == 5:
-                    input_vector = np.array([[feature_strength, feature_velocity, feature_imbalance, feature_relative, feature_spike]])
                 elif num_features == 12:
                     # 12개 피처 (기본 5 + 턴오버/호가잔량 7)
                     input_vector = np.array([[
