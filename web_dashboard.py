@@ -1989,10 +1989,11 @@ HTML_CONTENT = """
                                 <th>학습 AUC</th>
                                 <th>데이터 수</th>
                                 <th>액션</th>
+                                <th>다운로드</th>
                             </tr>
                         </thead>
                         <tbody id="mlModelRegistryBody">
-                            <tr><td colspan="7" class="text-center">등록된 모델이 없습니다. 학습을 진행하거나 목록을 갱신하세요.</td></tr>
+                            <tr><td colspan="8" class="text-center">등록된 모델이 없습니다. 학습을 진행하거나 목록을 갱신하세요.</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -4070,6 +4071,10 @@ HTML_CONTENT = """
             ws.send(JSON.stringify({ type: 'deploy_model', timestamp: timestamp }));
         }
         
+        function downloadModel(timestamp) {
+            window.location.href = '/api/download_model?timestamp=' + timestamp;
+        }
+        
         let mlFeatureChartObj = null;
         function renderFeatureChart(importanceData) {
             if(document.getElementById('mlFeaturePlaceholder')) {
@@ -4146,6 +4151,7 @@ HTML_CONTENT = """
                     <td style="color: #ff9800; font-weight: bold;">${trainAuc}</td>
                     <td>${rows}</td>
                     <td><button class="btn-primary" style="padding: 4px 10px; font-size: 11px;" onclick="deployModel('${m.timestamp}')">Deploy</button></td>
+                    <td><button class="btn-primary" style="padding: 4px 10px; font-size: 11px; background: rgba(0,200,100,0.2); border-color: rgba(0,200,100,0.5);" onclick="downloadModel('${m.timestamp}')">⬇️ 다운로드</button></td>
                 `;
                 tbody.appendChild(tr);
             });
@@ -4431,11 +4437,14 @@ async def process_request(arg1, arg2):
         
         # Upgrade 헤더가 아예 없거나 값이 websocket이 아니라면 일반 HTTP 요청으로 간주
         if "websocket" not in upgrade_header:
+            parsed_url = urlparse(path)
+            req_path = parsed_url.path
+            
             status = 200
             headers = []
             body = b""
             
-            if path == "/":
+            if req_path == "/":
                 status = 200
                 headers = [
                     ("Content-Type", "text/html; charset=utf-8"),
@@ -4445,7 +4454,30 @@ async def process_request(arg1, arg2):
                     ("Expires", "0")
                 ]
                 body = HTML_CONTENT.encode("utf-8")
-            elif path == "/favicon.ico":
+            elif req_path == "/api/download_model":
+                query_params = parse_qs(parsed_url.query)
+                ts = query_params.get("timestamp", [""])[0]
+                model_file = os.path.join(os.path.dirname(__file__), "models", f"lgbm_model_{ts}.txt")
+                if ts and os.path.exists(model_file):
+                    try:
+                        with open(model_file, "rb") as f:
+                            data = f.read()
+                        status = 200
+                        headers = [
+                            ("Content-Type", "application/octet-stream"),
+                            ("Content-Disposition", f'attachment; filename="lgbm_model_{ts}.txt"'),
+                            ("Cache-Control", "no-cache")
+                        ]
+                        body = data
+                    except Exception:
+                        status = 500
+                        headers = [("Content-Type", "text/plain")]
+                        body = b"Internal Server Error"
+                else:
+                    status = 404
+                    headers = [("Content-Type", "text/plain")]
+                    body = b"Model not found"
+            elif req_path == "/favicon.ico":
                 ico_path = os.path.join(os.path.dirname(__file__), "stock_trader.ico")
                 if os.path.exists(ico_path):
                     try:
