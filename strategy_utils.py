@@ -623,13 +623,14 @@ def prepare_buy_strategy_locals(code, tick_chart_data, min_chart_data, portfolio
                         feature_market_kosdaq_roc
                     ]])
                 elif num_features == 16:
-                    # 새로운 16개 피처 (imbalance 포함, time_of_day_minute 제거)
+                    # 새로운 16개 피처 (buy_sell_ratio 삭제, kosdaq_roc 추가됨, time_of_day_minute 제거)
                     input_vector = np.array([[
                         feature_strength, feature_velocity, feature_relative, feature_ma_ratio,
                         feature_vwap_dist, feature_macd_hist, feature_rsi,
                         feature_price_roc, feature_vol_roc,
-                        feature_tick_ma_spread, feature_tic_tail_ratio, feature_tic_buy_sell_ratio, feature_tic_spread,
-                        feature_tic_disparity20, feature_tic_bb_position, feature_tic_imbalance
+                        feature_tick_ma_spread, feature_tic_tail_ratio, feature_tic_spread,
+                        feature_tic_disparity20, feature_tic_bb_position, feature_tic_imbalance,
+                        feature_market_kosdaq_roc
                     ]])
                 elif num_features == 14:
                     # 최신 14개 피처 (기존 15개에서 bb_position 제거됨)
@@ -986,13 +987,14 @@ def prepare_sell_strategy_locals(code, tick_chart_data, min_chart_data, buy_pric
                             feature_market_kosdaq_roc
                         ]])
                     elif num_features == 16:
-                        # 새로운 16개 피처 (imbalance 포함, time 제거)
+                        # 새로운 16개 피처 (buy_sell_ratio 삭제, kosdaq_roc 추가됨, time 제거)
                         input_vector = np.array([[
                             feature_strength, feature_velocity, feature_relative, feature_ma_ratio,
                             feature_vwap_dist, feature_macd_hist, feature_rsi,
                             feature_price_roc, feature_vol_roc,
-                            feature_tick_ma_spread, feature_tic_tail_ratio, feature_tic_buy_sell_ratio, feature_tic_spread,
-                            feature_tic_disparity20, feature_tic_bb_position, feature_tic_imbalance
+                            feature_tick_ma_spread, feature_tic_tail_ratio, feature_tic_spread,
+                            feature_tic_disparity20, feature_tic_bb_position, feature_tic_imbalance,
+                            feature_market_kosdaq_roc
                         ]])
                     elif num_features == 14:
                         # 최신 14개 피처 (기존 15개에서 bb_position 제거됨)
