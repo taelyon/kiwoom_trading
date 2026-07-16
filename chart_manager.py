@@ -1396,80 +1396,111 @@ class ChartDataCache:
             # 차트 캐시 업데이트 (메트릭 포함)
             chart_cache.cache[stock_code] = cached_data
 
-            # 실시간 데이터를 틱/분봉 데이터에 추가
-            is_new_candle = self.parent.login_handler.websocket_client._update_tick_chart_with_realtime(stock_code, cached_data, realtime_data)
-            self.parent.login_handler.websocket_client._update_minute_chart_with_realtime(stock_code, cached_data, realtime_data)
+            # ===================================================================
+            # [핵심 수정] 캔들 완성 사전 감지 → 완성된 봉 기준으로 평가/저장 후 새 봉 추가
+            # 기존: 새 봉 append → 지표계산 → DB저장(-2) → 매수평가(-1=미완성 새봉) ← 잘못됨
+            # 수정: 완성감지 → 지표계산(-1=완성봉) → DB저장(-1) → 매수평가(-1=완성봉) → 새 봉 append
+            # ===================================================================
+            
+            # 0단계: 현재 틱이 새 캔들을 만들 것인지 사전 감지
+            tick_data_pre = cached_data.get('tick_data', {})
+            will_create_new_candle = False
+            has_existing_candles = len(tick_data_pre.get('close', [])) > 0
+            if has_existing_candles:
+                last_tic_cnt_list = tick_data_pre.get('LAST_TIC_CNT', [])
+                if last_tic_cnt_list:
+                    try:
+                        if int(last_tic_cnt_list[-1]) >= 60:
+                            will_create_new_candle = True
+                    except (ValueError, TypeError):
+                        pass
 
-            # 실시간 기술적 지표 계산 (비동기, ThreadPoolExecutor 사용 - 단, 1초 스로틀링 적용 또는 새 봉 생성 시 강제 업데이트)
-            current_time = time.time()
-            if current_time - self.last_indicator_calc_time.get(stock_code, 0) >= 1.0 or is_new_candle:
-                self.last_indicator_calc_time[stock_code] = current_time
+            # 1단계: 캔들이 완성되었으면, 새 봉 추가 전에 지표 계산 + DB 저장 + 매수 평가 실행
+            if will_create_new_candle:
+                # 1-1) 완성된 봉 기준으로 기술적 지표 계산 (이 시점에서 -1 = 완성된 60틱봉)
+                self.last_indicator_calc_time[stock_code] = time.time()
                 loop = asyncio.get_running_loop()
-                tasks = []
-                if tick_data:
-                    tasks.append(loop.run_in_executor(None, chart_cache._calculate_technical_indicators, tick_data, "tick"))
-                if min_data:
-                    tasks.append(loop.run_in_executor(None, chart_cache._calculate_technical_indicators, min_data, "minute"))
-
-                if tasks:
-                    results = await asyncio.gather(*tasks, return_exceptions=True)
-                    
-                    # 결과 처리
-                    if tick_data and not isinstance(results[0], Exception):
+                calc_tasks = []
+                tick_data_calc = cached_data.get('tick_data', {})
+                min_data_calc = cached_data.get('min_data', {})
+                if tick_data_calc:
+                    calc_tasks.append(loop.run_in_executor(None, chart_cache._calculate_technical_indicators, tick_data_calc, "tick"))
+                if min_data_calc:
+                    calc_tasks.append(loop.run_in_executor(None, chart_cache._calculate_technical_indicators, min_data_calc, "minute"))
+                if calc_tasks:
+                    results = await asyncio.gather(*calc_tasks, return_exceptions=True)
+                    if tick_data_calc and not isinstance(results[0], Exception):
                         cached_data['tick_data'] = results[0]
-                    elif tick_data:
+                    elif tick_data_calc:
                         logging.error(f"틱 지표 계산 실패: {results[0]}")
-
-                    if min_data and len(results) > 1 and not isinstance(results[1], Exception):
+                    if min_data_calc and len(results) > 1 and not isinstance(results[1], Exception):
                         cached_data['min_data'] = results[1]
-                    elif min_data and len(results) > 1:
+                    elif min_data_calc and len(results) > 1:
                         logging.error(f"분봉 지표 계산 실패: {results[1]}")
-
                     chart_cache.cache[stock_code] = cached_data
 
-            # === [스냅샷 저장 로직 추가] ===
-            if is_new_candle:
+                # 1-2) DB 스냅샷 저장 (이 시점에서 -1 = 완성된 60틱봉)
                 try:
-                    tick_data = cached_data.get('tick_data', {})
-                    min_data = cached_data.get('min_data', {})
-                    
-                    if tick_data and min_data and len(tick_data.get('time', [])) >= 2 and len(min_data.get('time', [])) >= 1:
+                    tick_data_snap = cached_data.get('tick_data', {})
+                    min_data_snap = cached_data.get('min_data', {})
+                    if tick_data_snap and min_data_snap and len(tick_data_snap.get('time', [])) >= 1 and len(min_data_snap.get('time', [])) >= 1:
                         snapshot = {
                             'code': stock_code,
-                            'datetime': tick_data['time'][-2]  # 방금 완성된 60틱봉의 시작/생성시간
+                            'datetime': tick_data_snap['time'][-1]  # -1: 완성된 60틱봉 (새 봉 append 전)
                         }
-                        
-                        # 틱봉 지표 저장 (-2 인덱스: 완성된 봉)
-                        for k, v in tick_data.items():
-                            if isinstance(v, list) and len(v) >= 2:
+                        for k, v in tick_data_snap.items():
+                            if isinstance(v, list) and len(v) >= 1:
                                 if k == 'TICK_VELOCITY':
                                     col_name = 'tick_velocity'
                                 else:
                                     col_name = f"tick_{k.lower()}" if k.lower() != 'time' else 'datetime'
                                 if col_name != 'datetime':
-                                    snapshot[col_name] = v[-2]
-                        
-                        # 3분봉 지표 저장 (-1 인덱스: 현재 찰나의 미완성 봉)
-                        for k, v in min_data.items():
+                                    snapshot[col_name] = v[-1]  # -1: 완성된 봉
+                        for k, v in min_data_snap.items():
                             if isinstance(v, list) and len(v) >= 1:
                                 col_name = f"min3_{k.lower()}" if k.lower() != 'time' else None
                                 if col_name:
                                     snapshot[col_name] = v[-1]
-                        
-                        # 큐에 추가
                         if 'db_save_queue' not in cached_data:
                             cached_data['db_save_queue'] = []
                         cached_data['db_save_queue'].append(snapshot)
                 except Exception as snap_ex:
                     self.logger.error(f"스냅샷 생성 실패 ({stock_code}): {snap_ex}")
 
-            # 새 캔들이 완성되었을 경우 매수 신호 평가 이벤트를 비동기로 백그라운드 발생 (하이브리드 아키텍처)
-            if is_new_candle and hasattr(self.parent, 'autotrader') and self.parent.autotrader:
-                try:
-                    from utils import create_fire_and_forget_task
-                    create_fire_and_forget_task(self.parent.autotrader._analyze_and_execute_trading_async(stock_code, is_buy_check_allowed=True))
-                except Exception as eval_ex:
-                    self.logger.error(f"매수 평가 비동기 이벤트 발생 실패: {eval_ex}")
+                # 1-3) 매수 평가 실행 (이 시점에서 cache의 -1 = 완성된 60틱봉)
+                if hasattr(self.parent, 'autotrader') and self.parent.autotrader:
+                    try:
+                        await self.parent.autotrader._analyze_and_execute_trading_async(stock_code, is_buy_check_allowed=True)
+                    except Exception as eval_ex:
+                        self.logger.error(f"매수 평가 실행 실패: {eval_ex}")
+
+            # 2단계: 실시간 데이터를 틱/분봉 데이터에 추가 (여기서 새 캔들이 append됨)
+            is_new_candle = self.parent.login_handler.websocket_client._update_tick_chart_with_realtime(stock_code, cached_data, realtime_data)
+            self.parent.login_handler.websocket_client._update_minute_chart_with_realtime(stock_code, cached_data, realtime_data)
+
+            # 3단계: 캔들 미완성 구간의 일반 지표 계산 (1초 스로틀링)
+            if not will_create_new_candle:
+                current_time = time.time()
+                if current_time - self.last_indicator_calc_time.get(stock_code, 0) >= 1.0:
+                    self.last_indicator_calc_time[stock_code] = current_time
+                    loop = asyncio.get_running_loop()
+                    tasks = []
+                    if tick_data:
+                        tasks.append(loop.run_in_executor(None, chart_cache._calculate_technical_indicators, tick_data, "tick"))
+                    if min_data:
+                        tasks.append(loop.run_in_executor(None, chart_cache._calculate_technical_indicators, min_data, "minute"))
+
+                    if tasks:
+                        results = await asyncio.gather(*tasks, return_exceptions=True)
+                        if tick_data and not isinstance(results[0], Exception):
+                            cached_data['tick_data'] = results[0]
+                        elif tick_data:
+                            logging.error(f"틱 지표 계산 실패: {results[0]}")
+                        if min_data and len(results) > 1 and not isinstance(results[1], Exception):
+                            cached_data['min_data'] = results[1]
+                        elif min_data and len(results) > 1:
+                            logging.error(f"분봉 지표 계산 실패: {results[1]}")
+                        chart_cache.cache[stock_code] = cached_data
 
             # 데이터 업데이트 시그널 발생
             self.data_updated.emit(stock_code)
