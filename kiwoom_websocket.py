@@ -1012,7 +1012,8 @@ class KiwoomWebSocketClient:
             order_price = values.get('901', '0')  # 주문가격
             unfilled_qty = values.get('902', '0')  # 미체결수량
             exec_price = values.get('910', '0')  # 체결가
-            exec_qty = values.get('911', '0')  # 체결량
+            cum_exec_qty = values.get('911', '0')  # 누적체결량 (FID 911은 해당 주문의 총 누적 체결량임)
+            unit_exec_qty = values.get('915', '0')  # 단위체결량 (방금 직전 틱에서 실제 체결된 개별 수량)
             exec_no = values.get('909', '')  # 체결번호
             exec_time = values.get('908', '')  # 주문/체결시간
             reject_reason = values.get('919', '')  # 거부사유
@@ -1020,7 +1021,14 @@ class KiwoomWebSocketClient:
             # 데이터 변환
             order_qty_int = int(order_qty) if order_qty else 0
             unfilled_qty_int = int(unfilled_qty) if unfilled_qty else 0
-            exec_qty_int = int(exec_qty) if exec_qty else 0
+            
+            # DB 저장 및 계산에는 단위체결량(FID 915)을 사용
+            unit_exec_int = int(unit_exec_qty) if unit_exec_qty else 0
+            cum_exec_int = int(cum_exec_qty) if cum_exec_qty else 0
+            
+            # 단위체결량이 0보다 크면 사용하고, 아닐 경우 누적체결량으로 대체
+            exec_qty_int = unit_exec_int if unit_exec_int > 0 else cum_exec_int
+            
             exec_price_float = float(exec_price) if exec_price else 0.0
             
             # 로그 출력 (상태별)
