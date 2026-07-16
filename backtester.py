@@ -535,27 +535,66 @@ class Backtester:
                         
                         keep_indices = None
                         if 'period_id' in sd['precomputed']:
-                            p_ids = sd['precomputed']['period_id'][start_idx:idx+1]
+                            p_ids = sd['precomputed']['period_id'][start_idx:idx] # Future Leak 차단을 위해 idx까지만 자름 (이전 완성봉)
                             if len(p_ids) > 1:
                                 changes = p_ids[:-1] != p_ids[1:]
                                 keep_indices = np.append(changes, True)
-                            else:
+                            elif len(p_ids) == 1:
                                 keep_indices = np.array([True])
+                            else:
+                                keep_indices = np.array([])
                                 
                         for col_name, col_arr in sd['precomputed'].items():
-                            arr_slice = col_arr[start_idx:idx+1]
-                            if col_name.startswith('min3_') and keep_indices is not None:
+                            arr_slice = col_arr[start_idx:idx] # 이전 완성봉 데이터까지만 복사
+                            if col_name.startswith('min3_') and keep_indices is not None and len(keep_indices) > 0:
                                 arr_slice = arr_slice[keep_indices]
                             base_locals_dict[col_name] = arr_slice
                             if not col_name.startswith('tick_') and not col_name.startswith('min3_'):
                                 base_locals_dict[f'tick_{col_name}'] = arr_slice
                                 
-                        if 'AI_SCORE' in sd['precomputed']:
-                            base_locals_dict['AI_SCORE'] = float(sd['precomputed']['AI_SCORE'][idx])
+                        if 'AI_SCORE' in sd['precomputed'] and idx > 0:
+                            base_locals_dict['AI_SCORE'] = float(sd['precomputed']['AI_SCORE'][idx-1])
+                        else:
+                            base_locals_dict['AI_SCORE'] = 0.0
+                            
+                        if 'market_kosdaq_roc' in sd['precomputed'] and idx > 0:
+                            base_locals_dict['market_kosdaq_roc'] = float(sd['precomputed']['market_kosdaq_roc'][idx-1])
+                        else:
+                            base_locals_dict['market_kosdaq_roc'] = 0.0
+
+                        # --- 누락된 파생 지표 동기화 (strategy_utils.py 와 동일하게 구성) ---
+                        roc_array = base_locals_dict.get('ROC', [])
+                        base_locals_dict['ROC_recent'] = roc_array[-30:].tolist() if len(roc_array) > 0 else []
                         
-                        # market_kosdaq_roc도 스칼라로 변환 (배열이면 and 연산 시 에러 발생)
-                        if 'market_kosdaq_roc' in sd['precomputed']:
-                            base_locals_dict['market_kosdaq_roc'] = float(sd['precomputed']['market_kosdaq_roc'][idx])
+                        high_array = base_locals_dict.get('high', [])
+                        if len(high_array) > 1:
+                            recent_highs = high_array[-30:-1]
+                            if len(recent_highs) > 0:
+                                highest_recent = np.max(recent_highs)
+                                current_close = base_locals_dict.get('close', [0])[-1]
+                                base_locals_dict['is_pullback'] = bool(current_close < highest_recent)
+                            else:
+                                base_locals_dict['is_pullback'] = False
+                        else:
+                            base_locals_dict['is_pullback'] = False
+                            
+                        vol_array = base_locals_dict.get('volume', [])
+                        if len(vol_array) > 0:
+                            base_locals_dict['avg_volume'] = float(np.mean(vol_array))
+                            base_locals_dict['volume_ratio'] = float(vol_array[-1]) / base_locals_dict['avg_volume'] if base_locals_dict['avg_volume'] > 0 else 1.0
+                            base_locals_dict['tick_avg_volume_10'] = float(np.mean(vol_array[-10:]))
+                            base_locals_dict['tick_avg_volume_5'] = float(np.mean(vol_array[-5:]))
+                            ma_20_vol = np.mean(vol_array[-20:])
+                            base_locals_dict['tick_volume_ma_ratio'] = float(vol_array[-1]) / ma_20_vol if ma_20_vol > 0 else 0.0
+                        else:
+                            base_locals_dict['avg_volume'] = 0.0
+                            base_locals_dict['volume_ratio'] = 1.0
+                            base_locals_dict['tick_avg_volume_10'] = 0.0
+                            base_locals_dict['tick_avg_volume_5'] = 0.0
+                            base_locals_dict['tick_volume_ma_ratio'] = 0.0
+                            
+                        base_locals_dict['ORDER_BOOK_IMBALANCE'] = np.array([0.0])
+                        base_locals_dict['tick_order_book_imbalance'] = np.array([0.0])
                             
                         sell_signal = False
                         sell_ratio = 1.0
@@ -721,6 +760,40 @@ class Backtester:
                                 locals_dict['code'] = current_code
                                 locals_dict['datetime'] = row['datetime']
                                 locals_dict['current_price'] = current_price
+                                
+                                # --- 누락된 파생 지표 동기화 (strategy_utils.py 와 동일하게 구성) ---
+                                roc_array = locals_dict.get('ROC', [])
+                                locals_dict['ROC_recent'] = roc_array[-30:].tolist() if len(roc_array) > 0 else []
+                                
+                                high_array = locals_dict.get('high', [])
+                                if len(high_array) > 1:
+                                    recent_highs = high_array[-30:-1]
+                                    if len(recent_highs) > 0:
+                                        highest_recent = np.max(recent_highs)
+                                        current_close = locals_dict.get('close', [0])[-1]
+                                        locals_dict['is_pullback'] = bool(current_close < highest_recent)
+                                    else:
+                                        locals_dict['is_pullback'] = False
+                                else:
+                                    locals_dict['is_pullback'] = False
+                                    
+                                vol_array = locals_dict.get('volume', [])
+                                if len(vol_array) > 0:
+                                    locals_dict['avg_volume'] = float(np.mean(vol_array))
+                                    locals_dict['volume_ratio'] = float(vol_array[-1]) / locals_dict['avg_volume'] if locals_dict['avg_volume'] > 0 else 1.0
+                                    locals_dict['tick_avg_volume_10'] = float(np.mean(vol_array[-10:]))
+                                    locals_dict['tick_avg_volume_5'] = float(np.mean(vol_array[-5:]))
+                                    ma_20_vol = np.mean(vol_array[-20:])
+                                    locals_dict['tick_volume_ma_ratio'] = float(vol_array[-1]) / ma_20_vol if ma_20_vol > 0 else 0.0
+                                else:
+                                    locals_dict['avg_volume'] = 0.0
+                                    locals_dict['volume_ratio'] = 1.0
+                                    locals_dict['tick_avg_volume_10'] = 0.0
+                                    locals_dict['tick_avg_volume_5'] = 0.0
+                                    locals_dict['tick_volume_ma_ratio'] = 0.0
+                                    
+                                locals_dict['ORDER_BOOK_IMBALANCE'] = np.array([0.0])
+                                locals_dict['tick_order_book_imbalance'] = np.array([0.0])
                                 
                                 buy_signal = False
                                 matched_stg_name = ""

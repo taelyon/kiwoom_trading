@@ -348,13 +348,13 @@ class KiwoomIndicatorExtractor:
             additional['is_pullback'] = False
             
             # is_pullback: 최근 고점 대비 하락 여부 (buy_stg_눌림목)
-            if 'tick_high' in indicators:
-                high_array = indicators.get('tick_high')
+            if 'high' in indicators:
+                high_array = indicators.get('high')
                 if isinstance(high_array, np.ndarray) and len(high_array) > 1:
                     recent_highs = high_array[-30:-1] # 현재 봉 제외 최근 30개
                     if len(recent_highs) > 0:
                         highest_recent = np.max(recent_highs)
-                        current_close = indicators.get('tick_close', [0])[-1]
+                        current_close = indicators.get('close', [0])[-1]
                         # 현재 종가가 최근 고점보다 낮으면 눌림목으로 간주
                         additional['is_pullback'] = current_close < highest_recent
             
