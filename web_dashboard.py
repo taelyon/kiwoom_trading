@@ -5292,6 +5292,13 @@ async def websocket_handler(websocket):
                         # 매수/매도 세부 전략 JSON 저장
                         target_stg = new_settings.get('last_strategy')
                         if target_stg:
+                            # STRATEGIES 섹션에 등록 (strategy.py 가 로드할 수 있도록)
+                            stg_items = config.items('STRATEGIES') if config.has_section('STRATEGIES') else []
+                            if not any(v == target_stg for k, v in stg_items if k.startswith('stg_')):
+                                existing_indices = [int(k.replace('stg_', '')) for k, v in stg_items if k.startswith('stg_') and k.replace('stg_', '').isdigit()]
+                                new_idx = max(existing_indices) + 1 if existing_indices else 1
+                                config.set('STRATEGIES', f'stg_{new_idx}', target_stg)
+
                             actual_section = target_stg
                             
                             if not config.has_section(actual_section):
