@@ -404,6 +404,17 @@ class Backtester:
                             mat = np.column_stack((f_strength, f_velocity, f_relative, f_ma_ratio, f_vwap_dist, f_macd_hist, f_rsi))
                         elif num_features == 4:
                             mat = np.column_stack((f_strength, f_velocity, f_relative, f_ma_ratio))
+                        elif num_features == 5:
+                            f_imbalance = group_df['tick_imbalance'].fillna(0.5).values if 'tick_imbalance' in group_df.columns else np.full(n, 0.5)
+                            if 'close' in group_df.columns and 'volume' in group_df.columns:
+                                amount = group_df['close'] * group_df['volume']
+                                roll_amt = amount.rolling(10).mean().shift(1).fillna(1e-9).values
+                                roll_amt = np.where(roll_amt == 0, 1e-9, roll_amt)
+                                f_tic_amount_spike = (amount.values / roll_amt)
+                                f_tic_amount_spike = np.nan_to_num(f_tic_amount_spike, nan=0.0, posinf=0.0, neginf=0.0)
+                            else:
+                                f_tic_amount_spike = np.zeros(n)
+                            mat = np.column_stack((f_strength, f_velocity, f_imbalance, f_relative, f_tic_amount_spike))
                         else:
                             logger.warning(f"⚠️ 백테스터에 {num_features}개 피처에 대한 행렬 매핑 로직이 구현되지 않았습니다. 기본 0.0 값으로 평가됩니다.")
                             mat = np.zeros((n, num_features))

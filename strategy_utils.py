@@ -545,7 +545,17 @@ def prepare_buy_strategy_locals(code, tick_chart_data, min_chart_data, portfolio
                 else:
                     feature_vol_roc = 1.0
                 
-                # (삭제됨) feature_min3_trend_agree, feature_tic_amount_spike
+                # [복원] feature_spike (tic_amount_spike) 계산 로직
+                tick_close = locals_dict.get('tick_close', [])
+                tick_volume = locals_dict.get('tick_volume', [])
+                if len(tick_close) >= 11 and len(tick_volume) >= 11:
+                    recent_amt = tick_close[-1] * tick_volume[-1]
+                    prev_10_amt = [c * v for c, v in zip(tick_close[-11:-1], tick_volume[-11:-1])]
+                    avg_amt = sum(prev_10_amt) / 10.0
+                    feature_spike = recent_amt / avg_amt if avg_amt > 0 else 0.0
+                else:
+                    feature_spike = 0.0
+                
                 tick_ma5 = locals_dict.get('tick_MA5', [0])
                 tick_ma20 = locals_dict.get('tick_MA20', [0])
                 feature_tick_ma_spread = (tick_ma5[-1] - tick_ma20[-1]) / tick_ma20[-1] if (len(tick_ma5) > 0 and len(tick_ma20) > 0 and tick_ma20[-1] > 0) else 0.0
