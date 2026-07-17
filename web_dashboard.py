@@ -1981,15 +1981,15 @@ HTML_CONTENT = """
                 <div style="padding: 15px; max-height: 300px; overflow-y: auto;">
                     <table class="portfolio-table" style="width: 100%;">
                         <thead>
-                            <tr>
-                                <th>생성 일시 (버전)</th>
-                                <th>학습 기간</th>
-                                <th>주요 파라미터</th>
-                                <th>검증 AUC</th>
-                                <th>학습 AUC</th>
-                                <th>데이터 수</th>
-                                <th>액션</th>
-                                <th>다운로드</th>
+                            <tr style="text-align: center;">
+                                <th style="text-align: center;">생성 일시 (버전)</th>
+                                <th style="text-align: center;">학습 기간</th>
+                                <th style="text-align: center;">주요 파라미터</th>
+                                <th style="text-align: center;">검증 AUC</th>
+                                <th style="text-align: center;">학습 AUC</th>
+                                <th style="text-align: center;">데이터 수</th>
+                                <th style="text-align: center;">액션</th>
+                                <th style="text-align: center;">다운로드</th>
                             </tr>
                         </thead>
                         <tbody id="mlModelRegistryBody">
