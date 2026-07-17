@@ -402,6 +402,126 @@ class MLTrainingWorker(threading.Thread):
             if conn:
                 conn.close()
 
+class MLGridSearchWorker(threading.Thread):
+    def __init__(self, db_path='data/stock_data.db', model_output_path='lgbm_model.txt', on_progress=None, on_finished=None,
+                 start_date=None, end_date=None, save_history=True):
+        super().__init__()
+        self.db_path = db_path
+        self.model_output_path = model_output_path
+        self.start_date = start_date
+        self.end_date = end_date
+        self.logger = logging.getLogger(self.__class__.__name__)
+        
+        self.progress_signal = CallbackSignal()
+        self.finished_signal = CallbackSignal()
+        
+        if on_progress:
+            self.progress_signal.connect(on_progress)
+        if on_finished:
+            self.finished_signal.connect(on_finished)
+            
+        self.param_grid = [
+            {"max_depth": 3, "num_leaves": 8, "min_data_in_leaf": 300, "learning_rate": 0.02}, # 극단적 안정형
+            {"max_depth": 4, "num_leaves": 16, "min_data_in_leaf": 200, "learning_rate": 0.02}, # 안정형
+            {"max_depth": 5, "num_leaves": 24, "min_data_in_leaf": 150, "learning_rate": 0.02}, # 약한 균형형
+            {"max_depth": 5, "num_leaves": 32, "min_data_in_leaf": 100, "learning_rate": 0.02}, # 균형형 (사용자 제안)
+            {"max_depth": 5, "num_leaves": 32, "min_data_in_leaf": 100, "learning_rate": 0.05}, # 균형형 (빠른 학습)
+            {"max_depth": 6, "num_leaves": 32, "min_data_in_leaf": 50, "learning_rate": 0.01},  # 공격형 (정밀 학습)
+            {"max_depth": 6, "num_leaves": 32, "min_data_in_leaf": 50, "learning_rate": 0.02},  # 공격형 (기본값)
+            {"max_depth": 7, "num_leaves": 64, "min_data_in_leaf": 30, "learning_rate": 0.02},  # 초공격형
+        ]
+
+    def run(self):
+        self.progress_signal.emit(f"🚀 [Grid Search] 총 {len(self.param_grid)}개의 하이퍼파라미터 조합 최적화 학습을 시작합니다.")
+        
+        best_auc = 0.0
+        best_params = None
+        best_ts = None
+        
+        for i, params in enumerate(self.param_grid):
+            self.progress_signal.emit(f"⏳ [Grid Search] ({i+1}/{len(self.param_grid)}) 모델 학습 중... 파라미터: {params}")
+            
+            current_success = False
+            current_metrics = None
+            
+            def local_on_finished(success, msg, metrics):
+                nonlocal current_success, current_metrics
+                current_success = success
+                current_metrics = metrics
+            
+            worker = MLTrainingWorker(
+                db_path=self.db_path,
+                model_output_path=self.model_output_path,
+                on_progress=lambda msg: self.progress_signal.emit(f"   {msg}"),
+                on_finished=local_on_finished,
+                start_date=self.start_date,
+                end_date=self.end_date,
+                hyperparameters=params,
+                save_history=True
+            )
+            
+            worker.run()
+            
+            if current_success and current_metrics:
+                auc = current_metrics.get('auc', 0.0)
+                if auc > best_auc:
+                    best_auc = auc
+                    best_params = params
+                    try:
+                        models_dir = 'models'
+                        if os.path.exists(models_dir):
+                            files = [f for f in os.listdir(models_dir) if f.endswith('.json')]
+                            files.sort(key=lambda x: os.path.getmtime(os.path.join(models_dir, x)), reverse=True)
+                            if files:
+                                best_ts = files[0].replace('lgbm_model_', '').replace('.json', '')
+                    except Exception as e:
+                        self.logger.error(f"최근 생성 모델 찾기 실패: {e}")
+        
+        if not best_ts:
+            self.finished_signal.emit(False, "[Grid Search] 유효한 모델을 찾지 못했습니다.", None)
+            return
+
+        self.progress_signal.emit(f"🏁 [Grid Search 완료] 최고 성능 검증 AUC: {best_auc:.4f} (파라미터: {best_params})")
+        
+        current_deployed_auc = 0.0
+        try:
+            if os.path.exists('data/lgbm_model_params.json'):
+                import json
+                with open('data/lgbm_model_params.json', 'r', encoding='utf-8') as f:
+                    meta = json.load(f)
+                    current_deployed_auc = meta.get('metrics', {}).get('auc', 0.0)
+        except Exception:
+            pass
+            
+        self.progress_signal.emit(f"⚖️ [비교] 현재 배포 모델 AUC: {current_deployed_auc:.4f} vs 신규 최적 모델 AUC: {best_auc:.4f}")
+        
+        if best_auc > current_deployed_auc and best_auc > 0:
+            self.progress_signal.emit(f"🎉 신규 최적 모델 성능 향상 확인! 실시간 자동 배포를 진행합니다.")
+            try:
+                import shutil
+                src_model = f"models/lgbm_model_{best_ts}.txt"
+                if os.path.exists(src_model):
+                    shutil.copy2(src_model, 'lgbm_model.txt')
+                    src_json = f"models/lgbm_model_{best_ts}.json"
+                    if os.path.exists(src_json):
+                        shutil.copy2(src_json, 'lgbm_model.json')
+                        os.makedirs('data', exist_ok=True)
+                        shutil.copy2(src_json, 'data/lgbm_model_params.json')
+                    
+                    try:
+                        import strategy_utils
+                        strategy_utils.reload_model()
+                    except:
+                        pass
+                    
+                    self.finished_signal.emit(True, f"성공적으로 최적 모델 자동 배포 완료 (AUC: {best_auc:.4f})", None)
+                    return
+            except Exception as e:
+                self.logger.error(f"자동 배포 중 오류: {e}")
+                self.finished_signal.emit(False, f"자동 배포 실패: {e}", None)
+        else:
+            self.finished_signal.emit(True, f"기존 배포 모델의 성능이 더 우수하여 교체하지 않습니다.", None)
+
 if __name__ == "__main__":
     # 단독 실행 모드 (자동 학습 그리드 서치 및 조건부 배포)
     import json

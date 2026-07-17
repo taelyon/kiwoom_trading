@@ -24,7 +24,7 @@ from kiwoom_rest import KiwoomRestClient
 from kiwoom_websocket import KiwoomWebSocketClient
 from trader import KiwoomTrader
 from strategy import KiwoomStrategy
-from ml_trainer import MLTrainingWorker
+from ml_trainer import MLTrainingWorker, MLGridSearchWorker
 from utils import create_fire_and_forget_task
 
 
@@ -1732,9 +1732,9 @@ class MLManager:
         # 2. 장 마감 후 학습 (15:30)
         if current_time_str == '15:30':
             self.logger.info("⏰ 장 마감: AI 모델 정밀 학습(Deep Training)을 시작합니다.")
-            self.start_training()
+            self.start_training(use_grid_search=True)
             
-    def start_training(self):
+    def start_training(self, use_grid_search=False):
         """학습 스레드 시작"""
         try:
             if self.trainer_thread is not None and self.trainer_thread.is_alive():
@@ -1744,10 +1744,32 @@ class MLManager:
             self.logger.info("🚀 ML 학습 스레드 시작 요청...")
             
             # 콜백을 전달하여 워커 스레드 생성 (threading.Thread 기반)
-            self.trainer_thread = MLTrainingWorker(
-                on_progress=self._on_progress,
-                on_finished=self._on_finished
-            )
+            if use_grid_search:
+                self.trainer_thread = MLGridSearchWorker(
+                    on_progress=self._on_progress,
+                    on_finished=self._on_finished
+                )
+            else:
+                best_params = None
+                try:
+                    import os
+                    if os.path.exists('data/lgbm_model_params.json'):
+                        with open('data/lgbm_model_params.json', 'r', encoding='utf-8') as f:
+                            meta = json.load(f)
+                            best_params = meta.get('params')
+                except Exception as e:
+                    self.logger.error(f"최적 파라미터 로드 실패 (기본값 사용): {e}")
+                    
+                if best_params:
+                    self.logger.info(f"기존 배포된 최적 파라미터로 단일 학습을 진행합니다: {best_params}")
+                else:
+                    self.logger.info("배포된 파라미터가 없어 시스템 기본값으로 학습을 진행합니다.")
+
+                self.trainer_thread = MLTrainingWorker(
+                    on_progress=self._on_progress,
+                    on_finished=self._on_finished,
+                    hyperparameters=best_params
+                )
             
             # 시작
             self.trainer_thread.start()

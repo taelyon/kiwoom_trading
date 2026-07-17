@@ -2336,7 +2336,7 @@ HTML_CONTENT = """
                         if (p.min_data_in_leaf) document.getElementById('mlMinData').value = p.min_data_in_leaf;
                         initialParamsLoaded = true;
                     }
-                    renderModelHistory(data.data);
+                    renderModelHistory(data.data, data.deployed ? data.deployed.timestamp : null);
                 
                 } else if (data.type === 'deploy_model_result') {
                     const term = document.getElementById('mlTerminal');
