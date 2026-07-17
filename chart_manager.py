@@ -1439,14 +1439,23 @@ class ChartDataCache:
                         logging.error(f"분봉 지표 계산 실패: {results[1]}")
                     chart_cache.cache[stock_code] = cached_data
 
-                # 1-2) DB 스냅샷 저장 (이 시점에서 -1 = 완성된 60틱봉)
+                # 1-2) 매수 평가 실행 (이 시점에서 cache의 -1 = 완성된 60틱봉)
+                # 매수 평가 중 AI_SCORE 등이 계산되어 cached_data['latest_ai_score']에 업데이트됨
+                if hasattr(self.parent, 'autotrader') and self.parent.autotrader:
+                    try:
+                        await self.parent.autotrader._analyze_and_execute_trading_async(stock_code, is_buy_check_allowed=True)
+                    except Exception as eval_ex:
+                        self.logger.error(f"매수 평가 실행 실패: {eval_ex}")
+
+                # 1-3) DB 스냅샷 저장 (이 시점에서 -1 = 완성된 60틱봉)
                 try:
                     tick_data_snap = cached_data.get('tick_data', {})
                     min_data_snap = cached_data.get('min_data', {})
                     if tick_data_snap and min_data_snap and len(tick_data_snap.get('time', [])) >= 1 and len(min_data_snap.get('time', [])) >= 1:
                         snapshot = {
                             'code': stock_code,
-                            'datetime': tick_data_snap['time'][-1]  # -1: 완성된 60틱봉 (새 봉 append 전)
+                            'datetime': tick_data_snap['time'][-1],  # -1: 완성된 60틱봉 (새 봉 append 전)
+                            'ai_score': cached_data.get('latest_ai_score', 0.0) # 매수 평가 시 계산된 AI_SCORE 추가
                         }
                         for k, v in tick_data_snap.items():
                             if isinstance(v, list) and len(v) >= 1:
@@ -1466,13 +1475,6 @@ class ChartDataCache:
                         cached_data['db_save_queue'].append(snapshot)
                 except Exception as snap_ex:
                     self.logger.error(f"스냅샷 생성 실패 ({stock_code}): {snap_ex}")
-
-                # 1-3) 매수 평가 실행 (이 시점에서 cache의 -1 = 완성된 60틱봉)
-                if hasattr(self.parent, 'autotrader') and self.parent.autotrader:
-                    try:
-                        await self.parent.autotrader._analyze_and_execute_trading_async(stock_code, is_buy_check_allowed=True)
-                    except Exception as eval_ex:
-                        self.logger.error(f"매수 평가 실행 실패: {eval_ex}")
 
             # 2단계: 실시간 데이터를 틱/분봉 데이터에 추가 (여기서 새 캔들이 append됨)
             is_new_candle = self.parent.login_handler.websocket_client._update_tick_chart_with_realtime(stock_code, cached_data, realtime_data)

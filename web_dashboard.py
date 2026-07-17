@@ -2637,13 +2637,17 @@ HTML_CONTENT = """
             if (monitored.length === 0) {
                 monitorBadges.innerHTML = `<div class="no-data">감시 중인 종목이 없습니다.</div>`;
             } else {
-                monitorBadges.innerHTML = monitored.map(stock => `
-                    <div class="stock-badge" onclick="subscribeStockChart('${stock.code}', '${stock.name}')">
+                monitorBadges.innerHTML = monitored.map(stock => {
+                    const badgeAiScore = Number(stock.ai_score || 0).toFixed(3);
+                    return `
+                    <div class="stock-badge" onclick="subscribeStockChart('${stock.code}', '${stock.name}')" title="최근 AI SCORE: ${badgeAiScore}">
                         <span>●</span>
                         <strong>${stock.name} (${stock.code})</strong>
+                        <span style="margin-left: 6px; font-size: 0.85em; color: #FF1493; background: rgba(255,20,147,0.1); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(255,20,147,0.2);">AI: ${badgeAiScore}</span>
                         <span class="remove-btn" onclick="event.stopPropagation(); removeMonitoringStock('${stock.code}')">✕</span>
                     </div>
-                `).join('');
+                    `;
+                }).join('');
             }
         }
 
