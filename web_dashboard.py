@@ -2342,6 +2342,7 @@ HTML_CONTENT = """
                     const term = document.getElementById('mlTerminal');
                     if (term) {
                         if (data.success) {
+                            fetchModelHistory();
                             term.innerText += "\\n✅ [Deploy] 배포 성공: " + data.msg + "\\n";
                         } else {
                             term.innerText += "\\n❌ [Deploy] 배포 실패: " + data.msg + "\\n";
