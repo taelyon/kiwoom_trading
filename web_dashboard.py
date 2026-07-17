@@ -1395,7 +1395,12 @@ HTML_CONTENT = """
         #dbSummaryModal .bt-trade-table th {
             position: static;
         }
-    </style>
+    
+        #mlModelRegistryBody td {
+            text-align: center !important;
+            vertical-align: middle !important;
+        }
+</style>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js" crossorigin="anonymous"></script>
 </head>
@@ -4156,7 +4161,7 @@ HTML_CONTENT = """
                     <td style="color: #ff9800; font-weight: bold; vertical-align: middle; text-align: center;">${trainAuc}</td>
                     <td style="vertical-align: middle; text-align: center;">${rows}</td>
                     <td style="vertical-align: middle; text-align: center;">${m.timestamp === deployedTs 
-                        ? `<span style="display: inline-block; padding: 4px 10px; font-size: 12px; font-weight: bold; color: #00ff88;">✅ 적용됨</span>` 
+                        ? `<button disabled style="background: transparent; border: 1px solid transparent; padding: 4px 10px; font-size: 12px; font-weight: bold; color: #00ff88; cursor: default;">✅ 적용됨</button>` 
                         : `<button class="btn-primary" style="padding: 4px 10px; font-size: 11px;" onclick="deployModel('${m.timestamp}')">Deploy</button>`}</td>
                     <td style="vertical-align: middle; text-align: center;"><button class="btn-primary" style="padding: 4px 10px; font-size: 11px; background: rgba(0,200,100,0.2); border-color: rgba(0,200,100,0.5);" onclick="downloadModel('${m.timestamp}')">⬇️ 다운로드</button></td>
                 `;
