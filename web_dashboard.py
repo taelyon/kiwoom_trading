@@ -5022,6 +5022,23 @@ async def websocket_handler(websocket):
                         import shutil
                         ts = data.get('timestamp')
                         if ts:
+                            # 이미 적용 중인 모델인지 우선 확인
+                            current_deployed_ts = None
+                            try:
+                                if os.path.exists('data/lgbm_model_params.json'):
+                                    with open('data/lgbm_model_params.json', 'r', encoding='utf-8') as jf:
+                                        current_deployed_ts = json.load(jf).get('timestamp')
+                            except:
+                                pass
+                                
+                            if ts == current_deployed_ts and os.path.exists('lgbm_model.txt'):
+                                await safe_send(websocket, json.dumps({
+                                    "type": "deploy_model_result",
+                                    "success": True,
+                                    "msg": f"해당 모델({ts})은 이미 실시간 트레이딩에 적용되어 동작 중입니다."
+                                }))
+                                continue
+
                             src_model = f"models/lgbm_model_{ts}.txt"
                             if os.path.exists(src_model):
                                 shutil.copy2(src_model, 'lgbm_model.txt')
