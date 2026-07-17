@@ -4149,16 +4149,16 @@ HTML_CONTENT = """
                 const params = m.params ? `LR:${m.params.learning_rate}, MD:${m.params.max_depth}, NL:${m.params.num_leaves}, MDL:${m.params.min_data_in_leaf}` : '-';
                 
                 tr.innerHTML = `
-                    <td>${tsFormatted}</td>
-                    <td>${dateRange}</td>
-                    <td style="font-size: 11px;">${params}</td>
-                    <td style="color: #00f2fe; font-weight: bold;">${auc}</td>
-                    <td style="color: #ff9800; font-weight: bold;">${trainAuc}</td>
-                    <td>${rows}</td>
-                    <td>${m.timestamp === deployedTs 
-                        ? `<button disabled style="background: transparent; border: 1px solid transparent; padding: 4px 10px; font-size: 12px; font-weight: bold; color: #00ff88; cursor: default;">✅ 적용됨</button>` 
+                    <td style="vertical-align: middle;">${tsFormatted}</td>
+                    <td style="vertical-align: middle;">${dateRange}</td>
+                    <td style="font-size: 11px; vertical-align: middle;">${params}</td>
+                    <td style="color: #00f2fe; font-weight: bold; vertical-align: middle;">${auc}</td>
+                    <td style="color: #ff9800; font-weight: bold; vertical-align: middle;">${trainAuc}</td>
+                    <td style="vertical-align: middle;">${rows}</td>
+                    <td style="vertical-align: middle; text-align: center;">${m.timestamp === deployedTs 
+                        ? `<span style="display: inline-block; padding: 4px 10px; font-size: 12px; font-weight: bold; color: #00ff88;">✅ 적용됨</span>` 
                         : `<button class="btn-primary" style="padding: 4px 10px; font-size: 11px;" onclick="deployModel('${m.timestamp}')">Deploy</button>`}</td>
-                    <td><button class="btn-primary" style="padding: 4px 10px; font-size: 11px; background: rgba(0,200,100,0.2); border-color: rgba(0,200,100,0.5);" onclick="downloadModel('${m.timestamp}')">⬇️ 다운로드</button></td>
+                    <td style="vertical-align: middle; text-align: center;"><button class="btn-primary" style="padding: 4px 10px; font-size: 11px; background: rgba(0,200,100,0.2); border-color: rgba(0,200,100,0.5);" onclick="downloadModel('${m.timestamp}')">⬇️ 다운로드</button></td>
                 `;
                 tbody.appendChild(tr);
             });
