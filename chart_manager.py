@@ -876,7 +876,8 @@ class ChartDataCache:
             # 장 시작 시간(09:00) 이전에는 DB 저장 중지
             market_open_time = now.replace(hour=9, minute=0, second=0, microsecond=0)
             if now < market_open_time:
-                logging.debug(f"⏰ 장 시작 시간({market_open_time.strftime('%H:%M:%S')}) 이전이므로 DB 저장을 중지합니다.")
+                # 너무 빈번한 로그 출력 방지
+                # logging.debug(f"⏰ 장 시작 시간({market_open_time.strftime('%H:%M:%S')}) 이전이므로 DB 저장을 중지합니다.")
                 return
                 
             # 장 마감 시간(15:30) 이후 체크 로직 제거 - 자동 청산 완료 시 외부에서 stop() 호출로 제어됨

@@ -4648,7 +4648,7 @@ async def websocket_handler(websocket):
     global main_window_ref
     import time
     handler_start_time = time.time()
-    logging.debug(f"[WS PROFILE SERVER] 새 대시보드 웹 브라우저 연결 수락됨 (시각: {datetime.now().strftime('%H:%M:%S.%f')[:-3]})")
+    # logging.debug(f"[WS PROFILE SERVER] 새 대시보드 웹 브라우저 연결 수락됨 (시각: {datetime.now().strftime('%H:%M:%S.%f')[:-3]})")
     
     authenticated = False
     
@@ -4677,7 +4677,7 @@ async def websocket_handler(websocket):
                     
                     if is_match:
                         authenticated = True
-                        logging.debug(f"[WS PROFILE SERVER] 대시보드 로그인 성공! (연결 브라우저: {len(connected_clients) + 1}개, 비밀번호 검증 소요: {(auth_eval_time - auth_start_time)*1000:.1f}ms)")
+                        # logging.debug(f"[WS PROFILE SERVER] 대시보드 로그인 성공! (연결 브라우저: {len(connected_clients) + 1}개, 비밀번호 검증 소요: {(auth_eval_time - auth_start_time)*1000:.1f}ms)")
                         
                         send_start = time.time()
                         await safe_send(websocket, json.dumps({
@@ -4685,7 +4685,7 @@ async def websocket_handler(websocket):
                             "success": True
                         }))
                         send_end = time.time()
-                        logging.debug(f"[WS PROFILE SERVER] auth_result 송신 완료 (소요: {(send_end - send_start)*1000:.1f}ms)")
+                        # logging.debug(f"[WS PROFILE SERVER] auth_result 송신 완료 (소요: {(send_end - send_start)*1000:.1f}ms)")
                         
                         # 프론트엔드가 로그인 화면을 지우고 메인 대시보드 껍데기를 화면에 그릴(Paint) 수 있도록
                         # 0.5초의 숨통(이벤트 양보)을 열어줍니다. 이 짧은 시간 덕분에 체감 속도가 0.1초가 됩니다.
@@ -4697,7 +4697,7 @@ async def websocket_handler(websocket):
                         status_mid = time.time()
                         await safe_send(websocket, json.dumps(status_data))
                         status_end = time.time()
-                        logging.debug(f"[WS PROFILE SERVER] status 데이터 수집 소요: {(status_mid - status_start)*1000:.1f}ms, 송신 소요: {(status_end - status_mid)*1000:.1f}ms")
+                        # logging.debug(f"[WS PROFILE SERVER] status 데이터 수집 소요: {(status_mid - status_start)*1000:.1f}ms, 송신 소요: {(status_end - status_mid)*1000:.1f}ms")
                         
                         # 최근 로그 스트리밍 일괄 전송 (배치) - 최대 100개로 제한
                         log_batch_start = time.time()
@@ -5532,7 +5532,7 @@ async def websocket_handler(websocket):
             del subscribed_charts[websocket]
         client_locks.pop(websocket, None)
 
-        logging.debug(f"[WS PROFILE SERVER] 대시보드 웹 브라우저 연결 종료 [코드:{close_code}] (현재 연결 브라우저: {len(connected_clients)}개)")
+        # logging.debug(f"[WS PROFILE SERVER] 대시보드 웹 브라우저 연결 종료 [코드:{close_code}] (현재 연결 브라우저: {len(connected_clients)}개)")
 
 # 차트 데이터 업데이트 통보 처리 (TradingApp 단에서 이벤트를 쏠 때 호출됨)
 def on_chart_data_updated(code):
