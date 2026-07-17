@@ -4121,7 +4121,7 @@ HTML_CONTENT = """
             });
         }
         
-        function renderModelHistory(models) {
+        function renderModelHistory(models, deployedTs) {
             const tbody = document.getElementById('mlModelRegistryBody');
             tbody.innerHTML = '';
             if (!models || models.length === 0) {
@@ -4155,7 +4155,9 @@ HTML_CONTENT = """
                     <td style="color: #00f2fe; font-weight: bold;">${auc}</td>
                     <td style="color: #ff9800; font-weight: bold;">${trainAuc}</td>
                     <td>${rows}</td>
-                    <td><button class="btn-primary" style="padding: 4px 10px; font-size: 11px;" onclick="deployModel('${m.timestamp}')">Deploy</button></td>
+                    <td>${m.timestamp === deployedTs 
+                        ? `<span style="display: inline-block; padding: 4px 10px; font-size: 12px; font-weight: bold; color: #00ff88; width: 100%; text-align: center;">✅ 적용됨</span>` 
+                        : `<button class="btn-primary" style="padding: 4px 10px; font-size: 11px;" onclick="deployModel('${m.timestamp}')">Deploy</button>`}</td>
                     <td><button class="btn-primary" style="padding: 4px 10px; font-size: 11px; background: rgba(0,200,100,0.2); border-color: rgba(0,200,100,0.5);" onclick="downloadModel('${m.timestamp}')">⬇️ 다운로드</button></td>
                 `;
                 tbody.appendChild(tr);
