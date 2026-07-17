@@ -4156,7 +4156,7 @@ HTML_CONTENT = """
                     <td style="color: #ff9800; font-weight: bold;">${trainAuc}</td>
                     <td>${rows}</td>
                     <td>${m.timestamp === deployedTs 
-                        ? `<span style="display: inline-block; padding: 4px 10px; font-size: 12px; font-weight: bold; color: #00ff88;">✅ 적용됨</span>` 
+                        ? `<button disabled style="background: transparent; border: 1px solid transparent; padding: 4px 10px; font-size: 12px; font-weight: bold; color: #00ff88; cursor: default;">✅ 적용됨</button>` 
                         : `<button class="btn-primary" style="padding: 4px 10px; font-size: 11px;" onclick="deployModel('${m.timestamp}')">Deploy</button>`}</td>
                     <td><button class="btn-primary" style="padding: 4px 10px; font-size: 11px; background: rgba(0,200,100,0.2); border-color: rgba(0,200,100,0.5);" onclick="downloadModel('${m.timestamp}')">⬇️ 다운로드</button></td>
                 `;
