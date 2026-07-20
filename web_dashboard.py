@@ -4396,7 +4396,18 @@ def get_current_status_data():
                 name = "분석 대기"
                 if hasattr(app, 'data_manager') and app.data_manager:
                     name = app.data_manager.get_stock_name_by_code(code)
-                monitored_stocks.append({"code": code, "name": name})
+                
+                ai_score = 0.0
+                if hasattr(app, 'chart_cache'):
+                    cache_data = app.chart_cache.cache.get(code)
+                    if cache_data:
+                        ai_score = cache_data.get('latest_ai_score', 0.0)
+                        
+                monitored_stocks.append({
+                    "code": code, 
+                    "name": name,
+                    "ai_score": ai_score
+                })
         t6 = time.perf_counter()
 
         # 5. 자동매매 루프 활성 여부
