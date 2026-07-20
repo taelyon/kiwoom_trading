@@ -334,7 +334,7 @@ class KiwoomStrategy:
                                 # DataFrame 생성 시 모든 배열 길이가 동일해야 함. 가장 짧은 길이로 맞춤
                                 min_len = min(len(v) for k, v in tic_data.items() if isinstance(v, list))
                                 trimmed_tic_data = {k: v[:min_len] for k, v in tic_data.items() if isinstance(v, list)}
-                                tic_chart_data = pd.DataFrame(trimmed_tic_data).dropna().reset_index(drop=True)
+                                tic_chart_data = pd.DataFrame(trimmed_tic_data).fillna(0.0).reset_index(drop=True)
                             except Exception as ex:
                                 if is_first_check:
                                     self.logger.warning(f"차트 데이터 변환 실패 ({code}): {ex}", exc_info=True)
@@ -342,7 +342,7 @@ class KiwoomStrategy:
 
                         if min_data and len(min_data.get('close', [])) > 0:
                             try:
-                                min_chart_data = pd.DataFrame(min_data).dropna().reset_index(drop=True)
+                                min_chart_data = pd.DataFrame(min_data).fillna(0.0).reset_index(drop=True)
                             except Exception as ex:
                                 if is_first_check:
                                     self.logger.warning(f"분봉 차트 데이터 변환 실패 ({code}): {ex}", exc_info=True)
