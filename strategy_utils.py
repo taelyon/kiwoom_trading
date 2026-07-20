@@ -393,7 +393,7 @@ def prepare_buy_strategy_locals(code, tick_chart_data, min_chart_data, portfolio
                 locals_dict[f'min3_{key}'] = value
                 
         # 기본 OHLCV 등 원본 컬럼명 소문자로 그대로 주입 (tick_ 및 min3_ 접두사 추가)
-        base_columns = ['open', 'high', 'low', 'close', 'volume', 'strength']
+        base_columns = ['open', 'high', 'low', 'close', 'volume', 'strength', 'imbalance', 'buy_volume', 'sell_volume']
         if not tick_chart_data.empty:
             for col in tick_chart_data.columns:
                 if col in base_columns:
@@ -695,8 +695,6 @@ def prepare_buy_strategy_locals(code, tick_chart_data, min_chart_data, portfolio
                 
             except Exception as ai_ex:
                 logger.error(f"AI 추론 실패: {ai_ex}", exc_info=True)
-                with open("ai_inference_error.log", "w", encoding="utf-8") as f:
-                    f.write(f"AI 추론 실패: {ai_ex}\n")
                 locals_dict['AI_SCORE'] = 0.0
         else:
             locals_dict['AI_SCORE'] = 0.0
