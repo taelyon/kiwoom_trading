@@ -1391,7 +1391,7 @@ class ChartDataCache:
                         
                         # 캐시에서 자신을 직접 제거
                         self.remove_stock(stock_code)
-                        return
+                        continue
             
             # 차트 캐시 업데이트 (메트릭 포함)
             chart_cache.cache[stock_code] = cached_data
