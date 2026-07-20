@@ -201,12 +201,12 @@ class KiwoomStrategy:
                     if buy_signals:
                         portfolio = self.trader.get_portfolio_status()
                         if code in portfolio.get('holdings', {}):
-                            self.logger.debug(f"🚫 [{code}] 이미 보유 중이므로 매수 신호가 발생해도 추가 매수(물타기)를 차단합니다.")
+                            self.logger.info(f"🚫 [{code}] 이미 보유 중이므로 매수 신호가 발생해도 추가 매수(물타기)를 차단합니다.")
                         else:
-                            self.logger.debug(f"📈 [{code}] 매수 신호 {len(buy_signals)}개 발견")
+                            self.logger.info(f"📈 [{code}] 매수 신호 {len(buy_signals)}개 발견")
                             await self.execute_buy_signals(code, buy_signals)
-                    elif is_first_eval:
-                        self.logger.debug(f"ℹ️ [{code}] 매수 조건 미충족")
+                    else:
+                        self.logger.info(f"ℹ️ [{code}] 매수 조건 미충족")
             
             # 매도 신호 평가 (보유 종목인 경우에만)
             portfolio = self.trader.get_portfolio_status()
