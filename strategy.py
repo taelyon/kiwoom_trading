@@ -395,16 +395,7 @@ class KiwoomStrategy:
                     if buy_strategies and is_first_check:
                         self.logger.debug(f"✅ [{code}] strategy_config에서 매수 로직 {len(buy_strategies)}개 로드됨: {strategy_name_in_config}")
 
-                # 전략이 없으면 매수 평가를 진행하지 않음
-                if not buy_strategies:
-                    if is_first_check:
-                        self.logger.warning(f"⚠️ [{code}] 매수 로직 없음 - 매수 평가를 진행하지 않습니다.")
-                    return signals
-                
-                if is_first_check:
-                    self.logger.debug(f"✅ [{code}] 최종 매수 로직 {len(buy_strategies)}개 준비 완료")
-                
-                # strategy_utils를 사용하여 매수 로직 평가
+                # strategy_utils를 사용하여 매수 로직 평가용 변수 생성 (대시보드 표시를 위해 매수 전략 유무와 무관하게 실행)
                 safe_locals = strategy_utils.prepare_buy_strategy_locals(
                     code, tic_chart_data, min_chart_data, portfolio, realtime_metrics=realtime_metrics
                 )
@@ -414,6 +405,16 @@ class KiwoomStrategy:
                     cache_data = self.parent.chart_cache.cache.get(code)
                     if cache_data and 'AI_SCORE' in safe_locals:
                         cache_data['latest_ai_score'] = safe_locals['AI_SCORE']
+
+                # 전략이 없으면 매수 평가를 진행하지 않음
+                if not buy_strategies:
+                    if is_first_check:
+                        self.logger.warning(f"⚠️ [{code}] 매수 로직 없음 - 매수 평가를 진행하지 않습니다.")
+                    return signals
+                
+                if is_first_check:
+                    self.logger.debug(f"✅ [{code}] 최종 매수 로직 {len(buy_strategies)}개 준비 완료")
+
                 condition_met, matched_strategy = strategy_utils.evaluate_strategies(
                     buy_strategies, safe_locals, code, "매수"
                 )
