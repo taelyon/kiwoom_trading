@@ -199,8 +199,12 @@ class KiwoomStrategy:
                 else:
                     buy_signals = await self.get_buy_signals(code, market_data, effective_strategy_name)
                     if buy_signals:
-                        self.logger.debug(f"📈 [{code}] 매수 신호 {len(buy_signals)}개 발견")
-                        await self.execute_buy_signals(code, buy_signals)
+                        portfolio = self.trader.get_portfolio_status()
+                        if code in portfolio.get('holdings', {}):
+                            self.logger.debug(f"🚫 [{code}] 이미 보유 중이므로 매수 신호가 발생해도 추가 매수(물타기)를 차단합니다.")
+                        else:
+                            self.logger.debug(f"📈 [{code}] 매수 신호 {len(buy_signals)}개 발견")
+                            await self.execute_buy_signals(code, buy_signals)
                     elif is_first_eval:
                         self.logger.debug(f"ℹ️ [{code}] 매수 조건 미충족")
             
@@ -305,12 +309,12 @@ class KiwoomStrategy:
                         self.logger.debug(f"⏳ [{code}] 매수 주문이 이미 진행 중이므로 신호 생성을 건너뜁니다.")
                     return signals
                     
-                # [추가] 이미 보유 중인 종목이면 추가 매수(물타기) 차단 및 평가 건너뛰기
-                portfolio = self.trader.get_portfolio_status()
-                if code in portfolio.get('holdings', {}):
-                    if is_first_check:
-                        self.logger.debug(f"🚫 [{code}] 이미 보유 중인 종목이므로 신규 매수 평가를 건너뜁니다.")
-                    return signals
+                # [수정] 보유 종목이라도 대시보드 표시를 위해 매수 신호(AI_SCORE) 평가는 진행하되, 실제 주문만 아래에서 차단함
+                # portfolio = self.trader.get_portfolio_status()
+                # if code in portfolio.get('holdings', {}):
+                #     if is_first_check:
+                #         self.logger.debug(f"🚫 [{code}] 이미 보유 중인 종목이므로 신규 매수 평가를 건너뜁니다.")
+                #     return signals
                 
                 # 차트 데이터 가져오기 (틱/분봉) - chart_cache에서 직접 가져오기
                 tic_chart_data = pd.DataFrame()
