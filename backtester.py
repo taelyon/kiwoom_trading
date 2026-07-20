@@ -205,6 +205,9 @@ class Backtester:
                 # 데이터베이스(stock_data)에 저장된 데이터 자체가 곧 감시 대상이었음을 의미하므로 
                 # 모든 로우에 대해 IS_MONITORED = True 로 일괄 적용합니다.
                 group_df['IS_MONITORED'] = True
+                
+                # 실전 매매(kiwoom_websocket.py)와 동일하게 감시 시작 시점부터 누적되는 틱 카운트 부여
+                group_df['LAST_TIC_CNT'] = np.arange(1, len(group_df) + 1)
                         
                 # 2. DB 지표를 엔진 변수명으로 매핑 (재계산 방지)
                 try:
