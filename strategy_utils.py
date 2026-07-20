@@ -691,8 +691,6 @@ def prepare_buy_strategy_locals(code, tick_chart_data, min_chart_data, portfolio
                 # 추론 실행
                 ai_score = LGBM_MODEL.predict(input_vector)[0]
                 locals_dict['AI_SCORE'] = float(ai_score)
-                # 실시간 자동매매 로그에서 AI_SCORE를 확인할 수 있도록 INFO 레벨로 출력
-                logger.info(f"🤖 [{code}] AI_SCORE 산출 완료: {float(ai_score):.4f}")
                 
             except Exception as ai_ex:
                 logger.error(f"❌ [{code}] AI 추론 실패: {ai_ex}", exc_info=True)
