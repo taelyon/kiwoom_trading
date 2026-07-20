@@ -5025,14 +5025,15 @@ async def websocket_handler(websocket):
                             except:
                                 pass
                                 
-                        # 최신순 정렬
-                        models.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
-                        
                         # 앱 새로 시작(또는 폴더 정리) 시 히스토리에 현재 배포된 모델이 안 보일 경우 강제로 추가
                         if deployed_meta:
                             deployed_ts = deployed_meta.get('timestamp')
                             if not any(m.get('timestamp') == deployed_ts for m in models):
-                                models.insert(0, deployed_meta)
+                                models.append(deployed_meta)
+                                
+                        # 최신순 정렬 (추가 완료 후 최종 정렬)
+                        models.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
+                        
                         await safe_send(websocket, json.dumps({
                             "type": "model_history",
                             "data": models,
