@@ -1248,6 +1248,15 @@ class TradingManager:
                     success = await trader.client.place_buy_order(code, quantity, 0, "market")
                     if success:
                         self.logger.debug(f"✅ 매수 주문 성공: {code} {quantity}주 매수")
+                        
+                        # [추가] 수동 매수 시에도 AI 즉각 매도 방지 쿨타임(10초 이상) 적용
+                        if hasattr(trader, 'buy_times'):
+                            import datetime as dt
+                            trader.buy_times[code] = dt.datetime.now()
+                        if hasattr(self.parent, 'objstg') and hasattr(self.parent.objstg, 'last_buy_times'):
+                            import time
+                            self.parent.objstg.last_buy_times[code] = time.time()
+                            
                         return True
                     else:
                         self.logger.error(f"❌ 매수 주문 실패: {code}")
@@ -1360,6 +1369,13 @@ class AccountManager:
     async def handle_acnt_balance_query_async(self):
         """계좌 잔고조회 (비동기 버전) - 초기화 단계에서 사용"""
         try:
+            import time
+            current_time = time.time()
+            if hasattr(self, '_last_acnt_query_time') and current_time - self._last_acnt_query_time < 15:
+                self.logger.debug("⏳ 계좌 잔고 조회 쿨타임(15초) 적용 - 조회를 건너뜁니다.")
+                return
+            self._last_acnt_query_time = current_time
+
             self.logger.debug("🔧 계좌 잔고 조회 시작 (비동기)")
             if not hasattr(self.parent, 'trader') or not self.parent.trader:
                 self.logger.warning("⚠️ 트레이더가 초기화되지 않았습니다")

@@ -370,6 +370,25 @@ class KiwoomTrader:
                     
                     self.sold_blacklist[code] = datetime.now()
                     self.logger.debug(f"🚫 [{code}] 최근 전량 매도 목록에 추가 (10초간 UI 재출현 방지)")
+                    
+                    # [추가] 즉시 블랙리스트/쿨타임 적용 (조건검색 징글벨 스팸 방지)
+                    if hasattr(self, 'add_to_blacklist') and hasattr(self, 'add_to_cooldown'):
+                        profit_rate = -1.0 # 기본값: 시장가 등으로 계산 불가 시 손절(블랙리스트) 처리
+                        
+                        # 1. 캐시/현재가와 매입단가를 비교하여 수익률 계산 시도
+                        avg_buy_price = self.buy_prices.get(code, 0)
+                        if avg_buy_price > 0 and price > 0:
+                            profit_rate = (price - avg_buy_price) / avg_buy_price * 100
+                        else:
+                            # 2. 웹소켓 잔고 데이터에서 실시간 손익률 가져오기 시도
+                            balance_data = self.get_balance_data()
+                            if code in balance_data.get('holdings', {}):
+                                profit_rate = balance_data['holdings'][code].get('profit_loss_rate', -1.0)
+                        
+                        if profit_rate < 0.0:
+                            self.add_to_blacklist(code, reason=f"주문 시점 전량 매도 (예상수익률: {profit_rate:.2f}%)")
+                        else:
+                            self.add_to_cooldown(code, duration_minutes=30)
                 else:
                     if code in self.holdings:
                         new_quantity = remaining_qty - quantity
@@ -898,6 +917,10 @@ class AutoTrader:
                 'change_rate': 0,
                 'previous_close': previous_close
             }
+            
+            # [최적화] 보유 종목인 경우, 불필요한 매수 평가(및 AI 중복 추론)를 원천 차단하여 CPU 자원 절약
+            if code in self.trader.holdings:
+                is_buy_check_allowed = False
             
             await self.parent.objstg.evaluate_strategy(code, market_data, is_buy_check_allowed=is_buy_check_allowed)
             return True
