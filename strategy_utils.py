@@ -691,12 +691,17 @@ def prepare_buy_strategy_locals(code, tick_chart_data, min_chart_data, portfolio
                 # 추론 실행
                 ai_score = LGBM_MODEL.predict(input_vector)[0]
                 locals_dict['AI_SCORE'] = float(ai_score)
-                # logger.debug(f"🤖 AI 추론: {code} Score={ai_score:.4f}")
+                # 실시간 자동매매 로그에서 AI_SCORE를 확인할 수 있도록 INFO 레벨로 출력
+                logger.info(f"🤖 [{code}] AI_SCORE 산출 완료: {float(ai_score):.4f}")
                 
             except Exception as ai_ex:
-                logger.error(f"AI 추론 실패: {ai_ex}", exc_info=True)
+                logger.error(f"❌ [{code}] AI 추론 실패: {ai_ex}", exc_info=True)
                 locals_dict['AI_SCORE'] = 0.0
         else:
+            if LGBM_MODEL is None:
+                logger.error(f"❌ [{code}] AI 모델이 로드되지 않아 AI_SCORE를 0으로 처리합니다.")
+            else:
+                logger.error(f"❌ [{code}] 차트 데이터(TICK_VELOCITY 등)가 부족하여 AI_SCORE를 0으로 처리합니다.")
             locals_dict['AI_SCORE'] = 0.0
 
         return locals_dict
