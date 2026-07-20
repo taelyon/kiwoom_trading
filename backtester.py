@@ -225,56 +225,58 @@ class Backtester:
                 except Exception as e:
                     logger.error(f"지표 매핑 오류 ({current_code}): {e}")
                     
-                # 2.5 누락된 파생 지표(VWAP 등) 백필 계산
-                if 'VWAP' not in group_df.columns:
-                    try:
-                        typ = (group_df['high'] + group_df['low'] + group_df['close']) / 3
-                        vol = group_df['volume']
-                        VWAP_WINDOW = 60
-                        rolling_pv = pd.Series(typ * vol).rolling(VWAP_WINDOW, min_periods=1).sum().values
-                        rolling_v = pd.Series(vol).rolling(VWAP_WINDOW, min_periods=1).sum().values
-                        group_df['VWAP'] = np.where(rolling_v > 0, rolling_pv / rolling_v, group_df['close'])
-                    except Exception as e:
-                        logger.error(f"VWAP 계산 오류 ({current_code}): {e}")
-                        group_df['VWAP'] = group_df['close']
-                
                 n = len(group_df)
                 group_df['AI_SCORE'] = 0.0
                 
                 # 3. AI_SCORE 배치 계산
                 if uses_ai and LGBM_MODEL:
                     try:
+                        # 3.0 누락된 파생 지표(VWAP 등) 백필 계산 (DB의 tick_close, tick_volume 사용)
+                        if 'tick_VWAP' not in group_df.columns:
+                            try:
+                                if 'tick_high' in group_df.columns and 'tick_low' in group_df.columns:
+                                    typ = (group_df['tick_high'] + group_df['tick_low'] + group_df['tick_close']) / 3
+                                else:
+                                    typ = group_df['tick_close']
+                                vol = group_df['tick_volume'] if 'tick_volume' in group_df.columns else np.ones(n)
+                                VWAP_WINDOW = 60
+                                rolling_pv = pd.Series(typ * vol).rolling(VWAP_WINDOW, min_periods=1).sum().values
+                                rolling_v = pd.Series(vol).rolling(VWAP_WINDOW, min_periods=1).sum().values
+                                group_df['tick_VWAP'] = np.where(rolling_v > 0, rolling_pv / rolling_v, group_df['tick_close'])
+                            except Exception as e:
+                                logger.error(f"VWAP 계산 오류 ({current_code}): {e}")
+                                group_df['tick_VWAP'] = group_df['tick_close']
+
                         f_strength = group_df['tick_strength'].values if 'tick_strength' in group_df.columns else np.zeros(n)
-                        f_velocity = group_df['TICK_VELOCITY'].values if 'TICK_VELOCITY' in group_df.columns else np.full(n, 999999.0)
-                        f_relative = group_df['RELATIVE_POSITION'].values if 'RELATIVE_POSITION' in group_df.columns else np.zeros(n)
+                        f_velocity = group_df['tick_velocity'].values if 'tick_velocity' in group_df.columns else np.full(n, 999999.0)
+                        f_relative = group_df['min3_relative_position'].values if 'min3_relative_position' in group_df.columns else np.zeros(n)
                         
-                        vol = group_df['volume'].values if 'volume' in group_df.columns else np.ones(n)
+                        vol = group_df['tick_volume'].values if 'tick_volume' in group_df.columns else np.ones(n)
                         f_ma_ratio = np.zeros(n)
                         if n > 0:
                             roll_avg = pd.Series(vol).rolling(window=20, min_periods=1).mean().values
                             roll_avg = np.where(roll_avg == 0, 1, roll_avg)
                             f_ma_ratio = vol / roll_avg
-                        
 
-                        close_vals = group_df['close'].values
-                        vwap_vals = group_df['VWAP'].values if 'VWAP' in group_df.columns else close_vals.copy()
+                        close_vals = group_df['tick_close'].values if 'tick_close' in group_df.columns else np.zeros(n)
+                        vwap_vals = group_df['tick_VWAP'].values if 'tick_VWAP' in group_df.columns else close_vals.copy()
                         vwap_safe = np.where(vwap_vals == 0, 1e-9, vwap_vals)
                         f_vwap_dist = (close_vals - vwap_vals) / vwap_safe
                         
-                        f_macd_hist = group_df['MACD_HIST'].values if 'MACD_HIST' in group_df.columns else np.zeros(n)
-                        f_rsi = group_df['RSI21'].values if 'RSI21' in group_df.columns else np.full(n, 50.0)
+                        f_macd_hist = group_df['tick_macd_hist'].values if 'tick_macd_hist' in group_df.columns else np.zeros(n)
+                        f_rsi = group_df['tick_rsi21'].values if 'tick_rsi21' in group_df.columns else np.full(n, 50.0)
                         
                         dt_series = pd.to_datetime(group_df['datetime'], errors='coerce')
                         f_time = np.clip((dt_series.dt.hour * 60 + dt_series.dt.minute).values - 540, 0, 390)
                         
                         # [신규 추가] 파생 가속도 지표 (price_roc, vol_roc) 동기화
-                        if 'close' in group_df.columns:
-                            f_price_roc = group_df['close'].pct_change(periods=10).fillna(0.0).values
+                        if 'tick_close' in group_df.columns:
+                            f_price_roc = group_df['tick_close'].pct_change(periods=10).fillna(0.0).values
                         else:
                             f_price_roc = np.zeros(n)
                             
-                        if 'volume' in group_df.columns:
-                            vol_sum_5 = group_df['volume'].rolling(5).sum()
+                        if 'tick_volume' in group_df.columns:
+                            vol_sum_5 = group_df['tick_volume'].rolling(5).sum()
                             prev_vol_sum_5 = vol_sum_5.shift(5)
                             f_vol_roc = np.where(prev_vol_sum_5 > 0, vol_sum_5 / prev_vol_sum_5, 1.0)
                             f_vol_roc = pd.Series(f_vol_roc).fillna(1.0).values
@@ -284,19 +286,19 @@ class Backtester:
                         num_features = LGBM_MODEL.num_feature()
                         
                         if num_features >= 14:
-                            if 'MIN3_MA5' in group_df.columns and 'MIN3_MA20' in group_df.columns:
-                                f_min3_trend_agree = ((group_df['MIN3_MA5'] > group_df['MIN3_MA20']) & (group_df['MIN3_MA20'] > 0)).astype(int).values
+                            if 'min3_ma5' in group_df.columns and 'min3_ma20' in group_df.columns:
+                                f_min3_trend_agree = ((group_df['min3_ma5'] > group_df['min3_ma20']) & (group_df['min3_ma20'] > 0)).astype(int).values
                             else:
                                 f_min3_trend_agree = np.zeros(n)
                                 
-                            if 'MA5' in group_df.columns and 'MA20' in group_df.columns:
-                                ma20_safe = np.where(group_df['MA20'] == 0, 1e-9, group_df['MA20'])
-                                f_tick_ma_spread = ((group_df['MA5'] - group_df['MA20']) / ma20_safe).fillna(0.0).values
+                            if 'tick_close' in group_df.columns and 'tick_ma60' in group_df.columns:
+                                ma60_safe = np.where(group_df['tick_ma60'] == 0, 1e-9, group_df['tick_ma60'])
+                                f_tick_ma_spread = ((group_df['tick_close'] - group_df['tick_ma60']) / ma60_safe).fillna(0.0).values
                             else:
                                 f_tick_ma_spread = np.zeros(n)
                                 
-                            if 'close' in group_df.columns and 'volume' in group_df.columns:
-                                amount = group_df['close'] * group_df['volume']
+                            if 'tick_close' in group_df.columns and 'tick_volume' in group_df.columns:
+                                amount = group_df['tick_close'] * group_df['tick_volume']
                                 roll_amt = amount.rolling(10).mean().shift(1).fillna(1e-9).values
                                 roll_amt = np.where(roll_amt == 0, 1e-9, roll_amt)
                                 f_tic_amount_spike = (amount.values / roll_amt)
@@ -304,41 +306,42 @@ class Backtester:
                             else:
                                 f_tic_amount_spike = np.zeros(n)
                                 
-                            if 'high' in group_df.columns and 'low' in group_df.columns and 'close' in group_df.columns:
-                                hl_diff = group_df['high'] - group_df['low']
-                                hl_safe = np.where(hl_diff == 0, 1e-9, hl_diff)
-                                f_tic_tail_ratio = ((group_df['high'] - group_df['close']) / hl_safe).fillna(0.0).values
+                            if 'tick_high' in group_df.columns and 'tick_low' in group_df.columns and 'tick_close' in group_df.columns and 'tick_open' in group_df.columns:
+                                body_top = np.maximum(group_df['tick_open'], group_df['tick_close'])
+                                hl_diff = group_df['tick_high'] - group_df['tick_low']
+                                hl_safe = np.where(hl_diff <= 0, 1e-9, hl_diff)
+                                f_tic_tail_ratio = np.where(hl_diff > 0, ((group_df['tick_high'] - body_top) / hl_safe), 0.0)
+                                f_tic_tail_ratio = pd.Series(f_tic_tail_ratio).fillna(0.0).values
                             else:
                                 f_tic_tail_ratio = np.zeros(n)
                                 
-                        if num_features >= 17:
-                            # 17차원 최신 피처 매핑
-                            f_buy_sell_ratio = np.where(vol > 0, group_df['buy_volume'].values / vol, 0.5) if 'buy_volume' in group_df.columns else np.full(n, 0.5)
+                        if num_features >= 16:
+                            f_buy_sell_ratio = np.where(vol > 0, group_df['tick_buy_volume'].values / vol, 0.5) if 'tick_buy_volume' in group_df.columns else np.full(n, 0.5)
                             
-                            if 'high' in group_df.columns and 'low' in group_df.columns and 'close' in group_df.columns:
-                                close_safe = np.where(group_df['close'] == 0, 1e-9, group_df['close'])
-                                f_spread = ((group_df['high'] - group_df['low']) / close_safe).fillna(0.0).values
+                            if 'tick_high' in group_df.columns and 'tick_low' in group_df.columns and 'tick_close' in group_df.columns:
+                                close_safe = np.where(group_df['tick_close'] == 0, 1e-9, group_df['tick_close'])
+                                f_spread = ((group_df['tick_high'] - group_df['tick_low']) / close_safe).fillna(0.0).values
                             else:
                                 f_spread = np.zeros(n)
                                 
-                            if 'close' in group_df.columns and 'MA20' in group_df.columns:
-                                ma20_safe = np.where(group_df['MA20'] == 0, 1e-9, group_df['MA20'])
-                                f_disparity = ((group_df['close'] / ma20_safe) * 100).fillna(100.0).values
+                            if 'tick_close' in group_df.columns and 'tick_ma20' in group_df.columns:
+                                ma20_safe = np.where(group_df['tick_ma20'] == 0, 1e-9, group_df['tick_ma20'])
+                                f_disparity = ((group_df['tick_close'] / ma20_safe) * 100).fillna(100.0).values
                                 
-                                std20 = group_df['close'].rolling(20, min_periods=1).std(ddof=1).fillna(0).values
-                                bb_upper = group_df['MA20'].values + (2 * std20)
-                                bb_lower = group_df['MA20'].values - (2 * std20)
+                                std20 = group_df['tick_close'].rolling(20, min_periods=1).std(ddof=1).fillna(0).values
+                                bb_upper = group_df['tick_ma20'].values + (2 * std20)
+                                bb_lower = group_df['tick_ma20'].values - (2 * std20)
                                 bb_diff = bb_upper - bb_lower
                                 bb_diff_safe = np.where(bb_diff <= 0, 1e-9, bb_diff)
-                                f_bb_pos = np.where(bb_diff > 0, (group_df['close'].values - bb_lower) / bb_diff_safe, 0.5)
+                                f_bb_pos = np.where(bb_diff > 0, (group_df['tick_close'].values - bb_lower) / bb_diff_safe, 0.5)
                             else:
                                 f_disparity = np.full(n, 100.0)
                                 f_bb_pos = np.full(n, 0.5)
 
                             f_imbalance = group_df['tick_imbalance'].fillna(0.5).values if 'tick_imbalance' in group_df.columns else np.full(n, 0.5)
-                                
                             f_market_kosdaq_roc = group_df['market_kosdaq_roc'].fillna(0.0).values if 'market_kosdaq_roc' in group_df.columns else np.zeros(n)
                             
+                        if num_features == 17:
                             mat = np.column_stack((
                                 f_strength, f_velocity, f_relative, f_ma_ratio,
                                 f_vwap_dist, f_macd_hist, f_rsi,
@@ -348,29 +351,6 @@ class Backtester:
                             ))
                         elif num_features == 16:
                             # 16차원 피처 매핑 (buy_sell_ratio 삭제, kosdaq_roc 추가됨)
-                            if 'high' in group_df.columns and 'low' in group_df.columns and 'close' in group_df.columns:
-                                close_safe = np.where(group_df['close'] == 0, 1e-9, group_df['close'])
-                                f_spread = ((group_df['high'] - group_df['low']) / close_safe).fillna(0.0).values
-                            else:
-                                f_spread = np.zeros(n)
-                                
-                            if 'close' in group_df.columns and 'MA20' in group_df.columns:
-                                ma20_safe = np.where(group_df['MA20'] == 0, 1e-9, group_df['MA20'])
-                                f_disparity = ((group_df['close'] / ma20_safe) * 100).fillna(100.0).values
-                                
-                                std20 = group_df['close'].rolling(20, min_periods=1).std(ddof=1).fillna(0).values
-                                bb_upper = group_df['MA20'].values + (2 * std20)
-                                bb_lower = group_df['MA20'].values - (2 * std20)
-                                bb_diff = bb_upper - bb_lower
-                                bb_diff_safe = np.where(bb_diff <= 0, 1e-9, bb_diff)
-                                f_bb_pos = np.where(bb_diff > 0, (group_df['close'].values - bb_lower) / bb_diff_safe, 0.5)
-                            else:
-                                f_disparity = np.full(n, 100.0)
-                                f_bb_pos = np.full(n, 0.5)
-                            
-                            f_imbalance = group_df['tick_imbalance'].fillna(0.5).values if 'tick_imbalance' in group_df.columns else np.full(n, 0.5)
-                            f_market_kosdaq_roc = group_df['market_kosdaq_roc'].fillna(0.0).values if 'market_kosdaq_roc' in group_df.columns else np.zeros(n)
-                                
                             mat = np.column_stack((
                                 f_strength, f_velocity, f_relative, f_ma_ratio,
                                 f_vwap_dist, f_macd_hist, f_rsi,
