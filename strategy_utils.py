@@ -694,7 +694,9 @@ def prepare_buy_strategy_locals(code, tick_chart_data, min_chart_data, portfolio
                 # logger.debug(f"🤖 AI 추론: {code} Score={ai_score:.4f}")
                 
             except Exception as ai_ex:
-                # logger.error(f"AI 추론 실패: {ai_ex}")
+                logger.error(f"AI 추론 실패: {ai_ex}", exc_info=True)
+                with open("ai_inference_error.log", "w", encoding="utf-8") as f:
+                    f.write(f"AI 추론 실패: {ai_ex}\n")
                 locals_dict['AI_SCORE'] = 0.0
         else:
             locals_dict['AI_SCORE'] = 0.0
