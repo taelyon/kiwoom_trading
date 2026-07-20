@@ -1045,6 +1045,7 @@ def prepare_sell_strategy_locals(code, tick_chart_data, min_chart_data, buy_pric
                 locals_dict['AI_SCORE'] = float(ai_score)
                 
             except Exception as ai_ex:
+                logger.error(f"❌ [{code}] AI 매도 추론 실패: {ai_ex}", exc_info=True)
                 locals_dict['AI_SCORE'] = 0.0
         else:
             locals_dict['AI_SCORE'] = 0.0

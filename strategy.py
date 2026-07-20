@@ -612,27 +612,11 @@ class KiwoomStrategy:
                     except json.JSONDecodeError:
                         self.logger.debug(f"매도 로직 파싱 실패 ({code}): {key}", exc_info=True)
             
-            # 전략이 없으면 매도 평가를 진행하지 않음
-            if not sell_strategies:
-                if is_first_sell_check: # type: ignore
-                    self.logger.warning(f"⚠️ [{code}] 매도 로직 없음 - 매도 평가를 진행하지 않습니다.")
-                return signals
-            else:
-                if is_first_sell_check: # type: ignore
-                    self.logger.debug(f"✅ [{code}] 매도 로직 {len(sell_strategies)}개 로드됨: {strategy_name}")
-            
             # 현재 수익률 계산 (전략 평가 전에)
             current_price = market_data.get('current_price', 0)
             profit_rate = (current_price - buy_price) / buy_price * 100 if buy_price > 0 else 0
             
-            # 손절 조건 도달 시 디버그 로그 (자주 출력되지 않도록 조건부)
-            if profit_rate < -0.6:  # 손절 기준 근처일 때만 디버그 # type: ignore
-                self.logger.debug(f"🔍 [{code}] 손절 조건 도달 확인: 수익률={profit_rate:.2f}%, 매입가={buy_price:,}원, 현재가={current_price:,}원")
-                self.logger.debug(f"🔍 [{code}] 로드된 매도 로직 수: {len(sell_strategies)}개")
-                for idx, stg in enumerate(sell_strategies):
-                    logging.debug(f"🔍 [{code}] 전략 {idx+1}: {stg.get('name', 'N/A')} - 조건: {stg.get('content', 'N/A')}")
-
-            # strategy_utils를 사용하여 매도 로직 평가
+            # strategy_utils를 사용하여 매도 로직 평가 (대시보드 표시를 위해 전략 유무와 무관하게 실행)
             safe_locals = strategy_utils.prepare_sell_strategy_locals(
                 code, tic_chart_data, min_chart_data, buy_price, buy_time, portfolio, 
                 current_price=current_price,
@@ -646,6 +630,22 @@ class KiwoomStrategy:
                 cache_data = self.parent.chart_cache.cache.get(code)
                 if cache_data and 'AI_SCORE' in safe_locals:
                     cache_data['latest_ai_score'] = safe_locals['AI_SCORE']
+
+            # 전략이 없으면 매도 평가를 진행하지 않음
+            if not sell_strategies:
+                if is_first_sell_check: # type: ignore
+                    self.logger.warning(f"⚠️ [{code}] 매도 로직 없음 - 매도 평가를 진행하지 않습니다.")
+                return signals
+            else:
+                if is_first_sell_check: # type: ignore
+                    self.logger.debug(f"✅ [{code}] 매도 로직 {len(sell_strategies)}개 로드됨: {strategy_name}")
+            
+            # 손절 조건 도달 시 디버그 로그 (자주 출력되지 않도록 조건부)
+            if profit_rate < -0.6:  # 손절 기준 근처일 때만 디버그 # type: ignore
+                self.logger.debug(f"🔍 [{code}] 손절 조건 도달 확인: 수익률={profit_rate:.2f}%, 매입가={buy_price:,}원, 현재가={current_price:,}원")
+                self.logger.debug(f"🔍 [{code}] 로드된 매도 로직 수: {len(sell_strategies)}개")
+                for idx, stg in enumerate(sell_strategies):
+                    logging.debug(f"🔍 [{code}] 전략 {idx+1}: {stg.get('name', 'N/A')} - 조건: {stg.get('content', 'N/A')}")
             condition_met, matched_strategy = strategy_utils.evaluate_strategies(
                 sell_strategies, safe_locals, code, "매도"
             )
