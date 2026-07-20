@@ -197,16 +197,24 @@ class KiwoomStrategy:
                     if is_first_eval:
                         self.logger.debug(f"⏰ [{code}] 매수 마감 시간({time_settings['buy_end_time'].strftime('%H:%M')}) 초과로 신규 매수 평가를 건너뜁니다.")
                 else:
+                    # [추가] 매수 로직 해시 변경용 더미 주석
                     buy_signals = await self.get_buy_signals(code, market_data, effective_strategy_name)
+                    
+                    ai_score = 0.0
+                    if hasattr(self.parent, 'chart_cache') and self.parent.chart_cache:
+                        cache_data = self.parent.chart_cache.get_cached_data(code)
+                        if cache_data:
+                            ai_score = cache_data.get('latest_ai_score', 0.0)
+
                     if buy_signals:
                         portfolio = self.trader.get_portfolio_status()
                         if code in portfolio.get('holdings', {}):
-                            self.logger.info(f"🚫 [{code}] 이미 보유 중이므로 매수 신호가 발생해도 추가 매수(물타기)를 차단합니다.")
+                            self.logger.info(f"🚫 [{code}] 이미 보유 중이므로 매수 신호가 발생해도 추가 매수(물타기)를 차단합니다. (AI_SCORE: {ai_score:.4f})")
                         else:
-                            self.logger.info(f"📈 [{code}] 매수 신호 {len(buy_signals)}개 발견")
+                            self.logger.info(f"📈 [{code}] 매수 신호 {len(buy_signals)}개 발견 (AI_SCORE: {ai_score:.4f})")
                             await self.execute_buy_signals(code, buy_signals)
                     else:
-                        self.logger.info(f"ℹ️ [{code}] 매수 조건 미충족")
+                        self.logger.info(f"ℹ️ [{code}] 매수 조건 미충족 (AI_SCORE: {ai_score:.4f})")
             
             # 매도 신호 평가 (보유 종목인 경우에만)
             portfolio = self.trader.get_portfolio_status()
