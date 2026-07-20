@@ -1071,10 +1071,9 @@ class ChartDataCache:
             self.logger.error(f"❌ ChartDataCache 시작 실패: {ex}", exc_info=True)
 
 
-    def stop(self):
+    def clear_cache(self):
         """캐시 정리"""
         try:
-            # 태스크 중지는 stop()에서 처리하므로 캐시만 비움
             self.cache.clear()
             logging.debug("📊 차트 데이터 캐시 정리 완료")
         except Exception as ex:

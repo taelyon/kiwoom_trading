@@ -1000,24 +1000,23 @@ class TradingManager:
             return False
             
         autotrader = getattr(self.parent, 'autotrader', None)
-        chart_cache = getattr(self.parent, 'chart_cache', None)
         
+        was_autotrader_running = False
         if autotrader:
+            was_autotrader_running = autotrader.is_running
             autotrader.stop_auto_trading()
-        if chart_cache:
-            chart_cache.stop()
         
         if is_auto:
-            self.logger.info("자동 청산 - 모든 주기적 타이머 일시 중지")
+            self.logger.info("자동 청산 - 자동매매 일시 중지")
         else:
-            self.logger.info("수동 전체 매도 시작 - 모든 주기적 타이머 일시 중지")
+            self.logger.info("수동 전체 매도 시작 - 자동매매 일시 중지")
             
         try:
             async with self.parent.trading_lock:
                 trader = getattr(self.parent, 'trader', None)
                 if not trader or not trader.holdings:
                     self.logger.warning("매도할 종목이 없습니다.")
-                    await self._restart_timers_after_manual_trade(autotrader, chart_cache)
+                    await self._restart_timers_after_manual_trade(autotrader, was_autotrader_running)
                     return False
                 
                 sell_items = list(trader.holdings.keys())
@@ -1104,7 +1103,7 @@ class TradingManager:
             self.logger.error(f"전체 매도 작업 중 오류 발생: {ex}", exc_info=True)
             return False
         finally:
-            await self._restart_timers_after_manual_trade(autotrader, chart_cache)
+            await self._restart_timers_after_manual_trade(autotrader, was_autotrader_running)
     
     async def sell_item(self, code, quantity=None):
         """특정 종목 매도 (비동기)"""
@@ -1113,12 +1112,11 @@ class TradingManager:
             return False
             
         autotrader = getattr(self.parent, 'autotrader', None)
-        chart_cache = getattr(self.parent, 'chart_cache', None)
         
+        was_autotrader_running = False
         if autotrader:
+            was_autotrader_running = autotrader.is_running
             autotrader.stop_auto_trading()
-        if chart_cache:
-            chart_cache.stop()
             
         self.logger.debug(f"수동 매도 시작 - {code}")
         try:
@@ -1175,7 +1173,7 @@ class TradingManager:
             self.logger.error(f"매도 작업 중 오류 발생: {ex}", exc_info=True)
             return False
         finally:
-            await self._restart_timers_after_manual_trade(autotrader, chart_cache)
+            await self._restart_timers_after_manual_trade(autotrader, was_autotrader_running)
     
     async def buy_item(self, code, quantity=None):
         """종목 매입 - 자동 매입가능수량 계산 또는 지정 수량 매수 (비동기)"""
@@ -1186,10 +1184,10 @@ class TradingManager:
         autotrader = getattr(self.parent, 'autotrader', None)
         chart_cache = getattr(self.parent, 'chart_cache', None)
         
+        was_autotrader_running = False
         if autotrader:
+            was_autotrader_running = autotrader.is_running
             autotrader.stop_auto_trading()
-        if chart_cache:
-            chart_cache.stop()
             
         self.logger.debug(f"수동 매수 시작 - {code}")
         try:
@@ -1261,16 +1259,16 @@ class TradingManager:
             self.logger.error(f"매입 작업 중 오류 발생: {ex}", exc_info=True)
             return False
         finally:
-            await self._restart_timers_after_manual_trade(autotrader, chart_cache)
+            await self._restart_timers_after_manual_trade(autotrader, was_autotrader_running)
     
-    async def _restart_timers_after_manual_trade(self, autotrader, chart_cache):
-        """수동 매매 후 타이머들을 재시작하는 헬퍼 함수"""
+    async def _restart_timers_after_manual_trade(self, autotrader, was_autotrader_running):
+        """수동 매매 후 자동매매 상태를 복구하는 헬퍼 함수"""
         await asyncio.sleep(1)
-        if autotrader:
+        if autotrader and was_autotrader_running:
             autotrader.start_auto_trading()
-        if chart_cache:
-            chart_cache.start()
-        self.logger.debug("수동 매매 완료 - 모든 주기적 타이머 다시 시작")
+            self.logger.debug("수동 매매 완료 - 자동매매 루프 다시 시작")
+        else:
+            self.logger.debug("수동 매매 완료")
 
 
 # ==========================================
