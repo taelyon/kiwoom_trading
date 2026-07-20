@@ -2644,12 +2644,18 @@ HTML_CONTENT = """
                 monitorBadges.innerHTML = `<div class="no-data">감시 중인 종목이 없습니다.</div>`;
             } else {
                 monitorBadges.innerHTML = monitored.map(stock => {
-                    const badgeAiScore = Number(stock.ai_score || 0).toFixed(3);
+                    const aiScoreNum = Number(stock.ai_score || 0);
+                    const badgeAiScore = aiScoreNum.toFixed(3);
+                    // 0.8 이상이면 눈에 띄는 핫핑크, 미만이면 네온 시안색 적용
+                    const aiColor = aiScoreNum >= 0.8 ? '#FF0055' : '#00FFCC';
+                    const aiBg = aiScoreNum >= 0.8 ? 'rgba(255,0,85,0.15)' : 'rgba(0,255,204,0.15)';
+                    const aiBorder = aiScoreNum >= 0.8 ? 'rgba(255,0,85,0.5)' : 'rgba(0,255,204,0.4)';
+                    const aiShadow = aiScoreNum >= 0.8 ? '0 0 8px rgba(255,0,85,0.5)' : '0 0 5px rgba(0,255,204,0.2)';
                     return `
                     <div class="stock-badge" onclick="subscribeStockChart('${stock.code}', '${stock.name}')" title="최근 AI SCORE: ${badgeAiScore}">
                         <span>●</span>
                         <strong>${stock.name} (${stock.code})</strong>
-                        <span style="margin-left: 6px; font-size: 0.85em; color: #FF1493; background: rgba(255,20,147,0.1); padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(255,20,147,0.2);">AI: ${badgeAiScore}</span>
+                        <span style="margin-left: 8px; font-size: 1.05em; font-weight: 800; color: ${aiColor}; background: ${aiBg}; padding: 3px 8px; border-radius: 6px; border: 1px solid ${aiBorder}; box-shadow: ${aiShadow}; letter-spacing: 0.5px;">AI: ${badgeAiScore}</span>
                         <span class="remove-btn" onclick="event.stopPropagation(); removeMonitoringStock('${stock.code}')">✕</span>
                     </div>
                     `;
