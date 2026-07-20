@@ -271,7 +271,7 @@ class EnvConfigParser:
 
     def get_trading_time_settings(self):
         """초단타 트레이딩 시간 필터 설정 반환"""
-        buy_end_time_str = self.get('TRADING', 'buy_end_time', '10:30')
+        buy_end_time_str = self.get('TRADING', 'buy_end_time', '15:00')
         sell_all_time_str = self.get('TRADING', 'sell_all_time', '15:00')
         sell_all_enabled = self.getboolean('TRADING', 'sell_all_enabled', True)
         
@@ -279,7 +279,7 @@ class EnvConfigParser:
         try:
             buy_end_time = datetime.datetime.strptime(buy_end_time_str, "%H:%M").time()
         except Exception:
-            buy_end_time = datetime.time(10, 30)
+            buy_end_time = datetime.time(15, 0)
             
         try:
             sell_all_time = datetime.datetime.strptime(sell_all_time_str, "%H:%M").time()
