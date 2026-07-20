@@ -197,7 +197,7 @@ class KiwoomStrategy:
                     if is_first_eval:
                         self.logger.debug(f"⏰ [{code}] 매수 마감 시간({time_settings['buy_end_time'].strftime('%H:%M')}) 초과로 신규 매수 평가를 건너뜁니다.")
                 else:
-                    # [추가] 매수 로직 해시 변경용 더미 주석
+                    # [추가] 깃헙 푸쉬용 더미 주석 2
                     buy_signals = await self.get_buy_signals(code, market_data, effective_strategy_name)
                     
                     ai_score = 0.0
@@ -331,7 +331,7 @@ class KiwoomStrategy:
                 if hasattr(self.parent, 'chart_cache') and self.parent.chart_cache:
                     cache_data = self.parent.chart_cache.get_cached_data(code)
                     if cache_data:
-                        tic_data = cache_data.get('tic_data', {})
+                        tic_data = cache_data.get('tick_data', {})
                         min_data = cache_data.get('min_data', {})
                         previous_close = cache_data.get('previous_close', 0)
                         current_open = cache_data.get('current_open', 0)
@@ -564,7 +564,7 @@ class KiwoomStrategy:
             if hasattr(self.parent, 'chart_cache') and self.parent.chart_cache:
                 cache_data = self.parent.chart_cache.get_cached_data(code)
                 if cache_data:
-                    tic_data = cache_data.get('tic_data', {})
+                    tic_data = cache_data.get('tick_data', {})
                     min_data = cache_data.get('min_data', {})
                     previous_close = cache_data.get('previous_close', 0)
                     current_open = cache_data.get('current_open', 0)
