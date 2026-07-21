@@ -214,7 +214,7 @@ class KiwoomStrategy:
                             self.logger.info(f"📈 [{code}] 매수 신호 {len(buy_signals)}개 발견 (AI_SCORE: {ai_score:.4f})")
                             await self.execute_buy_signals(code, buy_signals)
                     else:
-                        self.logger.info(f"ℹ️ [{code}] 매수 조건 미충족 (AI_SCORE: {ai_score:.4f})")
+                        self.logger.debug(f"ℹ️ [{code}] 매수 조건 미충족 (AI_SCORE: {ai_score:.4f})")
             
             # 매도 신호 평가 (보유 종목인 경우에만)
             portfolio = self.trader.get_portfolio_status()
