@@ -389,11 +389,48 @@ class MLTrainingWorker(threading.Thread):
                         json.dump(meta, mf, ensure_ascii=False, indent=2)
                 except Exception as e:
                     self.logger.error(f"히스토리 모델 저장 실패: {e}")
+                    
+                # ------------------- 런타임 자동 배포 로직 시작 -------------------
+                current_deployed_auc = 0.0
+                try:
+                    if os.path.exists('data/lgbm_model_params.json'):
+                        import json
+                        with open('data/lgbm_model_params.json', 'r', encoding='utf-8') as f:
+                            old_meta = json.load(f)
+                            current_deployed_auc = old_meta.get('metrics', {}).get('auc', 0.0)
+                except Exception:
+                    pass
+                    
+                self.progress_signal.emit(f"⚖️ [비교] 현재 배포 모델 AUC: {current_deployed_auc:.4f} vs 신규 단일 모델 AUC: {best_score:.4f}")
+                
+                if best_score > current_deployed_auc and best_score > 0:
+                    self.progress_signal.emit(f"🎉 신규 모델 성능 향상 확인! 실시간 자동 배포를 진행합니다.")
+                    try:
+                        import shutil
+                        if os.path.exists(hist_path):
+                            shutil.copy2(hist_path, 'lgbm_model.txt')
+                            if os.path.exists(meta_path):
+                                shutil.copy2(meta_path, 'lgbm_model.json')
+                                os.makedirs('data', exist_ok=True)
+                                shutil.copy2(meta_path, 'data/lgbm_model_params.json')
+                            
+                            try:
+                                import strategy_utils
+                                strategy_utils.reload_model()
+                            except:
+                                pass
+                            
+                            self.finished_signal.emit(True, f"성공적으로 단일 학습 모델 자동 배포 완료 (AUC: {best_score:.4f})", metrics)
+                            return
+                    except Exception as e:
+                        self.logger.error(f"자동 배포 중 오류: {e}")
+                else:
+                    self.progress_signal.emit(f"🛡 신규 모델의 성능이 기존 모델보다 우수하지 않아 배포를 취소하고 백업만 유지합니다.")
+                # ------------------- 런타임 자동 배포 로직 끝 -------------------
             
             success_msg = f"✅ 모델 학습 완료! (Data: {len(df_train)}, 검증 AUC: {best_score:.4f}, Top: {top_features})"
             self.logger.debug(success_msg)
             self.finished_signal.emit(True, success_msg, metrics)
-
         except Exception as ex:
             self.logger.error(f"모델 학습 중 치명적 오류: {ex}", exc_info=True)
             self.finished_signal.emit(False, f"학습 중 오류 발생: {ex}", None)
