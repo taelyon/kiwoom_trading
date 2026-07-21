@@ -1858,13 +1858,13 @@ class MarketIndexManager:
                 for item in reversed(data_list):
                     dt_str = item.get('dt', '') or item.get('cntr_tm', '')
                     if dt_str.startswith(today_str):
-                        today_open = float(item.get('open_pric', 0)) / 100.0
+                        today_open = abs(float(item.get('open_pric', 0))) / 100.0
                         break
                         
                 if today_open is None or today_open == 0:
-                    today_open = float(latest.get('open_pric', 0)) / 100.0 # fallback
+                    today_open = abs(float(latest.get('open_pric', 0))) / 100.0 # fallback
                     
-                current_price = float(latest.get('cur_prc', 0)) / 100.0
+                current_price = abs(float(latest.get('cur_prc', 0))) / 100.0
                 
                 if today_open > 0:
                     self.kosdaq_roc = (current_price - today_open) / today_open
