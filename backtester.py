@@ -485,7 +485,6 @@ class Backtester:
                 current_time_str = str(current_time).replace('T', ' ')
                 time_part = current_time_str[11:16].replace(":", "") if len(current_time_str) >= 16 else ""
                 is_market_close = (time_part >= "1518")
-                is_lunch_time = ("1130" <= time_part < "1300") # 점심시간 체크
                 is_buy_blocked_time = (time_part >= buy_end_time_str)
                 is_force_sell_time = sell_all_enabled and (time_part >= sell_all_time_str)
                 
@@ -680,8 +679,8 @@ class Backtester:
                                     portfolio[current_code].setdefault('executed_sell_rules', set()).add(matched_sell_stg)
                                     debug_logs.append(f"   📌 [{current_code}] 분할매도 ({int(sell_ratio*100)}%) → 잔여 {portfolio[current_code]['qty']}주")
                                     
-                # 2. 매수 평가 (보유 슬롯이 비어있고, 점심시간이 아닐 때만, 그리고 매수 차단 시간이 아닐 때만)
-                if not is_market_close and not is_lunch_time and not is_buy_blocked_time:
+                # 2. 매수 평가 (보유 슬롯이 비어있고 매수 차단 시간이 아닐 때만)
+                if not is_market_close and not is_buy_blocked_time:
                     if 'AI_SCORE' in time_df.columns:
                         buy_candidates = time_df.sort_values(by='AI_SCORE', ascending=False)
                     else:

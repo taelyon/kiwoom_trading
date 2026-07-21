@@ -852,12 +852,6 @@ class AutoTrader:
                 if current_time_minutes < 540 or current_time_minutes >= 930:
                     return False
                 
-            # [추가] 점심시간(11:30 ~ 13:00) 매수 차단 (테스트를 위해 임시 무력화)
-            # if 690 <= current_time_minutes < 780:
-            #     if is_buy_check_allowed:
-            #         self.logger.debug(f"⏳ [{code}] 점심시간(11:30~13:00) 매수 금지 시간대 - 신규 매수 차단")
-            #     is_buy_check_allowed = False
-            
             # [추가] 매수 종료 시간 설정 (환경변수 연동)
             from config_manager import EnvConfigParser
             config = EnvConfigParser()
