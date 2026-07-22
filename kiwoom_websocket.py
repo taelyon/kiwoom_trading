@@ -1954,6 +1954,11 @@ class KiwoomWebSocketClient:
                         else:
                             self.logger.debug(f"⏰ [{stock_code}] 매수 마감 시간이지만 보유 종목이므로 조건검색 편입 예외 허용")
 
+                    # 블랙리스트/쿨타임 확인 (손절/매도 후 쿨타임 종목은 INFO 로그 출력 없이 DEBUG로 처리 및 무시)
+                    if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'trader') and self.parent.trader and self.parent.trader.is_blacklisted(stock_code):
+                        self.logger.debug(f"🚫 [{stock_code}] 쿨타임/블랙리스트에 포함된 종목이므로 조건검색 편입을 무시합니다.")
+                        return
+
                     is_already_in_cache = False
                     if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'chart_cache') and self.parent.chart_cache:
                         if stock_code in self.parent.chart_cache.cache:
@@ -1974,11 +1979,6 @@ class KiwoomWebSocketClient:
                         if stock_code in self.parent.trader.condition_excluded_stocks:
                             self.parent.trader.condition_excluded_stocks.discard(stock_code)
                             self.logger.debug(f"✅ [{stock_code}] 조건검색 재편입으로 매수 차단 해제")
-
-                    # 블랙리스트 확인
-                    if hasattr(self.parent, 'trader') and self.parent.trader and self.parent.trader.is_blacklisted(stock_code):
-                        self.logger.debug(f"🚫 [{stock_code}] 블랙리스트에 포함된 종목이므로 조건검색 편입을 무시합니다.")
-                        return
 
                     # 부모 윈도우에 종목 추가 요청 (비동기)
                     if hasattr(self, 'parent') and self.parent:
