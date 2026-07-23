@@ -530,12 +530,15 @@ def prepare_buy_strategy_locals(code, tick_chart_data, min_chart_data, portfolio
                 now = datetime.now()
                 feature_time = max(0, min(390, (now.hour * 60 + now.minute) - (9 * 60)))
                 
-                # [신규 추가] 파생 가속도 지표 (price_roc, vol_roc) 즉석 계산
+                # [신규 추가] 파생 가속도 지표 (price_roc, vol_roc) 및 돌파 가속도 (impulse) 즉석 계산
                 close_arr = locals_dict.get('tick_close', [])
                 if isinstance(close_arr, (list, np.ndarray)) and len(close_arr) >= 11:
                     feature_price_roc = (close_arr[-1] - close_arr[-11]) / close_arr[-11] if close_arr[-11] > 0 else 0.0
                 else:
                     feature_price_roc = 0.0
+                
+                # [신규 추가] 돌파 가속도 (Impulse = log_velocity * price_roc)
+                feature_impulse = feature_velocity * feature_price_roc
                     
                 vol_arr = locals_dict.get('tick_volume', [])
                 if isinstance(vol_arr, (list, np.ndarray)) and len(vol_arr) >= 10:
@@ -632,22 +635,15 @@ def prepare_buy_strategy_locals(code, tick_chart_data, min_chart_data, portfolio
                         feature_tic_disparity20, feature_tic_bb_position, feature_tic_imbalance,
                         feature_market_kosdaq_roc
                     ]])
-                elif num_features == 14:
-                    # 최신 14개 피처 (기존 15개에서 bb_position 제거됨)
-                    input_vector = np.array([[
-                        feature_strength, feature_velocity, feature_relative, feature_ma_ratio,
-                        feature_vwap_dist, feature_macd_hist, feature_rsi,
-                        feature_time, feature_price_roc, feature_vol_roc,
-                        feature_tick_ma_spread, feature_tic_tail_ratio, feature_tic_buy_sell_ratio, feature_tic_spread
-                    ]])
                 elif num_features == 15:
-                    # 구버전 15개 피처 (bb_position 포함)
-                    feature_bb_pos = locals_dict.get('tick_BB_POSITION', [0.5])[-1] if isinstance(locals_dict.get('tick_BB_POSITION', [0.5]), (list, np.ndarray)) else 0.5
+                    # 최신 15개 피처 (노이즈 피처 제거, tick_impulse 돌파가속도 추가)
                     input_vector = np.array([[
-                        feature_strength, feature_velocity, feature_relative, feature_ma_ratio,
-                        feature_vwap_dist, feature_bb_pos, feature_macd_hist, feature_rsi,
-                        feature_time, feature_price_roc, feature_vol_roc,
-                        feature_tick_ma_spread, feature_tic_tail_ratio, feature_tic_buy_sell_ratio, feature_tic_spread
+                        feature_strength, feature_velocity, feature_relative,
+                        feature_vwap_dist, feature_macd_hist, feature_rsi,
+                        feature_price_roc, feature_impulse,
+                        feature_tick_ma_spread, feature_tic_tail_ratio, feature_tic_spread,
+                        feature_tic_disparity20, feature_tic_bb_position, feature_tic_imbalance,
+                        feature_market_kosdaq_roc
                     ]])
                 elif num_features == 13:
                     # 13개 피처 (기존 15개에서 min3_trend_agree, amount_spike 제거)
@@ -908,12 +904,15 @@ def prepare_sell_strategy_locals(code, tick_chart_data, min_chart_data, buy_pric
                     now = datetime.now()
                     feature_time = max(0, min(390, (now.hour * 60 + now.minute) - (9 * 60)))
                     
-                    # [신규 추가] 파생 가속도 지표 (price_roc, vol_roc)
+                    # [신규 추가] 파생 가속도 지표 (price_roc, vol_roc) 및 돌파 가속도 (impulse)
                     close_arr = locals_dict.get('tick_close', [])
                     if isinstance(close_arr, (list, np.ndarray)) and len(close_arr) >= 11:
                         feature_price_roc = (close_arr[-1] - close_arr[-11]) / close_arr[-11] if close_arr[-11] > 0 else 0.0
                     else:
                         feature_price_roc = 0.0
+                    
+                    # [신규 추가] 돌파 가속도 (Impulse = log_velocity * price_roc)
+                    feature_impulse = feature_velocity * feature_price_roc
                         
                     vol_arr = locals_dict.get('tick_volume', [])
                     if isinstance(vol_arr, (list, np.ndarray)) and len(vol_arr) >= 10:
@@ -998,22 +997,15 @@ def prepare_sell_strategy_locals(code, tick_chart_data, min_chart_data, buy_pric
                             feature_tic_disparity20, feature_tic_bb_position, feature_tic_imbalance,
                             feature_market_kosdaq_roc
                         ]])
-                    elif num_features == 14:
-                        # 최신 14개 피처 (기존 15개에서 bb_position 제거됨)
-                        input_vector = np.array([[
-                            feature_strength, feature_velocity, feature_relative, feature_spike,
-                            feature_vwap_dist, feature_macd_hist, feature_rsi,
-                            feature_time, feature_price_roc, feature_vol_roc,
-                            feature_tick_ma_spread, feature_tic_tail_ratio, feature_tic_buy_sell_ratio, feature_tic_spread
-                        ]])
                     elif num_features == 15:
-                        # 구버전 15개 피처 (bb_position 포함)
-                        feature_bb_pos = locals_dict.get('tick_BB_POSITION', [0.5])[-1] if isinstance(locals_dict.get('tick_BB_POSITION', [0.5]), (list, np.ndarray)) else 0.5
+                        # 최신 15개 피처 (노이즈 피처 제거, tick_impulse 돌파가속도 추가)
                         input_vector = np.array([[
-                            feature_strength, feature_velocity, feature_relative, feature_spike,
-                            feature_vwap_dist, feature_bb_pos, feature_macd_hist, feature_rsi,
-                            feature_time, feature_price_roc, feature_vol_roc,
-                            feature_tick_ma_spread, feature_tic_tail_ratio, feature_tic_buy_sell_ratio, feature_tic_spread
+                            feature_strength, feature_velocity, feature_relative,
+                            feature_vwap_dist, feature_macd_hist, feature_rsi,
+                            feature_price_roc, feature_impulse,
+                            feature_tick_ma_spread, feature_tic_tail_ratio, feature_tic_spread,
+                            feature_tic_disparity20, feature_tic_bb_position, feature_tic_imbalance,
+                            feature_market_kosdaq_roc
                         ]])
                     elif num_features == 13:
                         # 13개 피처 (기존 15개에서 min3_trend_agree, amount_spike 제거)

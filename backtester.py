@@ -248,7 +248,8 @@ class Backtester:
                                 group_df['tick_VWAP'] = group_df['close']
 
                         f_strength = group_df['tick_strength'].values if 'tick_strength' in group_df.columns else np.zeros(n)
-                        f_velocity = group_df['tick_velocity'].values if 'tick_velocity' in group_df.columns else np.full(n, 999999.0)
+                        f_raw_velocity = group_df['tick_velocity'].values if 'tick_velocity' in group_df.columns else np.full(n, 999999.0)
+                        f_velocity = np.log1p(np.maximum(0, f_raw_velocity))
                         f_relative = group_df['min3_relative_position'].values if 'min3_relative_position' in group_df.columns else np.zeros(n)
                         
                         vol = group_df['tick_volume'].values if 'tick_volume' in group_df.columns else np.ones(n)
@@ -269,12 +270,14 @@ class Backtester:
                         dt_series = pd.to_datetime(group_df['datetime'], errors='coerce')
                         f_time = np.clip((dt_series.dt.hour * 60 + dt_series.dt.minute).values - 540, 0, 390)
                         
-                        # [신규 추가] 파생 가속도 지표 (price_roc, vol_roc) 동기화
+                        # [신규 추가] 파생 가속도 지표 (price_roc, vol_roc) 및 돌파 가속도 (impulse) 동기화
                         if 'close' in group_df.columns:
                             f_price_roc = group_df['close'].pct_change(periods=10).fillna(0.0).values
                         else:
                             f_price_roc = np.zeros(n)
                             
+                        f_impulse = f_velocity * f_price_roc
+
                         if 'volume' in group_df.columns:
                             vol_sum_5 = group_df['volume'].rolling(5).sum()
                             prev_vol_sum_5 = vol_sum_5.shift(5)
@@ -315,7 +318,7 @@ class Backtester:
                             else:
                                 f_tic_tail_ratio = np.zeros(n)
                                 
-                        if num_features >= 16:
+                        if num_features >= 15:
                             f_buy_sell_ratio = np.where(vol > 0, group_df['tick_buy_volume'].values / vol, 0.5) if 'tick_buy_volume' in group_df.columns else np.full(n, 0.5)
                             
                             if 'high' in group_df.columns and 'low' in group_df.columns and 'close' in group_df.columns:
@@ -355,6 +358,15 @@ class Backtester:
                                 f_strength, f_velocity, f_relative, f_ma_ratio,
                                 f_vwap_dist, f_macd_hist, f_rsi,
                                 f_price_roc, f_vol_roc,
+                                f_tick_ma_spread, f_tic_tail_ratio, f_spread,
+                                f_disparity, f_bb_pos, f_imbalance, f_market_kosdaq_roc
+                            ))
+                        elif num_features == 15:
+                            # 최신 15개 피처 (노이즈 피처 제거, tick_impulse 돌파가속도 추가)
+                            mat = np.column_stack((
+                                f_strength, f_velocity, f_relative,
+                                f_vwap_dist, f_macd_hist, f_rsi,
+                                f_price_roc, f_impulse,
                                 f_tick_ma_spread, f_tic_tail_ratio, f_spread,
                                 f_disparity, f_bb_pos, f_imbalance, f_market_kosdaq_roc
                             ))
