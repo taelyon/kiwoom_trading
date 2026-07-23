@@ -1942,7 +1942,7 @@ HTML_CONTENT = """
 
                     <div class="glass-card" style="display: flex; flex-direction: column;">
                         <div class="card-header">🖥 학습 로그 터미널</div>
-                        <div id="mlTerminal" style="padding: 15px; height: 160px; overflow-y: auto; background-color: #0b0f19; color: #00ff00; font-family: 'Consolas', 'Courier New', monospace; font-size: 13px; border-bottom-left-radius: 12px; border-bottom-right-radius: 12px; border: 1px solid rgba(255,255,255,0.05); white-space: pre-wrap; flex-grow: 1;">대기 중...</div>
+                        <div id="mlTerminal" style="padding: 15px; height: 260px; min-height: 260px; max-height: 260px; overflow-y: auto; background-color: #0b0f19; color: #00ff00; font-family: 'Consolas', 'Courier New', monospace; font-size: 13px; border-bottom-left-radius: 12px; border-bottom-right-radius: 12px; border: 1px solid rgba(255,255,255,0.05); white-space: pre-wrap; flex: none; box-sizing: border-box;">대기 중...</div>
                     </div>
                 </div>
 
