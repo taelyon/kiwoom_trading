@@ -1022,6 +1022,10 @@ class ChartDataCache:
             for key, value in tick_indicators.items():
                 if key not in base_cols: tick_df[key] = value
 
+            # [추가] 5분 TR 동기화 DB 저장 시 미완성 틱봉(LAST_TIC_CNT < 60)은 제외하고 완성된 60틱봉만 저장
+            if 'LAST_TIC_CNT' in tick_df.columns:
+                tick_df = tick_df[tick_df['LAST_TIC_CNT'] >= 60].reset_index(drop=True)
+
         if not min_df.empty:
             min_allowed = ['MA5', 'MA10', 'MA20', 'MA60', 'MA120', 'RSI', 'RELATIVE_POSITION']
             min_indicators = strategy_utils.KiwoomIndicatorExtractor.extract_chart_indicators(min_df, allowed_indicators=min_allowed)
