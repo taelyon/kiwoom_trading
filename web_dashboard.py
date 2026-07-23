@@ -1927,16 +1927,6 @@ HTML_CONTENT = """
                             </div>
                             
                             <button id="btnRunMlTrain" class="btn-primary" style="width: 100%; padding: 14px; font-size: 15px; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 8px; box-shadow: 0 4px 16px rgba(0, 242, 254, 0.2);" onclick="startMlTrain()">🚀 설정된 파라미터로 모델 학습 시작</button>
-                            
-                            <div id="mlProgressContainer" style="margin-top: 10px; display: none;">
-                                <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px;">
-                                    <span>학습 진행 상태</span>
-                                    <span id="mlProgressText">0%</span>
-                                </div>
-                                <div style="width: 100%; height: 8px; background: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden;">
-                                    <div id="mlProgressBar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #00f2fe 0%, #4facfe 100%); transition: width 0.3s ease;"></div>
-                                </div>
-                            </div>
                         </div>
                     </div>
 
@@ -1966,11 +1956,11 @@ HTML_CONTENT = """
                                 </div>
                             </div>
                             
-                            <div style="width: 100%; height: 380px; min-height: 380px; max-height: 380px; margin-top: 10px; position: relative; overflow: hidden;">
+                            <div style="width: 100%; flex-grow: 1; min-height: 200px; margin-top: 10px; position: relative;">
                                 <div id="mlFeaturePlaceholder" style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: flex; align-items: center; justify-content: center; color: rgba(255,255,255,0.3); font-size: 14px; text-align: center; line-height: 1.6;">
                                     진행된 학습이 없습니다.<br>좌측 패널에서 학습을 실행하시면<br>여기에 피처 중요도 차트가 표시됩니다.
                                 </div>
-                                <canvas id="mlFeatureChart" style="width: 100% !important; height: 100% !important; position: relative; z-index: 1;"></canvas>
+                                <canvas id="mlFeatureChart" style="position: relative; z-index: 1;"></canvas>
                             </div>
                         </div>
                     </div>
@@ -2290,14 +2280,6 @@ HTML_CONTENT = """
                     term.innerText += data.msg + "\\n";
                     term.scrollTop = term.scrollHeight;
                     
-                    // msg 내부에 퍼센티지(예: 35%)가 있다면 추출하여 프로그레스바 반영 (선택사항)
-                    const percentMatch = data.msg.match(/([0-9]+)%/);
-                    if (percentMatch) {
-                        const pct = percentMatch[1] + "%";
-                        document.getElementById('mlProgressBar').style.width = pct;
-                        document.getElementById('mlProgressText').innerText = pct;
-                    }
-                    
                 } else if (data.type === 'ml_result') {
                     isMlTraining = false;
                     document.getElementById('btnRunMlTrain').disabled = false;
@@ -2307,8 +2289,6 @@ HTML_CONTENT = """
                     const term = document.getElementById('mlTerminal');
                     if (data.success) {
                         term.innerText += "\\n✅ 학습이 성공적으로 완료되었습니다!\\n" + data.msg + "\\n";
-                        document.getElementById('mlProgressBar').style.width = '100%';
-                        document.getElementById('mlProgressText').innerText = '100% 완료';
                         
                         if (data.metrics) {
                             document.getElementById('mlValAuc').innerText = data.metrics.auc.toFixed(4);
@@ -4059,9 +4039,6 @@ HTML_CONTENT = """
             document.getElementById('btnRunMlTrain').innerText = '⏳ 학습 진행 중...';
             document.getElementById('btnRunMlTrain').style.backgroundColor = '#ff9800';
             
-            document.getElementById('mlProgressContainer').style.display = 'block';
-            document.getElementById('mlProgressBar').style.width = '0%';
-            document.getElementById('mlProgressText').innerText = '0%';
             document.getElementById('mlTerminal').innerText = "🚀 모델 재학습(ML Training) 프로세스를 시작합니다...\\n\\n";
             
             const payload = {
@@ -4113,9 +4090,7 @@ HTML_CONTENT = """
                         backgroundColor: 'rgba(0, 242, 254, 0.6)',
                         borderColor: 'rgba(0, 242, 254, 1)',
                         borderWidth: 1,
-                        borderRadius: 3,
-                        barPercentage: 0.75,
-                        categoryPercentage: 0.8
+                        borderRadius: 4
                     }]
                 },
                 options: {
@@ -4124,11 +4099,11 @@ HTML_CONTENT = """
                     indexAxis: 'y',
                     plugins: {
                         legend: { display: false },
-                        title: { display: true, text: 'All Feature Importances', color: '#a0a5b1', font: { size: 12 } }
+                        title: { display: true, text: 'All Feature Importances', color: '#a0a5b1' }
                     },
                     scales: {
-                        x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#a0a5b1', font: { size: 10 } } },
-                        y: { grid: { display: false }, ticks: { color: '#a0a5b1', font: { size: 10 } } }
+                        x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#a0a5b1' } },
+                        y: { grid: { display: false }, ticks: { color: '#a0a5b1' } }
                     }
                 }
             });
