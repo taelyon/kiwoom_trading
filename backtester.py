@@ -458,6 +458,7 @@ class Backtester:
             current_date = None
             daily_blacklist = set()
             cooldown_list = {} # {code: expiration_time}
+            daily_peak_prices = {} # {code: peak_high_price}
             
             for current_time, time_df in grouped_by_time:
                 date_str = str(current_time)[:10]
@@ -501,6 +502,7 @@ class Backtester:
                     current_date = date_str
                     daily_blacklist.clear()
                     cooldown_list.clear()
+                    daily_peak_prices.clear()
                     
                 time_idx += 1
                 if progress_callback and time_idx % max(1, total_times // 20) == 0:
@@ -512,6 +514,22 @@ class Backtester:
                 is_market_close = (time_part >= "1518")
                 is_buy_blocked_time = (time_part >= buy_end_time_str)
                 is_force_sell_time = sell_all_enabled and (time_part >= sell_all_time_str)
+                
+                # [당일 고점 및 -10% 폭락 블랙리스트 업데이트]
+                for _, r in time_df.iterrows():
+                    c_code = r['code']
+                    c_high = float(r['high']) if 'high' in r else float(r['close'])
+                    c_close = float(r['close'])
+                    
+                    if c_code not in daily_peak_prices:
+                        daily_peak_prices[c_code] = c_high
+                    else:
+                        daily_peak_prices[c_code] = max(daily_peak_prices[c_code], c_high)
+                        
+                    # 최고가 대비 10% 이상 폭락 시 당일 블랙리스트 추가 (모멘텀 상실)
+                    if daily_peak_prices[c_code] > 0 and c_close <= daily_peak_prices[c_code] * 0.90:
+                        if c_code not in daily_blacklist:
+                            daily_blacklist.add(c_code)
                 
                 # 1. 매도 평가 (현재 보유 종목 중 time_df에 존재하는 것)
                 for _, row in time_df.iterrows():
@@ -693,12 +711,13 @@ class Backtester:
                                 if sell_ratio >= 0.99:
                                     del portfolio[current_code]
                                     if real_profit_pct < 0.0:
-                                        daily_blacklist.add(current_code) # 당일 재매매 금지
-                                        debug_logs.append(f"   ⛔ [{current_code}] 손절 → 당일 블랙리스트 등록")
+                                        from datetime import timedelta
+                                        cooldown_list[current_code] = current_time + timedelta(minutes=15) # 손절 15분 쿨타임 완화
+                                        debug_logs.append(f"   ⏳ [{current_code}] 손절 → 15분 쿨타임 적용")
                                     else:
                                         from datetime import timedelta
-                                        cooldown_list[current_code] = current_time + timedelta(minutes=30) # 30분 쿨타임
-                                        debug_logs.append(f"   ⏳ [{current_code}] 익절 → 30분 쿨타임 적용")
+                                        cooldown_list[current_code] = current_time + timedelta(minutes=15) # 익절 15분 쿨타임 완화
+                                        debug_logs.append(f"   ⏳ [{current_code}] 익절 → 15분 쿨타임 적용")
                                 else:
                                     portfolio[current_code]['qty'] -= sell_qty
                                     portfolio[current_code].setdefault('executed_sell_rules', set()).add(matched_sell_stg)

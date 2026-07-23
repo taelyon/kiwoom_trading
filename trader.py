@@ -386,9 +386,9 @@ class KiwoomTrader:
                                 profit_rate = balance_data['holdings'][code].get('profit_loss_rate', -1.0)
                         
                         if profit_rate < 0.0:
-                            self.add_to_blacklist(code, reason=f"주문 시점 전량 매도 (예상수익률: {profit_rate:.2f}%)")
+                            self.add_to_cooldown(code, duration_minutes=15) # 손절 시 15분 쿨타임 완화
                         else:
-                            self.add_to_cooldown(code, duration_minutes=30)
+                            self.add_to_cooldown(code, duration_minutes=15) # 익절 시 15분 쿨타임 완화
                 else:
                     if code in self.holdings:
                         new_quantity = remaining_qty - quantity

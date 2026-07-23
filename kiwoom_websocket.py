@@ -950,11 +950,11 @@ class KiwoomWebSocketClient:
                         if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'trader') and self.parent.trader:
                             profit_rate = prev_balance_info.get('profit_loss_rate', 0.0) if prev_balance_info else 0.0
                             if profit_rate < 0.0:
-                                if hasattr(self.parent.trader, 'add_to_blacklist'):
-                                    self.parent.trader.add_to_blacklist(stock_code, reason=f"손절에 따른 전량 매도 (수익률: {profit_rate:.2f}%)")
+                                if hasattr(self.parent.trader, 'add_to_cooldown'):
+                                    self.parent.trader.add_to_cooldown(stock_code, duration_minutes=15) # 손절 시 15분 쿨타임 완화
                             else:
                                 if hasattr(self.parent.trader, 'add_to_cooldown'):
-                                    self.parent.trader.add_to_cooldown(stock_code, duration_minutes=30)
+                                    self.parent.trader.add_to_cooldown(stock_code, duration_minutes=15) # 익절 시 15분 쿨타임 완화
             else:
                 # 실시간 잔고 데이터 수신 시, 테이블 업데이트 트리거
                 current_time = time.time()
