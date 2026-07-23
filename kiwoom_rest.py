@@ -135,6 +135,15 @@ class KiwoomRestClient:
                 self.logger.debug(f"저장된 토큰이 만료되었습니다: {expires_at}")
                 return False
             
+            # [장전/장중 사전 갱신] 오늘 장 마감(15:30) 이전에 토큰이 만료될 예정이면 장전/구동 시 사전 갱신
+            today_market_close = now.replace(hour=15, minute=30, second=0, microsecond=0)
+            if now < today_market_close and expires_at < today_market_close:
+                self.logger.info(
+                    f"🔄 저장된 토큰 만료 시각({expires_at.strftime('%Y-%m-%d %H:%M:%S')})이 오늘 장 마감(15:30) 이전입니다. "
+                    f"장중 튕김 방지를 위해 장전 사전 갱신을 진행합니다."
+                )
+                return False
+            
             # 모의투자 설정이 일치하는지 확인
             saved_is_mock = token_data.get('is_mock', True)
             if saved_is_mock != self.is_mock:
@@ -492,14 +501,26 @@ class KiwoomRestClient:
             self.logger.warning("토큰이 없거나 만료 시간이 설정되지 않음")
             return False
         
-        # 토큰 만료 5분 전에 갱신
-        if datetime.now() >= self.token_expires_at - timedelta(minutes=5):
-            self.logger.info("토큰 만료 예정으로 갱신 시도")
+        now = datetime.now()
+        today_market_close = now.replace(hour=15, minute=30, second=0, microsecond=0)
+        
+        # 1) 토큰 만료 5분 전이거나, 
+        # 2) 현재 시각이 오늘 장 마감(15:30) 이전이고 토큰 만료 시각도 오늘 장 마감 이전인 경우 장전 사전 갱신
+        needs_refresh = (now >= self.token_expires_at - timedelta(minutes=5))
+        if not needs_refresh and now < today_market_close and self.token_expires_at < today_market_close:
+            self.logger.info(
+                f"🔄 토큰 만료 시각({self.token_expires_at.strftime('%Y-%m-%d %H:%M:%S')})이 오늘 장 마감(15:30) 이전입니다. "
+                f"장중 튕김 방지를 위해 장전 사전 갱신을 진행합니다."
+            )
+            needs_refresh = True
+            
+        if needs_refresh:
+            self.logger.info("토큰 갱신 시도 중...")
             if await self.get_access_token():
-                self.logger.info("토큰 갱신 성공")
+                self.logger.info("✅ 토큰 갱신 성공")
                 return True
             else:
-                self.logger.error("토큰 갱신 실패", exc_info=True)
+                self.logger.error("❌ 토큰 갱신 실패", exc_info=True)
                 return False
         
         return True
