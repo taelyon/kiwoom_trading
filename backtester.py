@@ -694,8 +694,8 @@ class Backtester:
                         sd = stock_data[current_code]
                         idx = sd['current_idx']
                         
-                        # 데이터가 10건 이상 쌓인 시점부터 매수 평가 (블랙리스트 및 쿨타임 제외)
-                        if idx >= 10 and current_code not in portfolio and current_code not in daily_blacklist:
+                        # 감시 시작 1번째 60틱봉부터 즉시 매수 평가 (실전 매매와 100% 동일하게 일치)
+                        if idx >= 0 and current_code not in portfolio and current_code not in daily_blacklist:
                             if current_code in cooldown_list and current_time < cooldown_list[current_code]:
                                 continue # 쿨타임 중
                             # IS_MONITORED 체크 (조건검색 편입 기간 중일 때만 매수)
