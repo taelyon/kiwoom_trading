@@ -141,19 +141,19 @@ class MLTrainingWorker(threading.Thread):
             
             # 1. Target 생성 (Path Dependence 고려)
             # 기존: 종가만 비교 → 캔들 내에서 발생한 익절/손절 변동성 무시
-            # 개선: 미래 60틱 내 고가(high)가 익절선(+1.2%)에 먼저 닿는지, 저가(low)가 손절선(-1.5%)에 먼저 닿는지 확인
-            LOOKAHEAD = 60  # 향후 60틱 (약 10~30분)
-            TARGET_PCT = 0.012  # +1.2% (1차 익절 도달 기준)
-            STOP_PCT = -0.015   # -1.5% (기계적 손절 방어선과 동기화)
+            # 개선: 미래 30틱 내 고가(high)가 익절선(+1.0%)에 먼저 닿는지, 저가(low)가 손절선(-1.2%)에 먼저 닿는지 확인
+            LOOKAHEAD = 30  # 향후 30틱 (약 5~15분 초스캘핑)
+            TARGET_PCT = 0.010  # +1.0% (30틱 내 빠른 1차 익절 도달 기준)
+            STOP_PCT = -0.012   # -1.2% (슬림화된 손절 방어선)
             
-            # 향후 1~60틱 고가/저가 매트릭스 생성
+            # 향후 1~30틱 고가/저가 매트릭스 생성
             future_high_shifts = [df.groupby('code')['tick_high'].shift(-i) for i in range(1, LOOKAHEAD + 1)]
             future_low_shifts = [df.groupby('code')['tick_low'].shift(-i) for i in range(1, LOOKAHEAD + 1)]
             
             future_high_prices = pd.concat(future_high_shifts, axis=1)
             future_low_prices = pd.concat(future_low_shifts, axis=1)
             
-            # 60틱이 안 되는 가장 최근 데이터들은 드롭 (미래를 알 수 없으므로 학습 제외)
+            # 30틱이 안 되는 가장 최근 데이터들은 드롭 (미래를 알 수 없으므로 학습 제외)
             df = df.dropna(subset=future_high_prices.columns, how='any').copy()
             future_high_prices = future_high_prices.loc[df.index]
             future_low_prices = future_low_prices.loc[df.index]
