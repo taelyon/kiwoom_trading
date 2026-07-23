@@ -234,6 +234,17 @@ class MLTrainingWorker(threading.Thread):
             # [신규 추가] 돌파 가속도 (Impulse = log_velocity * price_roc)
             df['tick_impulse'] = (df['tick_velocity'] * df['tick_price_roc']).fillna(0.0)
             
+            # [신규 추가] ATR% (상대적 ATR 변동성 비율 %)
+            tr1 = df['tick_high'] - df['tick_low']
+            prev_close = df.groupby('code')['tick_close'].shift(1).fillna(df['tick_open'])
+            tr2 = (df['tick_high'] - prev_close).abs()
+            tr3 = (df['tick_low'] - prev_close).abs()
+            tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+            df['tr'] = tr
+            df['atr20'] = df.groupby('code')['tr'].transform(lambda x: x.rolling(20, min_periods=1).mean())
+            df['tick_atr_ratio'] = np.where(df['tick_close'] > 0, (df['atr20'] / df['tick_close']) * 100.0, 0.0)
+            df['tick_atr_ratio'] = df['tick_atr_ratio'].fillna(0.0)
+
             # [신규 추가] 볼린저 밴드 표준편차 (그룹 내 연산 - apply 외부에서 transform으로 안전하게 연산)
             df['std20'] = df.groupby('code')['tick_close'].transform(lambda x: x.rolling(20, min_periods=1).std(ddof=1).fillna(0))
             
@@ -274,6 +285,7 @@ class MLTrainingWorker(threading.Thread):
                 'tick_rsi21',
                 'tick_price_roc',      # 가격 상승 가속도
                 'tick_impulse',        # [신규 추가] 돌파 가속도 (tick_velocity * tick_price_roc)
+                'tick_atr_ratio',      # [신규 추가] 상대적 ATR 변동성 비율 (%)
                 'tick_ma_spread',      # [추가] 이평선 정배열 척도
                 'tick_tail_ratio',     # [추가] 캔들 윗꼬리 비율
                 'tick_spread',         # [추가] 봉 내 가격 변동폭 비율

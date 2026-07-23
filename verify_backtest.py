@@ -61,8 +61,8 @@ if strategy_utils.LGBM_MODEL:
             features = [
                 "1. tick_strength", "2. tick_velocity", "3. min3_relative_position",
                 "4. tick_vwap_distance", "5. tick_macd_hist", "6. tick_rsi21", "7. tick_price_roc", "8. tick_impulse",
-                "9. tick_ma_spread", "10. tick_tail_ratio", "11. tick_spread",
-                "12. tick_disparity20", "13. tick_bb_position", "14. tick_imbalance", "15. market_kosdaq_roc"
+                "9. tick_atr_ratio", "10. tick_ma_spread", "11. tick_tail_ratio", "12. tick_spread",
+                "13. tick_disparity20", "14. tick_bb_position", "15. tick_imbalance", "16. market_kosdaq_roc"
             ]
             if mat.shape[1] == 17:
                 features.insert(11, "11.5 tick_buy_sell_ratio")

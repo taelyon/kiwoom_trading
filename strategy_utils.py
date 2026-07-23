@@ -539,6 +539,26 @@ def prepare_buy_strategy_locals(code, tick_chart_data, min_chart_data, portfolio
                 
                 # [신규 추가] 돌파 가속도 (Impulse = log_velocity * price_roc)
                 feature_impulse = feature_velocity * feature_price_roc
+                
+                # [신규 추가] 상대적 ATR 변동성 비율 (tick_atr_ratio)
+                high_arr = locals_dict.get('tick_high', [])
+                low_arr = locals_dict.get('tick_low', [])
+                if isinstance(close_arr, (list, np.ndarray)) and len(close_arr) >= 20 and len(high_arr) >= 20 and len(low_arr) >= 20:
+                    h_20 = np.array(high_arr[-20:], dtype=float)
+                    l_20 = np.array(low_arr[-20:], dtype=float)
+                    c_20 = np.array(close_arr[-20:], dtype=float)
+                    prev_c_20 = np.roll(c_20, 1)
+                    prev_c_20[0] = c_20[0]
+                    
+                    tr1 = h_20 - l_20
+                    tr2 = np.abs(h_20 - prev_c_20)
+                    tr3 = np.abs(l_20 - prev_c_20)
+                    tr_20 = np.maximum(tr1, np.maximum(tr2, tr3))
+                    atr20_last = np.mean(tr_20)
+                    feature_tick_atr_ratio = (atr20_last / c_20[-1]) * 100.0 if c_20[-1] > 0 else 0.0
+                else:
+                    feature_tick_atr_ratio = 0.0
+                locals_dict['tick_atr_ratio'] = feature_tick_atr_ratio
                     
                 vol_arr = locals_dict.get('tick_volume', [])
                 if isinstance(vol_arr, (list, np.ndarray)) and len(vol_arr) >= 10:
@@ -626,11 +646,11 @@ def prepare_buy_strategy_locals(code, tick_chart_data, min_chart_data, portfolio
                         feature_market_kosdaq_roc
                     ]])
                 elif num_features == 16:
-                    # 새로운 16개 피처 (buy_sell_ratio 삭제, kosdaq_roc 추가됨, time_of_day_minute 제거)
+                    # 최신 16개 피처 (tick_impulse 및 tick_atr_ratio 포함)
                     input_vector = np.array([[
-                        feature_strength, feature_velocity, feature_relative, feature_ma_ratio,
+                        feature_strength, feature_velocity, feature_relative,
                         feature_vwap_dist, feature_macd_hist, feature_rsi,
-                        feature_price_roc, feature_vol_roc,
+                        feature_price_roc, feature_impulse, feature_tick_atr_ratio,
                         feature_tick_ma_spread, feature_tic_tail_ratio, feature_tic_spread,
                         feature_tic_disparity20, feature_tic_bb_position, feature_tic_imbalance,
                         feature_market_kosdaq_roc
@@ -913,6 +933,26 @@ def prepare_sell_strategy_locals(code, tick_chart_data, min_chart_data, buy_pric
                     
                     # [신규 추가] 돌파 가속도 (Impulse = log_velocity * price_roc)
                     feature_impulse = feature_velocity * feature_price_roc
+                    
+                    # [신규 추가] 상대적 ATR 변동성 비율 (tick_atr_ratio)
+                    high_arr = locals_dict.get('tick_high', [])
+                    low_arr = locals_dict.get('tick_low', [])
+                    if isinstance(close_arr, (list, np.ndarray)) and len(close_arr) >= 20 and len(high_arr) >= 20 and len(low_arr) >= 20:
+                        h_20 = np.array(high_arr[-20:], dtype=float)
+                        l_20 = np.array(low_arr[-20:], dtype=float)
+                        c_20 = np.array(close_arr[-20:], dtype=float)
+                        prev_c_20 = np.roll(c_20, 1)
+                        prev_c_20[0] = c_20[0]
+                        
+                        tr1 = h_20 - l_20
+                        tr2 = np.abs(h_20 - prev_c_20)
+                        tr3 = np.abs(l_20 - prev_c_20)
+                        tr_20 = np.maximum(tr1, np.maximum(tr2, tr3))
+                        atr20_last = np.mean(tr_20)
+                        feature_tick_atr_ratio = (atr20_last / c_20[-1]) * 100.0 if c_20[-1] > 0 else 0.0
+                    else:
+                        feature_tick_atr_ratio = 0.0
+                    locals_dict['tick_atr_ratio'] = feature_tick_atr_ratio
                         
                     vol_arr = locals_dict.get('tick_volume', [])
                     if isinstance(vol_arr, (list, np.ndarray)) and len(vol_arr) >= 10:
@@ -988,11 +1028,11 @@ def prepare_sell_strategy_locals(code, tick_chart_data, min_chart_data, buy_pric
                             feature_market_kosdaq_roc
                         ]])
                     elif num_features == 16:
-                        # 새로운 16개 피처 (buy_sell_ratio 삭제, kosdaq_roc 추가됨, time 제거)
+                        # 최신 16개 피처 (tick_impulse 및 tick_atr_ratio 포함)
                         input_vector = np.array([[
-                            feature_strength, feature_velocity, feature_relative, feature_ma_ratio,
+                            feature_strength, feature_velocity, feature_relative,
                             feature_vwap_dist, feature_macd_hist, feature_rsi,
-                            feature_price_roc, feature_vol_roc,
+                            feature_price_roc, feature_impulse, feature_tick_atr_ratio,
                             feature_tick_ma_spread, feature_tic_tail_ratio, feature_tic_spread,
                             feature_tic_disparity20, feature_tic_bb_position, feature_tic_imbalance,
                             feature_market_kosdaq_roc

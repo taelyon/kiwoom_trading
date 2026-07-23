@@ -278,6 +278,19 @@ class Backtester:
                             
                         f_impulse = f_velocity * f_price_roc
 
+                        # [신규 추가] ATR 변동성 비율 (f_atr_ratio) 동기화
+                        if 'high' in group_df.columns and 'low' in group_df.columns and 'close' in group_df.columns:
+                            tr1 = group_df['high'] - group_df['low']
+                            prev_c = group_df['close'].shift(1).fillna(group_df['open'] if 'open' in group_df.columns else group_df['close'])
+                            tr2 = (group_df['high'] - prev_c).abs()
+                            tr3 = (group_df['low'] - prev_c).abs()
+                            tr_df = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+                            atr20 = tr_df.rolling(20, min_periods=1).mean().values
+                            c_safe = np.where(group_df['close'] == 0, 1e-9, group_df['close'])
+                            f_atr_ratio = np.nan_to_num((atr20 / c_safe) * 100.0, nan=0.0)
+                        else:
+                            f_atr_ratio = np.zeros(n)
+
                         if 'volume' in group_df.columns:
                             vol_sum_5 = group_df['volume'].rolling(5).sum()
                             prev_vol_sum_5 = vol_sum_5.shift(5)
@@ -353,11 +366,11 @@ class Backtester:
                                 f_disparity, f_bb_pos, f_imbalance, f_market_kosdaq_roc
                             ))
                         elif num_features == 16:
-                            # 16차원 피처 매핑 (buy_sell_ratio 삭제, kosdaq_roc 추가됨)
+                            # 최신 16개 피처 (tick_impulse 및 tick_atr_ratio 포함)
                             mat = np.column_stack((
-                                f_strength, f_velocity, f_relative, f_ma_ratio,
+                                f_strength, f_velocity, f_relative,
                                 f_vwap_dist, f_macd_hist, f_rsi,
-                                f_price_roc, f_vol_roc,
+                                f_price_roc, f_impulse, f_atr_ratio,
                                 f_tick_ma_spread, f_tic_tail_ratio, f_spread,
                                 f_disparity, f_bb_pos, f_imbalance, f_market_kosdaq_roc
                             ))
