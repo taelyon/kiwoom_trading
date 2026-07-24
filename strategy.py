@@ -189,6 +189,12 @@ class KiwoomStrategy:
                     self.logger.debug(f"🔓 [{code}] 전략 평가 일시 차단 해제")
             
             if is_buy_check_allowed:
+                # [위험 관리] 당일 계좌 서킷브레이커(-5.0%) 발동 검사
+                if hasattr(self.trader, 'circuit_breaker_active') and self.trader.circuit_breaker_active:
+                    if is_first_eval:
+                        self.logger.warning(f"[RISK_WARN] 🚨 [{code}] 당일 계좌 서킷브레이커(-5.0% 손실) 발동 중 - 신규 매수 전면 차단")
+                    is_buy_check_allowed = False
+                
                 # [초단타 시간 필터] 매수 마감 시간 체크
                 from config_manager import get_config
                 time_settings = get_config().get_trading_time_settings()

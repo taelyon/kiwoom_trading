@@ -14,6 +14,34 @@ import time
 
 from utils import ApiLimitManager, safe_float_conversion
 
+class AsyncTokenBucketLimiter:
+    """비동기 토큰 버킷 기반 REST API 요청 한도(Rate Limit) 제어기 (초당 4회 수율)"""
+    def __init__(self, rate: float = 4.0, capacity: float = 4.0):
+        self.rate = rate          # 초당 리필 토큰 수 (초당 4회)
+        self.capacity = capacity  # 최대 버스트 토큰 수
+        self.tokens = capacity
+        self.last_update = time.time()
+        self._lock = None
+
+    async def acquire(self):
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        async with self._lock:
+            now = time.time()
+            elapsed = now - self.last_update
+            self.last_update = now
+            # 경과 시간에 비례하여 토큰 보충
+            self.tokens = min(self.capacity, self.tokens + elapsed * self.rate)
+            
+            if self.tokens < 1.0:
+                needed = 1.0 - self.tokens
+                wait_time = needed / self.rate
+                await asyncio.sleep(wait_time)
+                self.tokens = 0.0
+                self.last_update = time.time()
+            else:
+                self.tokens -= 1.0
+
 class KiwoomRestClient:
     """키움 REST API 클라이언트 클래스"""
     
@@ -21,6 +49,9 @@ class KiwoomRestClient:
         # 로깅 설정을 먼저 초기화
         logging.basicConfig(level=logging.INFO)
         self.logger = logging.getLogger(self.__class__.__name__)
+        
+        # API 429 지연 방지용 Token Bucket Limiter (초당 4회)
+        self.rate_limiter = AsyncTokenBucketLimiter(rate=4.0, capacity=4.0)
         
         self.config_file = config_file
         self.load_config()
@@ -643,6 +674,7 @@ class KiwoomRestClient:
             max_retries = self.config.getint('API', 'max_retries', fallback=2)
             for attempt in range(max_retries + 1):
                 try:
+                    await self.rate_limiter.acquire()
                     response = await self.client.post(url, headers=headers, json=data, timeout=60.0)
                     if response.status_code == 429:
                         if attempt < max_retries:
@@ -734,6 +766,7 @@ class KiwoomRestClient:
             max_retries = self.config.getint('API', 'max_retries', fallback=2)
             for attempt in range(max_retries + 1):
                 try:
+                    await self.rate_limiter.acquire()
                     response = await self.client.post(url, headers=headers, json=data, timeout=60.0)
                     if response.status_code == 429:
                         if attempt < max_retries:

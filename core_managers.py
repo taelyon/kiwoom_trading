@@ -1424,6 +1424,8 @@ class AccountManager:
                         total_assets = available_cash + total_purchase_amount + total_eval_pl_amount
                         account_profit_rate = ((total_assets - prime_cash) / prime_cash) * 100
                         self.logger.debug(f"계좌 총수익률: {account_profit_rate:.2f}% (총자산: {total_assets:,}원)")
+                        if hasattr(self.parent.trader, 'check_circuit_breaker'):
+                            self.parent.trader.check_circuit_breaker(account_profit_rate)
                 else:
                     self.logger.warning("⚠️ 계좌평가잔고내역 조회 실패")
             except Exception as eval_ex:

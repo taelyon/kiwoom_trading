@@ -76,7 +76,23 @@ class KiwoomTrader:
         self.load_blacklist()  # 파일에서 블랙리스트 복원
         self.load_settings()
 
+        # 당일 계좌 서킷브레이커 (-5.0%)
+        self.circuit_breaker_active = False
+        self.circuit_breaker_threshold = -5.0
+
         self.logger.debug(f"키움 트레이더 초기화 완료 (목표 매수 종목 수: {self.buycount})")
+
+    def check_circuit_breaker(self, current_profit_rate: float) -> bool:
+        """당일 계좌 서킷브레이커 (-5.0%) 검사 및 상태 업데이트"""
+        if current_profit_rate <= self.circuit_breaker_threshold:
+            if not self.circuit_breaker_active:
+                self.circuit_breaker_active = True
+                warn_msg = f"[RISK_WARN] 🚨 [서킷브레이커 발동] 계좌 손실률({current_profit_rate:.2f}%)이 기준({self.circuit_breaker_threshold}%) 이하로 떨어져 당일 신규 매수를 전면 차단합니다."
+                self.logger.warning(warn_msg)
+                import logging
+                logging.getLogger("trades").warning(warn_msg)
+            return True
+        return self.circuit_breaker_active
     
     def _init_database_async(self):
         """비동기 데이터베이스 초기화 트리거"""
