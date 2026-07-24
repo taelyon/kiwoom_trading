@@ -265,21 +265,35 @@ class Backtester:
                         f_vwap_dist = (close_vals - vwap_vals) / vwap_safe
                         
                         f_macd_hist = group_df['tick_macd_hist'].values if 'tick_macd_hist' in group_df.columns else np.zeros(n)
-                        f_rsi = group_df['tick_rsi21'].values if 'tick_rsi21' in group_df.columns else np.full(n, 50.0)
+                        
+                        # DB에 저장된 온전한 RSI 컬럼 최우선 사용
+                        if 'tick_rsi' in group_df.columns:
+                            f_rsi = group_df['tick_rsi'].values
+                        elif 'tick_rsi21' in group_df.columns:
+                            f_rsi = group_df['tick_rsi21'].values
+                        else:
+                            f_rsi = np.full(n, 50.0)
                         
                         dt_series = pd.to_datetime(group_df['datetime'], errors='coerce')
                         f_time = np.clip((dt_series.dt.hour * 60 + dt_series.dt.minute).values - 540, 0, 390)
                         
-                        # [신규 추가] 파생 가속도 지표 (price_roc, vol_roc) 및 돌파 가속도 (impulse) 동기화
-                        if 'close' in group_df.columns:
+                        # [DB 직결] 파생 가속도 지표 (price_roc, vol_roc) 및 돌파 가속도 (impulse) DB 컬럼 최우선 사용
+                        if 'tick_price_roc' in group_df.columns and group_df['tick_price_roc'].notna().sum() > 0:
+                            f_price_roc = group_df['tick_price_roc'].fillna(0.0).values
+                        elif 'close' in group_df.columns:
                             f_price_roc = group_df['close'].pct_change(periods=10).fillna(0.0).values
                         else:
                             f_price_roc = np.zeros(n)
                             
-                        f_impulse = f_velocity * f_price_roc
+                        if 'tick_impulse' in group_df.columns and group_df['tick_impulse'].notna().sum() > 0:
+                            f_impulse = group_df['tick_impulse'].fillna(0.0).values
+                        else:
+                            f_impulse = f_velocity * f_price_roc
 
-                        # [신규 추가] ATR 변동성 비율 (f_atr_ratio) 동기화
-                        if 'high' in group_df.columns and 'low' in group_df.columns and 'close' in group_df.columns:
+                        # [DB 직결] ATR 변동성 비율 (f_atr_ratio) DB 컬럼 최우선 사용
+                        if 'tick_atr_ratio' in group_df.columns and group_df['tick_atr_ratio'].notna().sum() > 0:
+                            f_atr_ratio = group_df['tick_atr_ratio'].fillna(0.0).values
+                        elif 'high' in group_df.columns and 'low' in group_df.columns and 'close' in group_df.columns:
                             tr1 = group_df['high'] - group_df['low']
                             prev_c = group_df['close'].shift(1).fillna(group_df['open'] if 'open' in group_df.columns else group_df['close'])
                             tr2 = (group_df['high'] - prev_c).abs()
@@ -291,7 +305,10 @@ class Backtester:
                         else:
                             f_atr_ratio = np.zeros(n)
 
-                        if 'volume' in group_df.columns:
+                        # [DB 직결] 거래량 변화율 (f_vol_roc) DB 컬럼 최우선 사용
+                        if 'tick_vol_roc' in group_df.columns and group_df['tick_vol_roc'].notna().sum() > 0:
+                            f_vol_roc = group_df['tick_vol_roc'].fillna(1.0).values
+                        elif 'volume' in group_df.columns:
                             vol_sum_5 = group_df['volume'].rolling(5).sum()
                             prev_vol_sum_5 = vol_sum_5.shift(5)
                             f_vol_roc = np.where(prev_vol_sum_5 > 0, vol_sum_5 / prev_vol_sum_5, 1.0)
@@ -307,7 +324,9 @@ class Backtester:
                             else:
                                 f_min3_trend_agree = np.zeros(n)
                                 
-                            if 'close' in group_df.columns and 'tick_ma60' in group_df.columns:
+                            if 'tick_ma_spread' in group_df.columns and group_df['tick_ma_spread'].notna().sum() > 0:
+                                f_tick_ma_spread = group_df['tick_ma_spread'].fillna(0.0).values
+                            elif 'close' in group_df.columns and 'tick_ma60' in group_df.columns:
                                 ma60_safe = np.where(group_df['tick_ma60'] == 0, 1e-9, group_df['tick_ma60'])
                                 f_tick_ma_spread = ((group_df['close'] - group_df['tick_ma60']) / ma60_safe).fillna(0.0).values
                             else:
@@ -322,7 +341,9 @@ class Backtester:
                             else:
                                 f_tic_amount_spike = np.zeros(n)
                                 
-                            if 'high' in group_df.columns and 'low' in group_df.columns and 'close' in group_df.columns and 'open' in group_df.columns:
+                            if 'tick_tail_ratio' in group_df.columns and group_df['tick_tail_ratio'].notna().sum() > 0:
+                                f_tic_tail_ratio = group_df['tick_tail_ratio'].fillna(0.0).values
+                            elif 'high' in group_df.columns and 'low' in group_df.columns and 'close' in group_df.columns and 'open' in group_df.columns:
                                 body_top = np.maximum(group_df['open'], group_df['close'])
                                 hl_diff = group_df['high'] - group_df['low']
                                 hl_safe = np.where(hl_diff <= 0, 1e-9, hl_diff)
@@ -340,10 +361,17 @@ class Backtester:
                             else:
                                 f_spread = np.zeros(n)
                                 
-                            if 'close' in group_df.columns and 'tick_ma20' in group_df.columns:
+                            if 'tick_disparity20' in group_df.columns and group_df['tick_disparity20'].notna().sum() > 0:
+                                f_disparity = group_df['tick_disparity20'].fillna(100.0).values
+                            elif 'close' in group_df.columns and 'tick_ma20' in group_df.columns:
                                 ma20_safe = np.where(group_df['tick_ma20'] == 0, 1e-9, group_df['tick_ma20'])
                                 f_disparity = ((group_df['close'] / ma20_safe) * 100).fillna(100.0).values
-                                
+                            else:
+                                f_disparity = np.full(n, 100.0)
+
+                            if 'tick_bb_position' in group_df.columns and group_df['tick_bb_position'].notna().sum() > 0:
+                                f_bb_pos = group_df['tick_bb_position'].fillna(0.5).values
+                            elif 'close' in group_df.columns and 'tick_ma20' in group_df.columns:
                                 std20 = group_df['close'].rolling(20, min_periods=1).std(ddof=1).fillna(0).values
                                 bb_upper = group_df['tick_ma20'].values + (2 * std20)
                                 bb_lower = group_df['tick_ma20'].values - (2 * std20)
@@ -351,7 +379,6 @@ class Backtester:
                                 bb_diff_safe = np.where(bb_diff <= 0, 1e-9, bb_diff)
                                 f_bb_pos = np.where(bb_diff > 0, (group_df['close'].values - bb_lower) / bb_diff_safe, 0.5)
                             else:
-                                f_disparity = np.full(n, 100.0)
                                 f_bb_pos = np.full(n, 0.5)
 
                             f_imbalance = group_df['tick_imbalance'].fillna(0.5).values if 'tick_imbalance' in group_df.columns else np.full(n, 0.5)

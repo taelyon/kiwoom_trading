@@ -66,12 +66,13 @@ class AsyncDatabaseManager:
                         )
                     ''')
                     
-                    # 틱봉 기술적 지표 (최적화됨)
+                    # 틱봉 기술적 지표 (최적화됨 및 신규 직결 지표 전체 포함)
                     tick_indicators = [
                         'MA5', 'MA10', 'MA20', 'MA60', 'MA120',
                         'RSI', 'RSI_SIGNAL', 'RSI21',
-                        'LAST_TIC_CNT',
-                        'VELOCITY'
+                        'LAST_TIC_CNT', 'VELOCITY',
+                        'PRICE_ROC', 'VOL_ROC', 'IMPULSE', 'ATR_RATIO',
+                        'MA_SPREAD', 'DISPARITY20', 'BB_POSITION', 'TAIL_RATIO'
                     ]
                     tick_indicator_cols = ", ".join([f"tick_{col.lower()} REAL" for col in tick_indicators])
                     
@@ -141,6 +142,20 @@ class AsyncDatabaseManager:
                             except Exception as e:
                                 self.logger.warning(f"⚠️ 컬럼 {col} 삭제 실패 (SQLite 구버전일 수 있음): {e}")
 
+                    # 3. 신규 직결 틱 지표 컬럼 자동 추가 마이그레이션
+                    existing_col_names = {row[1] for row in columns_info}
+                    new_required_cols = [
+                        'tick_price_roc', 'tick_vol_roc', 'tick_impulse', 'tick_atr_ratio',
+                        'tick_ma_spread', 'tick_disparity20', 'tick_bb_position', 'tick_tail_ratio'
+                    ]
+                    for new_col in new_required_cols:
+                        if new_col not in existing_col_names:
+                            try:
+                                await cursor.execute(f"ALTER TABLE stock_data ADD COLUMN {new_col} REAL")
+                                self.logger.info(f"✨ 신규 DB 컬럼 동적 추가 완료: {new_col}")
+                            except Exception as add_err:
+                                self.logger.warning(f"⚠️ 신규 컬럼 {new_col} 추가 중 예외: {add_err}")
+
                     # commit은 isolation_level=None이면 자동으로 처리됨
                     self.logger.debug("✅ 데이터베이스 초기화 완료 (불필요한 테이블/컬럼 정리 포함)")
                 
@@ -194,13 +209,14 @@ class AsyncDatabaseManager:
                 tick_indicators = [key for key in tick_data.keys() if key not in basic_keys]
                 min_indicators = [key for key in min_data.keys() if key not in basic_keys]
                 
-                # 허용된 지표 목록 (모든 지표 활성화)
+                # 허용된 지표 목록 (모든 백테스트 및 직결 지표 활성화)
                 allowed_indicators = {
                     'MA5', 'MA10', 'MA20', 'MA60', 'MA120',
                     'RSI', 'RSI_SIGNAL', 'RSI21', 'LAST_TIC_CNT',
                     'VELOCITY', 'RELATIVE_POSITION',
                     'MACD', 'MACD_SIGNAL', 'MACD_HIST',
-                    'IMBALANCE'
+                    'IMBALANCE', 'PRICE_ROC', 'VOL_ROC', 'IMPULSE',
+                    'ATR_RATIO', 'MA_SPREAD', 'DISPARITY20', 'BB_POSITION', 'TAIL_RATIO'
                 }
                 
                 # 지표 이름 정규화 및 필터링
