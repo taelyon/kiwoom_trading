@@ -223,6 +223,7 @@ class ApiLimitManager:
     _next_request_time = {}
     _request_intervals = {
         'tic_chart': 1.5,    # 틱 차트: 1.5초 간격 (429 에러 방지)
+        'tick_chart': 1.5,   # 틱 차트 (명칭 매칭)
         'order': 0.5,         # 주문: 0.5초 간격
         'minute_chart': 1.5,  # 분봉 차트: 1.5초 간격 (429 에러 방지)
         'tic': 0.5,           # 틱 데이터: 0.5초 간격
@@ -234,8 +235,8 @@ class ApiLimitManager:
     @classmethod
     def _get_request_type(cls, operation_name):
         """요청 타입 결정"""
-        if '틱' in operation_name or 'tic' in operation_name.lower():
-            return 'tic_chart'
+        if '틱' in operation_name or 'tic' in operation_name.lower() or 'tick' in operation_name.lower():
+            return 'tick_chart'
         elif '분봉' in operation_name or 'minute' in operation_name.lower():
             return 'minute_chart'
         elif '주문' in operation_name:
@@ -256,7 +257,7 @@ class ApiLimitManager:
             
             # 차트 요청들은 동일한 큐를 공유하여 동시 다발적인 요청 방지 (429 에러 방지)
             queue_key = request_type
-            if request_type in ['tic_chart', 'minute_chart', 'tic', 'minute']:
+            if request_type in ['tic_chart', 'tick_chart', 'minute_chart', 'tic', 'minute']:
                 queue_key = 'chart_req'
                 interval = 1.5  # 차트 요청 간격 1.5초로 설정하여 429 예방 (안전 마진 대폭 확보)
             

@@ -15,10 +15,10 @@ import time
 from utils import ApiLimitManager, safe_float_conversion
 
 class AsyncTokenBucketLimiter:
-    """비동기 토큰 버킷 기반 REST API 요청 한도(Rate Limit) 제어기 (초당 4회 수율)"""
-    def __init__(self, rate: float = 4.0, capacity: float = 4.0):
-        self.rate = rate          # 초당 리필 토큰 수 (초당 4회)
-        self.capacity = capacity  # 최대 버스트 토큰 수
+    """비동기 토큰 버킷 기반 REST API 요청 한도(Rate Limit) 제어기 (키움 REST API 차트 한도 초과 방지용 초당 1회 수율)"""
+    def __init__(self, rate: float = 1.0, capacity: float = 1.0):
+        self.rate = rate          # 초당 리필 토큰 수 (초당 1회)
+        self.capacity = capacity  # 최대 버스트 토큰 수 (동시 폭주 방지)
         self.tokens = capacity
         self.last_update = time.time()
         self._lock = None
@@ -50,8 +50,8 @@ class KiwoomRestClient:
         logging.basicConfig(level=logging.INFO)
         self.logger = logging.getLogger(self.__class__.__name__)
         
-        # API 429 지연 방지용 Token Bucket Limiter (초당 4회)
-        self.rate_limiter = AsyncTokenBucketLimiter(rate=4.0, capacity=4.0)
+        # API 429 지연 방지용 Token Bucket Limiter (키움 차트 TR 안전 수율 초당 1회)
+        self.rate_limiter = AsyncTokenBucketLimiter(rate=1.0, capacity=1.0)
         
         self.config_file = config_file
         self.load_config()
