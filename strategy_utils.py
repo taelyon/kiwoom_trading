@@ -116,20 +116,35 @@ def evaluate_strategies(strategies, safe_locals, code="", strategy_type=""):
                 strategy_name = strategy.get('name', '전략')
                 if code:
                     logger.info(f"✅ [{code}] {strategy_type} '{strategy_name}' 조건 충족!")
-                    # 매수/매도 시 사용된 지표들의 실제 값을 파싱하여 로그에 출력
+                    # 매수/매도 시 판단 근거가 된 주요 기술적 지표 데이터 전체를 로그에 출력
                     try:
                         import ast
                         tree = ast.parse(condition)
-                        var_names = set(node.id for node in ast.walk(tree) if isinstance(node, ast.Name))
+                        cond_vars = set(node.id for node in ast.walk(tree) if isinstance(node, ast.Name))
                         
-                        log_msg = f"💡 [{code}] '{strategy_name}' 체결 시 지표값:"
-                        for var in var_names:
+                        # DB 및 전략 판단 핵심 지표 목록
+                        key_indicators = [
+                            'AI_SCORE', 'current_price', 'buy_price', 'current_profit_pct',
+                            'from_peak_pct', 'highest_price', 'tick_strength', 'market_kosdaq_roc',
+                            'tick_rsi', 'tick_macd_hist', 'tick_disparity20', 'tick_bb_position',
+                            'tick_velocity', 'tick_price_roc', 'tick_vol_roc'
+                        ]
+                        
+                        # 조건식 변수 + 주요 핵심 지표 융합 (중복 제거)
+                        target_vars = list(dict.fromkeys(list(cond_vars) + key_indicators))
+                        
+                        log_msg = f"📊 [{code}] '{strategy_name}' ({strategy_type}) 판단 근거 지표 데이터:"
+                        for var in target_vars:
                             if var in safe_locals:
                                 val = safe_locals[var]
                                 if type(val).__name__ in ('ndarray', 'Series'):
                                     val = val.tolist()
                                 if isinstance(val, (list, tuple)):
-                                    log_msg += f"\n  - {var}: ...{val[-3:] if len(val) >= 3 else val}"
+                                    last_val = val[-1] if len(val) > 0 else 0
+                                    if isinstance(last_val, float):
+                                        log_msg += f"\n  - {var}: {last_val:.4f}"
+                                    else:
+                                        log_msg += f"\n  - {var}: {last_val}"
                                 else:
                                     if isinstance(val, float):
                                         log_msg += f"\n  - {var}: {val:.4f}"
@@ -137,7 +152,7 @@ def evaluate_strategies(strategies, safe_locals, code="", strategy_type=""):
                                         log_msg += f"\n  - {var}: {val}"
                         logger.info(log_msg)
                     except Exception as parse_ex:
-                        logger.debug(f"조건 변수 파싱 실패: {parse_ex}")
+                        logger.debug(f"지표 정보 로깅 중 오류: {parse_ex}")
 
                 return True, strategy
                 
