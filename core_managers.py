@@ -1420,12 +1420,30 @@ class AccountManager:
                     
                     prime_cash = getattr(self.parent.trader, 'prime_cash', 0)
                     available_cash = getattr(self.parent.trader, '_cash_cache', 0)
-                    if prime_cash > 0:
-                        total_assets = available_cash + total_purchase_amount + total_eval_pl_amount
-                        account_profit_rate = ((total_assets - prime_cash) / prime_cash) * 100
-                        self.logger.debug(f"계좌 총수익률: {account_profit_rate:.2f}% (총자산: {total_assets:,}원)")
-                        if hasattr(self.parent.trader, 'check_circuit_breaker'):
-                            self.parent.trader.check_circuit_breaker(account_profit_rate)
+                    current_total_assets = available_cash + total_purchase_amount + total_eval_pl_amount
+                    
+                    # 1) 당일 실현 손익 조회 시도 (ka10170)
+                    daily_realized_profit = 0.0
+                    try:
+                        if hasattr(self.parent.trader, 'client') and hasattr(self.parent.trader.client, 'get_daily_realized_profit'):
+                            daily_realized_profit, _ = await self.parent.trader.client.get_daily_realized_profit()
+                    except Exception:
+                        daily_realized_profit = 0.0
+
+                    # 2) 당일 총 손익 = 당일 실현 손익 + 현재 보유종목 평가 손익
+                    daily_total_pnl = daily_realized_profit + total_eval_pl_amount
+                    
+                    # 3) 당일 시작 자산 기준 = 현재 총 자산 - 당일 총 손익
+                    today_start_assets = current_total_assets - daily_total_pnl
+                    if today_start_assets <= 0:
+                        today_start_assets = prime_cash if prime_cash > 0 else current_total_assets
+                    
+                    # 4) 당일 계좌 손익률 (%) 계산 (오늘 하루 동안 일어난 손실률)
+                    daily_account_profit_rate = (daily_total_pnl / today_start_assets) * 100 if today_start_assets > 0 else 0.0
+                    self.logger.debug(f"당일 계좌 손익률: {daily_account_profit_rate:.2f}% (당일총손익: {daily_total_pnl:+,}원, 시작자산: {today_start_assets:,}원)")
+                    
+                    if hasattr(self.parent.trader, 'check_circuit_breaker'):
+                        self.parent.trader.check_circuit_breaker(daily_account_profit_rate)
                 else:
                     self.logger.warning("⚠️ 계좌평가잔고내역 조회 실패")
             except Exception as eval_ex:
