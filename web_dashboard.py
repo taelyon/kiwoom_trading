@@ -1551,7 +1551,14 @@ HTML_CONTENT = """
                 
                 <!-- 하단 실시간 로그 영역 (좌측 영역 하단으로 이동) -->
                 <div class="glass-card terminal-box">
-                    <div class="section-title" style="margin-bottom:12px;">실시간 자동매매 로그</div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                        <div class="section-title" style="margin-bottom:0;">실시간 자동매매 로그</div>
+                        <div class="log-filter-group" style="display: flex; gap: 6px;">
+                            <button id="btnLogFilterAll" class="btn-primary log-filter-btn" style="padding: 3px 8px; font-size: 11px; background: rgba(0, 242, 254, 0.4); border-color: rgba(0, 242, 254, 0.8);" onclick="setLogFilter('all')">전체</button>
+                            <button id="btnLogFilterTrade" class="btn-primary log-filter-btn" style="padding: 3px 8px; font-size: 11px; background: rgba(255, 255, 255, 0.1); border-color: rgba(255, 255, 255, 0.2);" onclick="setLogFilter('trade')">📈 매매이력</button>
+                            <button id="btnLogFilterError" class="btn-primary log-filter-btn" style="padding: 3px 8px; font-size: 11px; background: rgba(255, 255, 255, 0.1); border-color: rgba(255, 255, 255, 0.2);" onclick="setLogFilter('error')">⚠️ 경고/에러</button>
+                        </div>
+                    </div>
                     <div id="terminalBody" class="terminal-logs">
                         <div class="log-line"><span class="log-time">[00:00:00]</span> <span class="log-lvl-info">SYSTEM</span> <span>실시간 로그 대기 중...</span></div>
                     </div>
@@ -2643,6 +2650,38 @@ HTML_CONTENT = """
             }
         }
 
+        let currentLogFilter = 'all';
+
+        function setLogFilter(filterType) {
+            currentLogFilter = filterType;
+            const btnAll = document.getElementById('btnLogFilterAll');
+            const btnTrade = document.getElementById('btnLogFilterTrade');
+            const btnError = document.getElementById('btnLogFilterError');
+
+            if (btnAll) btnAll.style.background = filterType === 'all' ? 'rgba(0, 242, 254, 0.4)' : 'rgba(255, 255, 255, 0.1)';
+            if (btnTrade) btnTrade.style.background = filterType === 'trade' ? 'rgba(0, 242, 254, 0.4)' : 'rgba(255, 255, 255, 0.1)';
+            if (btnError) btnError.style.background = filterType === 'error' ? 'rgba(255, 75, 75, 0.4)' : 'rgba(255, 255, 255, 0.1)';
+
+            const container = document.getElementById('terminalBody');
+            if (container) {
+                const rows = container.getElementsByClassName('log-line');
+                for (let row of rows) {
+                    const txt = row.innerText || '';
+                    const isTrade = txt.includes('[BUY_SIGNAL]') || txt.includes('[SELL_SIGNAL]') || txt.includes('[ORDER_EXEC]') || txt.includes('매수') || txt.includes('매도');
+                    const isError = txt.includes('WARNING') || txt.includes('ERROR') || txt.includes('CRITICAL') || txt.includes('⚠️') || txt.includes('❌');
+
+                    if (filterType === 'all') {
+                        row.style.display = 'flex';
+                    } else if (filterType === 'trade') {
+                        row.style.display = isTrade ? 'flex' : 'none';
+                    } else if (filterType === 'error') {
+                        row.style.display = isError ? 'flex' : 'none';
+                    }
+                }
+                container.scrollTop = container.scrollHeight;
+            }
+        }
+
         // 개별 로그 렌더링 함수
         function renderLog(log) {
             const container = document.getElementById('terminalBody');
@@ -2662,6 +2701,18 @@ HTML_CONTENT = """
             if (log.level === 'WARNING') lvlClass = "log-lvl-warn";
             else if (log.level === 'ERROR' || log.level === 'CRITICAL') lvlClass = "log-lvl-err";
             else if (log.level === 'DEBUG') lvlClass = "log-lvl-dbg";
+
+            const txt = (log.message || '') + (log.level || '');
+            const isTrade = txt.includes('[BUY_SIGNAL]') || txt.includes('[SELL_SIGNAL]') || txt.includes('[ORDER_EXEC]') || txt.includes('매수') || txt.includes('매도');
+            const isError = log.level === 'WARNING' || log.level === 'ERROR' || log.level === 'CRITICAL' || txt.includes('⚠️') || txt.includes('❌');
+
+            if (currentLogFilter === 'trade' && !isTrade) {
+                row.style.display = 'none';
+            } else if (currentLogFilter === 'error' && !isError) {
+                row.style.display = 'none';
+            } else {
+                row.style.display = 'flex';
+            }
 
             row.innerHTML = `
                 <span class="log-time">[${log.timestamp}]</span>

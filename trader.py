@@ -286,7 +286,11 @@ class KiwoomTrader:
                     
                     if self.parent and hasattr(self.parent, 'on_order_result'):
                         self.parent.on_order_result(code, "buy", quantity, price, True)
-                    self.logger.debug(f"✅ 매수 주문 성공: {code} {quantity}주")
+                    
+                    order_msg = f"[ORDER_EXEC] 💰 [{code}] 매수 주문 성공: {quantity}주 (전략: {strategy})"
+                    self.logger.info(order_msg)
+                    import logging
+                    logging.getLogger("trades").info(order_msg)
                     return True
                 else:
                     if code in self.pending_buy_orders:
@@ -402,6 +406,11 @@ class KiwoomTrader:
                 
                 if self.parent and hasattr(self.parent, 'on_order_result'):
                     self.parent.on_order_result(code, "sell", quantity, price, True)
+                
+                sell_order_msg = f"[ORDER_EXEC] 💰 [{code}] 매도 주문 성공: {quantity}주 (전략: {strategy})"
+                self.logger.info(sell_order_msg)
+                import logging
+                logging.getLogger("trades").info(sell_order_msg)
                 
                 if code in self.pending_sell_orders:
                     self.pending_sell_orders.discard(code)

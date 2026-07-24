@@ -115,7 +115,14 @@ def evaluate_strategies(strategies, safe_locals, code="", strategy_type=""):
             if result:
                 strategy_name = strategy.get('name', '전략')
                 if code:
-                    logger.info(f"✅ [{code}] {strategy_type} '{strategy_name}' 조건 충족!")
+                    tag = "[BUY_SIGNAL] 📈" if strategy_type == "매수" else "[SELL_SIGNAL] 📉"
+                    signal_msg = f"{tag} [{code}] {strategy_type} '{strategy_name}' 조건 충족!"
+                    logger.info(signal_msg)
+                    
+                    # 매수/매도 전용 로거에도 기록 (trades.log)
+                    trade_logger = logging.getLogger("trades")
+                    trade_logger.info(signal_msg)
+                    
                     # 매수/매도 시 판단 근거가 된 주요 기술적 지표 데이터 전체를 로그에 출력
                     try:
                         import ast
@@ -151,6 +158,7 @@ def evaluate_strategies(strategies, safe_locals, code="", strategy_type=""):
                                     else:
                                         log_msg += f"\n  - {var}: {val}"
                         logger.info(log_msg)
+                        trade_logger.info(log_msg)
                     except Exception as parse_ex:
                         logger.debug(f"지표 정보 로깅 중 오류: {parse_ex}")
 

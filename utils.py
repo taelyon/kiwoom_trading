@@ -133,19 +133,39 @@ def setup_logging():
         for handler in root_logger.handlers[:]:
             root_logger.removeHandler(handler)
         
-        # 파일 핸들러 (최근 7일치만 보관)
+        # 1. 메인 파일 핸들러 (kiwoom_trader.log: INFO 레벨 이상, 일별 롤링 7일 보관)
         from logging.handlers import TimedRotatingFileHandler
         file_handler = TimedRotatingFileHandler(
             log_filename, when='midnight', interval=1, backupCount=7, encoding='utf-8'
         )
-        # 파일에는 무조건 DEBUG까지 상세하게 저장되도록 고정
-        file_handler.setLevel(logging.DEBUG)
+        file_handler.setLevel(logging.INFO)
         file_handler.setFormatter(formatter)
         root_logger.addHandler(file_handler)
         
+        # 2. 디버그 전용 파일 핸들러 (kiwoom_debug.log: DEBUG 레벨 전체, 일별 롤링 3일 보관)
+        debug_filename = f"{log_dir}/kiwoom_debug.log"
+        debug_file_handler = TimedRotatingFileHandler(
+            debug_filename, when='midnight', interval=1, backupCount=3, encoding='utf-8'
+        )
+        debug_file_handler.setLevel(logging.DEBUG)
+        debug_file_handler.setFormatter(formatter)
+        root_logger.addHandler(debug_file_handler)
+
+        # 3. 매매 전용 전용 로거 & 파일 핸들러 (trades.log: 매매 관련 핵심 이벤트만 기록, 30일 보관)
+        trades_filename = f"{log_dir}/trades.log"
+        trades_file_handler = TimedRotatingFileHandler(
+            trades_filename, when='midnight', interval=1, backupCount=30, encoding='utf-8'
+        )
+        trades_file_handler.setLevel(logging.INFO)
+        trades_file_handler.setFormatter(formatter)
+        
+        trade_logger = logging.getLogger("trades")
+        trade_logger.setLevel(logging.INFO)
+        trade_logger.addHandler(trades_file_handler)
+        trade_logger.propagate = True  # root 및 대시보드 로거에도 전달
+        
         # 콘솔/터미널 핸들러
         console_handler = logging.StreamHandler()
-        # 콘솔(화면)에는 환경에 따라(도커면 INFO) 깔끔하게 출력
         console_handler.setLevel(log_level)
         console_handler.setFormatter(formatter)
         root_logger.addHandler(console_handler)
