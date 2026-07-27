@@ -665,7 +665,9 @@ class Backtester:
                             
                             locals_dict = base_locals_dict.copy()
                             locals_dict['code'] = current_code
-                            locals_dict['datetime'] = row['datetime']
+                            dt_obj = pd.to_datetime(row['datetime'])
+                            locals_dict['datetime'] = dt_obj
+                            locals_dict['feature_time'] = max(0, min(390, (dt_obj.hour * 60 + dt_obj.minute) - (9 * 60)))
                             locals_dict['current_price'] = current_price
                             locals_dict['profit_pct'] = real_profit_pct
                             locals_dict['current_profit_pct'] = real_profit_pct
@@ -808,7 +810,9 @@ class Backtester:
                                     locals_dict['market_kosdaq_roc'] = float(sd['precomputed']['market_kosdaq_roc'][idx])
                                 
                                 locals_dict['code'] = current_code
-                                locals_dict['datetime'] = row['datetime']
+                                dt_obj = pd.to_datetime(row['datetime'])
+                                locals_dict['datetime'] = dt_obj
+                                locals_dict['feature_time'] = max(0, min(390, (dt_obj.hour * 60 + dt_obj.minute) - (9 * 60)))
                                 locals_dict['current_price'] = current_price
                                 
                                 # --- 누락된 파생 지표 동기화 (strategy_utils.py 와 동일하게 구성) ---
