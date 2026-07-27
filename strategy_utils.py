@@ -6,6 +6,7 @@
 import json
 import logging
 import traceback
+import time
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 
@@ -474,7 +475,18 @@ def prepare_buy_strategy_locals(code, tick_chart_data, min_chart_data, portfolio
         
         # 백테스팅 특화 변수들
         locals_dict['code'] = code
-        locals_dict['current_time'] = datetime.now()
+        curr_dt = datetime.now()
+        if not tick_chart_data.empty and 'time' in tick_chart_data.columns:
+            try:
+                last_t = tick_chart_data['time'].iloc[-1]
+                if isinstance(last_t, str):
+                    curr_dt = datetime.strptime(str(last_t), '%Y-%m-%d %H:%M:%S')
+                elif isinstance(last_t, datetime):
+                    curr_dt = last_t
+            except Exception:
+                pass
+        locals_dict['current_time'] = curr_dt
+        locals_dict['feature_time'] = max(0, min(390, (curr_dt.hour * 60 + curr_dt.minute) - (9 * 60)))
         
         # 거래량 관련 변수
         if not tick_chart_data.empty:
@@ -514,24 +526,45 @@ def prepare_buy_strategy_locals(code, tick_chart_data, min_chart_data, portfolio
         # ==========================================================
         if LGBM_MODEL and 'TICK_VELOCITY' in locals_dict:
             try:
-                # 입력 벡터 준비 (학습 때와 동일한 순서여야 함: strength, velocity, imbalance, relative_pos)
-                # 데이터가 없으면 기본값 0 처리
-                feature_strength = locals_dict.get('tick_strength', [0])[-1] if isinstance(locals_dict.get('tick_strength'), (list, np.ndarray)) else 0
+                # 1. 체결강도 (tick_strength) - 배열 및 스칼라 모두 지원
+                str_val = locals_dict.get('tick_strength', 0.0)
+                if isinstance(str_val, (list, np.ndarray)) and len(str_val) > 0:
+                    feature_strength = float(str_val[-1])
+                elif isinstance(str_val, (int, float)):
+                    feature_strength = float(str_val)
+                else:
+                    feature_strength = 0.0
                 
-                # TICK_VELOCITY (배열 보장됨)
+                # 2. TICK_VELOCITY (배열 및 스칼라 지원)
                 tv_val = locals_dict.get('tick_velocity')
-                raw_velocity = tv_val[-1] if isinstance(tv_val, (list, np.ndarray)) and len(tv_val) > 0 else 999999.0
-                # [B] 로그 정규화 적용 (학습 시와 동일한 변환)
-                feature_velocity = np.log1p(raw_velocity)
+                if isinstance(tv_val, (list, np.ndarray)) and len(tv_val) > 0:
+                    raw_velocity = float(tv_val[-1])
+                elif isinstance(tv_val, (int, float)):
+                    raw_velocity = float(tv_val)
+                else:
+                    raw_velocity = 999999.0
+                feature_velocity = np.log1p(max(0.0, raw_velocity))
 
-                # ORDER_BOOK_IMBALANCE (배열 보장됨)
+                # 3. ORDER_BOOK_IMBALANCE
                 obi_val = locals_dict.get('tick_order_book_imbalance')
-                feature_imbalance = obi_val[-1] if isinstance(obi_val, (list, np.ndarray)) and len(obi_val) > 0 else 0.0
+                if isinstance(obi_val, (list, np.ndarray)) and len(obi_val) > 0:
+                    feature_imbalance = float(obi_val[-1])
+                elif isinstance(obi_val, (int, float)):
+                    feature_imbalance = float(obi_val)
+                else:
+                    feature_imbalance = 0.0
 
-                feature_relative = locals_dict.get('min3_relative_position', [0])[-1] if isinstance(locals_dict.get('min3_relative_position'), (list, np.ndarray)) else 0
+                # 4. min3_relative_position
+                rel_val = locals_dict.get('min3_relative_position', 0.0)
+                if isinstance(rel_val, (list, np.ndarray)) and len(rel_val) > 0:
+                    feature_relative = float(rel_val[-1])
+                elif isinstance(rel_val, (int, float)):
+                    feature_relative = float(rel_val)
+                else:
+                    feature_relative = 0.0
                 
                 # Volume MA Ratio (스칼라 값)
-                feature_ma_ratio = locals_dict.get('tick_volume_ma_ratio', 0.0)
+                feature_ma_ratio = float(locals_dict.get('tick_volume_ma_ratio', 0.0))
                 
                 
 
@@ -630,7 +663,7 @@ def prepare_buy_strategy_locals(code, tick_chart_data, min_chart_data, portfolio
                 else:
                     feature_tic_disparity20 = 100.0
                 
-                # [신규 추가] 볼린저 밴드 포지션 (tick_bb_position)
+                # [신규 추가] 7. 볼린저 밴드 포지션 (tick_bb_position)
                 if isinstance(close_arr, (list, np.ndarray)) and len(close_arr) >= 20:
                     recent_closes = close_arr[-20:]
                     std20 = np.std(recent_closes, ddof=1)
@@ -642,6 +675,9 @@ def prepare_buy_strategy_locals(code, tick_chart_data, min_chart_data, portfolio
                         feature_tic_bb_position = 0.5
                 else:
                     feature_tic_bb_position = 0.5
+                
+                # 레거시 모델 차원 매핑 호환용 닉네임
+                feature_bb_pos = feature_tic_bb_position
                 
                 # [신규 추가] 8. 호가 잔량 비율 (tick_imbalance)
                 imbalance_arr = locals_dict.get('tick_imbalance', [])
@@ -893,29 +929,62 @@ def prepare_sell_strategy_locals(code, tick_chart_data, min_chart_data, buy_pric
         current_hour = datetime.now().hour
         locals_dict['after_market_close'] = current_hour >= 15  # 15시 이후 (장 마감 후)
         locals_dict['market_open'] = 9 <= current_hour <= 15  # 장 개장 시간
+        curr_dt = datetime.now()
+        if not tick_chart_data.empty and 'time' in tick_chart_data.columns:
+            try:
+                last_t = tick_chart_data['time'].iloc[-1]
+                if isinstance(last_t, str):
+                    curr_dt = datetime.strptime(str(last_t), '%Y-%m-%d %H:%M:%S')
+                elif isinstance(last_t, datetime):
+                    curr_dt = last_t
+            except Exception:
+                pass
+        locals_dict['feature_time'] = max(0, min(390, (curr_dt.hour * 60 + curr_dt.minute) - (9 * 60)))
         
         # ==========================================================
         # AI 실시간 추론 (LightGBM Inference)
         # ==========================================================
         if LGBM_MODEL and 'TICK_VELOCITY' in locals_dict:
             try:
-                # 입력 벡터 준비
-                feature_strength = locals_dict.get('tick_strength', [0])[-1] if isinstance(locals_dict.get('tick_strength'), (list, np.ndarray)) else 0
+                # 1. 체결강도 (tick_strength) - 배열 및 스칼라 모두 지원
+                str_val = locals_dict.get('tick_strength', 0.0)
+                if isinstance(str_val, (list, np.ndarray)) and len(str_val) > 0:
+                    feature_strength = float(str_val[-1])
+                elif isinstance(str_val, (int, float)):
+                    feature_strength = float(str_val)
+                else:
+                    feature_strength = 0.0
                 
-                # TICK_VELOCITY (배열 보장됨)
+                # 2. TICK_VELOCITY (배열 및 스칼라 지원)
                 tv_val = locals_dict.get('tick_velocity')
-                raw_velocity = tv_val[-1] if isinstance(tv_val, (list, np.ndarray)) and len(tv_val) > 0 else 999999.0
-                # [B] 로그 정규화 적용 (학습 시와 동일한 변환)
-                feature_velocity = np.log1p(raw_velocity)
+                if isinstance(tv_val, (list, np.ndarray)) and len(tv_val) > 0:
+                    raw_velocity = float(tv_val[-1])
+                elif isinstance(tv_val, (int, float)):
+                    raw_velocity = float(tv_val)
+                else:
+                    raw_velocity = 999999.0
+                feature_velocity = np.log1p(max(0.0, raw_velocity))
 
-                # ORDER_BOOK_IMBALANCE (배열 보장됨)
+                # 3. ORDER_BOOK_IMBALANCE
                 obi_val = locals_dict.get('tick_order_book_imbalance')
-                feature_imbalance = obi_val[-1] if isinstance(obi_val, (list, np.ndarray)) and len(obi_val) > 0 else 0.0
+                if isinstance(obi_val, (list, np.ndarray)) and len(obi_val) > 0:
+                    feature_imbalance = float(obi_val[-1])
+                elif isinstance(obi_val, (int, float)):
+                    feature_imbalance = float(obi_val)
+                else:
+                    feature_imbalance = 0.0
 
-                feature_relative = locals_dict.get('min3_relative_position', [0])[-1] if isinstance(locals_dict.get('min3_relative_position'), (list, np.ndarray)) else 0
+                # 4. min3_relative_position
+                rel_val = locals_dict.get('min3_relative_position', 0.0)
+                if isinstance(rel_val, (list, np.ndarray)) and len(rel_val) > 0:
+                    feature_relative = float(rel_val[-1])
+                elif isinstance(rel_val, (int, float)):
+                    feature_relative = float(rel_val)
+                else:
+                    feature_relative = 0.0
                 
                 # Volume MA Ratio (스칼라 값)
-                feature_ma_ratio = locals_dict.get('tick_volume_ma_ratio', 0.0)
+                feature_ma_ratio = float(locals_dict.get('tick_volume_ma_ratio', 0.0))
                 
                 # 추가 피처 (신규 모델용)
                 feature_turnover = locals_dict.get('tick_turnover', [0])[-1] if isinstance(locals_dict.get('tick_turnover'), (list, np.ndarray)) else 0
@@ -985,7 +1054,17 @@ def prepare_sell_strategy_locals(code, tick_chart_data, min_chart_data, buy_pric
                     else:
                         feature_vol_roc = 1.0
 
-                    # (삭제됨) feature_min3_trend_agree, feature_tic_amount_spike
+                    # [복원] feature_spike (tic_amount_spike) 계산 로직
+                    tick_close = locals_dict.get('tick_close', [])
+                    tick_volume = locals_dict.get('tick_volume', [])
+                    if len(tick_close) >= 11 and len(tick_volume) >= 11:
+                        recent_amt = tick_close[-1] * tick_volume[-1]
+                        prev_10_amt = [c * v for c, v in zip(tick_close[-11:-1], tick_volume[-11:-1])]
+                        avg_amt = sum(prev_10_amt) / 10.0
+                        feature_spike = recent_amt / avg_amt if avg_amt > 0 else 0.0
+                    else:
+                        feature_spike = 0.0
+
                     tick_ma5 = locals_dict.get('tick_MA5', [0])
                     tick_ma20 = locals_dict.get('tick_MA20', [0])
                     feature_tick_ma_spread = (tick_ma5[-1] - tick_ma20[-1]) / tick_ma20[-1] if (len(tick_ma5) > 0 and len(tick_ma20) > 0 and tick_ma20[-1] > 0) else 0.0
@@ -1026,6 +1105,11 @@ def prepare_sell_strategy_locals(code, tick_chart_data, min_chart_data, buy_pric
                             feature_tic_bb_position = 0.5
                     else:
                         feature_tic_bb_position = 0.5
+
+                    # 레거시 모델 차원 매핑 호환용 닉네임 및 호가 변수 안전 초기화
+                    feature_bb_pos = feature_tic_bb_position
+                    feature_turnover = 0.0
+                    sell_1 = sell_2 = sell_3 = buy_1 = buy_2 = buy_3 = 0.0
 
                     # [신규 추가] 8. 호가 잔량 비율 (tick_imbalance)
                     imbalance_arr = locals_dict.get('tick_imbalance', [])
