@@ -1461,6 +1461,99 @@ class ChartDataCache:
                                 col_name = f"min3_{k.lower()}" if k.lower() != 'time' else None
                                 if col_name:
                                     snapshot[col_name] = v[-1]
+
+                        # [신규 파생 지표 9종 DB 스냅샷 즉석 연산]
+                        try:
+                            closes = tick_data_snap.get('close', [])
+                            highs = tick_data_snap.get('high', [])
+                            lows = tick_data_snap.get('low', [])
+                            vols = tick_data_snap.get('volume', [])
+                            ma5s = tick_data_snap.get('MA5', [])
+                            ma20s = tick_data_snap.get('MA20', [])
+                            velocities = tick_data_snap.get('VELOCITY', [])
+                            
+                            n_c = len(closes)
+                            if n_c >= 1:
+                                c_last = float(closes[-1])
+                                h_last = float(highs[-1]) if len(highs) >= 1 else c_last
+                                l_last = float(lows[-1]) if len(lows) >= 1 else c_last
+                                
+                                # 1. tick_tail_ratio
+                                snapshot['tick_tail_ratio'] = (h_last - c_last) / (h_last - l_last) if (h_last - l_last) > 0 else 0.0
+                                
+                                # 2. tick_spread
+                                snapshot['tick_spread'] = (h_last - l_last) / c_last if c_last > 0 else 0.0
+                                
+                                # 3. tick_price_roc
+                                if n_c >= 11 and float(closes[-11]) > 0:
+                                    snapshot['tick_price_roc'] = (c_last - float(closes[-11])) / float(closes[-11])
+                                else:
+                                    snapshot['tick_price_roc'] = 0.0
+                                    
+                                # 4. tick_vol_roc
+                                if len(vols) >= 10:
+                                    vol_recent_5 = sum(vols[-5:])
+                                    vol_prev_5 = sum(vols[-10:-5])
+                                    snapshot['tick_vol_roc'] = (vol_recent_5 / vol_prev_5) if vol_prev_5 > 0 else 1.0
+                                else:
+                                    snapshot['tick_vol_roc'] = 1.0
+                                    
+                                # 5. tick_impulse
+                                vel_last = float(velocities[-1]) if len(velocities) >= 1 else 0.0
+                                log_vel = float(np.log1p(max(0, vel_last)))
+                                snapshot['tick_impulse'] = log_vel * snapshot['tick_price_roc']
+                                
+                                # 6. tick_ma_spread
+                                if len(ma5s) >= 1 and len(ma20s) >= 1 and float(ma20s[-1]) > 0:
+                                    snapshot['tick_ma_spread'] = (float(ma5s[-1]) - float(ma20s[-1])) / float(ma20s[-1])
+                                else:
+                                    snapshot['tick_ma_spread'] = 0.0
+                                    
+                                # 7. tick_disparity20
+                                if len(ma20s) >= 1 and float(ma20s[-1]) > 0:
+                                    snapshot['tick_disparity20'] = (c_last / float(ma20s[-1])) * 100.0
+                                else:
+                                    snapshot['tick_disparity20'] = 100.0
+                                    
+                                # 8. tick_bb_position
+                                if n_c >= 20 and len(ma20s) >= 1:
+                                    recent_20_c = [float(x) for x in closes[-20:]]
+                                    std20 = float(np.std(recent_20_c, ddof=1)) if len(recent_20_c) >= 2 else 0.0
+                                    ma20_last = float(ma20s[-1])
+                                    bb_upper = ma20_last + (2 * std20)
+                                    bb_lower = ma20_last - (2 * std20)
+                                    if (bb_upper - bb_lower) > 0:
+                                        snapshot['tick_bb_position'] = (c_last - bb_lower) / (bb_upper - bb_lower)
+                                    else:
+                                        snapshot['tick_bb_position'] = 0.5
+                                else:
+                                    snapshot['tick_bb_position'] = 0.5
+                                    
+                                # 9. tick_atr_ratio
+                                if n_c >= 20 and len(highs) >= 20 and len(lows) >= 20:
+                                    h_20 = np.array(highs[-20:], dtype=float)
+                                    l_20 = np.array(lows[-20:], dtype=float)
+                                    c_20 = np.array(closes[-20:], dtype=float)
+                                    prev_c_20 = np.roll(c_20, 1)
+                                    prev_c_20[0] = c_20[0]
+                                    tr1 = h_20 - l_20
+                                    tr2 = np.abs(h_20 - prev_c_20)
+                                    tr3 = np.abs(l_20 - prev_c_20)
+                                    tr_20 = np.maximum(tr1, np.maximum(tr2, tr3))
+                                    atr20_val = float(np.mean(tr_20))
+                                    snapshot['tick_atr_ratio'] = (atr20_val / c_last) * 100.0 if c_last > 0 else 0.0
+                                else:
+                                    snapshot['tick_atr_ratio'] = 0.0
+
+                                # 10. tick_imbalance
+                                imb_arr = tick_data_snap.get('tick_imbalance', [])
+                                if isinstance(imb_arr, list) and len(imb_arr) >= 1:
+                                    snapshot['tick_imbalance'] = float(imb_arr[-1])
+                                else:
+                                    snapshot['tick_imbalance'] = 0.5
+                        except Exception as calc_ex:
+                            self.logger.error(f"파생 지표 스냅샷 연산 실패 ({stock_code}): {calc_ex}")
+
                         if 'db_save_queue' not in cached_data:
                             cached_data['db_save_queue'] = []
                         cached_data['db_save_queue'].append(snapshot)
