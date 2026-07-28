@@ -236,8 +236,8 @@ def datetime_to_timestamp(dt_val):
         return int(time.time())
 
 
-# 스레드 안전하게 로그를 모으는 덱(Queue)
-log_queue = collections.deque(maxlen=100)
+# 스레드 안전하게 로그를 모으는 덱(Queue) - 로그 개수 제한 해제 (무제한)
+log_queue = collections.deque(maxlen=100000)
 connected_clients = set()
 main_window_ref = None
 client_locks = {}
@@ -2722,11 +2722,7 @@ HTML_CONTENT = """
 
             container.appendChild(row);
             
-            // 주의: 여기서 scrollTop을 매번 계산하면 브라우저 강제 리플로우(Reflow)가 발생해 심각한 렉(20초 지연)을 유발합니다.
-            // 스크롤 갱신은 호출하는 쪽(appendLog나 log_batch 처리부)에서 한 번만 수행하도록 위임합니다.
-            while (container.childNodes.length > 500) {
-                container.removeChild(container.firstChild);
-            }
+            // 로그 개수 제한 없이 모든 실시간 매매 로그를 터미널 화면에 누적 표시합니다.
         }
 
         // 로컬 스토리지에 저장된 로그 불러와 출력 (현재 사용 안함)
