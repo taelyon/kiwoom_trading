@@ -105,10 +105,17 @@ class Backtester:
                 kosdaq_df['market_kosdaq_roc'] = np.where(daily_open > 0, 
                                                         (kosdaq_df['kosdaq_close'] - daily_open) / daily_open, 
                                                         0.0)
+                # 수치 단위 정규화 (절대값 > 0.5 이면 퍼센트 수치이므로 100.0으로 나눔)
+                kosdaq_df['market_kosdaq_roc'] = np.where(np.abs(kosdaq_df['market_kosdaq_roc']) > 0.5,
+                                                         kosdaq_df['market_kosdaq_roc'] / 100.0,
+                                                         kosdaq_df['market_kosdaq_roc'])
                 
                 df = df.sort_values('dt_obj').dropna(subset=['dt_obj'])
                 df = pd.merge_asof(df, kosdaq_df[['dt_obj', 'market_kosdaq_roc']], on='dt_obj', direction='backward')
                 df['market_kosdaq_roc'] = df['market_kosdaq_roc'].fillna(0.0)
+                df['market_kosdaq_roc'] = np.where(np.abs(df['market_kosdaq_roc']) > 0.5,
+                                                  df['market_kosdaq_roc'] / 100.0,
+                                                  df['market_kosdaq_roc'])
                 df = df.sort_values('datetime')
                 df.drop(columns=['dt_obj'], inplace=True)
             else:
@@ -650,7 +657,8 @@ class Backtester:
                             base_locals_dict['AI_SCORE'] = 0.0
                             
                         if 'market_kosdaq_roc' in sd['precomputed'] and idx > 0:
-                            base_locals_dict['market_kosdaq_roc'] = float(sd['precomputed']['market_kosdaq_roc'][idx-1])
+                            raw_k = float(sd['precomputed']['market_kosdaq_roc'][idx-1])
+                            base_locals_dict['market_kosdaq_roc'] = raw_k / 100.0 if abs(raw_k) > 0.5 else raw_k
                         else:
                             base_locals_dict['market_kosdaq_roc'] = 0.0
 
@@ -854,9 +862,10 @@ class Backtester:
                                 if 'AI_SCORE' in sd['precomputed']:
                                     locals_dict['AI_SCORE'] = float(sd['precomputed']['AI_SCORE'][idx])
                                 
-                                # market_kosdaq_roc도 스칼라로 변환 (배열이면 and 연산 시 에러 발생)
+                                # market_kosdaq_roc도 스칼라 및 소수점 비율 단위로 정규화
                                 if 'market_kosdaq_roc' in sd['precomputed']:
-                                    locals_dict['market_kosdaq_roc'] = float(sd['precomputed']['market_kosdaq_roc'][idx])
+                                    raw_k = float(sd['precomputed']['market_kosdaq_roc'][idx])
+                                    locals_dict['market_kosdaq_roc'] = raw_k / 100.0 if abs(raw_k) > 0.5 else raw_k
                                 
                                 locals_dict['code'] = current_code
                                 dt_obj = pd.to_datetime(row['datetime'])

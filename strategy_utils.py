@@ -686,10 +686,18 @@ def prepare_buy_strategy_locals(code, tick_chart_data, min_chart_data, portfolio
                 else:
                     feature_tic_imbalance = 0.5
                 
-                # [신규 추가] 9. 당일 코스닥 등락률 (market_kosdaq_roc)
-                feature_market_kosdaq_roc = 0.0
+                # [신규 추가] 9. 당일 코스닥 등락률 (market_kosdaq_roc - 소수점 비율 단위 보장)
+                raw_kosdaq_roc = 0.0
                 if realtime_metrics and 'market_kosdaq_roc' in realtime_metrics:
-                    feature_market_kosdaq_roc = realtime_metrics['market_kosdaq_roc']
+                    raw_kosdaq_roc = float(realtime_metrics['market_kosdaq_roc'])
+                elif 'market_kosdaq_roc' in locals_dict:
+                    raw_kosdaq_roc = float(locals_dict['market_kosdaq_roc'])
+                
+                # 수치 단위 정규화: 절대값이 0.5 초과 시 백분율(%) 수치이므로 100.0으로 나누어 소수점 비율로 변환
+                if abs(raw_kosdaq_roc) > 0.5:
+                    feature_market_kosdaq_roc = raw_kosdaq_roc / 100.0
+                else:
+                    feature_market_kosdaq_roc = raw_kosdaq_roc
                 locals_dict['market_kosdaq_roc'] = feature_market_kosdaq_roc
                 
                 # 모델 학습 시 사용된 피처 개수에 맞춰 동적으로 차원 맞추기
@@ -1118,10 +1126,18 @@ def prepare_sell_strategy_locals(code, tick_chart_data, min_chart_data, buy_pric
                     else:
                         feature_tic_imbalance = 0.5
 
-                    # [신규 추가] 9. 당일 코스닥 등락률 (market_kosdaq_roc)
-                    feature_market_kosdaq_roc = 0.0
+                    # [신규 추가] 9. 당일 코스닥 등락률 (market_kosdaq_roc - 소수점 비율 단위 보장)
+                    raw_kosdaq_roc = 0.0
                     if realtime_metrics and 'market_kosdaq_roc' in realtime_metrics:
-                        feature_market_kosdaq_roc = realtime_metrics['market_kosdaq_roc']
+                        raw_kosdaq_roc = float(realtime_metrics['market_kosdaq_roc'])
+                    elif 'market_kosdaq_roc' in locals_dict:
+                        raw_kosdaq_roc = float(locals_dict['market_kosdaq_roc'])
+                    
+                    # 수치 단위 정규화: 절대값이 0.5 초과 시 백분율(%) 수치이므로 100.0으로 나누어 소수점 비율로 변환
+                    if abs(raw_kosdaq_roc) > 0.5:
+                        feature_market_kosdaq_roc = raw_kosdaq_roc / 100.0
+                    else:
+                        feature_market_kosdaq_roc = raw_kosdaq_roc
                     locals_dict['market_kosdaq_roc'] = feature_market_kosdaq_roc
 
                     if num_features == 17:
