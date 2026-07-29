@@ -1456,6 +1456,26 @@ class ChartDataCache:
                                     col_name = f"tick_{k.lower()}" if k.lower() != 'time' else 'datetime'
                                 if col_name != 'datetime':
                                     snapshot[col_name] = v[-1]  # -1: 완성된 봉
+                                    
+                        # [단일 진실 출처 (Single Source of Truth) 구조]
+                        # 별도 이중 재계산 대신, 매수 판단에 실제로 사용된 오리지널 지표 전체(latest_eval_locals)를 DB 스냅샷으로 100% 동일 일원화하여 저장
+                        eval_locals = cached_data.get('latest_eval_locals', {})
+                        if eval_locals:
+                            for key, val in eval_locals.items():
+                                if key in ['code', 'datetime', 'feature_time', 'portfolio', 'buy_strategies', 'sell_strategies']:
+                                    continue
+                                # 스칼라 또는 numpy 배열의 마지막 값 추출
+                                if isinstance(val, (list, np.ndarray)) and len(val) > 0:
+                                    safe_v = float(val[-1])
+                                elif isinstance(val, (int, float, np.number)):
+                                    safe_v = float(val)
+                                else:
+                                    continue
+                                
+                                # 컬럼명 매핑 (예: tick_strength, tick_close, ai_score)
+                                col_name = key.lower()
+                                snapshot[col_name] = safe_v
+
                         for k, v in min_data_snap.items():
                             if isinstance(v, list) and len(v) >= 1:
                                 col_name = f"min3_{k.lower()}" if k.lower() != 'time' else None

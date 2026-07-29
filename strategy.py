@@ -406,11 +406,13 @@ class KiwoomStrategy:
                     code, tic_chart_data, min_chart_data, portfolio, realtime_metrics=realtime_metrics
                 )
                 
-                # 대시보드 차트 표시용으로 AI_SCORE 백업
+                # 대시보드 차트 표시 및 DB 스냅샷 완벽 동기화를 위해 실전 평가 지표 백업
                 if hasattr(self.parent, 'chart_cache') and self.parent.chart_cache:
-                    cache_data = self.parent.chart_cache.cache.get(code)
-                    if cache_data and 'AI_SCORE' in safe_locals:
-                        cache_data['latest_ai_score'] = safe_locals['AI_SCORE']
+                    cache_data = self.parent.chart_cache.get_cached_data(code)
+                    if cache_data:
+                        if 'AI_SCORE' in safe_locals:
+                            cache_data['latest_ai_score'] = safe_locals['AI_SCORE']
+                        cache_data['latest_eval_locals'] = safe_locals
 
                 # 전략이 없으면 매수 평가를 진행하지 않음
                 if not buy_strategies:

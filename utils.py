@@ -224,7 +224,7 @@ class ApiLimitManager:
     _request_intervals = {
         'tic_chart': 1.5,    # 틱 차트: 1.5초 간격 (429 에러 방지)
         'tick_chart': 1.5,   # 틱 차트 (명칭 매칭)
-        'order': 0.5,         # 주문: 0.5초 간격
+        'order': 0.05,        # [패스트트랙] 주문: 0.05초 (50ms) 초고속 즉시 전송
         'minute_chart': 1.5,  # 분봉 차트: 1.5초 간격 (429 에러 방지)
         'tic': 0.5,           # 틱 데이터: 0.5초 간격
         'deposit': 1.0,       # 예수금 조회: 1초 간격
@@ -235,12 +235,12 @@ class ApiLimitManager:
     @classmethod
     def _get_request_type(cls, operation_name):
         """요청 타입 결정"""
-        if '틱' in operation_name or 'tic' in operation_name.lower() or 'tick' in operation_name.lower():
+        if '주문' in operation_name or 'order' in operation_name.lower():
+            return 'order'
+        elif '틱' in operation_name or 'tic' in operation_name.lower() or 'tick' in operation_name.lower():
             return 'tick_chart'
         elif '분봉' in operation_name or 'minute' in operation_name.lower():
             return 'minute_chart'
-        elif '주문' in operation_name:
-            return 'order'
         elif '예수금' in operation_name:
             return 'deposit'
         else:
@@ -248,18 +248,22 @@ class ApiLimitManager:
     
     @classmethod
     async def check_api_limit_and_wait_async(cls, operation_name="API 요청", rqtype=0, request_type=None):
-        """API 제한 확인 및 대기 (개선된 병목 제어 버전)"""
+        """API 제한 확인 및 대기 (개선된 병목 제어 및 주문 패스트트랙 지원 버전)"""
         try:
             # 요청 타입별 간격 설정
             if request_type is None:
                 request_type = cls._get_request_type(operation_name)
-            interval = cls._request_intervals.get(request_type, cls._request_intervals['default'])
             
-            # 차트 요청들은 동일한 큐를 공유하여 동시 다발적인 요청 방지 (429 에러 방지)
-            queue_key = request_type
-            if request_type in ['tic_chart', 'tick_chart', 'minute_chart', 'tic', 'minute']:
+            # [주문 패스트트랙 최우선 처리] 매수/매도 주문은 다른 차트/조회 큐를 완전 우회
+            if request_type == 'order' or '주문' in operation_name:
+                queue_key = 'fast_track_order'
+                interval = 0.05  # 50ms 간격으로 최우선 즉시 송신
+            elif request_type in ['tic_chart', 'tick_chart', 'minute_chart', 'tic', 'minute']:
                 queue_key = 'chart_req'
                 interval = 1.5  # 차트 요청 간격 1.5초로 설정하여 429 예방 (안전 마진 대폭 확보)
+            else:
+                queue_key = request_type
+                interval = cls._request_intervals.get(request_type, cls._request_intervals['default'])
             
             # 임계 영역 보호 - 스레드 락 적용으로 레이스 컨디션 차단
             with cls._lock:
@@ -279,7 +283,11 @@ class ApiLimitManager:
             
             # 락을 해제한 상태에서 비동기 대기
             if wait_time > 0:
-                if wait_time > 1.0:
+                if queue_key == 'fast_track_order':
+                    # 주문 대기 시간은 최대 0.05초 초과 금지
+                    wait_time = min(0.05, wait_time)
+                    cls.logger.info(f"⚡ [주문 패스트트랙] {operation_name} {wait_time*1000:.1f}ms 대기 후 최우선 송신")
+                elif wait_time > 1.0:
                     cls.logger.warning(f"⏳ [API제한] {operation_name} 요청이 {wait_time:.1f}초 대기 중 (큐: {queue_key}, 간격: {interval}초)")
                 await asyncio.sleep(wait_time)
             
