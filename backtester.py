@@ -16,6 +16,49 @@ if not logger.handlers:
     logger.addHandler(handler)
     logger.setLevel(logging.INFO)
 
+def format_backtest_indicator_log(code, strategy_name, strategy_type, condition, safe_locals):
+    """실전 매매 실시간 로그와 동일한 판단 근거 지표 출력 포맷터"""
+    log_lines = []
+    try:
+        import ast
+        cond_vars = set()
+        if condition:
+            try:
+                tree = ast.parse(condition)
+                cond_vars = set(node.id for node in ast.walk(tree) if isinstance(node, ast.Name))
+            except Exception:
+                pass
+
+        key_indicators = [
+            'AI_SCORE', 'feature_time', 'current_price', 'buy_price', 'current_profit_pct',
+            'from_peak_pct', 'highest_price', 'tick_strength', 'market_kosdaq_roc',
+            'tick_rsi', 'tick_macd_hist', 'tick_disparity20', 'tick_bb_position',
+            'tick_velocity', 'tick_price_roc', 'tick_vol_roc'
+        ]
+        
+        target_vars = list(dict.fromkeys(list(cond_vars) + key_indicators))
+        
+        log_lines.append(f"📊 [{code}] '{strategy_name}' ({strategy_type}) 판단 근거 지표 데이터:")
+        for var in target_vars:
+            if var in safe_locals:
+                val = safe_locals[var]
+                if type(val).__name__ in ('ndarray', 'Series'):
+                    val = val.tolist()
+                if isinstance(val, (list, tuple)):
+                    last_val = val[-1] if len(val) > 0 else 0
+                    if isinstance(last_val, float):
+                        log_lines.append(f"  - {var}: {last_val:.4f}")
+                    else:
+                        log_lines.append(f"  - {var}: {last_val}")
+                else:
+                    if isinstance(val, float):
+                        log_lines.append(f"  - {var}: {val:.4f}")
+                    else:
+                        log_lines.append(f"  - {var}: {val}")
+    except Exception as ex:
+        pass
+    return log_lines
+
 class Backtester:
     def __init__(self):
         self.config = EnvConfigParser()
@@ -719,6 +762,12 @@ class Backtester:
                                 if trade_profit > 0: win_count += 1
                                 else: loss_count += 1
                                 
+                                debug_logs.append(f"[SELL_SIGNAL] 📉 [{current_code}] 매도 '{matched_sell_stg}' 조건 충족!")
+                                matched_cond = next((code_str for name_str, _, code_str in sell_compiled if name_str == matched_sell_stg), "")
+                                ind_lines = format_backtest_indicator_log(current_code, matched_sell_stg, "매도", matched_cond, locals_dict)
+                                for line in ind_lines:
+                                    debug_logs.append(line)
+                                
                                 profit_emoji = '🟢' if trade_profit >= 0 else '🔴'
                                 debug_logs.append(f"{profit_emoji} [{current_time_str[5:16]}] 매도 {current_code} | '{matched_sell_stg}' | {buy_price:,.0f}→{current_price:,.0f} ({real_profit_pct:+.2f}%) | 손익: {trade_profit:+,.0f}원 | 잔고: {capital:,.0f}원")
                                 
@@ -873,6 +922,12 @@ class Backtester:
                                     qty = int(invested_per_trade / current_price)
                                     if qty > 0:
                                         ai_str = f" | AI: {locals_dict.get('AI_SCORE', 0.0):.4f}" if uses_ai else ""
+                                        debug_logs.append(f"[BUY_SIGNAL] 📈 [{current_code}] 매수 '{matched_stg_name}' 조건 충족!")
+                                        matched_cond = next((code_str for name_str, code_str in buy_compiled if name_str == matched_stg_name), "")
+                                        ind_lines = format_backtest_indicator_log(current_code, matched_stg_name, "매수", matched_cond, locals_dict)
+                                        for line in ind_lines:
+                                            debug_logs.append(line)
+                                        
                                         debug_logs.append(f"📈 [{current_time_str[5:16]}] 매수 {current_code} | '{matched_stg_name}' | {current_price:,.0f}원 x {qty}주 = {current_price*qty:,.0f}원{ai_str} | 보유: {len(portfolio)+1}/{buycount}")
                                         portfolio[current_code] = {
                                             'buy_price': current_price,
