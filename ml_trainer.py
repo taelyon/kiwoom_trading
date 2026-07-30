@@ -93,7 +93,7 @@ class MLTrainingWorker(threading.Thread):
             if self.end_date:
                 query += " AND datetime <= ?"
                 params.append(f"{self.end_date} 23:59:59")
-            query += " ORDER BY code, datetime"
+            query += " ORDER BY datetime, code"
             
             df = pd.read_sql(query, conn, params=params)
             
@@ -157,7 +157,7 @@ class MLTrainingWorker(threading.Thread):
             # 추가적으로 필요한 것들 변환
             
             # [B] tick_velocity 로그 정규화 (극단적 스케일 0~999999 해소)
-            df['tick_velocity'] = np.log1p(df['tick_velocity'])
+            df['tick_velocity'] = np.log1p(np.maximum(0, df['tick_velocity'].fillna(0.0)))
             
             # 거래량 이동평균 비율 (Volume MA Ratio)
             # 현재 거래량 / 20봉 이동평균 거래량
@@ -213,9 +213,9 @@ class MLTrainingWorker(threading.Thread):
                 else:
                     df[col] = df[col].fillna(new_cols[col])
             
-            # [DB 우선] 돌파 가속도 (Impulse = log1p(velocity) * price_roc)
+            # [DB 우선] 돌파 가속도 (Impulse = velocity * price_roc, velocity는 이미 log1p 변환됨)
             # 과거 데이터에 0.0이 5% 이상 섞여있으면 학습 전체 세트에 즉석 백필 재계산
-            if 'tick_impulse' not in df.columns or (df['tick_impulse'] == 0).mean() > 0.05:
+            if 'tick_impulse' not in df.columns or df['tick_impulse'].dropna().abs().sum() == 0:
                 # df['tick_velocity']는 L160에서 이미 log1p 처리됨
                 log_vel = np.maximum(0, df['tick_velocity'].fillna(0.0))
                 df['tick_impulse'] = (log_vel * df['tick_price_roc'].fillna(0.0)).fillna(0.0)

@@ -286,11 +286,11 @@ class KiwoomIndicatorExtractor:
 
             # RSI21
             if is_target('RSI21'):
-                indicators['RSI21'] = talib.RSI(close, timeperiod=21) if len(close) >= 21 else np.full(len(close), np.nan)
+                indicators['RSI21'] = talib.RSI(close, timeperiod=21) if len(close) >= 22 else np.full(len(close), np.nan)
 
             # MACD
             if (is_target('MACD') or is_target('MACD_SIGNAL') or is_target('MACD_HIST')) and 'MACD' not in indicators:
-                indicators['MACD'], indicators['MACD_SIGNAL'], indicators['MACD_HIST'] = (talib.MACD(close) if len(close) >= 26 
+                indicators['MACD'], indicators['MACD_SIGNAL'], indicators['MACD_HIST'] = (talib.MACD(close) if len(close) >= 34 
                                                                                         else (np.full(len(close), np.nan), np.full(len(close), np.nan), np.full(len(close), np.nan)))
 
             # Rolling VWAP 계산 (최근 60봉 Rolling VWAP)
@@ -518,7 +518,7 @@ def prepare_buy_strategy_locals(code, tick_chart_data, min_chart_data, portfolio
                 elif isinstance(obi_val, (int, float)):
                     feature_imbalance = float(obi_val)
                 else:
-                    feature_imbalance = 0.0
+                    feature_imbalance = 0.5
 
                 # 4. min3_relative_position
                 rel_val = locals_dict.get('min3_relative_position', 0.0)
@@ -571,7 +571,7 @@ def prepare_buy_strategy_locals(code, tick_chart_data, min_chart_data, portfolio
                     l_20 = np.array(low_arr[-20:], dtype=float)
                     c_20 = np.array(close_arr[-20:], dtype=float)
                     prev_c_20 = np.roll(c_20, 1)
-                    prev_c_20[0] = c_20[0]
+                    prev_c_20[0] = float(close_arr[-21]) if len(close_arr) >= 21 else c_20[0]
                     
                     tr1 = h_20 - l_20
                     tr2 = np.abs(h_20 - prev_c_20)
@@ -947,7 +947,7 @@ def prepare_sell_strategy_locals(code, tick_chart_data, min_chart_data, buy_pric
                 elif isinstance(obi_val, (int, float)):
                     feature_imbalance = float(obi_val)
                 else:
-                    feature_imbalance = 0.0
+                    feature_imbalance = 0.5
 
                 # 4. min3_relative_position
                 rel_val = locals_dict.get('min3_relative_position', 0.0)
@@ -1009,7 +1009,7 @@ def prepare_sell_strategy_locals(code, tick_chart_data, min_chart_data, buy_pric
                         l_20 = np.array(low_arr[-20:], dtype=float)
                         c_20 = np.array(close_arr[-20:], dtype=float)
                         prev_c_20 = np.roll(c_20, 1)
-                        prev_c_20[0] = c_20[0]
+                        prev_c_20[0] = float(close_arr[-21]) if len(close_arr) >= 21 else c_20[0]
                         
                         tr1 = h_20 - l_20
                         tr2 = np.abs(h_20 - prev_c_20)

@@ -405,7 +405,9 @@ class Backtester:
                         if num_features >= 15:
                             f_buy_sell_ratio = np.where(vol > 0, group_df['tick_buy_volume'].values / vol, 0.5) if 'tick_buy_volume' in group_df.columns else np.full(n, 0.5)
                             
-                            if 'high' in group_df.columns and 'low' in group_df.columns and 'close' in group_df.columns:
+                            if 'tick_spread' in group_df.columns and group_df['tick_spread'].notna().sum() > 0:
+                                f_spread = group_df['tick_spread'].fillna(0.0).values
+                            elif 'high' in group_df.columns and 'low' in group_df.columns and 'close' in group_df.columns:
                                 close_safe = np.where(group_df['close'] == 0, 1e-9, group_df['close'])
                                 f_spread = ((group_df['high'] - group_df['low']) / close_safe).fillna(0.0).values
                             else:

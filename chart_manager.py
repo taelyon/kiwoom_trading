@@ -1129,7 +1129,8 @@ class ChartDataCache:
                 allowed_set = {
                     'MA5', 'MA10', 'MA20', 'MA60', 'MA120',
                     'RSI', 'RSI_SIGNAL', 'RSI21',
-                    'MACD', 'MACD_SIGNAL', 'MACD_HIST'
+                    'MACD', 'MACD_SIGNAL', 'MACD_HIST',
+                    'VWAP'
                 }
             elif chart_type == "minute":
                 allowed_set = {
@@ -1163,11 +1164,18 @@ class ChartDataCache:
                 indicators['RSI21'] = talib.RSI(close_array, timeperiod=21)
 
             # MACD (허용된 경우만)
-            if 'MACD' in allowed_set and len(close_array) >= 26:
+            if 'MACD' in allowed_set and len(close_array) >= 34:
                 macd, macd_signal, macd_hist = talib.MACD(close_array)
                 indicators['MACD'] = macd
                 indicators['MACD_SIGNAL'] = macd_signal
                 indicators['MACD_HIST'] = macd_hist
+
+            # VWAP (Volume Weighted Average Price)
+            if 'VWAP' in allowed_set and len(close_array) >= 1 and len(volume_array) >= 1:
+                cumulative_tp_vol = np.cumsum(close_array * volume_array)
+                cumulative_vol = np.cumsum(volume_array)
+                cumulative_vol_safe = np.where(cumulative_vol == 0, 1e-9, cumulative_vol)
+                indicators['VWAP'] = cumulative_tp_vol / cumulative_vol_safe
                 
             # (삭제됨) 볼린저 밴드
                 
@@ -1196,8 +1204,7 @@ class ChartDataCache:
                     
                     if len(time_list) >= min_len:
                         time_subset = time_list[:min_len]
-                        pd_times = pd.to_datetime(time_subset, format='%Y%m%d%H%M%S', errors='coerce')
-                        # DatetimeIndex.diff() returns TimedeltaIndex which has total_seconds() directly (no .dt accessor)
+                        pd_times = pd.DatetimeIndex(pd.to_datetime(time_subset, format='%Y%m%d%H%M%S', errors='coerce'))
                         diffs = pd_times.diff().total_seconds() * 1000
                         calculated_velocities = (diffs / 6.0).fillna(0).to_numpy()
 
@@ -1556,7 +1563,7 @@ class ChartDataCache:
                                     l_20 = np.array(lows[-20:], dtype=float)
                                     c_20 = np.array(closes[-20:], dtype=float)
                                     prev_c_20 = np.roll(c_20, 1)
-                                    prev_c_20[0] = c_20[0]
+                                    prev_c_20[0] = float(closes[-21]) if n_c >= 21 else c_20[0]
                                     tr1 = h_20 - l_20
                                     tr2 = np.abs(h_20 - prev_c_20)
                                     tr3 = np.abs(l_20 - prev_c_20)
