@@ -335,10 +335,11 @@ HTML_CONTENT = """
             box-sizing: border-box;
         }
 
-        /* 달력 아이콘 설정 (color-scheme: dark; 가 이미 적용되어 있으므로 invert 제거) */
+        /* 달력 아이콘 설정 (흰색 테마 강제 적용) */
         input[type="date"]::-webkit-calendar-picker-indicator {
             cursor: pointer;
             opacity: 0.8;
+            filter: invert(1);
             transition: opacity 0.2s;
         }
         input[type="date"]::-webkit-calendar-picker-indicator:hover {
