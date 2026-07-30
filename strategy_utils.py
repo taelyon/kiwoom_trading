@@ -134,7 +134,7 @@ def evaluate_strategies(strategies, safe_locals, code="", strategy_type=""):
                         key_indicators = [
                             'AI_SCORE', 'current_price', 'buy_price', 'current_profit_pct',
                             'from_peak_pct', 'highest_price', 'tick_strength', 'market_kosdaq_roc',
-                            'tick_rsi', 'tick_macd_hist', 'tick_disparity20', 'tick_bb_position',
+                            'tick_rsi21', 'tick_macd_hist', 'tick_disparity20', 'tick_bb_position',
                             'tick_velocity', 'tick_price_roc', 'tick_vol_roc'
                         ]
                         
