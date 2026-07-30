@@ -227,10 +227,9 @@ class KiwoomIndicatorExtractor:
                 if allowed_indicators is None: return True
                 return key in allowed_indicators
 
-            # 1. 캐시된 지표가 있으면 그대로 사용
+            # 1. 캐시된 필수 지표가 있으면 그대로 사용
             cached_indicator_keys = [
-                'MA5', 'MA10', 'MA20', 'MA60', 'RSI', 'MACD', 'MACD_SIGNAL', 'MACD_HIST',
-                'STOCHK', 'STOCHD', 'WILLIAMS_R', 'ROC', 'OBV', 'OBV_MA20', 'ATR',
+                'MA5', 'MA10', 'MA20', 'MA60', 'MA120', 'RSI', 'MACD', 'MACD_SIGNAL', 'MACD_HIST',
                 'TICK_VELOCITY', 'LAST_TIC_CNT'
             ]
             for key in cached_indicator_keys:
@@ -244,32 +243,26 @@ class KiwoomIndicatorExtractor:
                  indicators['VELOCITY'] = chart_data['TICK_VELOCITY'].values
 
             # 틱봉 전용 지표 백필 (Backfill)
-            # TICK_VELOCITY, LAST_TIC_CNT
             if is_target('LAST_TIC_CNT') and ('LAST_TIC_CNT' not in indicators or np.all(indicators['LAST_TIC_CNT'] == 0)):
-                 # 과거 데이터는 모두 완성된 봉이므로 60으로 설정 (60틱 차트 가정)
                  indicators['LAST_TIC_CNT'] = np.full(len(close), 60, dtype=int)
             
             if is_target('TICK_VELOCITY') and ('TICK_VELOCITY' not in indicators or np.all(indicators['TICK_VELOCITY'] == 0)):
-                 # 시간 데이터가 있는지 확인
                  if 'time' in chart_data.columns:
                      try:
-                            # 문자열 -> datetime 변환
-                         # chart_data['time']이 이미 datetime 객체일 수도 있고 문자열일 수도 있음
                          times = chart_data['time']
                          if len(times) > 0:
-                            if isinstance(times.iloc[0], str):
-                                pd_times = pd.to_datetime(times, format='%Y%m%d%H%M%S', errors='coerce')
-                            else:
-                                pd_times = pd.to_datetime(times)
-                            
-                            # Series의 경우 .dt 접근자 사용이 올바름
-                            diffs = pd_times.diff().dt.total_seconds() * 1000
-                            velocities = (diffs / 6.0).fillna(0).values
-                            indicators['TICK_VELOCITY'] = velocities
+                             if isinstance(times.iloc[0], str):
+                                 pd_times = pd.to_datetime(times, format='%Y%m%d%H%M%S', errors='coerce')
+                             else:
+                                 pd_times = pd.to_datetime(times)
+                             
+                             diffs = pd_times.diff().dt.total_seconds() * 1000
+                             velocities = (diffs / 6.0).fillna(0).values
+                             indicators['TICK_VELOCITY'] = velocities
                      except Exception as ex:
                          KiwoomIndicatorExtractor.logger.debug(f"TICK_VELOCITY 백필 실패: {ex}")
 
-            # 2. 캐시에 없는 지표만 재계산
+            # 2. 필수 지표 재계산 (레거시 미사용 지표인 STOCH, WILLIAMS_R, OBV, ROC 연산 완전 제거)
 
             # 이동평균선
             if is_target('MA5') and 'MA5' not in indicators:
@@ -280,11 +273,12 @@ class KiwoomIndicatorExtractor:
                 indicators['MA20'] = talib.SMA(close, timeperiod=20) if len(close) >= 20 else np.full(len(close), np.nan)
             if is_target('MA60') and 'MA60' not in indicators:
                 indicators['MA60'] = talib.SMA(close, timeperiod=60) if len(close) >= 60 else np.full(len(close), np.nan)
+            if is_target('MA120') and 'MA120' not in indicators:
+                indicators['MA120'] = talib.SMA(close, timeperiod=120) if len(close) >= 120 else np.full(len(close), np.nan)
 
             # 상대적 이격도 (Relative Position): (현재가 - 20이평선) / 20이평선
             if is_target('RELATIVE_POSITION') and 'MA20' in indicators:
                 ma20 = indicators['MA20']
-                # 0으로 나누기 방지
                 safe_ma20 = np.where(ma20 == 0, np.nan, ma20)
                 indicators['RELATIVE_POSITION'] = (close - safe_ma20) / safe_ma20
             elif is_target('RELATIVE_POSITION'):
@@ -294,50 +288,22 @@ class KiwoomIndicatorExtractor:
             if is_target('RSI') and 'RSI' not in indicators:
                 indicators['RSI'] = talib.RSI(close, timeperiod=14) if len(close) >= 14 else np.full(len(close), np.nan)
 
-            if is_target('RSI_SIGNAL') and 'RSI' in indicators and 'RSI_SIGNAL' not in indicators and len(indicators['RSI']) >= 5:
-                indicators['RSI_SIGNAL'] = talib.SMA(indicators['RSI'], timeperiod=5)
-
             # MACD
             if (is_target('MACD') or is_target('MACD_SIGNAL') or is_target('MACD_HIST')) and 'MACD' not in indicators:
                 indicators['MACD'], indicators['MACD_SIGNAL'], indicators['MACD_HIST'] = (talib.MACD(close) if len(close) >= 26 
                                                                                         else (np.full(len(close), np.nan), np.full(len(close), np.nan), np.full(len(close), np.nan)))
 
-            # 스토캐스틱
-            if (is_target('STOCHK') or is_target('STOCHD')) and 'STOCHK' not in indicators and len(high) >= 14 and len(low) >= 14:
-                indicators['STOCHK'], indicators['STOCHD'] = talib.STOCH(high, low, close)
-
-            # ATR (Average True Range)
-            if is_target('ATR') and 'ATR' not in indicators and len(high) >= 14 and len(low) >= 14:
-                indicators['ATR'] = talib.ATR(high, low, close, timeperiod=14)
-
-            # Williams %R
-            if is_target('WILLIAMS_R') and 'WILLIAMS_R' not in indicators and len(high) >= 14 and len(low) >= 14:
-                indicators['WILLIAMS_R'] = talib.WILLR(high, low, close, timeperiod=14)
-
-            # ROC (Rate of Change)
-            if is_target('ROC') and 'ROC' not in indicators and len(close) >= 12:
-                indicators['ROC'] = talib.ROC(close, timeperiod=12)
-
-            # OBV (On Balance Volume)
-            if (is_target('OBV') or is_target('OBV_MA20')) and 'OBV' not in indicators and len(close) >= 1 and len(volume) >= 1:
-                obv = talib.OBV(close, volume)
-                indicators['OBV'] = obv
-            if is_target('OBV_MA20') and 'OBV' in indicators and 'OBV_MA20' not in indicators and len(indicators['OBV']) >= 20:
-                indicators['OBV_MA20'] = talib.SMA(indicators['OBV'], timeperiod=20)
-            
-            # [C] Rolling VWAP 계산 (누적 VWAP → 최근 60봉 Rolling VWAP로 교체)
-            # 누적 VWAP는 오후로 갈수록 둔감해져 단타에 부적합
+            # Rolling VWAP 계산 (최근 60봉 Rolling VWAP)
             if is_target('VWAP') and len(close) >= 1 and len(volume) >= 1:
                 typical_price = (high + low + close) / 3
-                
-                VWAP_WINDOW = 60  # 최근 60봉 (약 1시간)
+                VWAP_WINDOW = 60
                 rolling_pv = pd.Series(typical_price * volume).rolling(VWAP_WINDOW, min_periods=1).sum().values
                 rolling_v = pd.Series(volume).rolling(VWAP_WINDOW, min_periods=1).sum().values
                 safe_rolling_v = np.where(rolling_v == 0, 1e-9, rolling_v)
                 vwap_array = rolling_pv / safe_rolling_v
                 indicators['VWAP'] = vwap_array
             
-            # 가격 정보 (배열 형태로 저장)
+            # 기본 가격 정보
             indicators['close'] = close
             indicators['high'] = high
             indicators['low'] = low
