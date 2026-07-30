@@ -226,6 +226,7 @@ class MLTrainingWorker(threading.Thread):
             tr2 = (df['tick_high'] - prev_close).abs()
             tr3 = (df['tick_low'] - prev_close).abs()
             tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+            df['tr'] = tr
             atr20 = df.groupby('code')['tr'].transform(lambda x: x.rolling(20, min_periods=1).mean())
             calc_atr_ratio = np.where(df['tick_close'] > 0, (atr20 / df['tick_close']) * 100.0, 0.0)
 
