@@ -138,11 +138,13 @@ class MLTrainingWorker(threading.Thread):
                     df['market_kosdaq_roc'] = np.nan
                     
                 # 1순위: KOSDAQ 3분봉(유의미할 때), 2순위: DB 오리지널 스냅샷 수치, 3순위: 동시간대 전 종목 평균 등락률 (대리값)
+                clean_existing = existing_kosdaq_roc.replace(0.0, np.nan) if existing_kosdaq_roc is not None else None
                 market_proxy = df.groupby('datetime')['tick_price_roc'].transform('mean').fillna(0.0)
-                if existing_kosdaq_roc is not None:
-                    df['market_kosdaq_roc'] = df['market_kosdaq_roc'].replace(0.0, np.nan).combine_first(existing_kosdaq_roc).combine_first(market_proxy).fillna(0.0)
-                else:
-                    df['market_kosdaq_roc'] = df['market_kosdaq_roc'].replace(0.0, np.nan).combine_first(market_proxy).fillna(0.0)
+                
+                df['market_kosdaq_roc'] = df['market_kosdaq_roc'].replace(0.0, np.nan)
+                if clean_existing is not None:
+                    df['market_kosdaq_roc'] = df['market_kosdaq_roc'].combine_first(clean_existing)
+                df['market_kosdaq_roc'] = df['market_kosdaq_roc'].combine_first(market_proxy).fillna(0.0)
                 
                 df = df.sort_values(['code', 'datetime'])
             except Exception as e:
