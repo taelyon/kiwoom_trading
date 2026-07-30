@@ -2446,8 +2446,15 @@ HTML_CONTENT = """
                                     
                                     let val = item[col];
                                     if (val !== null && typeof val === 'number') {
-                                        if (val % 1 !== 0) val = val.toFixed(2);
-                                        else val = val.toLocaleString();
+                                        if (val % 1 !== 0) {
+                                            if (col === 'market_kosdaq_roc' || col === 'tick_impulse' || col === 'tick_price_roc') {
+                                                val = val.toFixed(4);
+                                            } else {
+                                                val = val.toFixed(2);
+                                            }
+                                        } else {
+                                            val = val.toLocaleString();
+                                        }
                                     }
                                     td.innerText = val !== null ? val : '-';
                                     trBody.appendChild(td);
