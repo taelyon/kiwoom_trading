@@ -1902,8 +1902,8 @@ class MarketIndexManager:
             await cursor.execute("SELECT COUNT(*) FROM kosdaq_3m")
             count = (await cursor.fetchone())[0]
             
-        if count > 0:
-            self.logger.info(f"📈 코스닥 3분봉 데이터 존재함 (건수: {count}건)")
+        if count >= 500:
+            self.logger.info(f"📈 코스닥 3분봉 과거 데이터가 충분함 (건수: {count}건)")
             return
             
         self.logger.info("📈 코스닥 3분봉 데이터가 없어 과거 데이터를 다운로드합니다...")
