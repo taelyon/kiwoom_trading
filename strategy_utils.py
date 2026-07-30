@@ -287,6 +287,9 @@ class KiwoomIndicatorExtractor:
             # RSI
             if is_target('RSI') and 'RSI' not in indicators:
                 indicators['RSI'] = talib.RSI(close, timeperiod=14) if len(close) >= 14 else np.full(len(close), np.nan)
+            
+            if is_target('RSI21') or is_target('RSI'):
+                indicators['RSI21'] = talib.RSI(close, timeperiod=21) if len(close) >= 21 else np.full(len(close), np.nan)
 
             # MACD
             if (is_target('MACD') or is_target('MACD_SIGNAL') or is_target('MACD_HIST')) and 'MACD' not in indicators:
@@ -559,8 +562,8 @@ def prepare_buy_strategy_locals(code, tick_chart_data, min_chart_data, portfolio
                 else:
                     feature_price_roc = 0.0
                 
-                # [신규 추가] 돌파 가속도 (Impulse = log1p(velocity) * price_roc)
-                feature_impulse = float(np.log1p(max(0, feature_velocity)) * feature_price_roc)
+                # [신규 추가] 돌파 가속도 (Impulse = velocity * price_roc) - feature_velocity는 이미 log1p 처리됨
+                feature_impulse = float(feature_velocity * feature_price_roc)
                 locals_dict['tick_impulse'] = feature_impulse
                 
                 # [신규 추가] 상대적 ATR 변동성 비율 (tick_atr_ratio)

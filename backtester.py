@@ -316,11 +316,11 @@ class Backtester:
                         
                         f_macd_hist = group_df['tick_macd_hist'].values if 'tick_macd_hist' in group_df.columns else np.zeros(n)
                         
-                        # DB에 저장된 온전한 RSI 컬럼 최우선 사용
-                        if 'tick_rsi' in group_df.columns:
-                            f_rsi = group_df['tick_rsi'].values
-                        elif 'tick_rsi21' in group_df.columns:
+                        # DB에 저장된 온전한 RSI 컬럼 최우선 사용 (RSI-21 우선)
+                        if 'tick_rsi21' in group_df.columns:
                             f_rsi = group_df['tick_rsi21'].values
+                        elif 'tick_rsi' in group_df.columns:
+                            f_rsi = group_df['tick_rsi'].values
                         else:
                             f_rsi = np.full(n, 50.0)
                         
@@ -376,9 +376,9 @@ class Backtester:
                                 
                             if 'tick_ma_spread' in group_df.columns and group_df['tick_ma_spread'].notna().sum() > 0:
                                 f_tick_ma_spread = group_df['tick_ma_spread'].fillna(0.0).values
-                            elif 'close' in group_df.columns and 'tick_ma60' in group_df.columns:
-                                ma60_safe = np.where(group_df['tick_ma60'] == 0, 1e-9, group_df['tick_ma60'])
-                                f_tick_ma_spread = ((group_df['close'] - group_df['tick_ma60']) / ma60_safe).fillna(0.0).values
+                            elif 'tick_ma5' in group_df.columns and 'tick_ma20' in group_df.columns:
+                                ma20_safe = np.where(group_df['tick_ma20'] == 0, 1e-9, group_df['tick_ma20'])
+                                f_tick_ma_spread = ((group_df['tick_ma5'] - group_df['tick_ma20']) / ma20_safe).fillna(0.0).values
                             else:
                                 f_tick_ma_spread = np.zeros(n)
                                 
@@ -393,11 +393,10 @@ class Backtester:
                                 
                             if 'tick_tail_ratio' in group_df.columns and group_df['tick_tail_ratio'].notna().sum() > 0:
                                 f_tic_tail_ratio = group_df['tick_tail_ratio'].fillna(0.0).values
-                            elif 'high' in group_df.columns and 'low' in group_df.columns and 'close' in group_df.columns and 'open' in group_df.columns:
-                                body_top = np.maximum(group_df['open'], group_df['close'])
+                            elif 'high' in group_df.columns and 'low' in group_df.columns and 'close' in group_df.columns:
                                 hl_diff = group_df['high'] - group_df['low']
                                 hl_safe = np.where(hl_diff <= 0, 1e-9, hl_diff)
-                                f_tic_tail_ratio = np.where(hl_diff > 0, ((group_df['high'] - body_top) / hl_safe), 0.0)
+                                f_tic_tail_ratio = np.where(hl_diff > 0, ((group_df['high'] - group_df['close']) / hl_safe), 0.0)
                                 f_tic_tail_ratio = pd.Series(f_tic_tail_ratio).fillna(0.0).values
                             else:
                                 f_tic_tail_ratio = np.zeros(n)

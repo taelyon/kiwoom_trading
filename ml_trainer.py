@@ -216,7 +216,8 @@ class MLTrainingWorker(threading.Thread):
             # [DB 우선] 돌파 가속도 (Impulse = log1p(velocity) * price_roc)
             # 과거 데이터에 0.0이 5% 이상 섞여있으면 학습 전체 세트에 즉석 백필 재계산
             if 'tick_impulse' not in df.columns or (df['tick_impulse'] == 0).mean() > 0.05:
-                log_vel = np.log1p(np.maximum(0, df['tick_velocity'].fillna(0.0)))
+                # df['tick_velocity']는 L160에서 이미 log1p 처리됨
+                log_vel = np.maximum(0, df['tick_velocity'].fillna(0.0))
                 df['tick_impulse'] = (log_vel * df['tick_price_roc'].fillna(0.0)).fillna(0.0)
             else:
                 df['tick_impulse'] = df['tick_impulse'].fillna(0.0)

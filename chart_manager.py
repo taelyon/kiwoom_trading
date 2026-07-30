@@ -1492,6 +1492,13 @@ class ChartDataCache:
                                 h_last = float(highs[-1]) if len(highs) >= 1 else c_last
                                 l_last = float(lows[-1]) if len(lows) >= 1 else c_last
                                 
+                                # 0. tick_vwap_distance
+                                vwap_vals = tick_data_snap.get('VWAP', tick_data_snap.get('vwap', []))
+                                if len(vwap_vals) >= 1 and float(vwap_vals[-1]) > 0:
+                                    snapshot['tick_vwap_distance'] = (c_last - float(vwap_vals[-1])) / float(vwap_vals[-1])
+                                else:
+                                    snapshot['tick_vwap_distance'] = 0.0
+                                
                                 # 1. tick_tail_ratio
                                 snapshot['tick_tail_ratio'] = (h_last - c_last) / (h_last - l_last) if (h_last - l_last) > 0 else 0.0
                                 
