@@ -105,6 +105,7 @@ class MLTrainingWorker(threading.Thread):
 
             # === KOSDAQ 지수 데이터 병합 ===
             try:
+                existing_kosdaq_roc = df['market_kosdaq_roc'].copy() if 'market_kosdaq_roc' in df.columns else None
                 if 'market_kosdaq_roc' in df.columns:
                     df = df.drop(columns=['market_kosdaq_roc'])
 
@@ -123,7 +124,6 @@ class MLTrainingWorker(threading.Thread):
                     
                     # KOSDAQ 등락률 (현재지수 vs 당일시가)
                     raw_roc = np.where(daily_open > 0, (kosdaq_df['kosdaq_close'] - daily_open) / daily_open, 0.0)
-                    # 만약 raw_roc가 % 단위(예: -1.5)로 들어있을 경우 소수점 비율(-0.015)로 정규화
                     if np.abs(raw_roc).max() > 0.5:
                         raw_roc = raw_roc / 100.0
                     kosdaq_df['market_kosdaq_roc'] = raw_roc
@@ -131,12 +131,19 @@ class MLTrainingWorker(threading.Thread):
                     # 매수 시점(틱) 기준 가장 최근의 KOSDAQ 분봉 데이터 매칭
                     df = df.sort_values('dt_obj').dropna(subset=['dt_obj'])
                     df = pd.merge_asof(df, kosdaq_df[['dt_obj', 'market_kosdaq_roc']], on='dt_obj', direction='backward')
-                    df['market_kosdaq_roc'] = df['market_kosdaq_roc'].fillna(0.0)
+                    
+                    if existing_kosdaq_roc is not None:
+                        df['market_kosdaq_roc'] = df['market_kosdaq_roc'].replace(0.0, np.nan).combine_first(existing_kosdaq_roc).fillna(0.0)
+                    else:
+                        df['market_kosdaq_roc'] = df['market_kosdaq_roc'].fillna(0.0)
                     
                     # 기존 로직을 위해 원래 정렬 순서로 복구
                     df = df.sort_values(['code', 'datetime'])
                 else:
-                    df['market_kosdaq_roc'] = 0.0
+                    if existing_kosdaq_roc is not None:
+                        df['market_kosdaq_roc'] = existing_kosdaq_roc.fillna(0.0)
+                    else:
+                        df['market_kosdaq_roc'] = 0.0
             except Exception as e:
                 self.logger.error(f"KOSDAQ 병합 중 오류: {e}")
                 df['market_kosdaq_roc'] = 0.0
@@ -241,7 +248,8 @@ class MLTrainingWorker(threading.Thread):
                     df[col] = df[col].fillna(new_cols[col])
             
             # [DB 우선] 돌파 가속도 (Impulse = log1p(velocity) * price_roc)
-            if 'tick_impulse' not in df.columns or df['tick_impulse'].dropna().abs().sum() == 0:
+            # 과거 데이터에 0.0이 5% 이상 섞여있으면 학습 전체 세트에 즉석 백필 재계산
+            if 'tick_impulse' not in df.columns or (df['tick_impulse'] == 0).mean() > 0.05:
                 log_vel = np.log1p(np.maximum(0, df['tick_velocity'].fillna(0.0)))
                 df['tick_impulse'] = (log_vel * df['tick_price_roc'].fillna(0.0)).fillna(0.0)
             else:
