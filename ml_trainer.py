@@ -103,56 +103,16 @@ class MLTrainingWorker(threading.Thread):
 
             self.progress_signal.emit(f"🔍 [ML] 데이터 전처리 중... (Rows: {len(df)})")
 
-            # === KOSDAQ 지수 데이터 병합 ===
-            try:
-                # 0. market_proxy 계산용 tick_price_roc 선계산
-                if 'tick_price_roc' not in df.columns:
-                    df['tick_price_roc'] = df.groupby('code')['tick_close'].pct_change(periods=10).fillna(0.0)
-
-                existing_kosdaq_roc = df['market_kosdaq_roc'].copy() if 'market_kosdaq_roc' in df.columns else None
-                if 'market_kosdaq_roc' in df.columns:
-                    df = df.drop(columns=['market_kosdaq_roc'])
-
-                kosdaq_query = "SELECT datetime as kosdaq_time, close as kosdaq_close, open as kosdaq_open FROM kosdaq_3m"
-                kosdaq_df = pd.read_sql(kosdaq_query, conn)
-                
-                has_valid_kosdaq = False
-                if not kosdaq_df.empty:
-                    df['dt_obj'] = pd.to_datetime(df['datetime'], errors='coerce')
-                    kosdaq_df['dt_obj'] = pd.to_datetime(kosdaq_df['kosdaq_time'], errors='coerce')
-                    kosdaq_df = kosdaq_df.sort_values('dt_obj').dropna(subset=['dt_obj'])
-                    
-                    kosdaq_df['date'] = kosdaq_df['dt_obj'].dt.date
-                    daily_open = kosdaq_df.groupby('date')['kosdaq_open'].transform('first')
-                    raw_roc = np.where(daily_open > 0, (kosdaq_df['kosdaq_close'] - daily_open) / daily_open, 0.0)
-                    if np.abs(raw_roc).max() > 0.5:
-                        raw_roc = raw_roc / 100.0
-                    kosdaq_df['market_kosdaq_roc'] = raw_roc
-                    
-                    if kosdaq_df['market_kosdaq_roc'].nunique() > 1:
-                        df = df.sort_values('dt_obj').dropna(subset=['dt_obj'])
-                        df = pd.merge_asof(df, kosdaq_df[['dt_obj', 'market_kosdaq_roc']], on='dt_obj', direction='backward')
-                        has_valid_kosdaq = True
-
-                if not has_valid_kosdaq:
-                    df['market_kosdaq_roc'] = np.nan
-                    
-                # 1순위: KOSDAQ 3분봉(유의미할 때), 2순위: DB 오리지널 스냅샷 수치, 3순위: 동시간대 전 종목 평균 등락률 (대리값)
-                clean_existing = existing_kosdaq_roc.replace(0.0, np.nan) if existing_kosdaq_roc is not None else None
-                market_proxy = df.groupby('datetime')['tick_price_roc'].transform('mean').fillna(0.0)
-                
-                df['market_kosdaq_roc'] = df['market_kosdaq_roc'].replace(0.0, np.nan)
-                if clean_existing is not None:
-                    df['market_kosdaq_roc'] = df['market_kosdaq_roc'].combine_first(clean_existing)
-                df['market_kosdaq_roc'] = df['market_kosdaq_roc'].combine_first(market_proxy).fillna(0.0)
-                
-                df = df.sort_values(['code', 'datetime'])
-            except Exception as e:
-                self.logger.error(f"KOSDAQ 병합 중 오류: {e}")
-                if 'tick_price_roc' in df.columns:
-                    df['market_kosdaq_roc'] = df.groupby('datetime')['tick_price_roc'].transform('mean').fillna(0.0)
-                else:
-                    df['market_kosdaq_roc'] = 0.0
+            # === KOSDAQ 지수 데이터: DB 수치 직접 사용 ===
+            # 실시간 수집된 market_kosdaq_roc 값을 그대로 사용 (chart_manager.py에서 이미 정밀 수치 저장됨)
+            # 과거 지수 미수집 데이터는 0.0으로 유지 (데이터가 축적되면 자연스럽게 중요도 상승)
+            if 'market_kosdaq_roc' not in df.columns:
+                df['market_kosdaq_roc'] = 0.0
+            else:
+                df['market_kosdaq_roc'] = df['market_kosdaq_roc'].fillna(0.0)
+                # 백분율 스케일 보정 (혹시 절대값 > 0.5이면 100으로 나눔)
+                mask = df['market_kosdaq_roc'].abs() > 0.5
+                df.loc[mask, 'market_kosdaq_roc'] = df.loc[mask, 'market_kosdaq_roc'] / 100.0
 
             # === Feature Engineering (비율/속도 변환) ===
             # 종목별로 그룹화하여 계산 필요
@@ -315,17 +275,6 @@ class MLTrainingWorker(threading.Thread):
             else:
                 df['tick_imbalance'] = 0.5
             
-            # [DB 우선 + 스마트 백필] 당일 코스닥 등락률 (market_kosdaq_roc)
-            # 과거 데이터에 0.0이 5% 이상 섞여있으면(과거 지수 미수집 시기 데이터), 동시간대 모니터링 종목 전체 평균 등락률(시장 종합 지수 대리값)로 100% 빽빽하게 백필
-            if 'market_kosdaq_roc' not in df.columns or (df['market_kosdaq_roc'] == 0).mean() > 0.05:
-                market_proxy = df.groupby('datetime')['tick_price_roc'].transform('mean').fillna(0.0)
-                existing_clean = df['market_kosdaq_roc'].replace(0.0, np.nan) if 'market_kosdaq_roc' in df.columns else None
-                if existing_clean is not None:
-                    df['market_kosdaq_roc'] = existing_clean.combine_first(market_proxy).fillna(0.0)
-                else:
-                    df['market_kosdaq_roc'] = market_proxy
-            else:
-                df['market_kosdaq_roc'] = df['market_kosdaq_roc'].fillna(0.0)
             
             # Feature 목록 정의 (노이즈 피처 제거: tick_volume_ma_ratio, tick_vol_roc 제거)
             base_features = [
