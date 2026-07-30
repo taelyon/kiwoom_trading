@@ -116,41 +116,35 @@ class MLTrainingWorker(threading.Thread):
                 kosdaq_query = "SELECT datetime as kosdaq_time, close as kosdaq_close, open as kosdaq_open FROM kosdaq_3m"
                 kosdaq_df = pd.read_sql(kosdaq_query, conn)
                 
+                has_valid_kosdaq = False
                 if not kosdaq_df.empty:
                     df['dt_obj'] = pd.to_datetime(df['datetime'], errors='coerce')
                     kosdaq_df['dt_obj'] = pd.to_datetime(kosdaq_df['kosdaq_time'], errors='coerce')
-                    
                     kosdaq_df = kosdaq_df.sort_values('dt_obj').dropna(subset=['dt_obj'])
                     
-                    # 당일 KOSDAQ 시가 계산
                     kosdaq_df['date'] = kosdaq_df['dt_obj'].dt.date
                     daily_open = kosdaq_df.groupby('date')['kosdaq_open'].transform('first')
-                    
-                    # KOSDAQ 등락률 (현재지수 vs 당일시가)
                     raw_roc = np.where(daily_open > 0, (kosdaq_df['kosdaq_close'] - daily_open) / daily_open, 0.0)
                     if np.abs(raw_roc).max() > 0.5:
                         raw_roc = raw_roc / 100.0
                     kosdaq_df['market_kosdaq_roc'] = raw_roc
                     
-                    # 매수 시점(틱) 기준 가장 최근의 KOSDAQ 분봉 데이터 매칭
-                    df = df.sort_values('dt_obj').dropna(subset=['dt_obj'])
-                    df = pd.merge_asof(df, kosdaq_df[['dt_obj', 'market_kosdaq_roc']], on='dt_obj', direction='backward')
+                    if kosdaq_df['market_kosdaq_roc'].nunique() > 1:
+                        df = df.sort_values('dt_obj').dropna(subset=['dt_obj'])
+                        df = pd.merge_asof(df, kosdaq_df[['dt_obj', 'market_kosdaq_roc']], on='dt_obj', direction='backward')
+                        has_valid_kosdaq = True
+
+                if not has_valid_kosdaq:
+                    df['market_kosdaq_roc'] = np.nan
                     
-                    # 1순위: KOSDAQ 3분봉, 2순위: DB 기존 수치, 3순위: 동시간대 전 종목 평균 등락률 (시장 종합 지수 대리값)
-                    market_proxy = df.groupby('datetime')['tick_price_roc'].transform('mean').fillna(0.0)
-                    if existing_kosdaq_roc is not None:
-                        df['market_kosdaq_roc'] = df['market_kosdaq_roc'].replace(0.0, np.nan).combine_first(existing_kosdaq_roc).combine_first(market_proxy).fillna(0.0)
-                    else:
-                        df['market_kosdaq_roc'] = df['market_kosdaq_roc'].replace(0.0, np.nan).combine_first(market_proxy).fillna(0.0)
-                    
-                    # 기존 로직을 위해 원래 정렬 순서로 복구
-                    df = df.sort_values(['code', 'datetime'])
+                # 1순위: KOSDAQ 3분봉(유의미할 때), 2순위: DB 오리지널 스냅샷 수치, 3순위: 동시간대 전 종목 평균 등락률 (대리값)
+                market_proxy = df.groupby('datetime')['tick_price_roc'].transform('mean').fillna(0.0)
+                if existing_kosdaq_roc is not None:
+                    df['market_kosdaq_roc'] = df['market_kosdaq_roc'].replace(0.0, np.nan).combine_first(existing_kosdaq_roc).combine_first(market_proxy).fillna(0.0)
                 else:
-                    market_proxy = df.groupby('datetime')['tick_price_roc'].transform('mean').fillna(0.0)
-                    if existing_kosdaq_roc is not None:
-                        df['market_kosdaq_roc'] = existing_kosdaq_roc.replace(0.0, np.nan).combine_first(market_proxy).fillna(0.0)
-                    else:
-                        df['market_kosdaq_roc'] = market_proxy
+                    df['market_kosdaq_roc'] = df['market_kosdaq_roc'].replace(0.0, np.nan).combine_first(market_proxy).fillna(0.0)
+                
+                df = df.sort_values(['code', 'datetime'])
             except Exception as e:
                 self.logger.error(f"KOSDAQ 병합 중 오류: {e}")
                 if 'tick_price_roc' in df.columns:
