@@ -1554,9 +1554,9 @@ class ChartDataCache:
                                 else:
                                     snapshot['tick_atr_ratio'] = 0.0
 
-                                # 10. tick_imbalance
-                                imb_arr = tick_data_snap.get('tick_imbalance', [])
-                                if isinstance(imb_arr, list) and len(imb_arr) >= 1:
+                                # 10. tick_imbalance (호가 잔량 비율: imbalance, tick_imbalance, order_book_imbalance 키 호환)
+                                imb_arr = tick_data_snap.get('imbalance', tick_data_snap.get('tick_imbalance', tick_data_snap.get('order_book_imbalance', [])))
+                                if isinstance(imb_arr, (list, np.ndarray)) and len(imb_arr) >= 1:
                                     snapshot['tick_imbalance'] = float(imb_arr[-1])
                                 else:
                                     snapshot['tick_imbalance'] = 0.5
