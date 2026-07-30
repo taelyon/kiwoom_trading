@@ -105,11 +105,13 @@ class MLTrainingWorker(threading.Thread):
 
             # === KOSDAQ 지수 데이터 병합 ===
             try:
+                if 'market_kosdaq_roc' in df.columns:
+                    df = df.drop(columns=['market_kosdaq_roc'])
+
                 kosdaq_query = "SELECT datetime as kosdaq_time, close as kosdaq_close, open as kosdaq_open FROM kosdaq_3m"
                 kosdaq_df = pd.read_sql(kosdaq_query, conn)
                 
                 if not kosdaq_df.empty:
-                    # datetime 형식이 YYYYMMDDHHMMSS 와 YYYY-MM-DD HH:MM:SS 혼용될 수 있으므로 format 파라미터 제거
                     df['dt_obj'] = pd.to_datetime(df['datetime'], errors='coerce')
                     kosdaq_df['dt_obj'] = pd.to_datetime(kosdaq_df['kosdaq_time'], errors='coerce')
                     
@@ -120,13 +122,16 @@ class MLTrainingWorker(threading.Thread):
                     daily_open = kosdaq_df.groupby('date')['kosdaq_open'].transform('first')
                     
                     # KOSDAQ 등락률 (현재지수 vs 당일시가)
-                    kosdaq_df['market_kosdaq_roc'] = np.where(daily_open > 0, 
-                                                            (kosdaq_df['kosdaq_close'] - daily_open) / daily_open, 
-                                                            0.0)
+                    raw_roc = np.where(daily_open > 0, (kosdaq_df['kosdaq_close'] - daily_open) / daily_open, 0.0)
+                    # 만약 raw_roc가 % 단위(예: -1.5)로 들어있을 경우 소수점 비율(-0.015)로 정규화
+                    if np.abs(raw_roc).max() > 0.5:
+                        raw_roc = raw_roc / 100.0
+                    kosdaq_df['market_kosdaq_roc'] = raw_roc
                     
                     # 매수 시점(틱) 기준 가장 최근의 KOSDAQ 분봉 데이터 매칭
                     df = df.sort_values('dt_obj').dropna(subset=['dt_obj'])
                     df = pd.merge_asof(df, kosdaq_df[['dt_obj', 'market_kosdaq_roc']], on='dt_obj', direction='backward')
+                    df['market_kosdaq_roc'] = df['market_kosdaq_roc'].fillna(0.0)
                     
                     # 기존 로직을 위해 원래 정렬 순서로 복구
                     df = df.sort_values(['code', 'datetime'])
@@ -227,22 +232,23 @@ class MLTrainingWorker(threading.Thread):
                     'tick_vol_roc': tick_vol_roc
                 }, index=g.index)
             
-            # [DB 우선 사용 메커니즘] DB에 해당 지표 컬럼이 존재하고 유효 수치(notnull)가 존재하면 DB 수치를 직접 사용하고, 없거나 NULL인 경우만 즉석 연산
+            # [DB 우선 사용 메커니즘] DB에 해당 지표 컬럼이 존재하고 유효 비0 수치가 존재하면 DB 수치를 직접 사용하고, 없거나 0/NULL인 경우만 즉석 연산
             new_cols = df.groupby('code', group_keys=False).apply(calc_new_indicators)
             for col in new_cols.columns:
-                if col not in df.columns or df[col].notnull().sum() == 0:
+                if col not in df.columns or df[col].dropna().abs().sum() == 0:
                     df[col] = new_cols[col]
                 else:
                     df[col] = df[col].fillna(new_cols[col])
             
-            # [DB 우선] 돌파 가속도 (Impulse = log_velocity * price_roc)
-            if 'tick_impulse' not in df.columns or df['tick_impulse'].notnull().sum() == 0:
-                df['tick_impulse'] = (df['tick_velocity'] * df['tick_price_roc']).fillna(0.0)
+            # [DB 우선] 돌파 가속도 (Impulse = log1p(velocity) * price_roc)
+            if 'tick_impulse' not in df.columns or df['tick_impulse'].dropna().abs().sum() == 0:
+                log_vel = np.log1p(np.maximum(0, df['tick_velocity'].fillna(0.0)))
+                df['tick_impulse'] = (log_vel * df['tick_price_roc'].fillna(0.0)).fillna(0.0)
             else:
                 df['tick_impulse'] = df['tick_impulse'].fillna(0.0)
             
             # [DB 우선] ATR% (상대적 ATR 변동성 비율 %)
-            if 'tick_atr_ratio' not in df.columns or df['tick_atr_ratio'].notnull().sum() == 0:
+            if 'tick_atr_ratio' not in df.columns or df['tick_atr_ratio'].dropna().abs().sum() == 0:
                 tr1 = df['tick_high'] - df['tick_low']
                 prev_close = df.groupby('code')['tick_close'].shift(1).fillna(df['tick_open'])
                 tr2 = (df['tick_high'] - prev_close).abs()
@@ -256,31 +262,31 @@ class MLTrainingWorker(threading.Thread):
                 df['tick_atr_ratio'] = df['tick_atr_ratio'].fillna(0.0)
 
             # [DB 우선] 이동평균선 정배열 척도 (MA Ribbon Distance)
-            if 'tick_ma_spread' not in df.columns or df['tick_ma_spread'].notnull().sum() == 0:
+            if 'tick_ma_spread' not in df.columns or df['tick_ma_spread'].dropna().abs().sum() == 0:
                 df['tick_ma_spread'] = np.where(df['tick_ma20'] > 0, (df['tick_ma5'] - df['tick_ma20']) / df['tick_ma20'], 0)
             else:
                 df['tick_ma_spread'] = df['tick_ma_spread'].fillna(0.0)
             
             # [DB 우선] 캔들 윗꼬리 비율 (tail_ratio)
-            if 'tick_tail_ratio' not in df.columns or df['tick_tail_ratio'].notnull().sum() == 0:
+            if 'tick_tail_ratio' not in df.columns or df['tick_tail_ratio'].dropna().abs().sum() == 0:
                 df['tick_tail_ratio'] = np.where((df['tick_high'] - df['tick_low']) > 0, (df['tick_high'] - df['tick_close']) / (df['tick_high'] - df['tick_low']), 0)
             else:
                 df['tick_tail_ratio'] = df['tick_tail_ratio'].fillna(0.0)
             
             # [DB 우선] 봉 내 가격 변동폭 비율 (tick_spread)
-            if 'tick_spread' not in df.columns or df['tick_spread'].notnull().sum() == 0:
+            if 'tick_spread' not in df.columns or df['tick_spread'].dropna().abs().sum() == 0:
                 df['tick_spread'] = np.where(df['tick_close'] > 0, (df['tick_high'] - df['tick_low']) / df['tick_close'], 0)
             else:
                 df['tick_spread'] = df['tick_spread'].fillna(0.0)
             
             # [DB 우선] 틱 이격도 (tick_disparity20)
-            if 'tick_disparity20' not in df.columns or df['tick_disparity20'].notnull().sum() == 0:
+            if 'tick_disparity20' not in df.columns or df['tick_disparity20'].dropna().abs().sum() == 0:
                 df['tick_disparity20'] = np.where(df['tick_ma20'] > 0, (df['tick_close'] / df['tick_ma20']) * 100, 100.0)
             else:
                 df['tick_disparity20'] = df['tick_disparity20'].fillna(100.0)
             
             # [DB 우선] 볼린저 밴드 포지션 (tick_bb_position)
-            if 'tick_bb_position' not in df.columns or df['tick_bb_position'].notnull().sum() == 0:
+            if 'tick_bb_position' not in df.columns or df['tick_bb_position'].dropna().abs().sum() == 0:
                 df['std20'] = df.groupby('code')['tick_close'].transform(lambda x: x.rolling(20, min_periods=1).std(ddof=1).fillna(0))
                 bb_upper = df['tick_ma20'] + (2 * df['std20'])
                 bb_lower = df['tick_ma20'] - (2 * df['std20'])
@@ -290,7 +296,7 @@ class MLTrainingWorker(threading.Thread):
                 df['tick_bb_position'] = df['tick_bb_position'].fillna(0.5)
             
             # [DB 우선] 호가 잔량 비율 (tick_imbalance)
-            if 'tick_imbalance' in df.columns and df['tick_imbalance'].notnull().sum() > 0:
+            if 'tick_imbalance' in df.columns and df['tick_imbalance'].dropna().abs().sum() > 0:
                 df['tick_imbalance'] = df['tick_imbalance'].fillna(0.5)
             else:
                 df['tick_imbalance'] = 0.5
