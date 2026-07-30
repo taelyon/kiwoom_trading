@@ -550,12 +550,12 @@ class Backtester:
                             
                             sell_qty = pos['qty']
                             trade_profit = (last_price - pos['buy_price']) * sell_qty
-                            trade_profit -= (pos['buy_price'] * sell_qty * 0.008)
+                            trade_profit -= (pos['buy_price'] * sell_qty * 0.009)
                             total_profit += trade_profit
                             capital += trade_profit
                             if trade_profit > 0: win_count += 1
                             else: loss_count += 1
-                            real_profit_pct = (last_price - pos['buy_price']) / pos['buy_price'] * 100.0 - 0.8
+                            real_profit_pct = (last_price - pos['buy_price']) / pos['buy_price'] * 100.0 - 0.9
                             
                             profit_emoji = '🟢' if trade_profit >= 0 else '🔴'
                             debug_logs.append(f"{profit_emoji} [{p_code}] 데이터마감 강제청산 | {pos['buy_price']:,.0f}→{last_price:,.0f} ({real_profit_pct:+.2f}%) | 손익: {trade_profit:+,.0f}원")
@@ -754,7 +754,7 @@ class Backtester:
                             sell_ratio = 1.0
                             matched_sell_stg = "마감 강제청산"
                             final_sim_price = close_p
-                            final_profit_pct = (final_sim_price - buy_price) / buy_price * 100.0 - 0.8
+                            final_profit_pct = (final_sim_price - buy_price) / buy_price * 100.0 - 0.9
                             
                         # 루프 종료 후, 실제로 체결된 가격으로 변수 복구
                         current_price = final_sim_price
@@ -764,7 +764,7 @@ class Backtester:
                             sell_qty = int(pos['qty'] * sell_ratio)
                             if sell_qty > 0:
                                 trade_profit = (current_price - buy_price) * sell_qty
-                                trade_profit -= (buy_price * sell_qty * 0.008)
+                                trade_profit -= (buy_price * sell_qty * 0.009)
                                 total_profit += trade_profit
                                 capital += trade_profit
                                 if trade_profit > 0: win_count += 1
@@ -963,12 +963,12 @@ class Backtester:
                 
                 sell_qty = pos['qty']
                 trade_profit = (last_price - pos['buy_price']) * sell_qty
-                trade_profit -= (pos['buy_price'] * sell_qty * 0.008)
+                trade_profit -= (pos['buy_price'] * sell_qty * 0.009)
                 total_profit += trade_profit
                 capital += trade_profit
                 if trade_profit > 0: win_count += 1
                 else: loss_count += 1
-                real_profit_pct = (last_price - pos['buy_price']) / pos['buy_price'] * 100.0 - 0.8
+                real_profit_pct = (last_price - pos['buy_price']) / pos['buy_price'] * 100.0 - 0.9
                 
                 profit_emoji = '🟢' if trade_profit >= 0 else '🔴'
                 debug_logs.append(f"{profit_emoji} [{current_code}] 강제청산 | {pos['buy_price']:,.0f}→{last_price:,.0f} ({real_profit_pct:+.2f}%) | 손익: {trade_profit:+,.0f}원")
