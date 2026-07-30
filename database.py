@@ -898,8 +898,8 @@ class AsyncDatabaseManager:
                 recent_rows = await cursor.fetchall()
                 for row in recent_rows:
                     record_dict = dict(zip(columns, row))
-                    # 레거시 tic_ 컬럼들은 결과에서 제거 (tick_ 로 대체됨)
-                    filtered_dict = {k: v for k, v in record_dict.items() if not (k.startswith('tic_') and not k.startswith('tick_'))}
+                    # 레거시 tic_ 컬럼들은 결과에서 제거 (tick_ 로 대체됨), 폐기된 tick_rsi 제외
+                    filtered_dict = {k: v for k, v in record_dict.items() if not (k.startswith('tic_') and not k.startswith('tick_')) and k != 'tick_rsi'}
                     
                     # UI에 보여질 컬럼 순서 재정렬 (가독성 향상)
                     def sort_key(k):
