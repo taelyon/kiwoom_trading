@@ -153,7 +153,7 @@ class AsyncDatabaseManager:
                     # 3. 신규 직결 틱 지표 컬럼 자동 추가 마이그레이션
                     existing_col_names = {row[1] for row in columns_info}
                     new_required_cols = [
-                        'tick_price_roc', 'tick_vol_roc', 'tick_impulse', 'tick_atr_ratio',
+                        'tick_price_roc', 'tick_impulse', 'tick_atr_ratio',
                         'tick_ma_spread', 'tick_disparity20', 'tick_bb_position', 'tick_tail_ratio'
                     ]
                     for new_col in new_required_cols:
