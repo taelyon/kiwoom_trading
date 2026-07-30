@@ -105,6 +105,10 @@ class MLTrainingWorker(threading.Thread):
 
             # === KOSDAQ 지수 데이터 병합 ===
             try:
+                # 0. market_proxy 계산용 tick_price_roc 선계산
+                if 'tick_price_roc' not in df.columns:
+                    df['tick_price_roc'] = df.groupby('code')['tick_close'].pct_change(periods=10).fillna(0.0)
+
                 existing_kosdaq_roc = df['market_kosdaq_roc'].copy() if 'market_kosdaq_roc' in df.columns else None
                 if 'market_kosdaq_roc' in df.columns:
                     df = df.drop(columns=['market_kosdaq_roc'])
@@ -149,7 +153,10 @@ class MLTrainingWorker(threading.Thread):
                         df['market_kosdaq_roc'] = market_proxy
             except Exception as e:
                 self.logger.error(f"KOSDAQ 병합 중 오류: {e}")
-                df['market_kosdaq_roc'] = 0.0
+                if 'tick_price_roc' in df.columns:
+                    df['market_kosdaq_roc'] = df.groupby('datetime')['tick_price_roc'].transform('mean').fillna(0.0)
+                else:
+                    df['market_kosdaq_roc'] = 0.0
 
             # === Feature Engineering (비율/속도 변환) ===
             # 종목별로 그룹화하여 계산 필요
