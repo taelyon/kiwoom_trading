@@ -1457,24 +1457,11 @@ class ChartDataCache:
                                 if col_name != 'datetime':
                                     snapshot[col_name] = v[-1]  # -1: 완성된 봉
                                     
-                        # [단일 진실 출처 (Single Source of Truth) 구조]
-                        # 별도 이중 재계산 대신, 매수 판단에 실제로 사용된 오리지널 지표 전체(latest_eval_locals)를 DB 스냅샷으로 100% 동일 일원화하여 저장
-                        eval_locals = cached_data.get('latest_eval_locals', {})
-                        if eval_locals:
-                            for key, val in eval_locals.items():
-                                if key in ['code', 'datetime', 'feature_time', 'portfolio', 'buy_strategies', 'sell_strategies']:
-                                    continue
-                                # 스칼라 또는 numpy 배열의 마지막 값 추출
-                                if isinstance(val, (list, np.ndarray)) and len(val) > 0:
-                                    safe_v = float(val[-1])
-                                elif isinstance(val, (int, float, np.number)):
-                                    safe_v = float(val)
-                                else:
-                                    continue
-                                
-                                # 컬럼명 매핑 (예: tick_strength, tick_close, ai_score)
-                                col_name = key.lower()
-                                snapshot[col_name] = safe_v
+                        # [시장 지수 지표 추가]
+                        if hasattr(self.trader, 'market_index_manager') and hasattr(self.trader.market_index_manager, 'kosdaq_roc'):
+                            snapshot['market_kosdaq_roc'] = float(self.trader.market_index_manager.kosdaq_roc)
+                        else:
+                            snapshot['market_kosdaq_roc'] = 0.0
 
                         for k, v in min_data_snap.items():
                             if isinstance(v, list) and len(v) >= 1:
@@ -1482,7 +1469,7 @@ class ChartDataCache:
                                 if col_name:
                                     snapshot[col_name] = v[-1]
 
-                        # [신규 파생 지표 9종 DB 스냅샷 즉석 연산]
+                        # [신규 파생 지표 10종 DB 스냅샷 즉석 연산]
                         try:
                             closes = tick_data_snap.get('close', [])
                             highs = tick_data_snap.get('high', [])
@@ -1574,9 +1561,23 @@ class ChartDataCache:
                         except Exception as calc_ex:
                             self.logger.error(f"파생 지표 스냅샷 연산 실패 ({stock_code}): {calc_ex}")
 
+                        # [화이트리스트 기반 컬럼 필터링] AI 및 백테스트 필수 컬럼만 정제하여 저장
+                        allowed_cols = {
+                            'code', 'datetime', 'ai_score', 'market_kosdaq_roc',
+                            'tick_open', 'tick_high', 'tick_low', 'tick_close', 'tick_volume',
+                            'tick_buy_volume', 'tick_sell_volume', 'tick_strength', 'tick_velocity', 'tick_last_tic_cnt',
+                            'tick_ma5', 'tick_ma10', 'tick_ma20', 'tick_ma60', 'tick_ma120', 'tick_rsi',
+                            'tick_vwap_distance', 'tick_macd_hist', 'tick_rsi21', 'tick_price_roc',
+                            'tick_impulse', 'tick_atr_ratio', 'tick_ma_spread', 'tick_tail_ratio',
+                            'tick_spread', 'tick_disparity20', 'tick_bb_position', 'tick_imbalance',
+                            'min3_open', 'min3_high', 'min3_low', 'min3_close', 'min3_volume',
+                            'min3_ma5', 'min3_ma10', 'min3_ma20', 'min3_ma60', 'min3_relative_position'
+                        }
+                        clean_snapshot = {k: v for k, v in snapshot.items() if k in allowed_cols}
+
                         if 'db_save_queue' not in cached_data:
                             cached_data['db_save_queue'] = []
-                        cached_data['db_save_queue'].append(snapshot)
+                        cached_data['db_save_queue'].append(clean_snapshot)
                 except Exception as snap_ex:
                     self.logger.error(f"스냅샷 생성 실패 ({stock_code}): {snap_ex}")
 

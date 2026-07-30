@@ -129,8 +129,16 @@ class AsyncDatabaseManager:
                     # 1. 과거 tic_ 컬럼
                     legacy_cols = [row[1] for row in columns_info if row[1].startswith('tic_') and not row[1].startswith('tick_')]
                     
-                    # 2. AI 학습/판단에 미사용되어 DB에서 제외하기로 한 컬럼들 (tick_macd_hist는 사용되므로 유지)
-                    unwanted_cols = {'tick_macd', 'tick_macd_signal', 'min3_rsi21', 'min3_macd', 'min3_macd_signal', 'min3_macd_hist'}
+                    # 2. AI 학습/판단에 미사용되어 DB에서 제외하기로 한 불필요/중복 컬럼들
+                    unwanted_cols = {
+                        'tick_macd', 'tick_macd_signal', 'min3_rsi21', 'min3_macd', 'min3_macd_signal', 'min3_macd_hist',
+                        'tick_atr', 'tick_avg_volume_10', 'tick_avg_volume_5', 'tick_obv', 'tick_obv_ma20', 'tick_order_book_imbalance',
+                        'tick_relative_position', 'tick_roc', 'tick_rsi_signal', 'tick_stochd', 'tick_stochk', 'tick_tick_velocity',
+                        'tick_volume_ma_ratio', 'tick_vwap', 'tick_williams_r',
+                        'min3_atr', 'min3_last_tic_cnt', 'min3_ma60', 'min3_obv', 'min3_obv_ma20', 'min3_roc', 'min3_rsi',
+                        'min3_rsi_signal', 'min3_stochd', 'min3_stochk', 'min3_strength', 'min3_tick_velocity', 'min3_vwap', 'min3_williams_r',
+                        'avg_volume', 'max_holdings', 'order_book_imbalance', 'roc_recent', 'total_holdings', 'volume_ratio'
+                    }
                     legacy_cols.extend([row[1] for row in columns_info if row[1] in unwanted_cols])
                     
                     if legacy_cols:
@@ -478,8 +486,16 @@ class AsyncDatabaseManager:
                 await cursor.execute("PRAGMA table_info(stock_data)")
                 existing_columns = [row[1] for row in await cursor.fetchall()]
                 
-                # AI 학습/판단에 미사용되어 DB에 저장하지 않을 컬럼들 (tick_macd_hist는 사용되므로 제외 안함)
-                exclude_from_db = {'tick_macd', 'tick_macd_signal', 'min3_rsi21', 'min3_macd', 'min3_macd_signal', 'min3_macd_hist'}
+                # AI 학습/판단에 미사용되어 DB에 저장하지 않을 컬럼들
+                exclude_from_db = {
+                    'tick_macd', 'tick_macd_signal', 'min3_rsi21', 'min3_macd', 'min3_macd_signal', 'min3_macd_hist',
+                    'tick_atr', 'tick_avg_volume_10', 'tick_avg_volume_5', 'tick_obv', 'tick_obv_ma20', 'tick_order_book_imbalance',
+                    'tick_relative_position', 'tick_roc', 'tick_rsi_signal', 'tick_stochd', 'tick_stochk', 'tick_tick_velocity',
+                    'tick_volume_ma_ratio', 'tick_vwap', 'tick_williams_r',
+                    'min3_atr', 'min3_last_tic_cnt', 'min3_ma60', 'min3_obv', 'min3_obv_ma20', 'min3_roc', 'min3_rsi',
+                    'min3_rsi_signal', 'min3_stochd', 'min3_stochk', 'min3_strength', 'min3_tick_velocity', 'min3_vwap', 'min3_williams_r',
+                    'avg_volume', 'max_holdings', 'order_book_imbalance', 'roc_recent', 'total_holdings', 'volume_ratio'
+                }
                 
                 # 없는 컬럼은 ALTER TABLE로 추가 (동적 스키마 진화)
                 for key in sample_keys:
