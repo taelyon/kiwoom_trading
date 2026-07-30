@@ -1461,8 +1461,13 @@ class ChartDataCache:
                         kosdaq_roc_val = 0.0
                         for obj in [getattr(self, 'parent', None), getattr(getattr(self, 'trader', None), 'parent', None), getattr(self, 'trader', None)]:
                             if obj and hasattr(obj, 'market_index_manager') and obj.market_index_manager:
-                                kosdaq_roc_val = float(getattr(obj.market_index_manager, 'kosdaq_roc', 0.0))
-                                break
+                                val = float(getattr(obj.market_index_manager, 'kosdaq_roc', 0.0))
+                                if val != 0.0:
+                                    kosdaq_roc_val = val
+                                    self._last_kosdaq_roc = val
+                                    break
+                        if kosdaq_roc_val == 0.0 and hasattr(self, '_last_kosdaq_roc'):
+                            kosdaq_roc_val = self._last_kosdaq_roc
                         snapshot['market_kosdaq_roc'] = kosdaq_roc_val
 
                         for k, v in min_data_snap.items():

@@ -1838,6 +1838,8 @@ class MarketIndexManager:
         self.db = db_manager
         self.is_fetching = False
         self._task = None
+        self.kosdaq_roc = 0.0
+        self.kosdaq_current = 0.0
         
     def start(self):
         if not self._task:
@@ -1849,8 +1851,9 @@ class MarketIndexManager:
             
     async def _main_loop(self):
         try:
-            await asyncio.sleep(5) # 로그인 후 안정화 대기
-            await self._backfill_history_if_needed()
+            await asyncio.sleep(2) # 로그인 후 즉시 실행
+            await self._update_realtime_kosdaq() # 실시간 지수 수치부터 즉시 확보
+            create_fire_and_forget_task(self._backfill_history_if_needed()) # 백필은 백그라운드 태스크로 전환
             
             while True:
                 now = datetime.now()
