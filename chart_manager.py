@@ -1473,13 +1473,13 @@ class ChartDataCache:
 
                         # [신규 파생 지표 10종 DB 스냅샷 즉석 연산]
                         try:
-                            closes = tick_data_snap.get('close', [])
-                            highs = tick_data_snap.get('high', [])
-                            lows = tick_data_snap.get('low', [])
-                            vols = tick_data_snap.get('volume', [])
-                            ma5s = tick_data_snap.get('MA5', [])
-                            ma20s = tick_data_snap.get('MA20', [])
-                            velocities = tick_data_snap.get('VELOCITY', [])
+                            closes = tick_data_snap.get('close', tick_data_snap.get('CLOSE', []))
+                            highs = tick_data_snap.get('high', tick_data_snap.get('HIGH', []))
+                            lows = tick_data_snap.get('low', tick_data_snap.get('LOW', []))
+                            vols = tick_data_snap.get('volume', tick_data_snap.get('VOLUME', []))
+                            ma5s = tick_data_snap.get('MA5', tick_data_snap.get('ma5', []))
+                            ma20s = tick_data_snap.get('MA20', tick_data_snap.get('ma20', []))
+                            velocities = tick_data_snap.get('TICK_VELOCITY', tick_data_snap.get('VELOCITY', []))
                             
                             n_c = len(closes)
                             if n_c >= 1:
