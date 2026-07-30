@@ -1468,7 +1468,7 @@ class ChartDataCache:
                                     break
                         if kosdaq_roc_val == 0.0 and hasattr(self, '_last_kosdaq_roc'):
                             kosdaq_roc_val = self._last_kosdaq_roc
-                        snapshot['market_kosdaq_roc'] = kosdaq_roc_val
+                        snapshot['market_kosdaq_roc'] = round(float(kosdaq_roc_val), 4)
 
                         for k, v in min_data_snap.items():
                             if isinstance(v, list) and len(v) >= 1:

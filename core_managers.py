@@ -1890,7 +1890,7 @@ class MarketIndexManager:
                 current_price = abs(float(latest.get('cur_prc', 0))) / 100.0
                 
                 if today_open > 0:
-                    self.kosdaq_roc = (current_price - today_open) / today_open
+                    self.kosdaq_roc = round(float((current_price - today_open) / today_open), 4)
                     self.kosdaq_current = current_price
                     # self.logger.debug(f"📈 실시간 KOSDAQ 업데이트: 지수 {self.kosdaq_current:.2f}, 당일 등락률 {self.kosdaq_roc*100:.2f}%")
         except Exception as e:
