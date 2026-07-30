@@ -309,10 +309,13 @@ class Backtester:
                             roll_avg = np.where(roll_avg == 0, 1, roll_avg)
                             f_ma_ratio = vol / roll_avg
 
-                        close_vals = group_df['close'].values if 'close' in group_df.columns else np.zeros(n)
-                        vwap_vals = group_df['tick_VWAP'].values if 'tick_VWAP' in group_df.columns else close_vals.copy()
-                        vwap_safe = np.where(vwap_vals == 0, 1e-9, vwap_vals)
-                        f_vwap_dist = (close_vals - vwap_vals) / vwap_safe
+                        if 'tick_vwap_distance' in group_df.columns and group_df['tick_vwap_distance'].notna().sum() > 0:
+                            f_vwap_dist = group_df['tick_vwap_distance'].fillna(0.0).values
+                        else:
+                            close_vals = group_df['close'].values if 'close' in group_df.columns else np.zeros(n)
+                            vwap_vals = group_df['tick_VWAP'].values if 'tick_VWAP' in group_df.columns else close_vals.copy()
+                            vwap_safe = np.where(vwap_vals == 0, 1e-9, vwap_vals)
+                            f_vwap_dist = (close_vals - vwap_vals) / vwap_safe
                         
                         f_macd_hist = group_df['tick_macd_hist'].values if 'tick_macd_hist' in group_df.columns else np.zeros(n)
                         
