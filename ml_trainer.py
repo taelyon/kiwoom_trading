@@ -315,6 +315,18 @@ class MLTrainingWorker(threading.Thread):
             else:
                 df['tick_imbalance'] = 0.5
             
+            # [DB 우선 + 스마트 백필] 당일 코스닥 등락률 (market_kosdaq_roc)
+            # 과거 데이터에 0.0이 5% 이상 섞여있으면(과거 지수 미수집 시기 데이터), 동시간대 모니터링 종목 전체 평균 등락률(시장 종합 지수 대리값)로 100% 빽빽하게 백필
+            if 'market_kosdaq_roc' not in df.columns or (df['market_kosdaq_roc'] == 0).mean() > 0.05:
+                market_proxy = df.groupby('datetime')['tick_price_roc'].transform('mean').fillna(0.0)
+                existing_clean = df['market_kosdaq_roc'].replace(0.0, np.nan) if 'market_kosdaq_roc' in df.columns else None
+                if existing_clean is not None:
+                    df['market_kosdaq_roc'] = existing_clean.combine_first(market_proxy).fillna(0.0)
+                else:
+                    df['market_kosdaq_roc'] = market_proxy
+            else:
+                df['market_kosdaq_roc'] = df['market_kosdaq_roc'].fillna(0.0)
+            
             # Feature 목록 정의 (노이즈 피처 제거: tick_volume_ma_ratio, tick_vol_roc 제거)
             base_features = [
                 'tick_strength', 
