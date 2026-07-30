@@ -134,7 +134,7 @@ class AsyncDatabaseManager:
                         'tick_macd', 'tick_macd_signal', 'min3_rsi21', 'min3_macd', 'min3_macd_signal', 'min3_macd_hist',
                         'tick_atr', 'tick_avg_volume_10', 'tick_avg_volume_5', 'tick_obv', 'tick_obv_ma20', 'tick_order_book_imbalance',
                         'tick_relative_position', 'tick_roc', 'tick_rsi_signal', 'tick_stochd', 'tick_stochk', 'tick_tick_velocity',
-                        'tick_volume_ma_ratio', 'tick_vwap', 'tick_williams_r',
+                        'tick_volume_ma_ratio', 'tick_vwap', 'tick_williams_r', 'tick_vol_roc',
                         'min3_atr', 'min3_last_tic_cnt', 'min3_ma60', 'min3_obv', 'min3_obv_ma20', 'min3_roc', 'min3_rsi',
                         'min3_rsi_signal', 'min3_stochd', 'min3_stochk', 'min3_strength', 'min3_tick_velocity', 'min3_vwap', 'min3_williams_r',
                         'avg_volume', 'max_holdings', 'order_book_imbalance', 'roc_recent', 'total_holdings', 'volume_ratio'
@@ -491,7 +491,7 @@ class AsyncDatabaseManager:
                     'tick_macd', 'tick_macd_signal', 'min3_rsi21', 'min3_macd', 'min3_macd_signal', 'min3_macd_hist',
                     'tick_atr', 'tick_avg_volume_10', 'tick_avg_volume_5', 'tick_obv', 'tick_obv_ma20', 'tick_order_book_imbalance',
                     'tick_relative_position', 'tick_roc', 'tick_rsi_signal', 'tick_stochd', 'tick_stochk', 'tick_tick_velocity',
-                    'tick_volume_ma_ratio', 'tick_vwap', 'tick_williams_r',
+                    'tick_volume_ma_ratio', 'tick_vwap', 'tick_williams_r', 'tick_vol_roc',
                     'min3_atr', 'min3_last_tic_cnt', 'min3_ma60', 'min3_obv', 'min3_obv_ma20', 'min3_roc', 'min3_rsi',
                     'min3_rsi_signal', 'min3_stochd', 'min3_stochk', 'min3_strength', 'min3_tick_velocity', 'min3_vwap', 'min3_williams_r',
                     'avg_volume', 'max_holdings', 'order_book_imbalance', 'roc_recent', 'total_holdings', 'volume_ratio'

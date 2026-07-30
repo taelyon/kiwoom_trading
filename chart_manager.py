@@ -1457,11 +1457,13 @@ class ChartDataCache:
                                 if col_name != 'datetime':
                                     snapshot[col_name] = v[-1]  # -1: 완성된 봉
                                     
-                        # [시장 지수 지표 추가]
-                        if hasattr(self.trader, 'market_index_manager') and hasattr(self.trader.market_index_manager, 'kosdaq_roc'):
-                            snapshot['market_kosdaq_roc'] = float(self.trader.market_index_manager.kosdaq_roc)
-                        else:
-                            snapshot['market_kosdaq_roc'] = 0.0
+                        # [시장 지수 지표 안전 추출]
+                        kosdaq_roc_val = 0.0
+                        for obj in [getattr(self, 'parent', None), getattr(getattr(self, 'trader', None), 'parent', None), getattr(self, 'trader', None)]:
+                            if obj and hasattr(obj, 'market_index_manager') and obj.market_index_manager:
+                                kosdaq_roc_val = float(getattr(obj.market_index_manager, 'kosdaq_roc', 0.0))
+                                break
+                        snapshot['market_kosdaq_roc'] = kosdaq_roc_val
 
                         for k, v in min_data_snap.items():
                             if isinstance(v, list) and len(v) >= 1:

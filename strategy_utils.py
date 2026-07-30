@@ -559,8 +559,9 @@ def prepare_buy_strategy_locals(code, tick_chart_data, min_chart_data, portfolio
                 else:
                     feature_price_roc = 0.0
                 
-                # [신규 추가] 돌파 가속도 (Impulse = log_velocity * price_roc)
-                feature_impulse = feature_velocity * feature_price_roc
+                # [신규 추가] 돌파 가속도 (Impulse = log1p(velocity) * price_roc)
+                feature_impulse = float(np.log1p(max(0, feature_velocity)) * feature_price_roc)
+                locals_dict['tick_impulse'] = feature_impulse
                 
                 # [신규 추가] 상대적 ATR 변동성 비율 (tick_atr_ratio)
                 high_arr = locals_dict.get('tick_high', [])
