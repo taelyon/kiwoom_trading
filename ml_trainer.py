@@ -213,62 +213,54 @@ class MLTrainingWorker(threading.Thread):
                 else:
                     df[col] = df[col].fillna(new_cols[col])
             
-            # [DB 우선] 돌파 가속도 (Impulse = velocity * price_roc, velocity는 이미 log1p 변환됨)
-            # 과거 데이터에 0.0이 5% 이상 섞여있으면 학습 전체 세트에 즉석 백필 재계산
-            if 'tick_impulse' not in df.columns or df['tick_impulse'].dropna().abs().sum() == 0:
-                # df['tick_velocity']는 L160에서 이미 log1p 처리됨
-                log_vel = np.maximum(0, df['tick_velocity'].fillna(0.0))
-                df['tick_impulse'] = (log_vel * df['tick_price_roc'].fillna(0.0)).fillna(0.0)
-            else:
-                df['tick_impulse'] = df['tick_impulse'].fillna(0.0)
-            
-            # [DB 우선] ATR% (상대적 ATR 변동성 비율 %)
-            if 'tick_atr_ratio' not in df.columns or df['tick_atr_ratio'].dropna().abs().sum() == 0:
-                tr1 = df['tick_high'] - df['tick_low']
-                prev_close = df.groupby('code')['tick_close'].shift(1).fillna(df['tick_open'])
-                tr2 = (df['tick_high'] - prev_close).abs()
-                tr3 = (df['tick_low'] - prev_close).abs()
-                tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-                df['tr'] = tr
-                df['atr20'] = df.groupby('code')['tr'].transform(lambda x: x.rolling(20, min_periods=1).mean())
-                df['tick_atr_ratio'] = np.where(df['tick_close'] > 0, (df['atr20'] / df['tick_close']) * 100.0, 0.0)
-                df['tick_atr_ratio'] = df['tick_atr_ratio'].fillna(0.0)
-            else:
-                df['tick_atr_ratio'] = df['tick_atr_ratio'].fillna(0.0)
+            # [DB 백필] 과거 데이터의 결측치 및 기본값 채우기를 위한 전체 재계산 후 조건부 병합
+            # 기존에는 컬럼 전체의 sum == 0 일 때만 계산했으나, 최근 일부 데이터만 저장된 경우
+            # 나머지 99%의 과거 데이터가 0.0으로 남아 학습에서 무시되는 문제(중요도 0) 해결
 
-            # [DB 우선] 이동평균선 정배열 척도 (MA Ribbon Distance)
-            if 'tick_ma_spread' not in df.columns or df['tick_ma_spread'].dropna().abs().sum() == 0:
-                df['tick_ma_spread'] = np.where(df['tick_ma20'] > 0, (df['tick_ma5'] - df['tick_ma20']) / df['tick_ma20'], 0)
-            else:
-                df['tick_ma_spread'] = df['tick_ma_spread'].fillna(0.0)
+            # 1. 계산식 정의
+            log_vel = np.maximum(0, df['tick_velocity'].fillna(0.0))
+            calc_impulse = (log_vel * df['tick_price_roc'].fillna(0.0)).fillna(0.0)
+
+            tr1 = df['tick_high'] - df['tick_low']
+            prev_close = df.groupby('code')['tick_close'].shift(1).fillna(df['tick_open'])
+            tr2 = (df['tick_high'] - prev_close).abs()
+            tr3 = (df['tick_low'] - prev_close).abs()
+            tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+            atr20 = df.groupby('code')['tr'].transform(lambda x: x.rolling(20, min_periods=1).mean())
+            calc_atr_ratio = np.where(df['tick_close'] > 0, (atr20 / df['tick_close']) * 100.0, 0.0)
+
+            # MA5가 DB에 없으므로 임시 생성
+            if 'tick_ma5' not in df.columns:
+                df['tick_ma5'] = df.groupby('code')['tick_close'].transform(lambda x: x.rolling(5, min_periods=1).mean())
+            calc_ma_spread = np.where(df['tick_ma20'] > 0, (df['tick_ma5'] - df['tick_ma20']) / df['tick_ma20'], 0.0)
+
+            calc_tail_ratio = np.where((df['tick_high'] - df['tick_low']) > 0, (df['tick_high'] - df['tick_close']) / (df['tick_high'] - df['tick_low']), 0.0)
             
-            # [DB 우선] 캔들 윗꼬리 비율 (tail_ratio)
-            if 'tick_tail_ratio' not in df.columns or df['tick_tail_ratio'].dropna().abs().sum() == 0:
-                df['tick_tail_ratio'] = np.where((df['tick_high'] - df['tick_low']) > 0, (df['tick_high'] - df['tick_close']) / (df['tick_high'] - df['tick_low']), 0)
-            else:
-                df['tick_tail_ratio'] = df['tick_tail_ratio'].fillna(0.0)
+            calc_spread = np.where(df['tick_close'] > 0, (df['tick_high'] - df['tick_low']) / df['tick_close'], 0.0)
             
-            # [DB 우선] 봉 내 가격 변동폭 비율 (tick_spread)
-            if 'tick_spread' not in df.columns or df['tick_spread'].dropna().abs().sum() == 0:
-                df['tick_spread'] = np.where(df['tick_close'] > 0, (df['tick_high'] - df['tick_low']) / df['tick_close'], 0)
-            else:
-                df['tick_spread'] = df['tick_spread'].fillna(0.0)
-            
-            # [DB 우선] 틱 이격도 (tick_disparity20)
-            if 'tick_disparity20' not in df.columns or df['tick_disparity20'].dropna().abs().sum() == 0:
-                df['tick_disparity20'] = np.where(df['tick_ma20'] > 0, (df['tick_close'] / df['tick_ma20']) * 100, 100.0)
-            else:
-                df['tick_disparity20'] = df['tick_disparity20'].fillna(100.0)
-            
-            # [DB 우선] 볼린저 밴드 포지션 (tick_bb_position)
-            if 'tick_bb_position' not in df.columns or df['tick_bb_position'].dropna().abs().sum() == 0:
-                df['std20'] = df.groupby('code')['tick_close'].transform(lambda x: x.rolling(20, min_periods=1).std(ddof=1).fillna(0))
-                bb_upper = df['tick_ma20'] + (2 * df['std20'])
-                bb_lower = df['tick_ma20'] - (2 * df['std20'])
-                df['tick_bb_position'] = np.where((bb_upper - bb_lower) > 0, (df['tick_close'] - bb_lower) / (bb_upper - bb_lower), 0.5)
-                df['tick_bb_position'] = df['tick_bb_position'].fillna(0.5)
-            else:
-                df['tick_bb_position'] = df['tick_bb_position'].fillna(0.5)
+            calc_disparity20 = np.where(df['tick_ma20'] > 0, (df['tick_close'] / df['tick_ma20']) * 100, 100.0)
+
+            std20 = df.groupby('code')['tick_close'].transform(lambda x: x.rolling(20, min_periods=1).std(ddof=1).fillna(0))
+            bb_upper = df['tick_ma20'] + (2 * std20)
+            bb_lower = df['tick_ma20'] - (2 * std20)
+            calc_bb_position = np.where((bb_upper - bb_lower) > 0, (df['tick_close'] - bb_lower) / (bb_upper - bb_lower), 0.5)
+
+            # 2. 컬럼 병합 (DB에 없으면 생성, 있으면 기본값(결측)인 경우만 덮어쓰기)
+            def merge_feature(col_name, calc_series, default_val):
+                if col_name not in df.columns:
+                    df[col_name] = calc_series
+                else:
+                    mask = (df[col_name] == default_val) | df[col_name].isna()
+                    df.loc[mask, col_name] = calc_series[mask]
+                df[col_name] = df[col_name].fillna(default_val)
+
+            merge_feature('tick_impulse', calc_impulse, 0.0)
+            merge_feature('tick_atr_ratio', calc_atr_ratio, 0.0)
+            merge_feature('tick_ma_spread', calc_ma_spread, 0.0)
+            merge_feature('tick_tail_ratio', calc_tail_ratio, 0.0)
+            merge_feature('tick_spread', calc_spread, 0.0)
+            merge_feature('tick_disparity20', calc_disparity20, 100.0)
+            merge_feature('tick_bb_position', calc_bb_position, 0.5)
             
             # [DB 우선] 호가 잔량 비율 (tick_imbalance)
             if 'tick_imbalance' in df.columns and df['tick_imbalance'].dropna().abs().sum() > 0:
