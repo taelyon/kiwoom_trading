@@ -229,7 +229,7 @@ class KiwoomIndicatorExtractor:
 
             # 1. 캐시된 필수 지표가 있으면 그대로 사용
             cached_indicator_keys = [
-                'MA5', 'MA10', 'MA20', 'MA60', 'MA120', 'RSI', 'MACD', 'MACD_SIGNAL', 'MACD_HIST',
+                'MA5', 'MA10', 'MA20', 'MA60', 'MA120', 'MACD', 'MACD_SIGNAL', 'MACD_HIST',
                 'TICK_VELOCITY', 'LAST_TIC_CNT'
             ]
             for key in cached_indicator_keys:
@@ -284,11 +284,8 @@ class KiwoomIndicatorExtractor:
             elif is_target('RELATIVE_POSITION'):
                 indicators['RELATIVE_POSITION'] = np.full(len(close), np.nan)
 
-            # RSI
-            if is_target('RSI') and 'RSI' not in indicators:
-                indicators['RSI'] = talib.RSI(close, timeperiod=14) if len(close) >= 14 else np.full(len(close), np.nan)
-            
-            if is_target('RSI21') or is_target('RSI'):
+            # RSI21
+            if is_target('RSI21'):
                 indicators['RSI21'] = talib.RSI(close, timeperiod=21) if len(close) >= 21 else np.full(len(close), np.nan)
 
             # MACD

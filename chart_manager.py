@@ -1580,7 +1580,7 @@ class ChartDataCache:
                             'code', 'datetime', 'ai_score', 'market_kosdaq_roc',
                             'tick_open', 'tick_high', 'tick_low', 'tick_close', 'tick_volume',
                             'tick_buy_volume', 'tick_sell_volume', 'tick_strength', 'tick_velocity', 'tick_last_tic_cnt',
-                            'tick_ma5', 'tick_ma10', 'tick_ma20', 'tick_ma60', 'tick_ma120', 'tick_rsi',
+                            'tick_ma5', 'tick_ma10', 'tick_ma20', 'tick_ma60', 'tick_ma120',
                             'tick_vwap_distance', 'tick_macd_hist', 'tick_rsi21', 'tick_price_roc',
                             'tick_impulse', 'tick_atr_ratio', 'tick_ma_spread', 'tick_tail_ratio',
                             'tick_spread', 'tick_disparity20', 'tick_bb_position', 'tick_imbalance',

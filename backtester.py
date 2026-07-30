@@ -32,7 +32,7 @@ def format_backtest_indicator_log(code, strategy_name, strategy_type, condition,
         key_indicators = [
             'AI_SCORE', 'feature_time', 'current_price', 'buy_price', 'current_profit_pct',
             'from_peak_pct', 'highest_price', 'tick_strength', 'market_kosdaq_roc',
-            'tick_rsi', 'tick_macd_hist', 'tick_disparity20', 'tick_bb_position',
+            'tick_rsi21', 'tick_macd_hist', 'tick_disparity20', 'tick_bb_position',
             'tick_velocity', 'tick_price_roc', 'tick_vol_roc'
         ]
         
@@ -316,11 +316,9 @@ class Backtester:
                         
                         f_macd_hist = group_df['tick_macd_hist'].values if 'tick_macd_hist' in group_df.columns else np.zeros(n)
                         
-                        # DB에 저장된 온전한 RSI 컬럼 최우선 사용 (RSI-21 우선)
+                        # DB에 저장된 온전한 RSI21 컬럼 최우선 사용
                         if 'tick_rsi21' in group_df.columns:
                             f_rsi = group_df['tick_rsi21'].values
-                        elif 'tick_rsi' in group_df.columns:
-                            f_rsi = group_df['tick_rsi'].values
                         else:
                             f_rsi = np.full(n, 50.0)
                         
