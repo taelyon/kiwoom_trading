@@ -1598,7 +1598,7 @@ class KiwoomWebSocketClient:
                 return False
             
             required_keys = ['time', 'open', 'high', 'low', 'close', 'volume', 'buy_volume', 'sell_volume', 
-                             'strength', 'TICK_VELOCITY', 'LAST_TIC_CNT', 'imbalance']
+                             'strength', 'TICK_VELOCITY', 'LAST_TIC_CNT', 'tick_imbalance', 'imbalance']
             current_len = len(tick_data.get('close', []))
             for key in required_keys:
                 if key not in tick_data:
@@ -1611,7 +1611,7 @@ class KiwoomWebSocketClient:
             # 실시간 지표 가져오기
             realtime_metrics = cached_data.get('realtime_metrics', {})
             tick_velocity = realtime_metrics.get('tick_velocity', 0.0)
-            order_book_imbalance = realtime_metrics.get('order_book_imbalance', 0.5)
+            order_book_imbalance = realtime_metrics.get('tick_imbalance', realtime_metrics.get('order_book_imbalance', 0.5))
             
             # 최신 호가창 뎁스 데이터 가져오기 (실시간 지표 또는 차트 데이터 갱신)
             sell_hoga_1 = realtime_metrics.get('sell_hoga_1', 0)
@@ -1687,6 +1687,7 @@ class KiwoomWebSocketClient:
                     
                 # ML 학습용 데이터 저장
                 tick_data['TICK_VELOCITY'].append(tick_velocity)
+                tick_data['tick_imbalance'].append(order_book_imbalance)
                 tick_data['imbalance'].append(order_book_imbalance)
                 tick_data['LAST_TIC_CNT'].append(1)
                 
@@ -1725,6 +1726,8 @@ class KiwoomWebSocketClient:
                 # ML 학습용 데이터 업데이트 (최신값으로 덮어쓰기)
                 if 'TICK_VELOCITY' in tick_data:
                     tick_data['TICK_VELOCITY'][last_index] = tick_velocity
+                if 'tick_imbalance' in tick_data:
+                    tick_data['tick_imbalance'][last_index] = order_book_imbalance
                 if 'imbalance' in tick_data:
                     tick_data['imbalance'][last_index] = order_book_imbalance
 

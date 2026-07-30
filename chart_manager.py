@@ -1650,6 +1650,7 @@ class ChartDataCache:
             if 'realtime_metrics' not in cached_data:
                 cached_data['realtime_metrics'] = {}
             
+            cached_data['realtime_metrics']['tick_imbalance'] = imbalance
             cached_data['realtime_metrics']['order_book_imbalance'] = imbalance
             cached_data['realtime_metrics']['total_sell_hoga'] = total_sell_hoga
             cached_data['realtime_metrics']['total_buy_hoga'] = total_buy_hoga
