@@ -1857,8 +1857,8 @@ class MarketIndexManager:
             
             while True:
                 now = datetime.now()
-                # 08:50 ~ 15:30 에만 폴링 (장 시간)
-                if 8 <= now.hour <= 15:
+                # 08:50 ~ 15:30 및 평일(월~금)에만 폴링 (장 시간)
+                if 8 <= now.hour <= 15 and now.weekday() < 5:
                     await self._update_realtime_kosdaq()
                 await asyncio.sleep(60) # 1분 간격
         except asyncio.CancelledError:
