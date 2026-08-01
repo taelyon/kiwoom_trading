@@ -389,6 +389,13 @@ class DataManager:
         self._is_caching = True
         
         try:
+            from datetime import datetime
+            now = datetime.now()
+            # 주말(비영업일)에는 키움 서버가 302 리다이렉트를 반환하므로 API 요청 건너뜀 (기존 캐시 유지)
+            if now.weekday() >= 5:
+                self.logger.info("⚠️ 주말(비영업일)이므로 종목 마스터 리스트 업데이트를 건너뜁니다.")
+                return
+                
             if hasattr(self.parent, 'login_handler') and self.parent.login_handler.kiwoom_client:
                 kiwoom_client = self.parent.login_handler.kiwoom_client
                 
