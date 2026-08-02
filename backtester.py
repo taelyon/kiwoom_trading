@@ -1078,7 +1078,7 @@ class Backtester:
 
                 "uses_ai": uses_ai,
                 "lgbm_model_loaded": LGBM_MODEL is not None,
-                "debug_logs": debug_logs[-200:] # 프론트엔드 과부하 방지
+                "debug_logs": debug_logs[-5000:] # 프론트엔드 과부하 방지 (넉넉하게 상향)
             }
             
             if progress_callback: progress_callback(100, "시뮬레이션 완료!")
