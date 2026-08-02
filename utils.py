@@ -288,7 +288,7 @@ class ApiLimitManager:
                     wait_time = min(0.05, wait_time)
                     cls.logger.info(f"⚡ [주문 패스트트랙] {operation_name} {wait_time*1000:.1f}ms 대기 후 최우선 송신")
                 elif wait_time > 1.0:
-                    cls.logger.warning(f"⏳ [API제한] {operation_name} 요청이 {wait_time:.1f}초 대기 중 (큐: {queue_key}, 간격: {interval}초)")
+                    cls.logger.debug(f"⏳ [API제한] {operation_name} 요청이 {wait_time:.1f}초 대기 중 (큐: {queue_key}, 간격: {interval}초)")
                 await asyncio.sleep(wait_time)
             
             return True

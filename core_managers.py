@@ -1909,21 +1909,30 @@ class MarketIndexManager:
             
         async with self.db._db_lock:
             cursor = await self.db._conn.cursor()
-            await cursor.execute("SELECT MAX(datetime) FROM kosdaq_3m")
-            max_dt_row = await cursor.fetchone()
-            max_dt = max_dt_row[0] if max_dt_row and max_dt_row[0] else ""
+            await cursor.execute("SELECT COUNT(*), MAX(datetime) FROM kosdaq_3m")
+            row = await cursor.fetchone()
+            count = row[0] if row else 0
+            max_dt = row[1] if row and row[1] else ""
             
         today_prefix = datetime.now().strftime("%Y%m%d")
+        now = datetime.now()
+        
+        # 1. 오늘 날짜 데이터가 이미 존재하거나
+        # 2. 레코드가 500건 이상 있고 주말(토/일)이거나 최근 데이터가 존재하는 경우 백필 스킵
         if max_dt and max_dt.startswith(today_prefix):
-            self.logger.info(f"📈 코스닥 3분봉 데이터가 최신 상태입니다 (최근: {max_dt})")
+            self.logger.debug(f"📈 코스닥 3분봉 데이터가 최신 상태입니다 (최근: {max_dt})")
+            return
+        elif count >= 500 and (now.weekday() >= 5 or len(max_dt) >= 8):
+            self.logger.debug(f"📈 코스닥 3분봉 데이터가 충분히 존재합니다 (건수: {count}건, 최근: {max_dt})")
             return
             
         self.logger.info(f"📈 코스닥 3분봉 데이터 갱신 필요 (최근: {max_dt or '없음'}). 과거 데이터를 다운로드합니다...")
         next_key = ''
         cont_yn = 'N'
         
+        total_downloaded = 0
         for i in range(15): # 약 수십일치 다운로드
-            self.logger.info(f"코스닥 분봉 조회 중... (페이지 {i+1})")
+            self.logger.debug(f"코스닥 분봉 조회 중... (페이지 {i+1})")
             res = await self.kiwoom.get_industry_minute_chart('101', '3', cont_yn=cont_yn, next_key=next_key)
             
             if not res or 'inds_min_pole_qry' not in res:
@@ -1935,6 +1944,7 @@ class MarketIndexManager:
                 break
                 
             await self.db.save_kosdaq_data(data_list)
+            total_downloaded += len(data_list)
             
             cont_yn = res.get('cont-yn', 'N')
             next_key = res.get('next-key', '')
@@ -1942,6 +1952,8 @@ class MarketIndexManager:
             if cont_yn != 'Y' or not next_key:
                 break
             await asyncio.sleep(1.5) # 초당 1회 제한 방지
+            
+        self.logger.info(f"✅ 코스닥 3분봉 과거 데이터 갱신 완료 (총 {total_downloaded}건 수신)")
 
 __all__ = [
     'LoginHandler',

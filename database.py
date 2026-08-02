@@ -690,7 +690,7 @@ class AsyncDatabaseManager:
                         VALUES (?, ?, ?, ?, ?, ?, ?)
                     ''', records)
                     await self._conn.commit()
-                    self.logger.info(f"✅ KOSDAQ 3분봉 데이터 {len(records)}건 저장 완료")
+                    self.logger.debug(f"✅ KOSDAQ 3분봉 데이터 {len(records)}건 저장 완료")
                     
         except Exception as e:
             self.logger.error(f"KOSDAQ 데이터 저장 중 오류: {e}", exc_info=True)
