@@ -1909,14 +1909,16 @@ class MarketIndexManager:
             
         async with self.db._db_lock:
             cursor = await self.db._conn.cursor()
-            await cursor.execute("SELECT COUNT(*) FROM kosdaq_3m")
-            count = (await cursor.fetchone())[0]
+            await cursor.execute("SELECT MAX(datetime) FROM kosdaq_3m")
+            max_dt_row = await cursor.fetchone()
+            max_dt = max_dt_row[0] if max_dt_row and max_dt_row[0] else ""
             
-        if count >= 500:
-            self.logger.info(f"📈 코스닥 3분봉 과거 데이터가 충분함 (건수: {count}건)")
+        today_prefix = datetime.now().strftime("%Y%m%d")
+        if max_dt and max_dt.startswith(today_prefix):
+            self.logger.info(f"📈 코스닥 3분봉 데이터가 최신 상태입니다 (최근: {max_dt})")
             return
             
-        self.logger.info("📈 코스닥 3분봉 데이터가 없어 과거 데이터를 다운로드합니다...")
+        self.logger.info(f"📈 코스닥 3분봉 데이터 갱신 필요 (최근: {max_dt or '없음'}). 과거 데이터를 다운로드합니다...")
         next_key = ''
         cont_yn = 'N'
         

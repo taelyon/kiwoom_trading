@@ -87,42 +87,60 @@ class Backtester:
         # SQLite에 중복 컬럼이 저장되었을 경우(예: 과거 버그로 인한 중복) 방어
         df = df.loc[:, ~df.columns.duplicated()]
         
-        # KOSDAQ 지수 데이터 로드 및 병합
-        try:
-            conn = sqlite3.connect(self.db_path)
-            kosdaq_query = "SELECT datetime as kosdaq_time, close as kosdaq_close, open as kosdaq_open FROM kosdaq_3m"
-            kosdaq_df = pd.read_sql(kosdaq_query, conn)
-            conn.close()
-            
-            if not kosdaq_df.empty:
-                df['dt_obj'] = pd.to_datetime(df['datetime'], errors='coerce')
-                kosdaq_df['dt_obj'] = pd.to_datetime(kosdaq_df['kosdaq_time'], errors='coerce')
+        # KOSDAQ 지수 데이터 로드 및 병합 (stock_data에 이미 유효한 market_kosdaq_roc 수치가 없는 경우에만 진행)
+        has_existing_roc = 'market_kosdaq_roc' in df.columns and (df['market_kosdaq_roc'].fillna(0.0) != 0.0).any()
+        
+        if has_existing_roc:
+            # stock_data DB에 이미 실전 수집된 market_kosdaq_roc 값이 있으므로 기존 값 보존
+            df['market_kosdaq_roc'] = df['market_kosdaq_roc'].fillna(0.0)
+            df['market_kosdaq_roc'] = np.where(np.abs(df['market_kosdaq_roc']) > 0.5,
+                                              df['market_kosdaq_roc'] / 100.0,
+                                              df['market_kosdaq_roc'])
+        else:
+            try:
+                conn = sqlite3.connect(self.db_path)
+                kosdaq_query = "SELECT datetime as kosdaq_time, close as kosdaq_close, open as kosdaq_open FROM kosdaq_3m"
+                kosdaq_df = pd.read_sql(kosdaq_query, conn)
+                conn.close()
                 
-                kosdaq_df = kosdaq_df.sort_values('dt_obj').dropna(subset=['dt_obj'])
-                
-                kosdaq_df['date'] = kosdaq_df['dt_obj'].dt.date
-                daily_open = kosdaq_df.groupby('date')['kosdaq_open'].transform('first')
-                kosdaq_df['market_kosdaq_roc'] = np.where(daily_open > 0, 
-                                                        (kosdaq_df['kosdaq_close'] - daily_open) / daily_open, 
-                                                        0.0)
-                # 수치 단위 정규화 (절대값 > 0.5 이면 퍼센트 수치이므로 100.0으로 나눔)
-                kosdaq_df['market_kosdaq_roc'] = np.where(np.abs(kosdaq_df['market_kosdaq_roc']) > 0.5,
-                                                         kosdaq_df['market_kosdaq_roc'] / 100.0,
-                                                         kosdaq_df['market_kosdaq_roc'])
-                
-                df = df.sort_values('dt_obj').dropna(subset=['dt_obj'])
-                df = pd.merge_asof(df, kosdaq_df[['dt_obj', 'market_kosdaq_roc']], on='dt_obj', direction='backward')
-                df['market_kosdaq_roc'] = df['market_kosdaq_roc'].fillna(0.0)
-                df['market_kosdaq_roc'] = np.where(np.abs(df['market_kosdaq_roc']) > 0.5,
-                                                  df['market_kosdaq_roc'] / 100.0,
-                                                  df['market_kosdaq_roc'])
-                df = df.sort_values('datetime')
-                df.drop(columns=['dt_obj'], inplace=True)
-            else:
+                if not kosdaq_df.empty:
+                    df['dt_obj'] = pd.to_datetime(df['datetime'], errors='coerce')
+                    kosdaq_df['dt_obj'] = pd.to_datetime(kosdaq_df['kosdaq_time'], errors='coerce')
+                    
+                    kosdaq_df = kosdaq_df.sort_values('dt_obj').dropna(subset=['dt_obj'])
+                    
+                    kosdaq_df['date'] = kosdaq_df['dt_obj'].dt.date
+                    daily_open = kosdaq_df.groupby('date')['kosdaq_open'].transform('first')
+                    kosdaq_df['market_kosdaq_roc'] = np.where(daily_open > 0, 
+                                                            (kosdaq_df['kosdaq_close'] - daily_open) / daily_open, 
+                                                            0.0)
+                    kosdaq_df['market_kosdaq_roc'] = np.where(np.abs(kosdaq_df['market_kosdaq_roc']) > 0.5,
+                                                             kosdaq_df['market_kosdaq_roc'] / 100.0,
+                                                             kosdaq_df['market_kosdaq_roc'])
+                    
+                    df = df.sort_values('dt_obj').dropna(subset=['dt_obj'])
+                    
+                    # 기존 market_kosdaq_roc 컬럼 충돌 방지를 위해 이전에 있던 컬럼 드롭 후 병합
+                    if 'market_kosdaq_roc' in df.columns:
+                        df.drop(columns=['market_kosdaq_roc'], inplace=True)
+                        
+                    df = pd.merge_asof(df, kosdaq_df[['dt_obj', 'market_kosdaq_roc']], on='dt_obj', direction='backward')
+                    df['market_kosdaq_roc'] = df['market_kosdaq_roc'].fillna(0.0)
+                    df['market_kosdaq_roc'] = np.where(np.abs(df['market_kosdaq_roc']) > 0.5,
+                                                      df['market_kosdaq_roc'] / 100.0,
+                                                      df['market_kosdaq_roc'])
+                    df = df.sort_values('datetime')
+                    df.drop(columns=['dt_obj'], inplace=True)
+                    
+                    valid_kosdaq_cnt = (df['market_kosdaq_roc'] != 0.0).sum()
+                    if valid_kosdaq_cnt == 0:
+                        logger.warning("⚠️ 백테스트 기간 내 KOSDAQ 지수(kosdaq_3m) 데이터가 누락되어 market_kosdaq_roc가 모두 0.0으로 설정되었습니다. DB 지수 데이터를 최신화해 주세요.")
+                else:
+                    logger.warning("⚠️ kosdaq_3m 테이블이 비어있어 market_kosdaq_roc가 0.0으로 설정되었습니다.")
+                    df['market_kosdaq_roc'] = 0.0
+            except Exception as e:
+                logger.error(f"KOSDAQ 병합 중 오류: {e}")
                 df['market_kosdaq_roc'] = 0.0
-        except Exception as e:
-            logger.error(f"KOSDAQ 병합 중 오류: {e}")
-            df['market_kosdaq_roc'] = 0.0
         
         return df
 
