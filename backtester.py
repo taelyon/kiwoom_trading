@@ -294,10 +294,16 @@ class Backtester:
                     logger.error(f"지표 매핑 오류 ({current_code}): {e}")
                     
                 n = len(group_df)
-                group_df['AI_SCORE'] = 0.0
+                # DB에 이미 수집/저장된 ai_score 컬럼이 존재하면 그대로 사용
+                if 'ai_score' in group_df.columns and (group_df['ai_score'].fillna(0.0) != 0.0).any():
+                    group_df['AI_SCORE'] = group_df['ai_score'].fillna(0.0)
+                elif 'AI_SCORE' in group_df.columns and (group_df['AI_SCORE'].fillna(0.0) != 0.0).any():
+                    group_df['AI_SCORE'] = group_df['AI_SCORE'].fillna(0.0)
+                else:
+                    group_df['AI_SCORE'] = 0.0
                 
-                # 3. AI_SCORE 배치 계산
-                if uses_ai and LGBM_MODEL:
+                # 3. AI_SCORE 배치 계산 (DB 수치가 없거나 0일 때만 재계산)
+                if uses_ai and (group_df['AI_SCORE'] == 0.0).all() and LGBM_MODEL:
                     try:
                         # 3.0 누락된 파생 지표(VWAP 등) 백필 계산 (DB의 tick_close, tick_volume 사용)
                         if 'tick_VWAP' not in group_df.columns:
