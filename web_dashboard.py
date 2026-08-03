@@ -336,10 +336,12 @@ HTML_CONTENT = """
         }
 
         /* 달력 아이콘 설정 (흰색 테마 강제 적용) */
+        input[type="date"] {
+            color-scheme: dark;
+        }
         input[type="date"]::-webkit-calendar-picker-indicator {
             cursor: pointer;
             opacity: 0.8;
-            filter: invert(1);
             transition: opacity 0.2s;
         }
         input[type="date"]::-webkit-calendar-picker-indicator:hover {
