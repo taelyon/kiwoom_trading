@@ -418,6 +418,62 @@ def prepare_buy_strategy_locals(code, tick_chart_data, min_chart_data, portfolio
         locals_dict['ORDER_BOOK_IMBALANCE'] = obi_array
         locals_dict['tick_order_book_imbalance'] = obi_array
         
+        # 신규 AI 피처 실시간 계산 (DB에서 로드할 때는 이미 계산되어 tick_chart_data에 있을 수 있으나 실시간 캐시에는 없을 수 있음)
+        if not tick_chart_data.empty:
+            closes = tick_chart_data.get('close', pd.Series(dtype=float))
+            highs = tick_chart_data.get('high', pd.Series(dtype=float))
+            lows = tick_chart_data.get('low', pd.Series(dtype=float))
+            opens = tick_chart_data.get('open', pd.Series(dtype=float))
+            ma20 = tick_chart_data.get('MA20', pd.Series(dtype=float))
+            
+            if 'tick_price_roc' not in locals_dict:
+                roc = pd.Series(0.0, index=closes.index)
+                if len(closes) > 10:
+                    roc = (closes - closes.shift(10)) / closes.shift(10).replace(0, np.nan)
+                locals_dict['tick_price_roc'] = roc.fillna(0.0).values
+                
+            if 'tick_impulse' not in locals_dict:
+                log_vel = np.maximum(0, locals_dict.get('tick_velocity', np.array([0.0])))
+                # 차원이 안맞을 수 있으니 pd.Series로 맞춰서 연산
+                if isinstance(log_vel, np.ndarray) and len(log_vel) == len(closes):
+                    locals_dict['tick_impulse'] = (pd.Series(log_vel) * pd.Series(locals_dict['tick_price_roc'])).fillna(0.0).values
+                else:
+                    locals_dict['tick_impulse'] = (pd.Series(0.0, index=closes.index) * pd.Series(locals_dict['tick_price_roc'])).fillna(0.0).values
+
+            if 'tick_atr_ratio' not in locals_dict:
+                tr1 = highs - lows
+                prev_close = closes.shift(1).fillna(opens)
+                tr2 = (highs - prev_close).abs()
+                tr3 = (lows - prev_close).abs()
+                tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+                atr20 = tr.rolling(20, min_periods=1).mean()
+                atr_ratio = np.where(closes > 0, (atr20 / closes) * 100.0, 0.0)
+                locals_dict['tick_atr_ratio'] = pd.Series(atr_ratio).fillna(0.0).values
+                
+            if 'tick_ma_spread' not in locals_dict:
+                ma5 = closes.rolling(5, min_periods=1).mean()
+                ma_spread = np.where(ma20 > 0, (ma5 - ma20) / ma20, 0.0)
+                locals_dict['tick_ma_spread'] = pd.Series(ma_spread).fillna(0.0).values
+
+            if 'tick_tail_ratio' not in locals_dict:
+                tail_ratio = np.where((highs - lows) > 0, (highs - closes) / (highs - lows), 0.0)
+                locals_dict['tick_tail_ratio'] = pd.Series(tail_ratio).fillna(0.0).values
+                
+            if 'tick_spread' not in locals_dict:
+                spread = np.where(closes > 0, (highs - lows) / closes, 0.0)
+                locals_dict['tick_spread'] = pd.Series(spread).fillna(0.0).values
+                
+            if 'tick_disparity20' not in locals_dict:
+                disparity = np.where(ma20 > 0, (closes / ma20) * 100, 100.0)
+                locals_dict['tick_disparity20'] = pd.Series(disparity).fillna(100.0).values
+                
+            if 'tick_bb_position' not in locals_dict:
+                std20 = closes.rolling(20, min_periods=1).std(ddof=1).fillna(0)
+                bb_upper = ma20 + (2 * std20)
+                bb_lower = ma20 - (2 * std20)
+                bb_pos = np.where((bb_upper - bb_lower) > 0, (closes - bb_lower) / (bb_upper - bb_lower), 0.5)
+                locals_dict['tick_bb_position'] = pd.Series(bb_pos).fillna(0.5).values
+        
         # min3_RELATIVE_POSITION -> min3_relative_position 매핑 (이미 배열임)
         if 'min3_RELATIVE_POSITION' in locals_dict:
             locals_dict['min3_relative_position'] = locals_dict['min3_RELATIVE_POSITION']
@@ -809,6 +865,60 @@ def prepare_sell_strategy_locals(code, tick_chart_data, min_chart_data, buy_pric
                         upper_key = 'min3_' + col[5:].upper()
                         if upper_key != col:
                             locals_dict[upper_key] = tick_chart_data[col].values
+
+            # 신규 AI 피처 실시간 계산 (DB 로드일 때는 포함될 수 있으나 실시간엔 없을 수 있음)
+            closes = tick_chart_data.get('close', pd.Series(dtype=float))
+            highs = tick_chart_data.get('high', pd.Series(dtype=float))
+            lows = tick_chart_data.get('low', pd.Series(dtype=float))
+            opens = tick_chart_data.get('open', pd.Series(dtype=float))
+            ma20 = tick_chart_data.get('MA20', pd.Series(dtype=float))
+            
+            if 'tick_price_roc' not in locals_dict:
+                roc = pd.Series(0.0, index=closes.index)
+                if len(closes) > 10:
+                    roc = (closes - closes.shift(10)) / closes.shift(10).replace(0, np.nan)
+                locals_dict['tick_price_roc'] = roc.fillna(0.0).values
+                
+            if 'tick_impulse' not in locals_dict:
+                log_vel = np.maximum(0, locals_dict.get('tick_velocity', np.array([0.0])))
+                if isinstance(log_vel, np.ndarray) and len(log_vel) == len(closes):
+                    locals_dict['tick_impulse'] = (pd.Series(log_vel) * pd.Series(locals_dict['tick_price_roc'])).fillna(0.0).values
+                else:
+                    locals_dict['tick_impulse'] = (pd.Series(0.0, index=closes.index) * pd.Series(locals_dict['tick_price_roc'])).fillna(0.0).values
+
+            if 'tick_atr_ratio' not in locals_dict:
+                tr1 = highs - lows
+                prev_close = closes.shift(1).fillna(opens)
+                tr2 = (highs - prev_close).abs()
+                tr3 = (lows - prev_close).abs()
+                tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+                atr20 = tr.rolling(20, min_periods=1).mean()
+                atr_ratio = np.where(closes > 0, (atr20 / closes) * 100.0, 0.0)
+                locals_dict['tick_atr_ratio'] = pd.Series(atr_ratio).fillna(0.0).values
+                
+            if 'tick_ma_spread' not in locals_dict:
+                ma5 = closes.rolling(5, min_periods=1).mean()
+                ma_spread = np.where(ma20 > 0, (ma5 - ma20) / ma20, 0.0)
+                locals_dict['tick_ma_spread'] = pd.Series(ma_spread).fillna(0.0).values
+
+            if 'tick_tail_ratio' not in locals_dict:
+                tail_ratio = np.where((highs - lows) > 0, (highs - closes) / (highs - lows), 0.0)
+                locals_dict['tick_tail_ratio'] = pd.Series(tail_ratio).fillna(0.0).values
+                
+            if 'tick_spread' not in locals_dict:
+                spread = np.where(closes > 0, (highs - lows) / closes, 0.0)
+                locals_dict['tick_spread'] = pd.Series(spread).fillna(0.0).values
+                
+            if 'tick_disparity20' not in locals_dict:
+                disparity = np.where(ma20 > 0, (closes / ma20) * 100, 100.0)
+                locals_dict['tick_disparity20'] = pd.Series(disparity).fillna(100.0).values
+                
+            if 'tick_bb_position' not in locals_dict:
+                std20 = closes.rolling(20, min_periods=1).std(ddof=1).fillna(0)
+                bb_upper = ma20 + (2 * std20)
+                bb_lower = ma20 - (2 * std20)
+                bb_pos = np.where((bb_upper - bb_lower) > 0, (closes - bb_lower) / (bb_upper - bb_lower), 0.5)
+                locals_dict['tick_bb_position'] = pd.Series(bb_pos).fillna(0.5).values
 
         # 2. 현재가 설정
         if current_price is None or current_price == 0:
