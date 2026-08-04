@@ -208,10 +208,12 @@ class MLTrainingWorker(threading.Thread):
             # [DB 우선 사용 메커니즘] DB에 해당 지표 컬럼이 존재하고 유효 비0 수치가 존재하면 DB 수치를 직접 사용하고, 없거나 0/NULL인 경우만 즉석 연산
             new_cols = df.groupby('code', group_keys=False).apply(calc_new_indicators)
             for col in new_cols.columns:
-                if col not in df.columns or df[col].dropna().abs().sum() == 0:
+                if col not in df.columns:
                     df[col] = new_cols[col]
                 else:
-                    df[col] = df[col].fillna(new_cols[col])
+                    mask = (df[col] == 0.0) | df[col].isna()
+                    df.loc[mask, col] = new_cols.loc[mask, col]
+                df[col] = df[col].fillna(new_cols[col])
             
             # [DB 백필] 과거 데이터의 결측치 및 기본값 채우기를 위한 전체 재계산 후 조건부 병합
             # 기존에는 컬럼 전체의 sum == 0 일 때만 계산했으나, 최근 일부 데이터만 저장된 경우
