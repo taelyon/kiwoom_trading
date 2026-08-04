@@ -77,7 +77,10 @@ class MLTrainingWorker(threading.Thread):
                 self.finished_signal.emit(False, f"데이터베이스 파일이 없습니다: {self.db_path}", None)
                 return
 
-            conn = sqlite3.connect(self.db_path)
+            source_conn = sqlite3.connect(self.db_path, timeout=30.0)
+            conn = sqlite3.connect(':memory:')
+            source_conn.backup(conn)
+            source_conn.close()
             
             # 학습에 필요한 핵심 컬럼만 조회 (데이터 양이 많을 수 있으므로 필요한 것만)
             query = """
@@ -166,7 +169,12 @@ class MLTrainingWorker(threading.Thread):
             
             # (삭제됨) 거래 대금 가속도는 거래량 폭발력과 중복도가 높아 제거
 
-            import talib
+            try:
+                import talib
+                has_talib = True
+            except ImportError:
+                has_talib = False
+                
             def calc_new_indicators(g):
                 close = g['tick_close'].values
                 high = g['tick_high'].values
@@ -180,13 +188,13 @@ class MLTrainingWorker(threading.Thread):
                 vwap = np.where(rolling_v > 0, rolling_pv / rolling_v, close)
                 tick_vwap_distance = np.where(vwap > 0, (close - vwap) / vwap, 0)
                 
-                if len(close) >= 26:
+                if len(close) >= 26 and has_talib:
                     _, _, h = talib.MACD(close)
                     tick_macd_hist = pd.Series(h).fillna(0.0).values
                 else:
                     tick_macd_hist = np.zeros(len(close))
                     
-                if len(close) >= 21:
+                if len(close) >= 21 and has_talib:
                     tick_rsi21 = pd.Series(talib.RSI(close, timeperiod=21)).fillna(50.0).values
                 else:
                     tick_rsi21 = np.full(len(close), 50.0)
