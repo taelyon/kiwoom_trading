@@ -2450,7 +2450,9 @@ HTML_CONTENT = """
                                     
                                     let val = item[col];
                                     if (val !== null && typeof val === 'number') {
-                                        if (val % 1 !== 0) {
+                                        if (col === 'tick_tail_ratio') {
+                                            val = val.toFixed(2);
+                                        } else if (val % 1 !== 0) {
                                             if (col === 'market_kosdaq_roc' || col === 'tick_impulse' || col === 'tick_price_roc') {
                                                 val = val.toFixed(4);
                                             } else {
