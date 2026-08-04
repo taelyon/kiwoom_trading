@@ -1735,6 +1735,7 @@ HTML_CONTENT = """
                             </div>
                             <div style="display: flex; gap: 10px; margin-top: 10px;">
                                 <button id="btnViewDB" class="btn-primary" style="flex: 1; padding: 14px; font-size: 14px; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 8px; background-color: var(--card-bg); border: 1px solid var(--border-color); color: white;" onclick="showDbSummaryModal()">👀 DB 보기</button>
+                                <a id="btnDownloadDB" class="btn-primary" href="/api/download_db" target="_blank" style="flex: 1; padding: 14px; font-size: 14px; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 8px; background-color: var(--card-bg); border: 1px solid var(--border-color); color: white; text-decoration: none;">💾 DB 다운로드</a>
                                 <button id="btnClearDB" class="btn-danger" style="flex: 1; padding: 14px; font-size: 14px; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 8px;" onclick="confirmClearStockData()">🗑️ DB 초기화</button>
                             </div>
                         </div>
@@ -4540,6 +4541,32 @@ async def process_request(arg1, arg2):
                     status = 404
                     headers = [("Content-Type", "text/plain")]
                     body = b"Model not found"
+            elif req_path == "/api/download_db":
+                db_file = os.path.join(os.path.dirname(__file__), "data", "stock_data.db")
+                if not os.path.exists(db_file):
+                    # 호환성을 위해 루트 디렉토리도 확인
+                    fallback_db = os.path.join(os.path.dirname(__file__), "stock_data.db")
+                    if os.path.exists(fallback_db):
+                        db_file = fallback_db
+                if os.path.exists(db_file):
+                    try:
+                        with open(db_file, "rb") as f:
+                            data = f.read()
+                        status = 200
+                        headers = [
+                            ("Content-Type", "application/octet-stream"),
+                            ("Content-Disposition", 'attachment; filename="stock_data.db"'),
+                            ("Cache-Control", "no-cache")
+                        ]
+                        body = data
+                    except Exception:
+                        status = 500
+                        headers = [("Content-Type", "text/plain")]
+                        body = b"Internal Server Error"
+                else:
+                    status = 404
+                    headers = [("Content-Type", "text/plain")]
+                    body = b"DB file not found"
             elif req_path == "/favicon.ico":
                 ico_path = os.path.join(os.path.dirname(__file__), "stock_trader.ico")
                 if os.path.exists(ico_path):
