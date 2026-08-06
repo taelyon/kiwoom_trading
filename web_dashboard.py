@@ -1929,11 +1929,23 @@ HTML_CONTENT = """
                                 </div>
                                 <div class="form-field">
                                     <label>Num Leaves</label>
-                                    <input type="number" id="mlNumLeaves" value="32" style="width: 100%; background: rgba(0,0,0,0.3); color: white; border: 1px solid var(--border-color); border-radius: 6px; padding: 8px;">
+                                    <input type="number" id="mlNumLeaves" value="16" style="width: 100%; background: rgba(0,0,0,0.3); color: white; border: 1px solid var(--border-color); border-radius: 6px; padding: 8px;">
                                 </div>
                                 <div class="form-field">
                                     <label>Min Data In Leaf</label>
-                                    <input type="number" id="mlMinData" value="50" style="width: 100%; background: rgba(0,0,0,0.3); color: white; border: 1px solid var(--border-color); border-radius: 6px; padding: 8px;">
+                                    <input type="number" id="mlMinData" value="200" style="width: 100%; background: rgba(0,0,0,0.3); color: white; border: 1px solid var(--border-color); border-radius: 6px; padding: 8px;">
+                                </div>
+                                <div class="form-field">
+                                    <label>Max Trees</label>
+                                    <input type="number" id="mlNumBoostRound" value="500" style="width: 100%; background: rgba(0,0,0,0.3); color: white; border: 1px solid var(--border-color); border-radius: 6px; padding: 8px;">
+                                </div>
+                                <div class="form-field">
+                                    <label>L1 Penalty</label>
+                                    <input type="number" step="0.1" id="mlLambdaL1" value="1.0" style="width: 100%; background: rgba(0,0,0,0.3); color: white; border: 1px solid var(--border-color); border-radius: 6px; padding: 8px;">
+                                </div>
+                                <div class="form-field">
+                                    <label>L2 Penalty</label>
+                                    <input type="number" step="0.1" id="mlLambdaL2" value="5.0" style="width: 100%; background: rgba(0,0,0,0.3); color: white; border: 1px solid var(--border-color); border-radius: 6px; padding: 8px;">
                                 </div>
                             </div>
                             
@@ -2330,6 +2342,9 @@ HTML_CONTENT = """
                         if (p.max_depth) document.getElementById('mlMaxDepth').value = p.max_depth;
                         if (p.num_leaves) document.getElementById('mlNumLeaves').value = p.num_leaves;
                         if (p.min_data_in_leaf) document.getElementById('mlMinData').value = p.min_data_in_leaf;
+                        if (p.num_boost_round) document.getElementById('mlNumBoostRound').value = p.num_boost_round;
+                        if (p.lambda_l1 !== undefined) document.getElementById('mlLambdaL1').value = p.lambda_l1;
+                        if (p.lambda_l2 !== undefined) document.getElementById('mlLambdaL2').value = p.lambda_l2;
                         initialParamsLoaded = true;
                     }
                     renderModelHistory(data.data, data.deployed ? data.deployed.timestamp : null);
@@ -4109,7 +4124,10 @@ HTML_CONTENT = """
                     learning_rate: parseFloat(document.getElementById('mlLearningRate').value) || 0.02,
                     max_depth: parseInt(document.getElementById('mlMaxDepth').value) || 6,
                     num_leaves: parseInt(document.getElementById('mlNumLeaves').value) || 32,
-                    min_data_in_leaf: parseInt(document.getElementById('mlMinData').value) || 50
+                    min_data_in_leaf: parseInt(document.getElementById('mlMinData').value) || 50,
+                    num_boost_round: parseInt(document.getElementById('mlNumBoostRound').value) || 500,
+                    lambda_l1: parseFloat(document.getElementById('mlLambdaL1').value) || 1.0,
+                    lambda_l2: parseFloat(document.getElementById('mlLambdaL2').value) || 5.0
                 }
             };
             ws.send(JSON.stringify(payload));

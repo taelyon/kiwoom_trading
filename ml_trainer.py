@@ -58,7 +58,10 @@ class MLTrainingWorker(threading.Thread):
             'is_unbalance': True,
             'force_col_wise': True
         }
+        self.num_boost_round = 2000
         if hyperparameters:
+            if 'num_boost_round' in hyperparameters:
+                self.num_boost_round = hyperparameters.pop('num_boost_round')
             self.params.update(hyperparameters)
 
     def run(self):
@@ -358,7 +361,7 @@ class MLTrainingWorker(threading.Thread):
             model = lgb.train(
                 self.params,
                 train_data,
-                num_boost_round=2000,        # 반복 횟수 (Early Stopping 의존)
+                num_boost_round=self.num_boost_round,        # UI 또는 기본값에 의존
                 valid_sets=[train_data, val_data],
                 callbacks=[
                     lgb.early_stopping(stopping_rounds=100), # 과적합 방지: 100번 동안 성능 향상 없으면 중단
