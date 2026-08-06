@@ -478,14 +478,14 @@ class MLGridSearchWorker(threading.Thread):
             self.finished_signal.connect(on_finished)
             
         self.param_grid = [
-            {"max_depth": 3, "num_leaves": 8, "min_data_in_leaf": 300, "learning_rate": 0.02}, # 극단적 안정형
-            {"max_depth": 4, "num_leaves": 16, "min_data_in_leaf": 200, "learning_rate": 0.02}, # 안정형
-            {"max_depth": 5, "num_leaves": 24, "min_data_in_leaf": 150, "learning_rate": 0.02}, # 약한 균형형
-            {"max_depth": 5, "num_leaves": 32, "min_data_in_leaf": 100, "learning_rate": 0.02}, # 균형형 (사용자 제안)
-            {"max_depth": 5, "num_leaves": 32, "min_data_in_leaf": 100, "learning_rate": 0.05}, # 균형형 (빠른 학습)
-            {"max_depth": 6, "num_leaves": 32, "min_data_in_leaf": 50, "learning_rate": 0.01},  # 공격형 (정밀 학습)
-            {"max_depth": 6, "num_leaves": 32, "min_data_in_leaf": 50, "learning_rate": 0.02},  # 공격형 (기본값)
-            {"max_depth": 7, "num_leaves": 64, "min_data_in_leaf": 30, "learning_rate": 0.02},  # 초공격형
+            {"max_depth": 3, "num_leaves": 8, "min_data_in_leaf": 300, "learning_rate": 0.02, "num_boost_round": 500, "lambda_l1": 1.0, "lambda_l2": 5.0}, # 극단적 안정형
+            {"max_depth": 4, "num_leaves": 16, "min_data_in_leaf": 200, "learning_rate": 0.02, "num_boost_round": 500, "lambda_l1": 1.0, "lambda_l2": 5.0}, # 안정형
+            {"max_depth": 5, "num_leaves": 24, "min_data_in_leaf": 150, "learning_rate": 0.02, "num_boost_round": 500, "lambda_l1": 1.0, "lambda_l2": 5.0}, # 약한 균형형
+            {"max_depth": 5, "num_leaves": 32, "min_data_in_leaf": 100, "learning_rate": 0.02, "num_boost_round": 500, "lambda_l1": 1.0, "lambda_l2": 5.0}, # 균형형 (사용자 제안)
+            {"max_depth": 5, "num_leaves": 32, "min_data_in_leaf": 100, "learning_rate": 0.05, "num_boost_round": 500, "lambda_l1": 1.0, "lambda_l2": 5.0}, # 균형형 (빠른 학습)
+            {"max_depth": 6, "num_leaves": 32, "min_data_in_leaf": 50, "learning_rate": 0.01, "num_boost_round": 500, "lambda_l1": 1.0, "lambda_l2": 5.0},  # 공격형 (정밀 학습)
+            {"max_depth": 6, "num_leaves": 32, "min_data_in_leaf": 50, "learning_rate": 0.02, "num_boost_round": 500, "lambda_l1": 1.0, "lambda_l2": 5.0},  # 공격형 (기본값)
+            {"max_depth": 7, "num_leaves": 64, "min_data_in_leaf": 30, "learning_rate": 0.02, "num_boost_round": 500, "lambda_l1": 1.0, "lambda_l2": 5.0},  # 초공격형
         ]
 
     def run(self):
@@ -588,9 +588,9 @@ if __name__ == "__main__":
     
     # 1. 시도할 파라미터 셋 (안정형, 균형형, 공격형)
     param_grid = [
-        {"max_depth": 4, "num_leaves": 16, "min_data_in_leaf": 200}, # 안정형 (과적합 방지 최우선)
-        {"max_depth": 5, "num_leaves": 24, "min_data_in_leaf": 100}, # 균형형
-        {"max_depth": 6, "num_leaves": 32, "min_data_in_leaf": 50},  # 공격형 (복잡한 패턴 학습)
+        {"max_depth": 4, "num_leaves": 16, "min_data_in_leaf": 200, "num_boost_round": 500, "lambda_l1": 1.0, "lambda_l2": 5.0}, # 안정형 (과적합 방지 최우선)
+        {"max_depth": 5, "num_leaves": 24, "min_data_in_leaf": 100, "num_boost_round": 500, "lambda_l1": 1.0, "lambda_l2": 5.0}, # 균형형
+        {"max_depth": 6, "num_leaves": 32, "min_data_in_leaf": 50, "num_boost_round": 500, "lambda_l1": 1.0, "lambda_l2": 5.0},  # 공격형 (복잡한 패턴 학습)
     ]
     
     best_auc = 0.0
