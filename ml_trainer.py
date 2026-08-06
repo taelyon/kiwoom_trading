@@ -396,9 +396,11 @@ class MLTrainingWorker(threading.Thread):
                     model.save_model(hist_path)
                     
                     meta_path = f"models/lgbm_model_{ts}.json"
+                    meta_params = self.params.copy()
+                    meta_params['num_boost_round'] = self.num_boost_round
                     meta = {
                         'timestamp': ts,
-                        'params': self.params,
+                        'params': meta_params,
                         'start_date': self.start_date,
                         'end_date': self.end_date,
                         'metrics': metrics

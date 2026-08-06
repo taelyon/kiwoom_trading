@@ -4212,7 +4212,7 @@ HTML_CONTENT = """
                 const auc = m.metrics && m.metrics.auc ? m.metrics.auc.toFixed(4) : '-';
                 const trainAuc = m.metrics && m.metrics.train_auc ? m.metrics.train_auc.toFixed(4) : '-';
                 const rows = m.metrics && m.metrics.data_rows ? m.metrics.data_rows.toLocaleString() : '-';
-                const params = m.params ? `LR:${m.params.learning_rate}, MD:${m.params.max_depth}, NL:${m.params.num_leaves}, MDL:${m.params.min_data_in_leaf}` : '-';
+                const params = m.params ? `LR:${m.params.learning_rate}, MD:${m.params.max_depth}, NL:${m.params.num_leaves}, MDL:${m.params.min_data_in_leaf}<br>MT:${m.params.num_boost_round || '-'}, L1:${m.params.lambda_l1 || '-'}, L2:${m.params.lambda_l2 || '-'}` : '-';
                 
                 tr.innerHTML = `
                     <td style="vertical-align: middle; text-align: center;">${tsFormatted}</td>
