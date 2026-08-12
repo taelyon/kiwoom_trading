@@ -1433,7 +1433,8 @@ HTML_CONTENT = """
                 </div>
             </div>
             <div class="nav-tabs">
-                <div id="tabLive" class="nav-tab active" onclick="switchTab('live')">📡 실시간 트레이딩</div>
+                <div id="tabLive" class="nav-tab active" onclick="switchTab('live')">⚡ 초단타 매매</div>
+                <div id="tabSwing" class="nav-tab" onclick="switchTab('swing')">📈 스윙 매매</div>
                 <div id="tabBacktest" class="nav-tab" onclick="switchTab('backtest')">🧪 백테스팅</div>
                 <div id="tabMlTrain" class="nav-tab" onclick="switchTab('mlTrain')">🧠 AI 학습</div>
             </div>
@@ -1673,6 +1674,62 @@ HTML_CONTENT = """
             </div>
         </div>
     </div> <!-- /liveView -->
+
+    <!-- 📈 스윙 매매 전용 독립 뷰 -->
+    <div id="swingView" class="view-container view-hidden">
+        <div style="width: 100%; display: flex; flex-direction: column; gap: 20px;">
+            <!-- 스윙 매매 현황 카드 -->
+            <div class="glass-card" style="border: 1px solid rgba(100, 255, 218, 0.3); background: rgba(12, 11, 30, 0.7);">
+                <div class="section-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                    <div class="section-title" style="color: #64ffda; font-size: 16px; margin: 0;">📈 스윙 매매 (15:28 종가 매수) 보유 종목 현황</div>
+                    <div style="font-size: 12px; color: var(--text-secondary);">운영 방식: 매일 15:28 시장가 주문 (15:30 종가 100% 체결)</div>
+                </div>
+                <div style="overflow-x: auto;">
+                    <table class="portfolio-table">
+                        <thead>
+                            <tr>
+                                <th>종목명 (코드)</th>
+                                <th>보유수량</th>
+                                <th>매수단가</th>
+                                <th>현재가</th>
+                                <th>평가손익 (수익률)</th>
+                                <th>매수일자</th>
+                                <th>매수 전략</th>
+                            </tr>
+                        </thead>
+                        <tbody id="swingPortfolioBody">
+                            <tr>
+                                <td colspan="7" class="no-data">보유 중인 스윙 종목이 없습니다.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- 스윙 매매 제어 및 조건 설정 카드 -->
+            <div class="glass-card">
+                <div class="section-title" style="margin-bottom: 16px;">⚙️ 스윙 매매 전략 및 파라미터 설정</div>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px;">
+                    <div class="form-field">
+                        <label>스윙 전용 조건검색식 이름</label>
+                        <input type="text" id="swingCondName" value="스윙_종가돌파" readonly style="background: rgba(255,255,255,0.05); color: #64ffda; font-weight: bold;">
+                    </div>
+                    <div class="form-field">
+                        <label>종목당 스윙 투자금 (원)</label>
+                        <input type="text" id="swingInvestAmt" value="2,000,000원" readonly style="background: rgba(255,255,255,0.05);">
+                    </div>
+                    <div class="form-field">
+                        <label>목표 익절 수익률 (%)</label>
+                        <input type="text" id="swingTargetProfit" value="+5.0%" readonly style="background: rgba(255,255,255,0.05); color: var(--success); font-weight: bold;">
+                    </div>
+                    <div class="form-field">
+                        <label>손절 한도 수익률 (%)</label>
+                        <input type="text" id="swingStopLoss" value="-3.0%" readonly style="background: rgba(255,255,255,0.05); color: var(--danger); font-weight: bold;">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <!-- 백테스팅 시뮬레이터 전용 뷰 -->
     <div id="backtestView" class="view-container view-hidden">
@@ -2676,6 +2733,40 @@ HTML_CONTENT = """
                     `;
                 }).join('');
             }
+
+            // 스윙 보유 종목 테이블 업데이트
+            const swingTbody = document.getElementById('swingPortfolioBody');
+            if (swingTbody) {
+                const swingHoldings = data.swing_holdings ? Object.values(data.swing_holdings) : [];
+                if (swingHoldings.length === 0) {
+                    swingTbody.innerHTML = `<tr><td colspan="7" class="no-data">보유 중인 스윙 종목이 없습니다.</td></tr>`;
+                } else {
+                    swingTbody.innerHTML = swingHoldings.map(stock => {
+                        const profitClass = stock.profit_loss >= 0 ? 'up' : 'down';
+                        const sign = stock.profit_loss >= 0 ? '+' : '';
+                        return `
+                            <tr>
+                                <td>
+                                    <div class="stock-name-info">
+                                        <strong>${stock.name}</strong>
+                                        <span class="stock-code-lbl">${stock.code}</span>
+                                    </div>
+                                </td>
+                                <td>${Number(stock.quantity).toLocaleString()}주</td>
+                                <td>${Number(stock.purchase_price).toLocaleString()}원</td>
+                                <td>${Number(stock.current_price).toLocaleString()}원</td>
+                                <td>
+                                    <span class="profit-pill ${profitClass}">
+                                        ${sign}${Math.round(Number(stock.profit_loss)).toLocaleString()}원 (${sign}${Number(stock.profit_rate).toFixed(2)}%)
+                                    </span>
+                                </td>
+                                <td>${stock.buy_date || '-'}</td>
+                                <td><span style="color:#64ffda; font-weight:bold;">${stock.strategy || '스윙_종가매수'}</span></td>
+                            </tr>
+                        `;
+                    }).join('');
+                }
+            }
         }
 
         let currentLogFilter = 'all';
@@ -3279,16 +3370,21 @@ HTML_CONTENT = """
 
         function switchTab(tabId) {
             document.getElementById('tabLive').classList.remove('active');
+            if (document.getElementById('tabSwing')) document.getElementById('tabSwing').classList.remove('active');
             document.getElementById('tabBacktest').classList.remove('active');
             document.getElementById('tabMlTrain').classList.remove('active');
             
             document.getElementById('liveView').classList.add('view-hidden');
+            if (document.getElementById('swingView')) document.getElementById('swingView').classList.add('view-hidden');
             document.getElementById('backtestView').classList.add('view-hidden');
             document.getElementById('mlTrainView').classList.add('view-hidden');
             
             if (tabId === 'live') {
                 document.getElementById('tabLive').classList.add('active');
                 document.getElementById('liveView').classList.remove('view-hidden');
+            } else if (tabId === 'swing') {
+                if (document.getElementById('tabSwing')) document.getElementById('tabSwing').classList.add('active');
+                if (document.getElementById('swingView')) document.getElementById('swingView').classList.remove('view-hidden');
             } else if (tabId === 'backtest') {
                 document.getElementById('tabBacktest').classList.add('active');
                 document.getElementById('backtestView').classList.remove('view-hidden');
@@ -4477,6 +4573,29 @@ def get_current_status_data():
             auto_trading_active = app.autotrader.is_running
         t7 = time.perf_counter()
 
+        # 6. 스윙 보유 종목 리스트 추출
+        swing_holdings = {}
+        if hasattr(app, 'swing_manager') and app.swing_manager:
+            for c_code, s_info in app.swing_manager.swing_holdings.items():
+                curr_p = s_info.get('buy_price', 0)
+                if code in ws_balance:
+                    curr_p = ws_balance[code].get('current_price', curr_p)
+                buy_p = s_info.get('buy_price', 1)
+                qty = s_info.get('qty', 0)
+                p_loss = (curr_p - buy_p) * qty
+                p_rate = ((curr_p - buy_p) / buy_p * 100.0) - 0.3
+                swing_holdings[c_code] = {
+                    "code": c_code,
+                    "name": s_info.get('name', c_code),
+                    "quantity": qty,
+                    "purchase_price": buy_p,
+                    "current_price": curr_p,
+                    "profit_loss": p_loss,
+                    "profit_rate": p_rate,
+                    "buy_date": s_info.get('buy_date', ''),
+                    "strategy": s_info.get('strategy', '스윙_종가매수')
+                }
+
         return {
             "type": "status",
             "total_assets": total_assets,
@@ -4488,6 +4607,7 @@ def get_current_status_data():
             "evaluation_profit": evaluation_profit,
             "prime_cash": prime_cash,
             "holdings": holdings,
+            "swing_holdings": swing_holdings,
             "monitored_stocks": monitored_stocks,
             "auto_trading_active": auto_trading_active
         }
