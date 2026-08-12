@@ -20,7 +20,7 @@ class SwingManager:
 
         # 스윙 설정값 파싱
         self.is_enabled = self.config.getboolean('SETTINGS', 'swing_enabled', fallback=True)
-        self.condition_name = self.config.get('SETTINGS', 'swing_condition_name', fallback='스윙_종가돌파')
+        self.condition_name = self.config.get('SETTINGS', 'swing_condition_name', fallback='스윙_저가매수')
         self.invest_amount = self.config.getfloat('SETTINGS', 'swing_invest_amount', fallback=2000000.0) # 종목당 200만원
         self.max_holdings = self.config.getint('SETTINGS', 'swing_max_holdings', fallback=3)
         self.target_profit_pct = self.config.getfloat('SETTINGS', 'swing_target_profit', fallback=5.0) # +5% 목표
@@ -34,6 +34,60 @@ class SwingManager:
 
         # 백그라운드 태스크
         self.scheduler_task = None
+        
+        self.reload_config()
+
+    def reload_config(self):
+        """환경변수 및 설정 파일로부터 스윙 파라미터 및 매수/매도 로직 재로드"""
+        try:
+            from config_manager import EnvConfigParser
+            self.config = EnvConfigParser()
+            self.config.reload()
+        except Exception:
+            pass
+
+        self.is_enabled = self.config.getboolean('SETTINGS', 'swing_enabled', fallback=True)
+        self.condition_name = self.config.get('SETTINGS', 'swing_condition_name', fallback='스윙_저가매수')
+        self.invest_amount = self.config.getfloat('SETTINGS', 'swing_invest_amount', fallback=2000000.0)
+        self.max_holdings = self.config.getint('SETTINGS', 'swing_max_holdings', fallback=3)
+        self.target_profit_pct = self.config.getfloat('SETTINGS', 'swing_target_profit', fallback=5.0)
+        self.stop_loss_pct = self.config.getfloat('SETTINGS', 'swing_stop_loss', fallback=-3.0)
+
+        default_buy_str = json.dumps([
+            {
+                "name": "스윙_눌림목_종가돌파",
+                "type": "TECHNICAL",
+                "content": "98.0 <= disparity20 <= 105.0 and rsi14 < 70.0 and volume_ratio >= 1.2 and price_roc1 > -2.0"
+            }
+        ], ensure_ascii=False, indent=2)
+
+        default_sell_str = json.dumps([
+            {
+                "name": "스윙_익절_목표달성",
+                "type": "PROFIT",
+                "content": "current_profit_pct >= target_profit"
+            },
+            {
+                "name": "스윙_손절_한도이탈",
+                "type": "LOSS",
+                "content": "current_profit_pct <= stop_loss"
+            }
+        ], ensure_ascii=False, indent=2)
+
+        raw_buy = self.config.get('SETTINGS', 'swing_buy_strategy', fallback=default_buy_str)
+        raw_sell = self.config.get('SETTINGS', 'swing_sell_strategy', fallback=default_sell_str)
+
+        try:
+            self.buy_strategies = json.loads(raw_buy) if isinstance(raw_buy, str) and raw_buy.strip() else json.loads(default_buy_str)
+        except Exception:
+            self.buy_strategies = json.loads(default_buy_str)
+
+        try:
+            self.sell_strategies = json.loads(raw_sell) if isinstance(raw_sell, str) and raw_sell.strip() else json.loads(default_sell_str)
+        except Exception:
+            self.sell_strategies = json.loads(default_sell_str)
+
+        self.logger.info(f"🔄 SwingManager 설정 리로드 완료 (매수룰: {len(self.buy_strategies)}개, 매도룰: {len(self.sell_strategies)}개)")
 
     async def initialize(self):
         """스윙 매니저 초기화 및 DB에서 보유 종목 로드"""
@@ -164,12 +218,18 @@ class SwingManager:
                 if not safe_locals:
                     continue
 
-                # 스윙 매수 기술적 분석 조건 검증
-                # 룰 1: 20일 이격도 98 이상 105 이하 (눌림목/돌파)
-                # 룰 2: RSI 14 < 70 (과매수 제외)
-                # 룰 3: 거래량 비율 >= 1.2 (평소 대비 거래량 분출)
-                rule = "98.0 <= disparity20 <= 105.0 and rsi14 < 70.0 and volume_ratio >= 1.2 and price_roc1 > -2.0"
-                if evaluate_swing_condition(rule, safe_locals):
+                safe_locals['target_profit'] = self.target_profit_pct
+                safe_locals['stop_loss'] = self.stop_loss_pct
+
+                # 스윙 동적 매수 로직 평가
+                all_passed = True
+                for stg in self.buy_strategies:
+                    rule_content = stg.get('content', '')
+                    if rule_content and not evaluate_swing_condition(rule_content, safe_locals):
+                        all_passed = False
+                        break
+
+                if all_passed:
                     selected_targets.append({
                         'code': code,
                         'score': safe_locals.get('volume_ratio', 1.0) * safe_locals.get('disparity20', 100.0),
@@ -294,13 +354,31 @@ class SwingManager:
                 is_sell_triggered = False
                 sell_reason = ""
 
-                # 1. 목표가 달성 (예: +5%)
-                if profit_pct >= self.target_profit_pct:
+                safe_locals = {
+                    'buy_price': buy_price,
+                    'current_price': curr_price,
+                    'current_profit_pct': profit_pct,
+                    'highest_price': highest_price,
+                    'holding_days': holding.get('holding_days', 1),
+                    'target_profit': self.target_profit_pct,
+                    'stop_loss': self.stop_loss_pct
+                }
+
+                # 스윙 동적 매도 로직 평가
+                for stg in self.sell_strategies:
+                    rule_content = stg.get('content', '')
+                    if rule_content and evaluate_swing_condition(rule_content, safe_locals):
+                        is_sell_triggered = True
+                        sell_reason = stg.get('name', '스윙 전략 매도')
+                        break
+
+                # 1. 백업 매도 룰: 목표가 달성 (예: +5%)
+                if not is_sell_triggered and profit_pct >= self.target_profit_pct:
                     is_sell_triggered = True
                     sell_reason = f"스윙 목표가 달성 (+{profit_pct:.2f}%)"
 
-                # 2. 손절가 이탈 (예: -3%)
-                elif profit_pct <= self.stop_loss_pct:
+                # 2. 백업 매도 룰: 손절가 이탈 (예: -3%)
+                elif not is_sell_triggered and profit_pct <= self.stop_loss_pct:
                     is_sell_triggered = True
                     sell_reason = f"스윙 손절가 이탈 ({profit_pct:.2f}%)"
 

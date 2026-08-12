@@ -1714,13 +1714,16 @@ HTML_CONTENT = """
 
                 <!-- 스윙 조건검색 대상 후보 종목 -->
                 <div class="glass-card">
-                    <div style="display: flex; justify-content: space-between; align- items: center; margin-bottom: 16px;">
-                        <div class="section-title" style="margin-bottom: 0;">🔍 스윙 조건검색 (15:15 수신) 후보 종목</div>
-                        <span style="font-size: 12px; color: var(--text-secondary);">스윙 조건식: <strong id="swingCondTitleLabel" style="color:#64ffda;">스윙_종가돌파</strong></span>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                        <div class="section-title" style="margin-bottom: 0;">🔍 스윙 조건검색 후보 종목 (매일 15:15 1회 자동 수신)</div>
+                        <div style="display: flex; align-items: center; gap: 12px;">
+                            <span style="font-size: 12px; color: var(--text-secondary);">스윙 조건식: <strong id="swingCondTitleLabel" style="color:#64ffda;">스윙_저가매수</strong></span>
+                            <button class="btn-primary" style="padding: 4px 10px; font-size: 11px; border-radius: 6px; background: rgba(100, 255, 218, 0.2); border-color: rgba(100, 255, 218, 0.4);" onclick="triggerSwingConditionSearch()">🔍 수동 조건검색 실행</button>
+                        </div>
                     </div>
                     <div class="monitoring-box" style="gap: 0;">
                         <div id="swingCandidateBadges" class="monitoring-badges">
-                            <div class="no-data">15:15 조건검색 수신 대기 중입니다.</div>
+                            <div class="no-data">매일 15:15 조건검색 수신 또는 수동 조회를 실행하세요.</div>
                         </div>
                     </div>
                 </div>
@@ -1772,7 +1775,7 @@ HTML_CONTENT = """
                         <div class="order-row">
                             <div class="form-field">
                                 <label for="swingCfgCondName">스윙 키움 조건식 이름</label>
-                                <input type="text" id="swingCfgCondName" value="스윙_종가돌파" style="font-weight: bold; color: #64ffda;">
+                                <input type="text" id="swingCfgCondName" value="스윙_저가매수" style="font-weight: bold; color: #64ffda;">
                             </div>
                             <div class="form-field">
                                 <label for="swingCfgAccount">스윙 전용 계좌번호</label>
@@ -1799,7 +1802,15 @@ HTML_CONTENT = """
                                 <input type="number" step="0.1" id="swingCfgStopLoss" value="-3.0" style="color: var(--danger); font-weight: bold;">
                             </div>
                         </div>
-                        <button class="btn-primary" onclick="saveSettings()" style="background: linear-gradient(135deg, #00f2fe 0%, #4facfe 100%);">스윙 파라미터 적용</button>
+                        <div class="form-field" style="margin-top: 12px;">
+                            <label for="swingCfgBuyStrategy">스윙 매수 로직 (JSON)</label>
+                            <textarea id="swingCfgBuyStrategy" placeholder="스윙 매수 로직 조건식 목록 (JSON)" style="font-family: monospace; font-size:11px; width: 100%; min-height: 120px; box-sizing: border-box; background: rgba(0,0,0,0.3); color: #64ffda; border: 1px solid rgba(100,255,218,0.3); border-radius: 4px; padding: 8px; resize: vertical;"></textarea>
+                        </div>
+                        <div class="form-field" style="margin-top: 12px; margin-bottom: 16px;">
+                            <label for="swingCfgSellStrategy">스윙 매도 로직 (JSON)</label>
+                            <textarea id="swingCfgSellStrategy" placeholder="스윙 매도 로직 조건식 목록 (JSON)" style="font-family: monospace; font-size:11px; width: 100%; min-height: 120px; box-sizing: border-box; background: rgba(0,0,0,0.3); color: #ff5252; border: 1px solid rgba(255,82,82,0.3); border-radius: 4px; padding: 8px; resize: vertical;"></textarea>
+                        </div>
+                        <button id="btnSaveSwingSettings" class="btn-primary" onclick="saveSettings()" style="background: linear-gradient(135deg, #00f2fe 0%, #4facfe 100%);">스윙 파라미터 및 로직 적용</button>
                     </div>
                 </div>
 
@@ -2853,6 +2864,22 @@ HTML_CONTENT = """
                 }).join('');
             }
 
+            // 스윙 조건검색 후보 배지 업데이트
+            const swingBadges = document.getElementById('swingCandidateBadges');
+            if (swingBadges) {
+                const candidates = data.swing_candidates || [];
+                if (candidates.length === 0) {
+                    swingBadges.innerHTML = `<div class="no-data">매일 15:15 자동 수신 또는 수동 조회를 실행하세요.</div>`;
+                } else {
+                    swingBadges.innerHTML = candidates.map(cand => `
+                        <div class="stock-badge" style="background: rgba(100, 255, 218, 0.1); border-color: rgba(100, 255, 218, 0.3);" onclick="subscribeStockChart('${cand.code}', '${cand.name}')">
+                            <span style="color:#64ffda;">●</span>
+                            <strong>${cand.name} (${cand.code})</strong>
+                        </div>
+                    `).join('');
+                }
+            }
+
             // 스윙 보유 종목 테이블 및 요약 계좌 카드 업데이트
             const swingTbody = document.getElementById('swingPortfolioBody');
             if (swingTbody) {
@@ -3046,6 +3073,16 @@ HTML_CONTENT = """
             if(document.getElementById('cfgMockAppKey')) document.getElementById('cfgMockAppKey').value = settings.mock_appkey || '';
             if(document.getElementById('cfgMockSecret')) document.getElementById('cfgMockSecret').value = settings.mock_secretkey || '';
             
+            // 스윙 매매 설정값 바인딩
+            if(document.getElementById('swingCfgCondName')) document.getElementById('swingCfgCondName').value = settings.swing_condition_name || '스윙_저가매수';
+            if(document.getElementById('swingCfgAccount')) document.getElementById('swingCfgAccount').value = settings.swing_account_no || '';
+            if(document.getElementById('swingCfgInvestAmt')) document.getElementById('swingCfgInvestAmt').value = settings.swing_invest_amount || '2000000';
+            if(document.getElementById('swingCfgMaxHold')) document.getElementById('swingCfgMaxHold').value = settings.swing_max_holdings || '3';
+            if(document.getElementById('swingCfgTargetProfit')) document.getElementById('swingCfgTargetProfit').value = settings.swing_target_profit || '5.0';
+            if(document.getElementById('swingCfgStopLoss')) document.getElementById('swingCfgStopLoss').value = settings.swing_stop_loss || '-3.0';
+            if(document.getElementById('swingCfgBuyStrategy')) document.getElementById('swingCfgBuyStrategy').value = settings.swing_buy_strategy || '';
+            if(document.getElementById('swingCfgSellStrategy')) document.getElementById('swingCfgSellStrategy').value = settings.swing_sell_strategy || '';
+            
             const selectEl = document.getElementById('cfgStrategy');
             // 기본 옵션 목록 초기화
             selectEl.innerHTML = '';
@@ -3154,7 +3191,17 @@ HTML_CONTENT = """
                     real_appkey: document.getElementById('cfgRealAppKey') ? document.getElementById('cfgRealAppKey').value : '',
                     real_secretkey: document.getElementById('cfgRealSecret') ? document.getElementById('cfgRealSecret').value : '',
                     mock_appkey: document.getElementById('cfgMockAppKey') ? document.getElementById('cfgMockAppKey').value : '',
-                    mock_secretkey: document.getElementById('cfgMockSecret') ? document.getElementById('cfgMockSecret').value : ''
+                    mock_secretkey: document.getElementById('cfgMockSecret') ? document.getElementById('cfgMockSecret').value : '',
+
+                    // 스윙 파라미터 및 로직
+                    swing_condition_name: document.getElementById('swingCfgCondName') ? document.getElementById('swingCfgCondName').value : '스윙_저가매수',
+                    swing_account_no: document.getElementById('swingCfgAccount') ? document.getElementById('swingCfgAccount').value : '',
+                    swing_invest_amount: document.getElementById('swingCfgInvestAmt') ? document.getElementById('swingCfgInvestAmt').value : '2000000',
+                    swing_max_holdings: document.getElementById('swingCfgMaxHold') ? document.getElementById('swingCfgMaxHold').value : '3',
+                    swing_target_profit: document.getElementById('swingCfgTargetProfit') ? document.getElementById('swingCfgTargetProfit').value : '5.0',
+                    swing_stop_loss: document.getElementById('swingCfgStopLoss') ? document.getElementById('swingCfgStopLoss').value : '-3.0',
+                    swing_buy_strategy: document.getElementById('swingCfgBuyStrategy') ? document.getElementById('swingCfgBuyStrategy').value : '',
+                    swing_sell_strategy: document.getElementById('swingCfgSellStrategy') ? document.getElementById('swingCfgSellStrategy').value : ''
                 }
             };
             
@@ -3700,6 +3747,17 @@ HTML_CONTENT = """
                     type: "remove_monitoring",
                     code: code
                 }));
+            }
+        }
+
+        // 스윙 조건검색 수동 수신 실행
+        function triggerSwingConditionSearch() {
+            if (confirm("스윙 조건검색식을 키움증권 서버로 수동 조회하시겠습니까?")) {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ type: 'trigger_swing_condition_search' }));
+                } else {
+                    alert("서버와 연결되어 있지 않습니다.");
+                }
             }
         }
 
@@ -4742,6 +4800,18 @@ def get_current_status_data():
                     "strategy": s_info.get('strategy', '스윙_종가매수')
                 }
 
+        # 7. 스윙 조건검색 후보 종목 추출
+        swing_candidates = []
+        if hasattr(app, 'swing_manager') and app.swing_manager:
+            for cand_code in getattr(app.swing_manager, 'candidate_stocks', []):
+                c_name = cand_code
+                if hasattr(app, 'data_manager') and app.data_manager:
+                    c_name = app.data_manager.get_stock_name_by_code(cand_code) or cand_code
+                swing_candidates.append({
+                    "code": cand_code,
+                    "name": c_name
+                })
+
         return {
             "type": "status",
             "total_assets": total_assets,
@@ -4754,6 +4824,7 @@ def get_current_status_data():
             "prime_cash": prime_cash,
             "holdings": holdings,
             "swing_holdings": swing_holdings,
+            "swing_candidates": swing_candidates,
             "monitored_stocks": monitored_stocks,
             "auto_trading_active": auto_trading_active
         }
@@ -5621,6 +5692,10 @@ async def websocket_handler(websocket):
                     from config_manager import EnvConfigParser
                     config = EnvConfigParser()
                     config.reload() # 런타임에 싱글톤 캐시를 최신 상태로 강제 갱신
+
+                    default_swing_buy = json.dumps([{"name": "스윙_눌림목_종가돌파", "type": "TECHNICAL", "content": "98.0 <= disparity20 <= 105.0 and rsi14 < 70.0 and volume_ratio >= 1.2 and price_roc1 > -2.0"}], ensure_ascii=False, indent=2)
+                    default_swing_sell = json.dumps([{"name": "스윙_목표익절", "type": "PROFIT", "content": "current_profit_pct >= target_profit"}, {"name": "스윙_손절이탈", "type": "LOSS", "content": "current_profit_pct <= stop_loss"}], ensure_ascii=False, indent=2)
+
                     settings = {
                         "buycount": str(config.getint('SETTINGS', 'buycount', fallback=3)),
                         "prime_cash": str(config.getint('SETTINGS', 'prime_cash', fallback=0)),
@@ -5630,7 +5705,17 @@ async def websocket_handler(websocket):
                         "real_appkey": config.get('KIWOOM_API', 'real_appkey', fallback=config.get('KIWOOM_API', 'appkey', fallback='')),
                         "real_secretkey": config.get('KIWOOM_API', 'real_secretkey', fallback=config.get('KIWOOM_API', 'secretkey', fallback='')),
                         "mock_appkey": config.get('KIWOOM_API', 'mock_appkey', fallback=''),
-                        "mock_secretkey": config.get('KIWOOM_API', 'mock_secretkey', fallback='')
+                        "mock_secretkey": config.get('KIWOOM_API', 'mock_secretkey', fallback=''),
+
+                        # 스윙 전용 파라미터 및 로직
+                        "swing_condition_name": config.get('SETTINGS', 'swing_condition_name', fallback='스윙_저가매수'),
+                        "swing_account_no": config.get('SETTINGS', 'swing_account_no', fallback=''),
+                        "swing_invest_amount": str(config.getfloat('SETTINGS', 'swing_invest_amount', fallback=2000000.0)),
+                        "swing_max_holdings": str(config.getint('SETTINGS', 'swing_max_holdings', fallback=3)),
+                        "swing_target_profit": str(config.getfloat('SETTINGS', 'swing_target_profit', fallback=5.0)),
+                        "swing_stop_loss": str(config.getfloat('SETTINGS', 'swing_stop_loss', fallback=-3.0)),
+                        "swing_buy_strategy": config.get('SETTINGS', 'swing_buy_strategy', fallback=default_swing_buy),
+                        "swing_sell_strategy": config.get('SETTINGS', 'swing_sell_strategy', fallback=default_swing_sell)
                     }
                     await safe_send(websocket, json.dumps({
                         "type": "settings",
@@ -5703,6 +5788,21 @@ async def websocket_handler(websocket):
                             config.set('SETTINGS', 'last_strategy', str(new_settings['last_strategy']))
                         if 'dashboard_password' in new_settings:
                             config.set('SETTINGS', 'dashboard_password', str(new_settings['dashboard_password']))
+
+                        # 스윙 관련 설정 저장
+                        if 'swing_condition_name' in new_settings: config.set('SETTINGS', 'swing_condition_name', str(new_settings['swing_condition_name']))
+                        if 'swing_account_no' in new_settings: config.set('SETTINGS', 'swing_account_no', str(new_settings['swing_account_no']))
+                        if 'swing_invest_amount' in new_settings: config.set('SETTINGS', 'swing_invest_amount', str(new_settings['swing_invest_amount']))
+                        if 'swing_max_holdings' in new_settings: config.set('SETTINGS', 'swing_max_holdings', str(new_settings['swing_max_holdings']))
+                        if 'swing_target_profit' in new_settings: config.set('SETTINGS', 'swing_target_profit', str(new_settings['swing_target_profit']))
+                        if 'swing_stop_loss' in new_settings: config.set('SETTINGS', 'swing_stop_loss', str(new_settings['swing_stop_loss']))
+                        if 'swing_buy_strategy' in new_settings: config.set('SETTINGS', 'swing_buy_strategy', str(new_settings['swing_buy_strategy']))
+                        if 'swing_sell_strategy' in new_settings: config.set('SETTINGS', 'swing_sell_strategy', str(new_settings['swing_sell_strategy']))
+
+                        # 스윙 매니저 런타임 리로드
+                        if hasattr(app, 'swing_manager') and app.swing_manager:
+                            app.swing_manager.reload_config()
+                            logging.info("📈 [스윙 매매] 스윙 매수/매도 로직 및 파라미터 실시간 리로드 완료")
                             
                         # 새로운 API 키 저장 (빈 값으로 기존 키 덮어쓰기 방지)
                         if new_settings.get('real_appkey'):
