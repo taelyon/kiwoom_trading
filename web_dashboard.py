@@ -1429,11 +1429,6 @@ HTML_CONTENT = """
         <header>
             <div class="header-logo">
                 <h1>🛸 Kiwoom trading</h1>
-                <div class="header-pw-container">
-                    <span>비밀번호 변경:</span>
-                    <input type="password" id="cfgPassword" class="header-pw-input" placeholder="유지 시 공란">
-                    <button class="btn-pw-apply" onclick="changePassword()">적용</button>
-                </div>
             </div>
             <div class="nav-tabs">
                 <div id="tabLive" class="nav-tab active" onclick="switchTab('live')">⚡ 초단타 매매</div>
