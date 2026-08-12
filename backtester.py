@@ -234,7 +234,8 @@ class Backtester:
             sell_compiled = []
             for stg in sell_strategies:
                 try:
-                    sell_compiled.append((stg['name'], float(stg.get('partial_sell_ratio', 1.0)), compile(stg['content'], '<string>', 'eval')))
+                    sell_ratio_val = float(stg.get('partial_sell_ratio', stg.get('sell_ratio', stg.get('ratio', 1.0))))
+                    sell_compiled.append((stg['name'], sell_ratio_val, compile(stg['content'], '<string>', 'eval')))
                 except Exception as e:
                     logger.error(f"매도 로직 컴파일 오류 ({stg['name']}): {e}")
 
