@@ -134,6 +134,22 @@ class AsyncDatabaseManager:
                         )
                     ''')
 
+                    # 스윙 매매 및 일봉 백테스트 전용 일봉 차트 테이블
+                    await cursor.execute('''
+                        CREATE TABLE IF NOT EXISTS daily_candles (
+                            code TEXT,
+                            datetime TEXT,
+                            open REAL,
+                            high REAL,
+                            low REAL,
+                            close REAL,
+                            volume INTEGER,
+                            amount REAL,
+                            created_at TEXT,
+                            PRIMARY KEY (code, datetime)
+                        )
+                    ''')
+
                     # 스윙 매매 체결/손익 기록 테이블
                     await cursor.execute('''
                         CREATE TABLE IF NOT EXISTS swing_trade_records (
@@ -1073,3 +1089,58 @@ class AsyncDatabaseManager:
         except Exception as e:
             self.logger.error(f"❌ 스윙 매매 이력 조회 실패: {e}")
         return records
+
+    async def save_daily_candles(self, candles: list):
+        """스윙 전용 daily_candles 일봉 데이터 다량 저장/갱신"""
+        try:
+            if self._conn is None:
+                await self.init_database()
+            created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            async with self._db_lock:
+                cursor = await self._conn.cursor()
+                for c in candles:
+                    await cursor.execute('''
+                        INSERT OR REPLACE INTO daily_candles
+                        (code, datetime, open, high, low, close, volume, amount, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (
+                        c.get('code'), c.get('datetime'),
+                        c.get('open', 0), c.get('high', 0), c.get('low', 0), c.get('close', 0),
+                        c.get('volume', 0), c.get('amount', 0), created_at
+                    ))
+                await self._conn.commit()
+                self.logger.info(f"💾 [스윙 DB] daily_candles {len(candles)}건 일봉 저장 완료")
+        except Exception as e:
+            self.logger.error(f"❌ daily_candles 일봉 데이터 저장 실패: {e}")
+
+    async def get_daily_candles(self, start_date: str, end_date: str, code: str = None) -> list:
+        """daily_candles 일봉 차트 데이터 조회"""
+        candles = []
+        try:
+            if self._conn is None:
+                await self.init_database()
+            async with self._db_lock:
+                cursor = await self._conn.cursor()
+                query = "SELECT code, datetime, open, high, low, close, volume, amount FROM daily_candles WHERE datetime >= ? AND datetime <= ?"
+                params = [start_date.replace('-', ''), end_date.replace('-', '')]
+                if code and code != 'ALL':
+                    query += " AND code = ?"
+                    params.append(code)
+                query += " ORDER BY datetime ASC"
+                await cursor.execute(query, params)
+                rows = await cursor.fetchall()
+                for r in rows:
+                    candles.append({
+                        'code': r[0],
+                        'datetime': r[1],
+                        'date': f"{r[1][:4]}-{r[1][4:6]}-{r[1][6:8]}",
+                        'open': r[2],
+                        'high': r[3],
+                        'low': r[4],
+                        'close': r[5],
+                        'volume': r[6],
+                        'amount': r[7]
+                    })
+        except Exception as e:
+            self.logger.error(f"❌ daily_candles 일봉 데이터 조회 실패: {e}")
+        return candles

@@ -123,7 +123,7 @@ def run_batch_backtest_process_worker(q, s_date, e_date, c, buy_stg=None, sell_s
             "traceback": traceback.format_exc()
         })
 
-def run_backtest_process_worker(q, s_date, e_date, c, buy_stg=None, sell_stg=None, initial_capital=10000000, buycount=3):
+def run_backtest_process_worker(q, s_date, e_date, c, buy_stg=None, sell_stg=None, initial_capital=10000000, buycount=3, mode='scalp'):
     """독립된 프로세스에서 백테스터를 실행하고 큐를 통해 상태를 보고하는 워커 함수"""
     try:
         from backtester import Backtester
@@ -136,7 +136,10 @@ def run_backtest_process_worker(q, s_date, e_date, c, buy_stg=None, sell_stg=Non
                 "msg": msg
             })
             
-        result = bt.run(s_date, e_date, c, progress_callback=progress_cb, custom_buy=buy_stg, custom_sell=sell_stg, initial_capital=initial_capital, buycount=buycount)
+        if mode == 'swing':
+            result = bt.run_swing_backtest(s_date, e_date, c, progress_callback=progress_cb, initial_capital=initial_capital, buycount=buycount)
+        else:
+            result = bt.run(s_date, e_date, c, progress_callback=progress_cb, custom_buy=buy_stg, custom_sell=sell_stg, initial_capital=initial_capital, buycount=buycount)
         
         q.put({
             "type": "backtest_result",
@@ -1675,58 +1678,171 @@ HTML_CONTENT = """
         </div>
     </div> <!-- /liveView -->
 
-    <!-- 📈 스윙 매매 전용 독립 뷰 -->
+    <!-- 📈 스윙 매매 전용 독립 뷰 (초단타 매매와 동일한 고급 위젯 구성) -->
     <div id="swingView" class="view-container view-hidden">
-        <div style="width: 100%; display: flex; flex-direction: column; gap: 20px;">
-            <!-- 스윙 매매 현황 카드 -->
-            <div class="glass-card" style="border: 1px solid rgba(100, 255, 218, 0.3); background: rgba(12, 11, 30, 0.7);">
-                <div class="section-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-                    <div class="section-title" style="color: #64ffda; font-size: 16px; margin: 0;">📈 스윙 매매 (15:28 종가 매수) 보유 종목 현황</div>
-                    <div style="font-size: 12px; color: var(--text-secondary);">운영 방식: 매일 15:28 시장가 주문 (15:30 종가 100% 체결)</div>
+        <div class="dashboard-layout">
+
+            <!-- 좌측 스윙 메인 영역 -->
+            <div class="main-column">
+                <!-- 스윙 요약 계좌 현황 -->
+                <div class="summary-grid">
+                    <div class="glass-card" style="position: relative; border: 1px solid rgba(100, 255, 218, 0.25);">
+                        <div class="card-title" style="color: #64ffda;">스윙 총 자산</div>
+                        <div id="swingTotalAssets" class="card-value">0원</div>
+                        <div id="swingPrimeCashText" class="card-subtext" style="margin-top: 6px; font-size: 12px; color: var(--text-secondary);">스윙 투자원금: 조회 중...</div>
+                        <button class="btn-primary" style="position: absolute; top: 15px; right: 15px; padding: 6px 10px; font-size: 11px; border-radius: 6px; background: rgba(100, 255, 218, 0.2); border-color: rgba(100, 255, 218, 0.4);" onclick="openSwingTradeHistoryModal()">📜 스윙 매매내역</button>
+                    </div>
+                    <div class="glass-card" style="border: 1px solid rgba(100, 255, 218, 0.25);">
+                        <div class="card-title" style="color: #64ffda;">스윙 총손익</div>
+                        <div id="swingTotalProfitMainText" class="card-value">0원 (0.00%)</div>
+                        <div id="swingEvaluationProfitText" class="card-subtext" style="margin-top: 4px;">평가손익: 0원</div>
+                    </div>
+
+                    <div class="glass-card" style="border: 1px solid rgba(100, 255, 218, 0.25);">
+                        <div class="card-title" style="color: #64ffda;">스윙 매입금액</div>
+                        <div id="swingTotalPurchase" class="card-value">0원</div>
+                        <div id="swingHoldingCount" class="card-subtext">스윙 보유 종목 수: 0개</div>
+                    </div>
                 </div>
-                <div style="overflow-x: auto;">
-                    <table class="portfolio-table">
-                        <thead>
-                            <tr>
-                                <th>종목명 (코드)</th>
-                                <th>보유수량</th>
-                                <th>매수단가</th>
-                                <th>현재가</th>
-                                <th>평가손익 (수익률)</th>
-                                <th>매수일자</th>
-                                <th>매수 전략</th>
-                            </tr>
-                        </thead>
-                        <tbody id="swingPortfolioBody">
-                            <tr>
-                                <td colspan="7" class="no-data">보유 중인 스윙 종목이 없습니다.</td>
-                            </tr>
-                        </tbody>
-                    </table>
+
+                <!-- 스윙 실시간 차트 -->
+                <div class="glass-card chart-container-box" style="position: relative; border: 1px solid rgba(100, 255, 218, 0.25);">
+                    <div class="chart-header">
+                        <div class="section-title" id="swingChartTitle" style="color: #64ffda;">📈 스윙 차트 (스윙 종목을 선택하세요)</div>
+                        <div class="chart-tabs">
+                            <div class="chart-tab active" onclick="switchChartScope('daily', this)">일봉</div>
+                            <div class="chart-tab" onclick="switchChartScope('minute', this)">60분봉</div>
+                        </div>
+                    </div>
+                    <div id="swingChartCanvas" class="chart-canvas"></div>
+                </div>
+
+                <!-- 스윙 조건검색 대상 후보 종목 -->
+                <div class="glass-card">
+                    <div style="display: flex; justify-content: space-between; align- items: center; margin-bottom: 16px;">
+                        <div class="section-title" style="margin-bottom: 0;">🔍 스윙 조건검색 (15:15 수신) 후보 종목</div>
+                        <span style="font-size: 12px; color: var(--text-secondary);">스윙 조건식: <strong id="swingCondTitleLabel" style="color:#64ffda;">스윙_종가돌파</strong></span>
+                    </div>
+                    <div class="monitoring-box" style="gap: 0;">
+                        <div id="swingCandidateBadges" class="monitoring-badges">
+                            <div class="no-data">15:15 조건검색 수신 대기 중입니다.</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 스윙 실시간 보유종목 포트폴리오 -->
+                <div class="glass-card" style="border: 1px solid rgba(100, 255, 218, 0.25);">
+                    <div class="section-header">
+                        <div class="section-title" style="color: #64ffda;">📈 스윙 보유종목 실시간 현황 (15:28 종가 매수)</div>
+                    </div>
+                    <div style="overflow-x: auto;">
+                        <table class="portfolio-table">
+                            <thead>
+                                <tr>
+                                    <th>종목명 (코드)</th>
+                                    <th>보유수량</th>
+                                    <th>매수단가</th>
+                                    <th>현재가</th>
+                                    <th>평가손익 (수익률)</th>
+                                    <th>매수일자</th>
+                                    <th>매수 전략</th>
+                                </tr>
+                            </thead>
+                            <tbody id="swingPortfolioBody">
+                                <tr>
+                                    <td colspan="7" class="no-data">보유 중인 스윙 종목이 없습니다.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- 하단 스윙 실시간 로그 터미널 -->
+                <div class="glass-card terminal-box">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                        <div class="section-title" style="margin-bottom:0; color: #64ffda;">📈 실시간 스윙 매매 로그</div>
+                    </div>
+                    <div id="swingTerminalBody" class="terminal-logs">
+                        <div class="log-line"><span class="log-time">[00:00:00]</span> <span class="log-lvl-info">SWING</span> <span>스윙 매매 스케줄러 동작 중 (15:28 종가 매수 대기)</span></div>
+                    </div>
                 </div>
             </div>
 
-            <!-- 스윙 매매 제어 및 조건 설정 카드 -->
-            <div class="glass-card">
-                <div class="section-title" style="margin-bottom: 16px;">⚙️ 스윙 매매 전략 및 파라미터 설정</div>
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px;">
-                    <div class="form-field">
-                        <label>스윙 전용 조건검색식 이름</label>
-                        <input type="text" id="swingCondName" value="스윙_종가돌파" readonly style="background: rgba(255,255,255,0.05); color: #64ffda; font-weight: bold;">
-                    </div>
-                    <div class="form-field">
-                        <label>종목당 스윙 투자금 (원)</label>
-                        <input type="text" id="swingInvestAmt" value="2,000,000원" readonly style="background: rgba(255,255,255,0.05);">
-                    </div>
-                    <div class="form-field">
-                        <label>목표 익절 수익률 (%)</label>
-                        <input type="text" id="swingTargetProfit" value="+5.0%" readonly style="background: rgba(255,255,255,0.05); color: var(--success); font-weight: bold;">
-                    </div>
-                    <div class="form-field">
-                        <label>손절 한도 수익률 (%)</label>
-                        <input type="text" id="swingStopLoss" value="-3.0%" readonly style="background: rgba(255,255,255,0.05); color: var(--danger); font-weight: bold;">
+            <!-- 우측 스윙 제어/설정 패널 -->
+            <div class="main-column">
+                <!-- 스윙 매매 파라미터 제어 -->
+                <div class="glass-card">
+                    <div class="section-title" style="margin-bottom:16px;">⚙️ 스윙 파라미터 제어 (.env)</div>
+                    <div class="settings-panel">
+                        <div class="order-row">
+                            <div class="form-field">
+                                <label for="swingCfgCondName">스윙 키움 조건식 이름</label>
+                                <input type="text" id="swingCfgCondName" value="스윙_종가돌파" style="font-weight: bold; color: #64ffda;">
+                            </div>
+                            <div class="form-field">
+                                <label for="swingCfgAccount">스윙 전용 계좌번호</label>
+                                <input type="text" id="swingCfgAccount" placeholder="공란 시 초단타 계좌 공유" style="font-family: monospace;">
+                            </div>
+                        </div>
+                        <div class="order-row">
+                            <div class="form-field">
+                                <label for="swingCfgInvestAmt">종목당 투자금 (원)</label>
+                                <input type="number" id="swingCfgInvestAmt" value="2000000">
+                            </div>
+                            <div class="form-field">
+                                <label for="swingCfgMaxHold">최대 보유 종목 수</label>
+                                <input type="number" id="swingCfgMaxHold" value="3">
+                            </div>
+                        </div>
+                        <div class="order-row">
+                            <div class="form-field">
+                                <label for="swingCfgTargetProfit">목표 익절 수익률 (%)</label>
+                                <input type="number" step="0.1" id="swingCfgTargetProfit" value="5.0" style="color: var(--success); font-weight: bold;">
+                            </div>
+                            <div class="form-field">
+                                <label for="swingCfgStopLoss">손절 한도 수익률 (%)</label>
+                                <input type="number" step="0.1" id="swingCfgStopLoss" value="-3.0" style="color: var(--danger); font-weight: bold;">
+                            </div>
+                        </div>
+                        <button class="btn-primary" onclick="saveSettings()" style="background: linear-gradient(135deg, #00f2fe 0%, #4facfe 100%);">스윙 파라미터 적용</button>
                     </div>
                 </div>
+
+                <!-- 스윙 수동 주문 및 긴급 제어 패널 -->
+                <div class="glass-card">
+                    <div class="section-title" style="margin-bottom:16px;">🎯 스윙 수동 주문 및 긴급 제어</div>
+                    <div class="order-panel">
+                        <div class="order-row">
+                            <div class="form-field">
+                                <label for="swingOrderCode">종목코드</label>
+                                <input type="text" id="swingOrderCode" placeholder="005930">
+                            </div>
+                            <div class="form-field">
+                                <label for="swingOrderQty">주문수량</label>
+                                <input type="number" id="swingOrderQty" value="10">
+                            </div>
+                        </div>
+                        <div class="order-row">
+                            <button class="order-btn buy" onclick="placeManualOrder('buy')" style="background: linear-gradient(135deg, #00c853 0%, #64ffda 100%);">스윙 수동 매수 (시장가)</button>
+                            <button class="order-btn sell" onclick="placeManualOrder('sell')">스윙 수동 매도 (시장가)</button>
+                        </div>
+                        
+                        <div class="liquidation-box" style="border-color: rgba(255, 64, 129, 0.4);">
+                            <div>
+                                <div style="font-size: 13px; font-weight: bold; color: var(--danger);">스윙 긴급 전량 매도</div>
+                                <div style="font-size: 11px; color: var(--text-secondary);">스윙 보유 종목만 즉시 시장가 청산</div>
+                            </div>
+                            <div style="display:flex; align-items:center; gap:10px;">
+                                <label class="switch switch-sm">
+                                    <input type="checkbox" onchange="toggleLiquidationPin(this.checked)">
+                                    <span class="slider"></span>
+                                </label>
+                                <button id="btnSwingLiquidate" class="btn-liquidate" onclick="triggerLiquidateAll()">Safe Out</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
             </div>
         </div>
     </div>
@@ -1742,6 +1858,14 @@ HTML_CONTENT = """
                             ⚙️ 백테스팅 파라미터
                         </div>
                         
+                        <div class="form-field" style="margin-bottom: 16px;">
+                            <label for="btMode">백테스팅 매매 모드</label>
+                            <select id="btMode" style="background: rgba(255,255,255,0.05); color: #64ffda; font-weight: bold; padding: 8px; border-radius: 6px; width: 100%;">
+                                <option value="scalp">⚡ 초단타 모드 (60틱 / 당일 15:15 마감 청산)</option>
+                                <option value="swing">📈 스윙 모드 (일봉 / 15:28 종가 매수 / 수일 오버나잇)</option>
+                            </select>
+                        </div>
+
                         <div class="form-field" style="margin-bottom: 16px;">
                             <label for="btCode">종목 코드 (전체는 ALL)</label>
                             <input type="text" id="btCode" value="ALL" placeholder="e.g. 005930 또는 ALL" style="font-family: monospace; font-weight: bold; text-transform: uppercase;">
@@ -2734,10 +2858,33 @@ HTML_CONTENT = """
                 }).join('');
             }
 
-            // 스윙 보유 종목 테이블 업데이트
+            // 스윙 보유 종목 테이블 및 요약 계좌 카드 업데이트
             const swingTbody = document.getElementById('swingPortfolioBody');
             if (swingTbody) {
                 const swingHoldings = data.swing_holdings ? Object.values(data.swing_holdings) : [];
+                
+                let sPurchase = 0;
+                let sProfit = 0;
+                swingHoldings.forEach(st => {
+                    sPurchase += (Number(st.purchase_price) * Number(st.quantity));
+                    sProfit += Number(st.profit_loss);
+                });
+                const sProfitRate = sPurchase > 0 ? (sProfit / sPurchase * 100.0) : 0.0;
+                const sAssets = data.available_cash + sPurchase + sProfit;
+
+                if (document.getElementById('swingTotalAssets')) document.getElementById('swingTotalAssets').innerText = Number(sAssets).toLocaleString() + '원';
+                if (document.getElementById('swingTotalPurchase')) document.getElementById('swingTotalPurchase').innerText = Number(sPurchase).toLocaleString() + '원';
+                if (document.getElementById('swingHoldingCount')) document.getElementById('swingHoldingCount').innerText = '스윙 보유 종목 수: ' + swingHoldings.length + '개';
+
+                const sProfitSpan = document.getElementById('swingTotalProfitMainText');
+                if (sProfitSpan) {
+                    if (sProfit >= 0) {
+                        sProfitSpan.innerHTML = `<div style="display: flex; align-items: baseline; gap: 8px; flex-wrap: nowrap; white-space: nowrap;"><span class="up-trend">+${Number(Math.round(sProfit)).toLocaleString()}원</span><span class="up-trend" style="font-size: 18px; font-weight: normal;">(+${sProfitRate.toFixed(2)}%)</span></div>`;
+                    } else {
+                        sProfitSpan.innerHTML = `<div style="display: flex; align-items: baseline; gap: 8px; flex-wrap: nowrap; white-space: nowrap;"><span class="down-trend">${Number(Math.round(sProfit)).toLocaleString()}원</span><span class="down-trend" style="font-size: 18px; font-weight: normal;">(${sProfitRate.toFixed(2)}%)</span></div>`;
+                    }
+                }
+
                 if (swingHoldings.length === 0) {
                     swingTbody.innerHTML = `<tr><td colspan="7" class="no-data">보유 중인 스윙 종목이 없습니다.</td></tr>`;
                 } else {
@@ -2745,7 +2892,7 @@ HTML_CONTENT = """
                         const profitClass = stock.profit_loss >= 0 ? 'up' : 'down';
                         const sign = stock.profit_loss >= 0 ? '+' : '';
                         return `
-                            <tr>
+                            <tr onclick="subscribeStockChart('${stock.code}', '${stock.name}')">
                                 <td>
                                     <div class="stock-name-info">
                                         <strong>${stock.name}</strong>
@@ -4157,13 +4304,17 @@ HTML_CONTENT = """
                 console.warn("매도 로직 JSON 파싱 실패, 기본 전략 사용:", e);
             }
             
+            const modeEl = document.getElementById('btMode');
+            const btMode = modeEl ? modeEl.value : 'scalp';
+
             const payload = {
                 type: 'run_backtest',
                 start_date: startDate,
                 end_date: endDate,
                 code: code || 'ALL',
                 initial_capital: parseFloat(document.getElementById('btInitialCapital').value) || 10000000,
-                buycount: parseInt(document.getElementById('btBuyCount').value) || 3
+                buycount: parseInt(document.getElementById('btBuyCount').value) || 3,
+                mode: btMode
             };
             if (customBuy !== null) payload.custom_buy = customBuy;
             if (customSell !== null) payload.custom_sell = customSell;
@@ -5306,8 +5457,9 @@ async def websocket_handler(websocket):
                     custom_sell = data.get('custom_sell')
                     initial_capital = data.get('initial_capital', 10000000)
                     buycount = data.get('buycount', 3)
+                    mode = data.get('mode', 'scalp')
                     
-                    logging.debug(f"📊 대시보드 제어: 백테스팅 요청 ({start_date} ~ {end_date}, 종목: {code})")
+                    logging.debug(f"📊 대시보드 제어: 백테스팅 요청 (모드: {mode}, {start_date} ~ {end_date}, 종목: {code})")
                     
                     main_loop = None
                     try:
@@ -5325,7 +5477,7 @@ async def websocket_handler(websocket):
                             old_p.terminate()
                             old_p.join(timeout=1.0)
                             
-                    p = ctx.Process(target=run_backtest_process_worker, args=(q, start_date, end_date, code, custom_buy, custom_sell, initial_capital, buycount), daemon=True)
+                    p = ctx.Process(target=run_backtest_process_worker, args=(q, start_date, end_date, code, custom_buy, custom_sell, initial_capital, buycount, mode), daemon=True)
                     active_backtests[websocket] = p
                     p.start()
                     

@@ -1113,6 +1113,244 @@ class Backtester:
             logger.error(f"백테스팅 오류: {e}", exc_info=True)
             return {"error": str(e), "debug_logs": [f"치명적 오류: {e}"]}
 
+    def run_swing_backtest(self, start_date, end_date, code='ALL', progress_callback=None, initial_capital=10000000, buycount=3, target_profit=5.0, stop_loss=-3.0):
+        """스윙 매매 전용 백테스팅 시뮬레이션 (일봉 15:28 종가 매수 & 다일 오버나잇 보유)"""
+        try:
+            from swing_strategy_utils import calc_daily_indicators, prepare_swing_locals, evaluate_swing_condition
+            logger.info(f"📈 [스윙 백테스트] 시작: {start_date} ~ {end_date} (종목: {code})")
+            if progress_callback: progress_callback(10, "스윙 백테스트용 일봉 데이터를 로딩 중입니다...")
+
+            # 1. 스윙 전용 daily_candles 테이블 존재 확인 및 DDL 자동 생성
+            s_dt = start_date.replace('-', '')
+            e_dt = end_date.replace('-', '')
+            conn = sqlite3.connect(self.db_path)
+            cur = conn.cursor()
+            cur.execute('''
+                CREATE TABLE IF NOT EXISTS daily_candles (
+                    code TEXT,
+                    datetime TEXT,
+                    open REAL,
+                    high REAL,
+                    low REAL,
+                    close REAL,
+                    volume INTEGER,
+                    amount REAL,
+                    created_at TEXT,
+                    PRIMARY KEY (code, datetime)
+                )
+            ''')
+            conn.commit()
+            
+            q_daily = f"SELECT code, datetime, open, high, low, close, volume FROM daily_candles WHERE datetime >= '{s_dt}' AND datetime <= '{e_dt}'"
+            if code and code != 'ALL':
+                q_daily += f" AND code = '{code}'"
+            q_daily += " ORDER BY datetime ASC"
+            
+            df_daily_all = pd.read_sql(q_daily, conn)
+            conn.close()
+
+            if not df_daily_all.empty:
+                df_daily_all['date'] = df_daily_all['datetime'].apply(lambda x: f"{x[:4]}-{x[4:6]}-{x[6:8]}" if len(str(x))==8 else str(x))
+                logger.info(f"✅ [스윙 백테스트] daily_candles 전용 테이블에서 {len(df_daily_all):,}건의 일봉 데이터 즉시 로드 성공!")
+            else:
+                # 2. daily_candles가 비어있는 경우 stock_data 기반 틱/분봉 데이터에서 일봉 합성 후 daily_candles에 저장
+                logger.info("ℹ️ daily_candles 전용 테이블 데이터 부족으로 stock_data 기반 일봉 합성 생성 진행...")
+                df = self.load_data(start_date, end_date, code)
+                if df.empty:
+                    if progress_callback: progress_callback(100, "해당 기간에 데이터가 없습니다.")
+                    return {"error": "해당 기간에 데이터가 없습니다."}
+
+                df['date'] = df['datetime'].str.slice(0, 10)
+                
+                c_col = 'tick_close' if 'tick_close' in df.columns else ('min3_close' if 'min3_close' in df.columns else 'close')
+                o_col = 'tick_open' if 'tick_open' in df.columns else ('min3_open' if 'min3_open' in df.columns else 'open')
+                h_col = 'tick_high' if 'tick_high' in df.columns else ('min3_high' if 'min3_high' in df.columns else 'high')
+                l_col = 'tick_low' if 'tick_low' in df.columns else ('min3_low' if 'min3_low' in df.columns else 'low')
+                v_col = 'tick_volume' if 'tick_volume' in df.columns else ('min3_volume' if 'min3_volume' in df.columns else 'volume')
+
+                daily_rows = []
+                for (c, d), group in df.groupby(['code', 'date']):
+                    daily_rows.append({
+                        'code': c,
+                        'datetime': d.replace('-', ''),
+                        'date': d,
+                        'open': group[o_col].iloc[0] if o_col in group.columns else group[c_col].iloc[0],
+                        'high': group[h_col].max() if h_col in group.columns else group[c_col].max(),
+                        'low': group[l_col].min() if l_col in group.columns else group[c_col].min(),
+                        'close': group[c_col].iloc[-1],
+                        'volume': group[v_col].sum() if v_col in group.columns else len(group)
+                    })
+
+                df_daily_all = pd.DataFrame(daily_rows)
+                df_daily_all.sort_values(by=['code', 'datetime'], inplace=True)
+
+                # daily_candles 전용 테이블에 자동 영구 캐싱 저장
+                try:
+                    conn = sqlite3.connect(self.db_path)
+                    cur = conn.cursor()
+                    created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    for _, r in df_daily_all.iterrows():
+                        cur.execute('''
+                            INSERT OR REPLACE INTO daily_candles
+                            (code, datetime, open, high, low, close, volume, amount, created_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ''', (r['code'], r['datetime'], r['open'], r['high'], r['low'], r['close'], r['volume'], 0, created_at))
+                    conn.commit()
+                    conn.close()
+                    logger.info(f"💾 [스윙 DB] 합성된 일봉 {len(df_daily_all)}건을 daily_candles 전용 테이블에 저장 완료!")
+                except Exception as save_err:
+                    logger.error(f"❌ daily_candles 캐싱 실패: {save_err}")
+
+            debug_logs = []
+            debug_logs.append(f"📊 [스윙 시작] 백테스트 기간: {start_date} ~ {end_date}")
+            debug_logs.append(f"💰 초기 자본금: {initial_capital:,.0f}원 | 스윙 최대 보유: {buycount}개 | 목표가: +{target_profit}% | 손절가: {stop_loss}%")
+            debug_logs.append(f"📈 스윙 매수 조건: 15:28 종가 매수 (이격도 98~105, RSI < 70, 거래량 비율 >= 1.2)")
+
+            capital = initial_capital
+            max_capital = capital
+            mdd = 0.0
+            portfolio = {}
+            trades = []
+            win_count = 0
+            loss_count = 0
+            invest_per_trade = capital / max(1, buycount)
+
+            trading_days = sorted(df_daily_all['date'].unique())
+            total_days = len(trading_days)
+
+            for idx, day_str in enumerate(trading_days):
+                if progress_callback:
+                    progress_callback(int(30 + (idx / max(1, total_days)) * 60), f"[{idx+1}/{total_days}] {day_str} 스윙 시뮬레이션 중...")
+
+                day_df = df_daily_all[df_daily_all['date'] == day_str]
+
+                # 1. 기존 보유 종목 매도 규칙 감시
+                for c_code, holding in list(portfolio.items()):
+                    stock_day = day_df[day_df['code'] == c_code]
+                    if stock_day.empty:
+                        holding['holding_days'] += 1
+                        continue
+
+                    row = stock_day.iloc[0]
+                    c_price = row['close']
+                    h_price = row['high']
+                    l_price = row['low']
+
+                    buy_p = holding['buy_price']
+                    qty = holding['qty']
+
+                    max_p_pct = ((h_price - buy_p) / buy_p * 100.0) - 0.3
+                    min_p_pct = ((l_price - buy_p) / buy_p * 100.0) - 0.3
+
+                    is_sold = False
+                    sell_reason = ""
+                    sell_p = c_price
+
+                    if max_p_pct >= target_profit:
+                        is_sold = True
+                        sell_reason = f"스윙 목표가 달성 (+{target_profit}%)"
+                        sell_p = buy_p * (1 + (target_profit + 0.3) / 100.0)
+                    elif min_p_pct <= stop_loss:
+                        is_sold = True
+                        sell_reason = f"스윙 손절가 이탈 ({stop_loss}%)"
+                        sell_p = buy_p * (1 + (stop_loss + 0.3) / 100.0)
+                    elif holding['holding_days'] >= 5:
+                        is_sold = True
+                        sell_reason = "보유 기간(5일) 만료 타임컷"
+                        sell_p = c_price
+
+                    if is_sold:
+                        trade_profit = (sell_p - buy_p) * qty - (buy_p * qty * 0.003)
+                        capital += trade_profit
+                        if trade_profit >= 0: win_count += 1
+                        else: loss_count += 1
+
+                        real_profit_pct = (sell_p - buy_p) / buy_p * 100.0 - 0.3
+                        debug_logs.append(f"🟢 [스윙 매도 {day_str}] {c_code} | {sell_reason} | {buy_p:,.0f}→{sell_p:,.0f} ({real_profit_pct:+.2f}%) | 손익: {trade_profit:+,.0f}원")
+                        trades.append({
+                            'code': c_code,
+                            'buy_time': holding['buy_date'],
+                            'sell_time': day_str,
+                            'buy_price': buy_p,
+                            'sell_price': sell_p,
+                            'qty': qty,
+                            'profit_pct': real_profit_pct,
+                            'profit_amount': trade_profit,
+                            'sell_stg': sell_reason
+                        })
+                        del portfolio[c_code]
+                        max_capital = max(max_capital, capital)
+                        mdd = max(mdd, (max_capital - capital) / max_capital * 100.0)
+                    else:
+                        holding['holding_days'] += 1
+
+                # 2. 15:28 신규 스윙 매수 종목 평가 및 종가 체결
+                available_slots = buycount - len(portfolio)
+                if available_slots > 0:
+                    candidates = []
+                    for _, row in day_df.iterrows():
+                        c_code = row['code']
+                        if c_code in portfolio:
+                            continue
+
+                        hist_df = df_daily_all[(df_daily_all['code'] == c_code) & (df_daily_all['date'] <= day_str)]
+                        if len(hist_df) < 5:
+                            continue
+
+                        safe_locals = prepare_swing_locals(c_code, hist_df)
+                        if not safe_locals:
+                            continue
+
+                        rule = "98.0 <= disparity20 <= 105.0 and rsi14 < 70.0 and volume_ratio >= 1.2"
+                        if evaluate_swing_condition(rule, safe_locals):
+                            candidates.append({
+                                'code': c_code,
+                                'price': row['close'],
+                                'score': safe_locals.get('volume_ratio', 1.0) * safe_locals.get('disparity20', 100.0)
+                            })
+
+                    candidates.sort(key=lambda x: x['score'], reverse=True)
+                    for cand in candidates[:available_slots]:
+                        c_code = cand['code']
+                        buy_p = cand['price']
+                        if buy_p <= 0: continue
+                        qty = max(1, int(invest_per_trade / buy_p))
+
+                        portfolio[c_code] = {
+                            'buy_price': buy_p,
+                            'qty': qty,
+                            'buy_date': day_str,
+                            'holding_days': 1
+                        }
+                        debug_logs.append(f"📈 [스윙 15:28 매수 {day_str}] {c_code} | {buy_p:,.0f}원 x {qty}주 = {buy_p * qty:,.0f}원 체결")
+
+            total_trades = win_count + loss_count
+            win_rate = (win_count / total_trades * 100.0) if total_trades > 0 else 0.0
+            total_profit = capital - initial_capital
+
+            debug_logs.append("─" * 50)
+            debug_logs.append(f"✅ [스윙 완료] 총 {total_trades}건 거래 | 승률: {win_rate:.1f}% ({win_count}승 {loss_count}패)")
+            debug_logs.append(f"💰 총 손익: {total_profit:+,.0f}원 | 최종 자본: {capital:,.0f}원 | MDD: {mdd:.2f}%")
+
+            return {
+                "total_trades": total_trades,
+                "win_count": win_count,
+                "loss_count": loss_count,
+                "win_rate": round(win_rate, 2),
+                "total_profit": round(total_profit, 0),
+                "final_capital": round(capital, 0),
+                "mdd": round(mdd, 2),
+                "trades": trades,
+                "history": [],
+                "bnh_history": [],
+                "uses_ai": False,
+                "debug_logs": debug_logs[-5000:]
+            }
+
+        except Exception as e:
+            logger.error(f"스윙 백테스팅 오류: {e}", exc_info=True)
+            return {"error": str(e), "debug_logs": [f"스윙 백테스트 오류: {e}"]}
+
 if __name__ == '__main__':
     bt = Backtester()
     def p(prog, msg): print(f"[{prog}%] {msg}")
