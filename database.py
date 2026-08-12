@@ -961,6 +961,8 @@ class AsyncDatabaseManager:
     async def save_swing_holding(self, code: str, name: str, buy_price: float, qty: int, buy_date: str, highest_price: float = 0.0, strategy: str = ""):
         """스윙 매수 보유 종목 저장/갱신"""
         try:
+            if self._conn is None:
+                await self.init_database()
             if highest_price <= 0:
                 highest_price = buy_price
             created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -1003,6 +1005,8 @@ class AsyncDatabaseManager:
         """스윙 보유 종목 목록 전체 조회 (사전 형태로 반환)"""
         holdings = {}
         try:
+            if self._conn is None:
+                await self.init_database()
             async with self._db_lock:
                 cursor = await self._conn.cursor()
                 await cursor.execute('SELECT code, name, buy_price, qty, buy_date, highest_price, strategy FROM swing_holdings')
@@ -1041,6 +1045,8 @@ class AsyncDatabaseManager:
         """스윙 최근 매매 이력 목록 조회"""
         records = []
         try:
+            if self._conn is None:
+                await self.init_database()
             async with self._db_lock:
                 cursor = await self._conn.cursor()
                 await cursor.execute('''

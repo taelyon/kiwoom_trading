@@ -698,17 +698,26 @@ class MonitoringManager:
                 time_settings = get_config().get_trading_time_settings()
                 if time_settings['sell_all_enabled']:
                     now_time = datetime.now().time()
-                    if now_time >= time_settings['sell_all_time']:
+                    # 장마감 정규 15:15~15:30 사이에만 청산 수행
+                    if time(15, 15) <= now_time <= time(15, 30):
                         if getattr(self, '_has_liquidated_today', None) != datetime.now().date():
                             self.logger.warning(f"⏰ 당일 매매 마감 시간({time_settings['sell_all_time'].strftime('%H:%M')}) 도달! 오버나잇 방지를 위해 보유 종목 전량 강제 청산을 시작합니다.")
                             trader = getattr(self.parent, 'trader', None)
                             if trader and hasattr(trader, 'holdings'):
                                 for code, info in list(trader.holdings.items()):
+                                    # 스윙 보유 종목은 초단타 당일 마감 청산에서 제외 (3차 격리 보장)
+                                    if hasattr(self.parent, 'swing_manager') and self.parent.swing_manager and self.parent.swing_manager.is_swing_stock(code):
+                                        self.logger.info(f"🛡️ [마감 청산] {code} 종목은 스윙 보유 종목이므로 당일 청산에서 제외합니다.")
+                                        continue
+
                                     qty = info.get('quantity', 0)
                                     if qty > 0:
                                         self.logger.info(f"🧹 [마감 청산] {code} {qty}주 일괄 매도 주문")
                                         asyncio.create_task(trader.place_sell_order(code, qty, price=0, strategy="마감 강제청산"))
                             self._has_liquidated_today = datetime.now().date()
+                    elif now_time > time(15, 30) or now_time < time(9, 0):
+                        # 야간 또는 장전 구동 시 당일 청산 완료 처리하여 불필요한 경고 방지
+                        self._has_liquidated_today = datetime.now().date()
                 
                 if not self.monitored_stocks:
                     continue
@@ -1750,6 +1759,10 @@ class MLManager:
         self.scheduler_task = create_fire_and_forget_task(self._scheduler_loop())
         
         self.logger.info("🤖 ML 매니저 초기화 완료 (asyncio 스케줄러 동작 중)")
+
+    def start_scheduler(self):
+        """ML 스케줄러 기동 확인 (이미 __init__에서 시작됨)"""
+        self.logger.debug("🤖 ML 매니저 스케줄러가 정상 동작 중입니다.")
         
     async def _scheduler_loop(self):
         """1분마다 스케줄을 체크하는 비동기 루프"""

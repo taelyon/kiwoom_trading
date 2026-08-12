@@ -38,6 +38,7 @@ class SwingManager:
     async def initialize(self):
         """스윙 매니저 초기화 및 DB에서 보유 종목 로드"""
         try:
+            await self.db_manager.init_database()
             stored_holdings = await self.db_manager.get_swing_holdings()
             self.swing_holdings = stored_holdings
             self.swing_stock_codes = set(stored_holdings.keys())
