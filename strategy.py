@@ -177,6 +177,10 @@ class KiwoomStrategy:
                 
                 return
             
+            # 스윙 종목 침범 방지 (초단타 매수 100% 사전 차단)
+            if hasattr(self.parent, 'swing_manager') and self.parent.swing_manager and self.parent.swing_manager.is_swing_stock(code):
+                return
+
             # 일시적 차단 목록 확인 (주문가능수량 0 등으로 인한 무한 루프 방지)
             if hasattr(self, '_temp_blocked_codes') and code in self._temp_blocked_codes:
                 blocked_until = self._temp_blocked_codes[code]

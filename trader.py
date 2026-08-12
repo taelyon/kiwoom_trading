@@ -235,6 +235,14 @@ class KiwoomTrader:
             self.logger.debug(f"현재가 조회 실패 ({code}) - fallback 처리됨", exc_info=True)
             return 0
     
+    async def send_market_buy_order_async(self, code, quantity, strategy=""):
+        """스윙전용 비동기 시장가 매수 주문"""
+        return await self.client.place_buy_order(code, quantity, 0)
+
+    async def send_market_sell_order_async(self, code, quantity, strategy=""):
+        """스윙전용 비동기 시장가 매도 주문"""
+        return await self.client.place_sell_order(code, quantity, 0)
+
     async def place_buy_order(self, code, quantity, price=0, strategy=""):
         """매수 주문"""
         if code not in self._buy_order_locks:

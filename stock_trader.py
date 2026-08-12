@@ -20,6 +20,7 @@ from kiwoom_websocket import KiwoomWebSocketClient
 
 from core_managers import (LoginHandler, DataManager, MonitoringManager, StrategyManager, 
                          TradingManager, AccountManager, ConditionSearchManager, MLManager)
+from swing_manager import SwingManager
 from chart_manager import ChartDataCache
 
 class TradingApp:
@@ -60,6 +61,7 @@ class TradingApp:
         self.account_manager = AccountManager(self)
         self.condition_search_manager = ConditionSearchManager(self)
         self.ml_manager = MLManager(self)
+        self.swing_manager = SwingManager(self)
         
         # 로그인 핸들러 생성
         self.login_handler = LoginHandler(self)
@@ -131,6 +133,8 @@ class TradingApp:
             self.chart_cache.stop()
         if self.ml_manager:
             self.ml_manager.stop()
+        if self.swing_manager:
+            self.swing_manager.stop()
             
         self.logger.info("✅ 모든 비동기 리소스 정리 완료.")
 
@@ -203,14 +207,28 @@ class TradingApp:
             except Exception as ttl_ex:
                 self.logger.error(f"❌ 감시종목 TTL 루프 시작 실패: {ttl_ex}", exc_info=True)
 
-            # 6. 계좌 잔고조회 (즉시 실행)
+            # 6. ML 매니저 스케줄러 기동
+            try:
+                self.ml_manager.start_scheduler()
+                self.logger.info("🤖 ML 매니저 초기화 완료 (asyncio 스케줄러 동작 중)")
+            except Exception as ml_ex:
+                self.logger.error(f"❌ ML 매니저 스케줄러 기동 실패: {ml_ex}", exc_info=True)
+
+            # 7. 스윙 매매 매니저 스케줄러 기동
+            try:
+                self.swing_manager.start_scheduler()
+                self.logger.info("📈 스윙 매매 매니저 초기화 완료 (15:28 장마감 종가 매수 스케줄러 동작 중)")
+            except Exception as swing_ex:
+                self.logger.error(f"❌ 스윙 매매 매니저 스케줄러 기동 실패: {swing_ex}", exc_info=True)
+
+            # 8. 계좌 잔고조회 (즉시 실행)
             try:
                 await self.account_manager.handle_acnt_balance_query_async()
                 self.logger.debug("✅ 계좌 잔고조회 즉시 실행 완료 (비동기)")
             except Exception as balance_ex:
                 self.logger.error(f"❌ 계좌 잔고조회 실행 실패: {balance_ex}", exc_info=True)
 
-            # 7. 대기 중인 API 큐 처리
+            # 9. 대기 중인 API 큐 처리
             try:
                 if self.chart_cache and hasattr(self.chart_cache, 'api_request_queue'):
                     queue_size = len(self.chart_cache.api_request_queue)

@@ -119,6 +119,38 @@ class AsyncDatabaseManager:
                             amount REAL
                         )
                     ''')
+
+                    # 스윙 매매 보유 종목 관리 테이블
+                    await cursor.execute('''
+                        CREATE TABLE IF NOT EXISTS swing_holdings (
+                            code TEXT PRIMARY KEY,
+                            name TEXT,
+                            buy_price REAL,
+                            qty INTEGER,
+                            buy_date TEXT,
+                            highest_price REAL,
+                            strategy TEXT,
+                            created_at TEXT
+                        )
+                    ''')
+
+                    # 스윙 매매 체결/손익 기록 테이블
+                    await cursor.execute('''
+                        CREATE TABLE IF NOT EXISTS swing_trade_records (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            code TEXT,
+                            name TEXT,
+                            buy_price REAL,
+                            sell_price REAL,
+                            qty INTEGER,
+                            profit_loss REAL,
+                            profit_pct REAL,
+                            buy_date TEXT,
+                            sell_date TEXT,
+                            strategy TEXT,
+                            created_at TEXT
+                        )
+                    ''')
                     # 레거시 system_config 테이블이 남아있다면 앱 구동 시 자동 삭제
                     await cursor.execute("DROP TABLE IF EXISTS system_config")
 
@@ -924,3 +956,114 @@ class AsyncDatabaseManager:
         except Exception as e:
             self.logger.error(f"DB 요약 조회 실패: {e}")
         return result
+
+    # ==================== 스윙 매매 전용 CRUD ====================
+    async def save_swing_holding(self, code: str, name: str, buy_price: float, qty: int, buy_date: str, highest_price: float = 0.0, strategy: str = ""):
+        """스윙 매수 보유 종목 저장/갱신"""
+        try:
+            if highest_price <= 0:
+                highest_price = buy_price
+            created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            async with self._db_lock:
+                cursor = await self._conn.cursor()
+                await cursor.execute('''
+                    INSERT OR REPLACE INTO swing_holdings
+                    (code, name, buy_price, qty, buy_date, highest_price, strategy, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (code, name, buy_price, qty, buy_date, highest_price, strategy, created_at))
+                await self._conn.commit()
+                self.logger.info(f"💾 [스윙 DB] 보유 종목 저장: {code} ({name}) - {qty}주 @ {buy_price:,.0f}원")
+        except Exception as e:
+            self.logger.error(f"❌ 스윙 보유 종목 저장 실패 ({code}): {e}")
+
+    async def update_swing_holding_highest(self, code: str, highest_price: float):
+        """스윙 보유 종목 최고가 갱신"""
+        try:
+            async with self._db_lock:
+                cursor = await self._conn.cursor()
+                await cursor.execute('''
+                    UPDATE swing_holdings SET highest_price = ? WHERE code = ?
+                ''', (highest_price, code))
+                await self._conn.commit()
+        except Exception as e:
+            self.logger.error(f"❌ 스윙 최고가 갱신 실패 ({code}): {e}")
+
+    async def delete_swing_holding(self, code: str):
+        """스윙 매도 후 보유 종목 삭제"""
+        try:
+            async with self._db_lock:
+                cursor = await self._conn.cursor()
+                await cursor.execute('DELETE FROM swing_holdings WHERE code = ?', (code,))
+                await self._conn.commit()
+                self.logger.info(f"🗑️ [스윙 DB] 보유 종목 삭제: {code}")
+        except Exception as e:
+            self.logger.error(f"❌ 스윙 보유 종목 삭제 실패 ({code}): {e}")
+
+    async def get_swing_holdings(self) -> dict:
+        """스윙 보유 종목 목록 전체 조회 (사전 형태로 반환)"""
+        holdings = {}
+        try:
+            async with self._db_lock:
+                cursor = await self._conn.cursor()
+                await cursor.execute('SELECT code, name, buy_price, qty, buy_date, highest_price, strategy FROM swing_holdings')
+                rows = await cursor.fetchall()
+                for row in rows:
+                    holdings[row[0]] = {
+                        'code': row[0],
+                        'name': row[1],
+                        'buy_price': row[2],
+                        'qty': row[3],
+                        'buy_date': row[4],
+                        'highest_price': row[5] if row[5] else row[2],
+                        'strategy': row[6]
+                    }
+        except Exception as e:
+            self.logger.error(f"❌ 스윙 보유 종목 조회 실패: {e}")
+        return holdings
+
+    async def save_swing_trade_record(self, code: str, name: str, buy_price: float, sell_price: float, qty: int, profit_loss: float, profit_pct: float, buy_date: str, sell_date: str, strategy: str = ""):
+        """스윙 매매 이력 저장"""
+        try:
+            created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            async with self._db_lock:
+                cursor = await self._conn.cursor()
+                await cursor.execute('''
+                    INSERT INTO swing_trade_records
+                    (code, name, buy_price, sell_price, qty, profit_loss, profit_pct, buy_date, sell_date, strategy, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (code, name, buy_price, sell_price, qty, profit_loss, profit_pct, buy_date, sell_date, strategy, created_at))
+                await self._conn.commit()
+                self.logger.info(f"📝 [스윙 DB] 매매 이력 기록: {code} ({name}) - 손익 {profit_loss:+,.0f}원 ({profit_pct:+.2f}%)")
+        except Exception as e:
+            self.logger.error(f"❌ 스윙 매매 이력 저장 실패 ({code}): {e}")
+
+    async def get_swing_trade_records(self, limit: int = 50) -> list:
+        """스윙 최근 매매 이력 목록 조회"""
+        records = []
+        try:
+            async with self._db_lock:
+                cursor = await self._conn.cursor()
+                await cursor.execute('''
+                    SELECT code, name, buy_price, sell_price, qty, profit_loss, profit_pct, buy_date, sell_date, strategy, created_at
+                    FROM swing_trade_records
+                    ORDER BY id DESC
+                    LIMIT ?
+                ''', (limit,))
+                rows = await cursor.fetchall()
+                for row in rows:
+                    records.append({
+                        'code': row[0],
+                        'name': row[1],
+                        'buy_price': row[2],
+                        'sell_price': row[3],
+                        'qty': row[4],
+                        'profit_loss': row[5],
+                        'profit_pct': row[6],
+                        'buy_date': row[7],
+                        'sell_date': row[8],
+                        'strategy': row[9],
+                        'created_at': row[10]
+                    })
+        except Exception as e:
+            self.logger.error(f"❌ 스윙 매매 이력 조회 실패: {e}")
+        return records
