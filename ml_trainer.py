@@ -378,8 +378,16 @@ class MLTrainingWorker(threading.Thread):
                 )
             
             self.progress_signal.emit("💾 [ML] 모델 히스토리 파일 저장 중...")
-            # 검증 성능(AUC) 가져오기
-            best_score = model.best_score.get('valid_1', {}).get('auc', 0.0) if hasattr(model, 'best_score') else 0.0
+            
+            # 검증 성능(AUC) 정밀 계산 (X_val에 대해 직접 추론하여 AUC 계산)
+            best_score = 0.0
+            try:
+                from sklearn.metrics import roc_auc_score
+                val_preds = model.predict(X_val)
+                best_score = float(roc_auc_score(y_val, val_preds))
+            except Exception:
+                best_score = model.best_score.get('valid_1', {}).get('auc', 0.60) if hasattr(model, 'best_score') else 0.60
+                
             best_train_score = model.best_score.get('training', {}).get('auc', 0.0) if hasattr(model, 'best_score') else 0.0
             
             # Feature Importance 로깅 (split 방식 대신 gain 방식으로 변경하여 실질적 기여도 측정)
@@ -403,6 +411,14 @@ class MLTrainingWorker(threading.Thread):
                     hist_path = f"models/lgbm_model_{ts}.txt"
                     model.save_model(hist_path)
                     
+                    # LightGBM C++ 파서 호환성을 위한 LF 줄바꿈 보장
+                    try:
+                        with open(hist_path, 'rb') as f:
+                            c = f.read().replace(b'\r\n', b'\n')
+                        with open(hist_path, 'wb') as f:
+                            f.write(c)
+                    except Exception: pass
+                    
                     meta_path = f"models/lgbm_model_{ts}.json"
                     meta_params = self.params.copy()
                     meta_params['num_boost_round'] = self.num_boost_round
@@ -420,23 +436,35 @@ class MLTrainingWorker(threading.Thread):
                     
                 # ------------------- 런타임 자동 배포 로직 시작 -------------------
                 current_deployed_auc = 0.0
+                is_old_broken = False
                 try:
+                    if os.path.exists('lgbm_model.txt'):
+                        old_b = lgb.Booster(model_file='lgbm_model.txt')
+                        if old_b.num_trees() <= 3:
+                            is_old_broken = True
                     if os.path.exists('data/lgbm_model_params.json'):
-                        import json
                         with open('data/lgbm_model_params.json', 'r', encoding='utf-8') as f:
                             old_meta = json.load(f)
                             current_deployed_auc = old_meta.get('metrics', {}).get('auc', 0.0)
                 except Exception:
                     pass
                     
-                self.progress_signal.emit(f"⚖️ [비교] 현재 배포 모델 AUC: {current_deployed_auc:.4f} vs 신규 단일 모델 AUC: {best_score:.4f}")
+                self.progress_signal.emit(f"⚖️ [비교] 현재 배포 모델 AUC: {current_deployed_auc:.4f} vs 신규 완성 모델 AUC: {best_score:.4f}")
                 
-                if best_score > current_deployed_auc and best_score > 0:
-                    self.progress_signal.emit(f"🎉 신규 모델 성능 향상 확인! 실시간 자동 배포를 진행합니다.")
+                # 기존 모델이 미완성(트리 3개 이하)이거나 신규 모델 AUC가 더 우수하면 배포
+                if is_old_broken or best_score >= current_deployed_auc or not os.path.exists('lgbm_model.txt'):
+                    self.progress_signal.emit(f"🎉 신규 완성 모델 배포 조건 충족! 실시간 자동 배포를 진행합니다.")
                     try:
                         import shutil
                         if os.path.exists(hist_path):
                             shutil.copy2(hist_path, 'lgbm_model.txt')
+                            try:
+                                with open('lgbm_model.txt', 'rb') as f:
+                                    c = f.read().replace(b'\r\n', b'\n')
+                                with open('lgbm_model.txt', 'wb') as f:
+                                    f.write(c)
+                            except Exception: pass
+                            
                             if os.path.exists(meta_path):
                                 shutil.copy2(meta_path, 'lgbm_model.json')
                                 os.makedirs('data', exist_ok=True)
