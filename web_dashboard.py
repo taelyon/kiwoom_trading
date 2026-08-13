@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import logging
 import asyncio
@@ -5864,7 +5865,6 @@ async def websocket_handler(websocket):
                 elif msg_type == 'restart_system':
                     logging.info("🔄 [앱 재시작] 사용자 요청으로 파이썬 프로세스를 재시작합니다...")
                     await safe_send(websocket, json.dumps({"type": "restart_system_result", "success": True}))
-                    import sys, os
                     os.execv(sys.executable, [sys.executable] + sys.argv)
                 elif msg_type == 'get_strategy_detail':
                     strategy_name = data.get('strategy', '').strip()
