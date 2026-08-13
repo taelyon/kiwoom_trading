@@ -809,6 +809,73 @@ class KiwoomRestClient:
             self.logger.error(f"일봉 차트 데이터 조회 중 오류: ({type(e).__name__}) {e}", exc_info=True)
             return {}
 
+    async def get_stock_weekly_chart(self, code: str, base_dt: str = '', cont_yn: str = 'N', next_key: str = '') -> Dict:
+        """주식 주봉 차트 데이터 조회 (ka10082) (비동기)"""
+        try:
+            await self._ensure_client()
+            if not await self.check_token_validity():
+                return {}
+
+            # API 요청 제한 확인 및 대기
+            await ApiLimitManager.check_api_limit_and_wait_async("주봉 차트 조회", request_type="minute_chart")
+
+            # 모의투자 여부에 따라 서버 선택
+            server_url = self.mock_url if self.is_mock else self.base_url
+            url = f"{server_url}/api/dostk/chart"
+
+            from datetime import date as _date
+            _base_dt = base_dt if base_dt else _date.today().strftime('%Y%m%d')
+            data = {
+                "stk_cd": code,
+                "base_dt": _base_dt,
+                "upd_stkpc_tp": "1"
+            }
+
+            headers = {
+                'Content-Type': 'application/json;charset=UTF-8',
+                'authorization': f'Bearer {self.access_token}',
+                'cont-yn': cont_yn,
+                'next-key': next_key,
+                'api-id': 'ka10082'
+            }
+
+            max_retries = self.config.getint('API', 'max_retries', fallback=2)
+            response = None
+            for attempt in range(max_retries + 1):
+                try:
+                    await self.rate_limiter.acquire()
+                    response = await self.client.post(url, headers=headers, json=data, timeout=60.0)
+                    if response.status_code == 429:
+                        if attempt < max_retries:
+                            self.logger.warning(f"주봉 차트 조회 429 에러. 3.5초 대기 후 재시도 ({attempt+1}/{max_retries})... {code}")
+                            await asyncio.sleep(3.5)
+                            continue
+                        else:
+                            self.logger.error(f"주봉 차트 조회 429 에러 최대 재시도 초과: {code}")
+                            break
+                    break
+                except httpx.RequestError as timeout_err:
+                    if attempt < max_retries:
+                        self.logger.warning(f"주봉 차트 조회 타임아웃 ({attempt+1}/{max_retries}), 재시도 중... {code}")
+                        await asyncio.sleep(1)
+                        if attempt == max_retries - 1:
+                            await self._reset_client()
+                    else:
+                        raise timeout_err
+
+            if response is None:
+                return {}
+            if response.status_code == 200:
+                response_data = response.json()
+                self.logger.debug(f"[ka10082] 주봉 데이터 조회 성공: {code}, return_code={response_data.get('return_code')}")
+                return response_data
+            else:
+                self.logger.error(f"주봉 차트 데이터 조회 실패: {response.status_code} / {code}")
+                return {}
+        except Exception as e:
+            self.logger.error(f"주봉 차트 데이터 조회 실패 ({code}): {e}")
+            return {}
+
     async def get_stock_minute_chart(self, code: str, period: int = 3) -> Dict:
         """주식 분봉 차트 데이터 조회 (ka10080) (비동기)"""
         try:

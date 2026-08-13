@@ -1707,13 +1707,13 @@ HTML_CONTENT = """
                         <div class="section-title" id="swingChartTitle" style="color: #64ffda;">📈 스윙 차트 (스윙 종목을 선택하세요)</div>
                         <div class="chart-tabs" style="display: flex; align-items: center; gap: 8px;">
                             <span style="font-size: 11px; display: inline-flex; gap: 6px; margin-right: 6px;">
-                                <span style="color:#FFD700; font-weight: bold;">● 5일</span>
-                                <span style="color:#FF1493; font-weight: bold;">● 10일</span>
-                                <span style="color:#00FFFF; font-weight: bold;">● 20일</span>
-                                <span style="color:#32CD32; font-weight: bold;">● 60일</span>
+                                <span style="color:#FFD700; font-weight: bold;">● 5일/주</span>
+                                <span style="color:#FF1493; font-weight: bold;">● 10일/주</span>
+                                <span style="color:#00FFFF; font-weight: bold;">● 20일/주</span>
+                                <span style="color:#32CD32; font-weight: bold;">● 60일/주</span>
                             </span>
-                            <div class="chart-tab active" onclick="switchChartScope('daily', this)">일봉</div>
-                            <div class="chart-tab" onclick="switchChartScope('minute', this)">60분봉</div>
+                            <div class="swing-chart-tab chart-tab active" onclick="switchSwingChartTimeframe('daily', this)">일봉</div>
+                            <div class="swing-chart-tab chart-tab" onclick="switchSwingChartTimeframe('weekly', this)">주봉</div>
                         </div>
                     </div>
                     <div id="swingChartCanvas" class="chart-canvas"></div>
@@ -4322,6 +4322,18 @@ HTML_CONTENT = """
         let swingMaSeries = {};
         let currentSwingCode = '';
         let currentSwingName = '';
+        let currentSwingTimeframe = 'daily';
+
+        function switchSwingChartTimeframe(tf, element) {
+            currentSwingTimeframe = tf;
+            const tabs = document.querySelectorAll('.swing-chart-tab');
+            tabs.forEach(tab => tab.classList.remove('active'));
+            if (element) element.classList.add('active');
+
+            if (currentSwingCode) {
+                subscribeSwingStockChart(currentSwingCode, currentSwingName);
+            }
+        }
 
         function initSwingChart() {
             const swingDiv = document.getElementById('swingChartCanvas');
@@ -4401,7 +4413,8 @@ HTML_CONTENT = """
 
             const titleEl = document.getElementById('swingChartTitle');
             if (titleEl) {
-                titleEl.innerHTML = `📈 스윙 차트 - <span style="color:#64ffda;">${name} (${code})</span>`;
+                const labelTf = currentSwingTimeframe === 'weekly' ? '주봉' : '일봉';
+                titleEl.innerHTML = `📈 스윙 차트 - <span style="color:#64ffda;">${name} (${code}) [${labelTf}]</span>`;
             }
 
             if (!swingChart) {
@@ -4417,7 +4430,8 @@ HTML_CONTENT = """
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(jsonStr({
                     type: "subscribe_swing_chart",
-                    code: code
+                    code: code,
+                    timeframe: currentSwingTimeframe
                 }));
             }
         }
@@ -5648,55 +5662,74 @@ async def _send_chart_history_to_ws(ws, code, chart_cache):
         return True
     except Exception as e:
         logging.error(f"❌ 차트 역사 데이터 전송 실패 ({code}): {e}", exc_info=True)
-async def _send_swing_chart_to_ws(ws, code, app):
-    """스윙 전용 일봉 차트 데이터를 조회하여 웹소켓 클라이언트에 전송"""
+async def _send_swing_chart_to_ws(ws, code, app, timeframe='daily'):
+    """스윙 전용 차트 데이터(일봉/주봉)를 조회하여 웹소켓 클라이언트에 전송"""
     try:
         daily_history = []
         
-        # 1. DB (daily_candles)에서 먼저 조회
-        if hasattr(app, 'db_manager') and app.db_manager:
-            try:
-                db_candles = await app.db_manager.get_daily_candles(code, limit=200)
-                if db_candles:
-                    for row in db_candles:
-                        # row structure: (datetime, open, high, low, close, volume, ...)
-                        dt_str = str(row.get('datetime', '') or row.get('dt', ''))
-                        if dt_str:
+        if timeframe == 'weekly':
+            # 주봉 데이터 수집
+            if hasattr(app, 'swing_manager') and app.swing_manager:
+                try:
+                    df_weekly = await app.swing_manager._fetch_weekly_candles(code)
+                    if df_weekly is not None and not df_weekly.empty:
+                        for _, r in df_weekly.iterrows():
                             daily_history.append({
-                                'time': dt_str,
-                                'open': float(row.get('open', 0)),
-                                'high': float(row.get('high', 0)),
-                                'low': float(row.get('low', 0)),
-                                'close': float(row.get('close', 0)),
-                                'volume': int(row.get('volume', 0))
+                                'time': str(r['datetime']),
+                                'open': float(r['open']),
+                                'high': float(r['high']),
+                                'low': float(r['low']),
+                                'close': float(r['close']),
+                                'volume': int(r['volume'])
                             })
-            except Exception as db_e:
-                logging.debug(f"DB 일봉 조회 패스: {db_e}")
+                except Exception as api_e:
+                    logging.error(f"❌ 스윙 API 주봉 수집 오류 ({code}): {api_e}")
+        else:
+            # 일봉 데이터 수집 (기존)
+            # 1. DB (daily_candles)에서 먼저 조회
+            if hasattr(app, 'db_manager') and app.db_manager:
+                try:
+                    db_candles = await app.db_manager.get_daily_candles(code, limit=200)
+                    if db_candles:
+                        for row in db_candles:
+                            dt_str = str(row.get('datetime', '') or row.get('dt', ''))
+                            if dt_str:
+                                daily_history.append({
+                                    'time': dt_str,
+                                    'open': float(row.get('open', 0)),
+                                    'high': float(row.get('high', 0)),
+                                    'low': float(row.get('low', 0)),
+                                    'close': float(row.get('close', 0)),
+                                    'volume': int(row.get('volume', 0))
+                                })
+                except Exception as db_e:
+                    logging.debug(f"DB 일봉 조회 패스: {db_e}")
 
-        # 2. DB에 데이터가 부족하거나 없을 경우 SwingManager 또는 REST API로 실시간 수집
-        if len(daily_history) < 10 and hasattr(app, 'swing_manager') and app.swing_manager:
-            try:
-                df_daily = await app.swing_manager._fetch_daily_candles(code)
-                if df_daily is not None and not df_daily.empty:
-                    daily_history = []
-                    for _, r in df_daily.iterrows():
-                        daily_history.append({
-                            'time': str(r['datetime']),
-                            'open': float(r['open']),
-                            'high': float(r['high']),
-                            'low': float(r['low']),
-                            'close': float(r['close']),
-                            'volume': int(r['volume'])
-                        })
-            except Exception as api_e:
-                logging.error(f"❌ 스윙 API 일봉 수집 오류 ({code}): {api_e}")
+            # 2. DB에 데이터가 부족하거나 없을 경우 SwingManager 또는 REST API로 실시간 수집
+            if len(daily_history) < 10 and hasattr(app, 'swing_manager') and app.swing_manager:
+                try:
+                    df_daily = await app.swing_manager._fetch_daily_candles(code)
+                    if df_daily is not None and not df_daily.empty:
+                        daily_history = []
+                        for _, r in df_daily.iterrows():
+                            daily_history.append({
+                                'time': str(r['datetime']),
+                                'open': float(r['open']),
+                                'high': float(r['high']),
+                                'low': float(r['low']),
+                                'close': float(r['close']),
+                                'volume': int(r['volume'])
+                            })
+                except Exception as api_e:
+                    logging.error(f"❌ 스윙 API 일봉 수집 오류 ({code}): {api_e}")
 
         await safe_send(ws, json.dumps({
             "type": "swing_chart_history",
             "code": code,
+            "timeframe": timeframe,
             "daily_history": daily_history
         }))
-        logging.debug(f"📈 [스윙 차트전송] {code} 일봉 차트 데이터 {len(daily_history)}건 전송 완료")
+        logging.debug(f"📈 [스윙 차트전송] {code} ({timeframe}) 차트 데이터 {len(daily_history)}건 전송 완료")
         return True
     except Exception as e:
         logging.error(f"❌ 스윙 차트 데이터 전송 실패 ({code}): {e}", exc_info=True)
@@ -6752,10 +6785,11 @@ async def websocket_handler(websocket):
 
                 elif msg_type == 'subscribe_swing_chart':
                     code = data.get('code')
-                    logging.debug(f"📈 [스윙 차트구독] 프론트엔드로부터 'subscribe_swing_chart' 요청 받음: {code}")
+                    timeframe = data.get('timeframe', 'daily')
+                    logging.debug(f"📈 [스윙 차트구독] 프론트엔드로부터 'subscribe_swing_chart' 요청 받음: {code} (timeframe: {timeframe})")
                     if code:
                         from utils import create_fire_and_forget_task
-                        create_fire_and_forget_task(_send_swing_chart_to_ws(websocket, code, app))
+                        create_fire_and_forget_task(_send_swing_chart_to_ws(websocket, code, app, timeframe=timeframe))
                                 
                 elif msg_type == 'frontend_log':
                     msg = data.get('message', '')

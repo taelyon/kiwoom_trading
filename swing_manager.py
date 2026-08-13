@@ -330,6 +330,61 @@ class SwingManager:
             return df
         except Exception as e:
             self.logger.error(f"❌ 일봉 데이터 조회 에러 ({code}): {e}")
+            return None
+
+    async def _fetch_weekly_candles(self, code: str) -> Optional[pd.DataFrame]:
+        """REST API (ka10082)를 통해 주봉 차트 데이터 수집"""
+        try:
+            trader = getattr(self.main_window, 'trader', None)
+            client = getattr(trader, 'client', None) if trader else None
+            if not client:
+                self.logger.warning(f"⚠️ [스윙] 주봉 조회 불가: REST 클라이언트 없음 ({code})")
+                return None
+
+            today_str = datetime.now().strftime('%Y%m%d')
+            resp = await client.get_stock_weekly_chart(code, base_dt=today_str, cont_yn='N', next_key='')
+            if not resp or resp.get('return_code', -1) != 0:
+                self.logger.warning(f"⚠️ [스윙] 주봉 응답 에러 ({code}): {resp.get('return_msg', 'N/A')}")
+                return None
+
+            # ka10082 공식 응답 키: stk_stk_pole_chart_qry
+            items = resp.get('stk_stk_pole_chart_qry', resp.get('stk_wkl_pole_chart_qry', resp.get('stk_dt_pole_chart_qry', [])))
+            if not items:
+                self.logger.warning(f"⚠️ [스윙] 주봉 데이터 없음 ({code})")
+                return None
+
+            rows = []
+            for item in items[:150]:  # 최근 150주
+                try:
+                    dt = item.get('dt', '')
+                    open_p = abs(float(item.get('open_pric') or 0))
+                    high_p = abs(float(item.get('high_pric') or 0))
+                    low_p = abs(float(item.get('low_pric') or 0))
+                    close_p = abs(float(item.get('cur_prc') or 0))
+                    vol = int(float(item.get('trde_qty') or 0))
+                    if dt and close_p > 0:
+                        rows.append({
+                            'datetime': dt,
+                            'open': open_p,
+                            'high': high_p,
+                            'low': low_p,
+                            'close': close_p,
+                            'volume': vol
+                        })
+                except (ValueError, TypeError):
+                    continue
+
+            if not rows:
+                return None
+
+            df = pd.DataFrame(rows)
+            df.sort_values(by='datetime', ascending=True, inplace=True)
+            df.reset_index(drop=True, inplace=True)
+            self.logger.debug(f"✅ [스윙] 주봉 데이터 조회 완료: {code} ({len(df)}주)")
+            return df
+        except Exception as e:
+            self.logger.error(f"❌ 주봉 데이터 조회 에러 ({code}): {e}")
+            return None
 
     async def _execute_swing_buy_orders(self):
         """15:28:00 확정 종목 옵션 A (15:28 시장가 주문 제출) 실행"""
