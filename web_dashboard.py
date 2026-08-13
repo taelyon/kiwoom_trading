@@ -1705,7 +1705,14 @@ HTML_CONTENT = """
                 <div class="glass-card chart-container-box" style="position: relative; border: 1px solid rgba(100, 255, 218, 0.25);">
                     <div class="chart-header">
                         <div class="section-title" id="swingChartTitle" style="color: #64ffda;">📈 스윙 차트 (스윙 종목을 선택하세요)</div>
-                        <div class="chart-tabs">
+                        <div class="chart-tabs" style="display: flex; align-items: center; gap: 8px;">
+                            <span style="font-size: 11px; display: inline-flex; gap: 6px; margin-right: 6px;">
+                                <span style="color:#FFD700; font-weight: bold;">● 5일</span>
+                                <span style="color:#FF1493; font-weight: bold;">● 10일</span>
+                                <span style="color:#00FFFF; font-weight: bold;">● 20일</span>
+                                <span style="color:#32CD32; font-weight: bold;">● 60일</span>
+                                <span style="color:#FF4500; font-weight: bold;">● 120일</span>
+                            </span>
                             <div class="chart-tab active" onclick="switchChartScope('daily', this)">일봉</div>
                             <div class="chart-tab" onclick="switchChartScope('minute', this)">60분봉</div>
                         </div>
@@ -4313,6 +4320,7 @@ HTML_CONTENT = """
         let swingChart = null;
         let swingCandleSeries = null;
         let swingVolumeSeries = null;
+        let swingMaSeries = {};
         let currentSwingCode = '';
         let currentSwingName = '';
 
@@ -4346,6 +4354,25 @@ HTML_CONTENT = """
                     upColor: '#ef5350', downColor: '#26a69a',
                     borderDownColor: '#26a69a', borderUpColor: '#ef5350',
                     wickDownColor: '#26a69a', wickUpColor: '#ef5350',
+                });
+
+                // 이동평균선(MA) 시리즈 추가 (5, 10, 20, 60, 120일)
+                swingMaSeries = {};
+                const maColors = {
+                    5: '#FFD700',   // 5일선: Gold (노랑)
+                    10: '#FF1493',  // 10일선: DeepPink (분홍)
+                    20: '#00FFFF',  // 20일선: Cyan (하늘)
+                    60: '#32CD32',  // 60일선: LimeGreen (연두)
+                    120: '#FF4500' // 120일선: OrangeRed (주황)
+                };
+                [5, 10, 20, 60, 120].forEach(period => {
+                    swingMaSeries[period] = swingChart.addLineSeries({
+                        color: maColors[period],
+                        lineWidth: 1.5,
+                        crosshairMarkerVisible: false,
+                        priceLineVisible: false,
+                        lastValueVisible: true,
+                    });
                 });
 
                 swingVolumeSeries = swingChart.addHistogramSeries({
@@ -4385,6 +4412,9 @@ HTML_CONTENT = """
 
             if (swingCandleSeries) swingCandleSeries.setData([]);
             if (swingVolumeSeries) swingVolumeSeries.setData([]);
+            [5, 10, 20, 60, 120].forEach(p => {
+                if (swingMaSeries[p]) swingMaSeries[p].setData([]);
+            });
 
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(jsonStr({
@@ -4392,6 +4422,23 @@ HTML_CONTENT = """
                     code: code
                 }));
             }
+        }
+
+        // 이동평균선(SMA) 계산 헬퍼 함수
+        function calculateSwingSMA(candleData, period) {
+            const result = [];
+            for (let i = 0; i < candleData.length; i++) {
+                if (i < period - 1) continue;
+                let sum = 0;
+                for (let j = 0; j < period; j++) {
+                    sum += candleData[i - j].close;
+                }
+                result.push({
+                    time: candleData[i].time,
+                    value: sum / period
+                });
+            }
+            return result;
         }
 
         function renderSwingChartHistory(data) {
@@ -4426,6 +4473,15 @@ HTML_CONTENT = """
 
             if (swingCandleSeries) swingCandleSeries.setData(candleData);
             if (swingVolumeSeries) swingVolumeSeries.setData(volumeData);
+
+            // 5일, 10일, 20일, 60일, 120일 이동평균선 계산 및 차트 바인딩
+            [5, 10, 20, 60, 120].forEach(period => {
+                if (swingMaSeries[period]) {
+                    const maData = calculateSwingSMA(candleData, period);
+                    swingMaSeries[period].setData(maData);
+                }
+            });
+
             if (swingChart) swingChart.timeScale().fitContent();
         }
 
@@ -5642,7 +5698,7 @@ async def _send_swing_chart_to_ws(ws, code, app):
             "code": code,
             "daily_history": daily_history
         }))
-        logging.info(f"📈 [스윙 차트전송] {code} 일봉 차트 데이터 {len(daily_history)}건 전송 완료")
+        logging.debug(f"📈 [스윙 차트전송] {code} 일봉 차트 데이터 {len(daily_history)}건 전송 완료")
         return True
     except Exception as e:
         logging.error(f"❌ 스윙 차트 데이터 전송 실패 ({code}): {e}", exc_info=True)
@@ -6698,7 +6754,7 @@ async def websocket_handler(websocket):
 
                 elif msg_type == 'subscribe_swing_chart':
                     code = data.get('code')
-                    logging.info(f"📈 [스윙 차트구독] 프론트엔드로부터 'subscribe_swing_chart' 요청 받음: {code}")
+                    logging.debug(f"📈 [스윙 차트구독] 프론트엔드로부터 'subscribe_swing_chart' 요청 받음: {code}")
                     if code:
                         from utils import create_fire_and_forget_task
                         create_fire_and_forget_task(_send_swing_chart_to_ws(websocket, code, app))

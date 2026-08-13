@@ -203,18 +203,6 @@ class SwingManager:
                     'next_key': ''
                 })
                 self.logger.info(f"✅ [스윙 수동/자동] '{self.condition_name}' (Seq: {target_index}) 검색 요청 완료")
-
-                # 혹시 이전에 실시간 등록이 되어 있을 경우 즉시 해제
-                # (CNSRREQ search_type:1 이 이미 등록된 경우를 대비한 안전 해제)
-                await asyncio.sleep(1.0)
-                try:
-                    await ws_client.send_message({
-                        'trnm': 'CNSRCLR',
-                        'seq': str(target_index)
-                    })
-                    self.logger.info(f"🔕 [스윙] 조건검색 실시간 구독 해제 완료 (Seq: {target_index})")
-                except Exception as clr_err:
-                    self.logger.warning(f"⚠️ 조건검색 실시간 해제 실패 (무시): {clr_err}")
             else:
                 self.logger.warning(f"⚠️ [스윙 수동/자동] 조건검색식 '{self.condition_name}'을 찾을 수 없습니다. (현재 수신된 키움 조건식: {len(cond_list)}개)")
 
@@ -338,7 +326,7 @@ class SwingManager:
             df = pd.DataFrame(rows)
             df.sort_values(by='datetime', ascending=True, inplace=True)
             df.reset_index(drop=True, inplace=True)
-            self.logger.info(f"✅ [스윙] 일봉 데이터 조회 완료: {code} ({len(df)}일)")
+            self.logger.debug(f"✅ [스윙] 일봉 데이터 조회 완료: {code} ({len(df)}일)")
             return df
         except Exception as e:
             self.logger.error(f"❌ 일봉 데이터 조회 에러 ({code}): {e}")

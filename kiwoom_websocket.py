@@ -583,7 +583,7 @@ class KiwoomWebSocketClient:
                                 ws_cli = getattr(self.parent.login_handler, 'websocket_client', None)
                                 if ws_cli and ws_cli.connected:
                                     await ws_cli.send_message({'trnm': 'CNSRCLR', 'seq': str(s)})
-                                    self.logger.info(f"🔕 [스윙] 실시간 조건검색 구독 해제 완료 (Seq: {s})")
+                                    self.logger.debug(f"🔕 [스윙] 실시간 조건검색 구독 해제 완료 (Seq: {s})")
                             except Exception as clr_err:
                                 self.logger.warning(f"⚠️ 스윙 실시간 해제 실패 (무시): {clr_err}")
                         create_fire_and_forget_task(_cancel_swing_realtime(swing_seq))
