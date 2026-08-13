@@ -6193,6 +6193,7 @@ async def websocket_handler(websocket):
                         ts = data.get('timestamp')
                         if ts:
                             deleted_files = []
+                            # 1. models 디렉토리 내부 파일 삭제
                             json_file = f"models/lgbm_model_{ts}.json"
                             txt_file = f"models/lgbm_model_{ts}.txt"
                             if os.path.exists(json_file):
@@ -6201,8 +6202,34 @@ async def websocket_handler(websocket):
                             if os.path.exists(txt_file):
                                 os.remove(txt_file)
                                 deleted_files.append(txt_file)
-                            
-                            logging.info(f"🗑️ [모델 삭제] {ts} 버전 모델 파일 삭제 완료 ({deleted_files})")
+
+                            # 2. 현재 배포(Deploy) 파일들의 타임스탬프 확인 및 삭제
+                            deployed_ts = None
+                            for p in ['data/lgbm_model_params.json', 'lgbm_model.json']:
+                                if os.path.exists(p):
+                                    try:
+                                        with open(p, 'r', encoding='utf-8') as jf:
+                                            deployed_ts = json.load(jf).get('timestamp')
+                                            if deployed_ts: break
+                                    except Exception:
+                                        pass
+
+                            # 삭제하는 ts가 현재 배포된 모델일 경우, 배포 파일들도 완전 제거
+                            if deployed_ts == ts:
+                                for p in ['data/lgbm_model_params.json', 'lgbm_model.json', 'lgbm_model.txt']:
+                                    if os.path.exists(p):
+                                        try:
+                                            os.remove(p)
+                                            deleted_files.append(p)
+                                        except Exception:
+                                            pass
+                                try:
+                                    import strategy_utils
+                                    strategy_utils.reload_model()
+                                except Exception:
+                                    pass
+
+                            logging.info(f"🗑️ [모델 삭제] {ts} 버전 모델 파일 완전 삭제 완료 ({deleted_files})")
                             await safe_send(websocket, json.dumps({
                                 "type": "delete_model_result",
                                 "success": True,
