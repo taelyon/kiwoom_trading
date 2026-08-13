@@ -336,9 +336,12 @@ class SwingManager:
     async def _fetch_weekly_candles(self, code: str) -> Optional[pd.DataFrame]:
         """REST API (ka10082)를 통해 주봉 차트 데이터 수집"""
         try:
-            trader = getattr(self.main_window, 'trader', None)
-            client = getattr(trader, 'client', None) if trader else None
-            if not client:
+            client = None
+            if hasattr(self.parent, 'trader') and self.parent.trader:
+                client = getattr(self.parent.trader, 'client', None)
+            if client is None and hasattr(self.parent, 'login_handler') and self.parent.login_handler:
+                client = getattr(self.parent.login_handler, 'kiwoom_client', None)
+            if client is None:
                 self.logger.warning(f"⚠️ [스윙] 주봉 조회 불가: REST 클라이언트 없음 ({code})")
                 return None
 

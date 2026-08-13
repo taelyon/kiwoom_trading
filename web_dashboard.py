@@ -4487,14 +4487,31 @@ HTML_CONTENT = """
             if (swingVolumeSeries) swingVolumeSeries.setData(volumeData);
 
             // 5일, 10일, 20일, 60일 이동평균선 계산 및 차트 바인딩
+            let ma60FirstTime = null;
             [5, 10, 20, 60].forEach(period => {
                 if (swingMaSeries[period]) {
                     const maData = calculateSwingSMA(candleData, period);
                     swingMaSeries[period].setData(maData);
+                    if (period === 60 && maData.length > 0) {
+                        ma60FirstTime = maData[0].time;
+                    }
                 }
             });
 
-            if (swingChart) swingChart.timeScale().fitContent();
+            if (swingChart) {
+                if (ma60FirstTime && candleData.length > 0) {
+                    try {
+                        swingChart.timeScale().setVisibleRange({
+                            from: ma60FirstTime,
+                            to: candleData[candleData.length - 1].time
+                        });
+                    } catch (e) {
+                        swingChart.timeScale().fitContent();
+                    }
+                } else {
+                    swingChart.timeScale().fitContent();
+                }
+            }
         }
 
         function subscribeStockChart(code, name) {
