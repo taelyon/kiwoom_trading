@@ -1862,7 +1862,7 @@ HTML_CONTENT = """
                         
                         <div class="form-field" style="margin-bottom: 16px;">
                             <label for="btMode">백테스팅 매매 모드</label>
-                            <select id="btMode" style="background: rgba(255,255,255,0.05); color: #64ffda; font-weight: bold; padding: 8px; border-radius: 6px; width: 100%;">
+                            <select id="btMode" onchange="onBtModeChange(this.value)" style="background: rgba(255,255,255,0.05); color: #64ffda; font-weight: bold; padding: 8px; border-radius: 6px; width: 100%;">
                                 <option value="scalp">⚡ 초단타 모드 (60틱 / 당일 15:15 마감 청산)</option>
                                 <option value="swing">📈 스윙 모드 (일봉 / 15:28 종가 매수 / 수일 오버나잇)</option>
                             </select>
@@ -3094,8 +3094,71 @@ HTML_CONTENT = """
             if (skipStorage) return;
             // 로컬 스토리지 기능은 실시간 동기화를 위해 제거되었습니다.
         }
+        // 백테스트 매매 모드 전환 핸들러 (초단타 vs 스윙)
+        function onBtModeChange(mode) {
+            const btStrategySelect = document.getElementById('btStrategy');
+            const btBuyTextarea = document.getElementById('btBuyStrategy');
+            const btSellTextarea = document.getElementById('btSellStrategy');
+            const btBuyCountInput = document.getElementById('btBuyCount');
+
+            if (mode === 'swing') {
+                const swingCondName = document.getElementById('swingCfgCondName') ? document.getElementById('swingCfgCondName').value : '스윙_저가매수';
+                const swingBuyStr = document.getElementById('swingCfgBuyStrategy') ? document.getElementById('swingCfgBuyStrategy').value : '';
+                const swingSellStr = document.getElementById('swingCfgSellStrategy') ? document.getElementById('swingCfgSellStrategy').value : '';
+                const swingMaxHold = document.getElementById('swingCfgMaxHold') ? document.getElementById('swingCfgMaxHold').value : '3';
+
+                if (btStrategySelect) {
+                    let swingOptFound = false;
+                    for (let i = 0; i < btStrategySelect.options.length; i++) {
+                        if (btStrategySelect.options[i].value === swingCondName) {
+                            btStrategySelect.selectedIndex = i;
+                            swingOptFound = true;
+                            break;
+                        }
+                    }
+                    if (!swingOptFound) {
+                        const opt = document.createElement('option');
+                        opt.value = swingCondName;
+                        opt.textContent = `📈 [스윙] ${swingCondName}`;
+                        btStrategySelect.appendChild(opt);
+                        btStrategySelect.value = swingCondName;
+                    }
+                }
+
+                if (btBuyTextarea) btBuyTextarea.value = swingBuyStr;
+                if (btSellTextarea) btSellTextarea.value = swingSellStr;
+                if (btBuyCountInput) btBuyCountInput.value = swingMaxHold;
+            } else {
+                const scalpStrategySelect = document.getElementById('cfgStrategy');
+                const scalpStrategy = scalpStrategySelect ? scalpStrategySelect.value : '';
+                const scalpBuyStr = document.getElementById('cfgBuyStrategy') ? document.getElementById('cfgBuyStrategy').value : '';
+                const scalpSellStr = document.getElementById('cfgSellStrategy') ? document.getElementById('cfgSellStrategy').value : '';
+                const scalpBuyCount = document.getElementById('cfgBuyCount') ? document.getElementById('cfgBuyCount').value : '5';
+
+                if (btStrategySelect && scalpStrategy) {
+                    btStrategySelect.value = scalpStrategy;
+                }
+
+                if (btBuyTextarea) btBuyTextarea.value = scalpBuyStr;
+                if (btSellTextarea) btSellTextarea.value = scalpSellStr;
+                if (btBuyCountInput) btBuyCountInput.value = scalpBuyCount;
+            }
+        }
+
         // 전략 선택 박스 변경 핸들러 (백테스트)
         function onBtStrategyChange(strategyName) {
+            const btMode = document.getElementById('btMode') ? document.getElementById('btMode').value : 'scalp';
+            if (btMode === 'swing') {
+                const swingCondName = document.getElementById('swingCfgCondName') ? document.getElementById('swingCfgCondName').value : '스윙_저가매수';
+                if (strategyName === swingCondName || strategyName.includes('스윙')) {
+                    const bBuy = document.getElementById('btBuyStrategy');
+                    const bSell = document.getElementById('btSellStrategy');
+                    if (bBuy) bBuy.value = document.getElementById('swingCfgBuyStrategy') ? document.getElementById('swingCfgBuyStrategy').value : '';
+                    if (bSell) bSell.value = document.getElementById('swingCfgSellStrategy') ? document.getElementById('swingCfgSellStrategy').value : '';
+                    return;
+                }
+            }
+
             const bBuy = document.getElementById('btBuyStrategy');
             const bSell = document.getElementById('btSellStrategy');
             if (bBuy) bBuy.value = "불러오는 중...";
@@ -3159,21 +3222,37 @@ HTML_CONTENT = """
             const btSelectEl = document.getElementById('btStrategy');
             if (btSelectEl) btSelectEl.innerHTML = '';
             
-            // 전달받은 조건식 목록이 있으면 옵션에 동적 추가
+            // 전달받은 조건식 목록이 있으면 옵션에 동적 추가 (초단타 전용 콤보박스에는 스윙 조건식 제외)
             if (settings.condition_list && settings.condition_list.length > 0) {
+                const swingCondName = settings.swing_condition_name || '스윙_저가매수';
+                
                 settings.condition_list.forEach(cond => {
-                    const option = document.createElement('option');
-                    option.value = cond.title;
-                    option.textContent = cond.title;
-                    selectEl.appendChild(option);
+                    const isSwingCond = cond.title.includes('스윙') || 
+                                       cond.title.toLowerCase().includes('swing') || 
+                                       cond.title === swingCondName;
+
+                    // 초단타 대표 매매 전략 콤보박스에는 스윙 전용 조건식 제외
+                    if (!isSwingCond) {
+                        const option = document.createElement('option');
+                        option.value = cond.title;
+                        option.textContent = cond.title;
+                        selectEl.appendChild(option);
+                    }
                     
                     if (btSelectEl) {
                         const btOption = document.createElement('option');
                         btOption.value = cond.title;
-                        btOption.textContent = cond.title;
+                        btOption.textContent = isSwingCond ? `📈 [스윙] ${cond.title}` : cond.title;
                         btSelectEl.appendChild(btOption);
                     }
                 });
+
+                if (selectEl.options.length === 0) {
+                    const option = document.createElement('option');
+                    option.value = "";
+                    option.textContent = "(등록된 초단타 조건검색식 없음)";
+                    selectEl.appendChild(option);
+                }
             } else {
                 const option = document.createElement('option');
                 option.value = "";
@@ -3690,6 +3769,8 @@ HTML_CONTENT = """
             } else if (tabId === 'backtest') {
                 document.getElementById('tabBacktest').classList.add('active');
                 document.getElementById('backtestView').classList.remove('view-hidden');
+                const curBtMode = document.getElementById('btMode') ? document.getElementById('btMode').value : 'scalp';
+                onBtModeChange(curBtMode);
             } else if (tabId === 'mlTrain') {
                 document.getElementById('tabMlTrain').classList.add('active');
                 document.getElementById('mlTrainView').classList.remove('view-hidden');
