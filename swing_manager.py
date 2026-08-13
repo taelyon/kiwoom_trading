@@ -51,11 +51,17 @@ class SwingManager:
         self.invest_amount = self.config.getfloat('SETTINGS', 'swing_invest_amount', fallback=2000000.0)
         self.max_holdings = self.config.getint('SETTINGS', 'swing_max_holdings', fallback=3)
         self.target_profit_pct = self.config.getfloat('SETTINGS', 'swing_target_profit', fallback=5.0)
-        self.stop_loss_pct = self.config.getfloat('SETTINGS', 'swing_stop_loss', fallback=-3.0)
+        self.stop_loss_pct = self.config.getfloat('SETTINGS', 'swing_stop_loss', fallback=-10.0)
+        self.first_entry_ratio = self.config.getfloat('SETTINGS', 'swing_first_entry_ratio', fallback=0.4) # 1차 진입비중 40% (30~50%)
 
         default_buy_str = json.dumps([
             {
-                "name": "스윙_눌림목_종가돌파",
+                "name": "스윙_시간통제_1520_1530",
+                "type": "TIME",
+                "content": "152000 <= time_int <= 153000"
+            },
+            {
+                "name": "스윙_저가매수_눌림목",
                 "type": "TECHNICAL",
                 "content": "98.0 <= disparity20 <= 105.0 and rsi14 < 70.0 and volume_ratio >= 1.2 and price_roc1 > -2.0"
             }
@@ -63,14 +69,29 @@ class SwingManager:
 
         default_sell_str = json.dumps([
             {
-                "name": "스윙_익절_목표달성",
-                "type": "PROFIT",
-                "content": "current_profit_pct >= target_profit"
+                "name": "스윙_1차익절_50%매도",
+                "type": "PARTIAL_PROFIT",
+                "content": "current_profit_pct >= 5.0 and not partially_sold"
             },
             {
-                "name": "스윙_손절_한도이탈",
-                "type": "LOSS",
-                "content": "current_profit_pct <= stop_loss"
+                "name": "스윙_본전방어_전량매도",
+                "type": "BREAKEVEN_STOP",
+                "content": "partially_sold and current_profit_pct <= 0.5"
+            },
+            {
+                "name": "스윙_추세종료_과매수이탈_전량매도",
+                "type": "TREND_EXIT",
+                "content": "rsi14 < 70.0 and prev_rsi14 >= 70.0"
+            },
+            {
+                "name": "스윙_추세종료_마지노선붕괴_전량매도",
+                "type": "MA_EXIT",
+                "content": "(ma5 < ma10 and prev_ma5 >= prev_ma10) or (current_price < ma20 and prev_price >= prev_ma20)"
+            },
+            {
+                "name": "스윙_세력방어선붕괴_기준봉손절",
+                "type": "STOP_LOSS",
+                "content": "current_price < base_candle_low or current_profit_pct <= -10.0"
             }
         ], ensure_ascii=False, indent=2)
 
@@ -218,6 +239,7 @@ class SwingManager:
                 if not safe_locals:
                     continue
 
+                safe_locals['time_int'] = int(datetime.now().strftime("%H%M%S"))
                 safe_locals['target_profit'] = self.target_profit_pct
                 safe_locals['stop_loss'] = self.stop_loss_pct
 
@@ -290,16 +312,20 @@ class SwingManager:
             if price <= 0:
                 continue
 
-            # 주문 수량 계산
-            qty = max(1, int(self.invest_amount / price))
-            self.logger.info(f"📈 [스윙 15:28 시장가 매수 송신] [{code}] 수량: {qty}주 (예상가: {price:,.0f}원)")
+            # 2차 추가 매수(물타기) 자동 금지 - 이미 보유 중인 경우 매수 스킵
+            if code in self.swing_holdings:
+                self.logger.info(f"🛡️ [{code}] 종목은 이미 스윙 보유 중이므로 기계적 2차 추가 매수(물타기)를 자동 스킵합니다.")
+                continue
+
+            # 1차 분할 비중 수량 계산 (투자금의 40%만 1차 매수)
+            first_entry_amount = self.invest_amount * getattr(self, 'first_entry_ratio', 0.4)
+            qty = max(1, int(first_entry_amount / price))
+            self.logger.info(f"📈 [스윙 15:28 시장가 1차 매수] [{code}] 1차진입비중(40%): {first_entry_amount:,.0f}원 -> {qty}주 체결 시도 (예상가: {price:,.0f}원)")
 
             try:
-                # 키움 REST API 시장가 주문 제출 (옵션 A)
                 trader = self.parent.trader
-                res = await trader.send_market_buy_order_async(code, qty, strategy="스윙_종가매수")
+                res = await trader.send_market_buy_order_async(code, qty, strategy="스윙_1차종가매수")
                 
-                # 스윙 보유 DB 기록
                 today_str = datetime.now().strftime("%Y-%m-%d")
                 stock_name = getattr(self.parent, 'master_code_dict', {}).get(code, code)
                 
@@ -310,10 +336,9 @@ class SwingManager:
                     qty=qty,
                     buy_date=today_str,
                     highest_price=price,
-                    strategy="스윙_종가매수"
+                    strategy="스윙_1차종가매수"
                 )
 
-                # 메모리 저장
                 self.swing_holdings[code] = {
                     'code': code,
                     'name': stock_name,
@@ -321,7 +346,8 @@ class SwingManager:
                     'qty': qty,
                     'buy_date': today_str,
                     'highest_price': price,
-                    'strategy': "스윙_종가매수"
+                    'strategy': "스윙_1차종가매수",
+                    'partially_sold': False
                 }
                 self.swing_stock_codes.add(code)
 
@@ -343,13 +369,41 @@ class SwingManager:
                 buy_price = holding['buy_price']
                 highest_price = max(holding.get('highest_price', buy_price), curr_price)
                 holding['highest_price'] = highest_price
+                partially_sold = holding.get('partially_sold', False)
 
-                # 수익률 계산
                 profit_pct = ((curr_price - buy_price) / buy_price * 100.0) - 0.3 # 세금/수수료 감안
 
                 # 최고가 갱신 DB 업데이트
                 if curr_price > holding.get('highest_price', 0):
                     await self.db_manager.update_swing_holding_highest(code, curr_price)
+
+                # 1. 분할 익절 로직: 평단가 대비 +5.0% 달성 시 보유 물량의 50% 분할 매도
+                if profit_pct >= self.target_profit_pct and not partially_sold:
+                    total_qty = holding['qty']
+                    sell_qty = max(1, total_qty // 2)
+                    rem_qty = total_qty - sell_qty
+                    
+                    self.logger.info(f"🟢 [스윙 1차 50% 분할 익절 발동] [{code}] {profit_pct:+.2f}% 달성 -> {sell_qty}주/총{total_qty}주 시장가 매도 전송")
+                    res = await self.parent.trader.send_market_sell_order_async(code, sell_qty, strategy="스윙_1차50%익절")
+                    
+                    today_str = datetime.now().strftime("%Y-%m-%d")
+                    p_loss = (curr_price - buy_price) * sell_qty
+                    
+                    await self.db_manager.save_swing_trade_record(
+                        code=code, name=holding['name'], buy_price=buy_price, sell_price=curr_price,
+                        qty=sell_qty, profit_loss=p_loss, profit_pct=profit_pct, buy_date=holding['buy_date'],
+                        sell_date=today_str, strategy="스윙_1차50%익절"
+                    )
+
+                    if rem_qty > 0:
+                        holding['qty'] = rem_qty
+                        holding['partially_sold'] = True
+                        await self.db_manager.update_swing_holding_qty_and_partial(code, rem_qty, True)
+                    else:
+                        await self.db_manager.delete_swing_holding(code)
+                        del self.swing_holdings[code]
+                        if code in self.swing_stock_codes: self.swing_stock_codes.remove(code)
+                    continue
 
                 is_sell_triggered = False
                 sell_reason = ""
@@ -361,10 +415,30 @@ class SwingManager:
                     'highest_price': highest_price,
                     'holding_days': holding.get('holding_days', 1),
                     'target_profit': self.target_profit_pct,
-                    'stop_loss': self.stop_loss_pct
+                    'stop_loss': self.stop_loss_pct,
+                    'partially_sold': partially_sold
                 }
 
-                # 스윙 동적 매도 로직 평가
+                df_daily = await self._fetch_daily_candles(code)
+                if df_daily is not None and not df_daily.empty:
+                    safe_locals = prepare_swing_locals(code, df_daily, current_price=curr_price, holding_info=holding)
+                else:
+                    safe_locals = {
+                        'buy_price': buy_price,
+                        'current_price': curr_price,
+                        'current_profit_pct': profit_pct,
+                        'highest_price': highest_price,
+                        'holding_days': holding.get('holding_days', 1),
+                        'target_profit': self.target_profit_pct,
+                        'stop_loss': self.stop_loss_pct,
+                        'partially_sold': partially_sold,
+                        'rsi14': 50.0, 'prev_rsi14': 50.0,
+                        'ma5': curr_price, 'ma10': curr_price, 'ma20': curr_price,
+                        'prev_ma5': curr_price, 'prev_ma10': curr_price, 'prev_ma20': curr_price,
+                        'base_candle_low': buy_price * 0.90
+                    }
+
+                # 스윙 동적 매도 로직 평가 (1.본전방어, 2.RSI70이탈/이평선붕괴, 3.기준봉손절 등)
                 for stg in self.sell_strategies:
                     rule_content = stg.get('content', '')
                     if rule_content and evaluate_swing_condition(rule_content, safe_locals):
@@ -372,15 +446,9 @@ class SwingManager:
                         sell_reason = stg.get('name', '스윙 전략 매도')
                         break
 
-                # 1. 백업 매도 룰: 목표가 달성 (예: +5%)
-                if not is_sell_triggered and profit_pct >= self.target_profit_pct:
+                if not is_sell_triggered and profit_pct <= self.stop_loss_pct:
                     is_sell_triggered = True
-                    sell_reason = f"스윙 목표가 달성 (+{profit_pct:.2f}%)"
-
-                # 2. 백업 매도 룰: 손절가 이탈 (예: -3%)
-                elif not is_sell_triggered and profit_pct <= self.stop_loss_pct:
-                    is_sell_triggered = True
-                    sell_reason = f"스윙 손절가 이탈 ({profit_pct:.2f}%)"
+                    sell_reason = f"스윙 전량 손절 (-10% 하방 차단: {profit_pct:.2f}%)"
 
                 if is_sell_triggered:
                     self.logger.info(f"📉 [스윙 매도 발동] [{code}] {sell_reason} -> 전량 시장가 매도")

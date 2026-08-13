@@ -130,6 +130,7 @@ class AsyncDatabaseManager:
                             buy_date TEXT,
                             highest_price REAL,
                             strategy TEXT,
+                            partially_sold INTEGER DEFAULT 0,
                             created_at TEXT
                         )
                     ''')
@@ -1006,6 +1007,19 @@ class AsyncDatabaseManager:
         except Exception as e:
             self.logger.error(f"❌ 스윙 최고가 갱신 실패 ({code}): {e}")
 
+    async def update_swing_holding_qty_and_partial(self, code: str, new_qty: int, partially_sold: bool = True):
+        """스윙 1차 익절 후 남은 잔여 수량 및 부분 익절 플래그 갱신"""
+        try:
+            async with self._db_lock:
+                cursor = await self._conn.cursor()
+                await cursor.execute('''
+                    UPDATE swing_holdings SET qty = ?, partially_sold = ? WHERE code = ?
+                ''', (new_qty, 1 if partially_sold else 0, code))
+                await self._conn.commit()
+                self.logger.info(f"📝 [스윙 DB] 분할 익절 수량/플래그 갱신: {code} -> 잔여 {new_qty}주")
+        except Exception as e:
+            self.logger.error(f"❌ 스윙 분할 익절 수량 갱신 실패 ({code}): {e}")
+
     async def delete_swing_holding(self, code: str):
         """스윙 매도 후 보유 종목 삭제"""
         try:
@@ -1025,7 +1039,11 @@ class AsyncDatabaseManager:
                 await self.init_database()
             async with self._db_lock:
                 cursor = await self._conn.cursor()
-                await cursor.execute('SELECT code, name, buy_price, qty, buy_date, highest_price, strategy FROM swing_holdings')
+                try:
+                    await cursor.execute('SELECT code, name, buy_price, qty, buy_date, highest_price, strategy, partially_sold FROM swing_holdings')
+                except Exception:
+                    await cursor.execute('ALTER TABLE swing_holdings ADD COLUMN partially_sold INTEGER DEFAULT 0')
+                    await cursor.execute('SELECT code, name, buy_price, qty, buy_date, highest_price, strategy, partially_sold FROM swing_holdings')
                 rows = await cursor.fetchall()
                 for row in rows:
                     holdings[row[0]] = {
@@ -1035,7 +1053,8 @@ class AsyncDatabaseManager:
                         'qty': row[3],
                         'buy_date': row[4],
                         'highest_price': row[5] if row[5] else row[2],
-                        'strategy': row[6]
+                        'strategy': row[6],
+                        'partially_sold': bool(row[7]) if len(row) > 7 and row[7] else False
                     }
         except Exception as e:
             self.logger.error(f"❌ 스윙 보유 종목 조회 실패: {e}")

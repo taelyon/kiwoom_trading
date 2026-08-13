@@ -1792,16 +1792,6 @@ HTML_CONTENT = """
                                 <input type="number" id="swingCfgMaxHold" value="3">
                             </div>
                         </div>
-                        <div class="order-row">
-                            <div class="form-field">
-                                <label for="swingCfgTargetProfit">목표 익절 수익률 (%)</label>
-                                <input type="number" step="0.1" id="swingCfgTargetProfit" value="5.0" style="color: var(--success); font-weight: bold;">
-                            </div>
-                            <div class="form-field">
-                                <label for="swingCfgStopLoss">손절 한도 수익률 (%)</label>
-                                <input type="number" step="0.1" id="swingCfgStopLoss" value="-3.0" style="color: var(--danger); font-weight: bold;">
-                            </div>
-                        </div>
                         <div class="form-field" style="margin-top: 12px;">
                             <label for="swingCfgBuyStrategy">스윙 매수 로직 (JSON)</label>
                             <textarea id="swingCfgBuyStrategy" placeholder="스윙 매수 로직 조건식 목록 (JSON)" style="font-family: monospace; font-size:11px; width: 100%; min-height: 120px; box-sizing: border-box; background: rgba(0,0,0,0.3); color: #64ffda; border: 1px solid rgba(100,255,218,0.3); border-radius: 4px; padding: 8px; resize: vertical;"></textarea>
@@ -3078,8 +3068,6 @@ HTML_CONTENT = """
             if(document.getElementById('swingCfgAccount')) document.getElementById('swingCfgAccount').value = settings.swing_account_no || '';
             if(document.getElementById('swingCfgInvestAmt')) document.getElementById('swingCfgInvestAmt').value = settings.swing_invest_amount || '2000000';
             if(document.getElementById('swingCfgMaxHold')) document.getElementById('swingCfgMaxHold').value = settings.swing_max_holdings || '3';
-            if(document.getElementById('swingCfgTargetProfit')) document.getElementById('swingCfgTargetProfit').value = settings.swing_target_profit || '5.0';
-            if(document.getElementById('swingCfgStopLoss')) document.getElementById('swingCfgStopLoss').value = settings.swing_stop_loss || '-3.0';
             if(document.getElementById('swingCfgBuyStrategy')) document.getElementById('swingCfgBuyStrategy').value = settings.swing_buy_strategy || '';
             if(document.getElementById('swingCfgSellStrategy')) document.getElementById('swingCfgSellStrategy').value = settings.swing_sell_strategy || '';
             
@@ -3198,8 +3186,6 @@ HTML_CONTENT = """
                     swing_account_no: document.getElementById('swingCfgAccount') ? document.getElementById('swingCfgAccount').value : '',
                     swing_invest_amount: document.getElementById('swingCfgInvestAmt') ? document.getElementById('swingCfgInvestAmt').value : '2000000',
                     swing_max_holdings: document.getElementById('swingCfgMaxHold') ? document.getElementById('swingCfgMaxHold').value : '3',
-                    swing_target_profit: document.getElementById('swingCfgTargetProfit') ? document.getElementById('swingCfgTargetProfit').value : '5.0',
-                    swing_stop_loss: document.getElementById('swingCfgStopLoss') ? document.getElementById('swingCfgStopLoss').value : '-3.0',
                     swing_buy_strategy: document.getElementById('swingCfgBuyStrategy') ? document.getElementById('swingCfgBuyStrategy').value : '',
                     swing_sell_strategy: document.getElementById('swingCfgSellStrategy') ? document.getElementById('swingCfgSellStrategy').value : ''
                 }
@@ -5693,8 +5679,18 @@ async def websocket_handler(websocket):
                     config = EnvConfigParser()
                     config.reload() # 런타임에 싱글톤 캐시를 최신 상태로 강제 갱신
 
-                    default_swing_buy = json.dumps([{"name": "스윙_눌림목_종가돌파", "type": "TECHNICAL", "content": "98.0 <= disparity20 <= 105.0 and rsi14 < 70.0 and volume_ratio >= 1.2 and price_roc1 > -2.0"}], ensure_ascii=False, indent=2)
-                    default_swing_sell = json.dumps([{"name": "스윙_목표익절", "type": "PROFIT", "content": "current_profit_pct >= target_profit"}, {"name": "스윙_손절이탈", "type": "LOSS", "content": "current_profit_pct <= stop_loss"}], ensure_ascii=False, indent=2)
+                    default_swing_buy = json.dumps([
+                        {"name": "스윙_시간통제_1520_1530", "type": "TIME", "content": "152000 <= time_int <= 153000"},
+                        {"name": "스윙_저가매수_눌림목", "type": "TECHNICAL", "content": "98.0 <= disparity20 <= 105.0 and rsi14 < 70.0 and volume_ratio >= 1.2 and price_roc1 > -2.0"}
+                    ], ensure_ascii=False, indent=2)
+
+                    default_swing_sell = json.dumps([
+                        {"name": "스윙_1차익절_50%매도", "type": "PARTIAL_PROFIT", "content": "current_profit_pct >= 5.0 and not partially_sold"},
+                        {"name": "스윙_본전방어_전량매도", "type": "BREAKEVEN_STOP", "content": "partially_sold and current_profit_pct <= 0.5"},
+                        {"name": "스윙_추세종료_과매수이탈_전량매도", "type": "TREND_EXIT", "content": "rsi14 < 70.0 and prev_rsi14 >= 70.0"},
+                        {"name": "스윙_추세종료_마지노선붕괴_전량매도", "type": "MA_EXIT", "content": "(ma5 < ma10 and prev_ma5 >= prev_ma10) or (current_price < ma20 and prev_price >= prev_ma20)"},
+                        {"name": "스윙_세력방어선붕괴_기준봉손절", "type": "STOP_LOSS", "content": "current_price < base_candle_low or current_profit_pct <= -10.0"}
+                    ], ensure_ascii=False, indent=2)
 
                     settings = {
                         "buycount": str(config.getint('SETTINGS', 'buycount', fallback=3)),
@@ -5713,7 +5709,7 @@ async def websocket_handler(websocket):
                         "swing_invest_amount": str(config.getfloat('SETTINGS', 'swing_invest_amount', fallback=2000000.0)),
                         "swing_max_holdings": str(config.getint('SETTINGS', 'swing_max_holdings', fallback=3)),
                         "swing_target_profit": str(config.getfloat('SETTINGS', 'swing_target_profit', fallback=5.0)),
-                        "swing_stop_loss": str(config.getfloat('SETTINGS', 'swing_stop_loss', fallback=-3.0)),
+                        "swing_stop_loss": str(config.getfloat('SETTINGS', 'swing_stop_loss', fallback=-10.0)),
                         "swing_buy_strategy": config.get('SETTINGS', 'swing_buy_strategy', fallback=default_swing_buy),
                         "swing_sell_strategy": config.get('SETTINGS', 'swing_sell_strategy', fallback=default_swing_sell)
                     }

@@ -101,25 +101,34 @@ def prepare_swing_locals(code: str, df_daily: pd.DataFrame, current_price: float
 
     df_calc = calc_daily_indicators(df_daily)
     last_row = df_calc.iloc[-1]
-    
+    prev_row = df_calc.iloc[-2] if len(df_calc) >= 2 else last_row
+
     if current_price <= 0:
         current_price = float(last_row.get('close', 0.0))
+
+    prev_price = float(prev_row.get('close', current_price))
+    base_candle_low = float(df_calc['low'].tail(5).min()) if 'low' in df_calc else (current_price * 0.9)
 
     safe_locals = {
         'code': code,
         'current_price': current_price,
+        'prev_price': prev_price,
         'close': df_calc['close'].values,
         'open': df_calc['open'].values,
         'high': df_calc['high'].values,
         'low': df_calc['low'].values,
         'volume': df_calc['volume'].values,
-        'ma5': df_calc['ma5'].values,
-        'ma10': df_calc['ma10'].values,
-        'ma20': df_calc['ma20'].values,
-        'ma60': df_calc['ma60'].values,
-        'ma120': df_calc['ma120'].values,
+        'ma5': float(last_row.get('ma5', current_price)),
+        'ma10': float(last_row.get('ma10', current_price)),
+        'ma20': float(last_row.get('ma20', current_price)),
+        'ma60': float(last_row.get('ma60', current_price)),
+        'ma120': float(last_row.get('ma120', current_price)),
+        'prev_ma5': float(prev_row.get('ma5', current_price)),
+        'prev_ma10': float(prev_row.get('ma10', current_price)),
+        'prev_ma20': float(prev_row.get('ma20', current_price)),
         'disparity20': float(last_row.get('disparity20', 100.0)),
         'rsi14': float(last_row.get('rsi14', 50.0)),
+        'prev_rsi14': float(prev_row.get('rsi14', 50.0)),
         'rsi21': float(last_row.get('rsi21', 50.0)),
         'macd_hist': float(last_row.get('macd_hist', 0.0)),
         'price_roc1': float(last_row.get('price_roc1', 0.0)),
@@ -128,6 +137,7 @@ def prepare_swing_locals(code: str, df_daily: pd.DataFrame, current_price: float
         'bb_position': float(last_row.get('bb_position', 0.5)),
         'lower_tail_ratio': float(last_row.get('lower_tail_ratio', 0.0)),
         'upper_tail_ratio': float(last_row.get('upper_tail_ratio', 0.0)),
+        'base_candle_low': base_candle_low
     }
 
     if holding_info:
@@ -142,6 +152,7 @@ def prepare_swing_locals(code: str, df_daily: pd.DataFrame, current_price: float
         safe_locals['profit_pct'] = profit_pct
         safe_locals['from_peak_pct'] = from_peak
         safe_locals['holding_days'] = holding_info.get('holding_days', 0)
+        safe_locals['partially_sold'] = bool(holding_info.get('partially_sold', False))
 
     return safe_locals
 
