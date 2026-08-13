@@ -6486,6 +6486,16 @@ async def websocket_handler(websocket):
                                 async def _fetch_and_send(ws, chart_code, chart_cache):
                                     try:
                                         logging.warning(f"⚠️ [캐시 미스] {chart_code} 종목이 캐시에 없거나 데이터가 비어있습니다! API로 새로 수집을 강제합니다.")
+                                        # ★ pending_stocks에 미리 등록해야 _on_chart_data_ready가 캐시 저장을 허용함
+                                        if chart_code not in chart_cache.pending_stocks:
+                                            chart_cache.pending_stocks[chart_code] = chart_code
+                                        # cache에 빈 슬롯 사전 확보 (좀비 방지 체크 우회)
+                                        if chart_code not in chart_cache.cache:
+                                            chart_cache.cache[chart_code] = {
+                                                'tick_data': None, 'min_data': None,
+                                                'last_update': None, 'last_save': None,
+                                                'previous_close': 0, 'api_sync_pending': False
+                                            }
                                         await chart_cache._collect_chart_data_internal(chart_code, force=True)
                                         # 수집 완료 후 사용자가 아직 이 종목을 보고 있는지 확인
                                         if subscribed_charts.get(ws) == chart_code:

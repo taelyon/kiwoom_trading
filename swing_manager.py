@@ -297,27 +297,28 @@ class SwingManager:
                 self.logger.warning(f"⚠️ [스윙] 일봉 조회 불가: REST 클라이언트 없음 ({code})")
                 return None
 
-            resp = await client.get_stock_daily_chart(code, base_dt='', cont_yn='N', next_key='')
+            today_str = datetime.now().strftime('%Y%m%d')
+            resp = await client.get_stock_daily_chart(code, base_dt=today_str, cont_yn='N', next_key='')
             if not resp or resp.get('return_code', -1) != 0:
                 self.logger.warning(f"⚠️ [스윙] 일봉 응답 에러 ({code}): {resp.get('return_msg', 'N/A')}")
                 return None
 
-            # ka10081 응답 필드: output 리스트 내 stk_bsic_info(기본) 또는 stk_dt_pole_chart_qry(일봉) 키
-            items = resp.get('output', resp.get('stk_dt_pole_chart_qry', []))
+            # ka10081 응답 필드: stk_dt_pole_chart_qry 리스트
+            items = resp.get('stk_dt_pole_chart_qry', [])
             if not items:
                 self.logger.warning(f"⚠️ [스윙] 일봉 데이터 없음 ({code})")
                 return None
 
             rows = []
             for item in items[:60]:  # 최근 60일
-                # ka10081 응답 필드명: bass_dt(일자), opn_pric(시가), hgst_pric(고가), lwst_pric(저가), cur_prc(현재가/종가), trde_qty(거래량)
+                # ka10081 공식 응답 필드명: dt(일자), open_pric(시가), high_pric(고가), low_pric(저가), cur_prc(현재가/종가), trde_qty(거래량)
                 try:
-                    dt = item.get('bass_dt') or item.get('일자') or item.get('dt') or ''
-                    open_p = abs(float(item.get('opn_pric') or item.get('시가') or 0))
-                    high_p = abs(float(item.get('hgst_pric') or item.get('고가') or 0))
-                    low_p = abs(float(item.get('lwst_pric') or item.get('저가') or 0))
-                    close_p = abs(float(item.get('cur_prc') or item.get('현재가') or 0))
-                    vol = int(float(item.get('trde_qty') or item.get('거래량') or 0))
+                    dt = item.get('dt', '')
+                    open_p = abs(float(item.get('open_pric') or 0))
+                    high_p = abs(float(item.get('high_pric') or 0))
+                    low_p = abs(float(item.get('low_pric') or 0))
+                    close_p = abs(float(item.get('cur_prc') or 0))
+                    vol = int(float(item.get('trde_qty') or 0))
                     if dt and close_p > 0:
                         rows.append({
                             'datetime': dt,

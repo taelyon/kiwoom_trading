@@ -746,9 +746,12 @@ class KiwoomRestClient:
             url = f"{server_url}/api/dostk/chart"
 
             # ka10081 요청 데이터 (일봉 차트)
+            # base_dt는 필수값 - 빈 문자열이면 오늘 날짜 사용
+            from datetime import date as _date
+            _base_dt = base_dt if base_dt else _date.today().strftime('%Y%m%d')
             data = {
                 "stk_cd": code,
-                "base_dt": base_dt,        # 기준일자 (YYYYMMDD), 빈값이면 오늘
+                "base_dt": _base_dt,       # 기준일자 (YYYYMMDD), 필수
                 "upd_stkpc_tp": "1"        # 수정주가구분: 1=수정주가
             }
 
