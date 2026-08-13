@@ -65,7 +65,7 @@ class SwingManager:
                 "type": "TECHNICAL",
                 "content": "98.0 <= disparity20 <= 105.0 and rsi14 < 70.0 and volume_ratio >= 1.2 and price_roc1 > -2.0"
             }
-        ], ensure_ascii=False, indent=2)
+        ], ensure_ascii=False)
 
         default_sell_str = json.dumps([
             {
@@ -93,7 +93,7 @@ class SwingManager:
                 "type": "STOP_LOSS",
                 "content": "current_price < base_candle_low or current_profit_pct <= -10.0"
             }
-        ], ensure_ascii=False, indent=2)
+        ], ensure_ascii=False)
 
         raw_buy = self.config.get('SETTINGS', 'swing_buy_strategy', fallback=default_buy_str)
         raw_sell = self.config.get('SETTINGS', 'swing_sell_strategy', fallback=default_sell_str)

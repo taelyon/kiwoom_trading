@@ -5682,7 +5682,7 @@ async def websocket_handler(websocket):
                     default_swing_buy = json.dumps([
                         {"name": "스윙_시간통제_1520_1530", "type": "TIME", "content": "152000 <= time_int <= 153000"},
                         {"name": "스윙_저가매수_눌림목", "type": "TECHNICAL", "content": "98.0 <= disparity20 <= 105.0 and rsi14 < 70.0 and volume_ratio >= 1.2 and price_roc1 > -2.0"}
-                    ], ensure_ascii=False, indent=2)
+                    ], ensure_ascii=False)
 
                     default_swing_sell = json.dumps([
                         {"name": "스윙_1차익절_50%매도", "type": "PARTIAL_PROFIT", "content": "current_profit_pct >= 5.0 and not partially_sold"},
@@ -5690,7 +5690,7 @@ async def websocket_handler(websocket):
                         {"name": "스윙_추세종료_과매수이탈_전량매도", "type": "TREND_EXIT", "content": "rsi14 < 70.0 and prev_rsi14 >= 70.0"},
                         {"name": "스윙_추세종료_마지노선붕괴_전량매도", "type": "MA_EXIT", "content": "(ma5 < ma10 and prev_ma5 >= prev_ma10) or (current_price < ma20 and prev_price >= prev_ma20)"},
                         {"name": "스윙_세력방어선붕괴_기준봉손절", "type": "STOP_LOSS", "content": "current_price < base_candle_low or current_profit_pct <= -10.0"}
-                    ], ensure_ascii=False, indent=2)
+                    ], ensure_ascii=False)
 
                     settings = {
                         "buycount": str(config.getint('SETTINGS', 'buycount', fallback=3)),
@@ -5792,8 +5792,21 @@ async def websocket_handler(websocket):
                         if 'swing_max_holdings' in new_settings: config.set('SETTINGS', 'swing_max_holdings', str(new_settings['swing_max_holdings']))
                         if 'swing_target_profit' in new_settings: config.set('SETTINGS', 'swing_target_profit', str(new_settings['swing_target_profit']))
                         if 'swing_stop_loss' in new_settings: config.set('SETTINGS', 'swing_stop_loss', str(new_settings['swing_stop_loss']))
-                        if 'swing_buy_strategy' in new_settings: config.set('SETTINGS', 'swing_buy_strategy', str(new_settings['swing_buy_strategy']))
-                        if 'swing_sell_strategy' in new_settings: config.set('SETTINGS', 'swing_sell_strategy', str(new_settings['swing_sell_strategy']))
+                        if 'swing_buy_strategy' in new_settings:
+                            raw_b = str(new_settings['swing_buy_strategy']).strip()
+                            try:
+                                compact_b = json.dumps(json.loads(raw_b), ensure_ascii=False)
+                            except Exception:
+                                compact_b = raw_b.replace('\r\n', ' ').replace('\n', ' ')
+                            config.set('SETTINGS', 'swing_buy_strategy', compact_b)
+
+                        if 'swing_sell_strategy' in new_settings:
+                            raw_s = str(new_settings['swing_sell_strategy']).strip()
+                            try:
+                                compact_s = json.dumps(json.loads(raw_s), ensure_ascii=False)
+                            except Exception:
+                                compact_s = raw_s.replace('\r\n', ' ').replace('\n', ' ')
+                            config.set('SETTINGS', 'swing_sell_strategy', compact_s)
 
                         # 스윙 매니저 런타임 리로드
                         if hasattr(app, 'swing_manager') and app.swing_manager:
