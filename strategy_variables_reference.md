@@ -1,120 +1,112 @@
-﻿# 전략 조건식 작성 가이드 및 사용 가능 변수 목록
+# 전략 조건식 작성 가이드 및 사용 가능 변수 목록
 
-이 문서는 `settings.ini` 파일의 매수/매도 로직 조건(`content`) 작성 시 사용할 수 있는 모든 변수와 지표를 설명합니다.
-
-## 1. 기본 문법
-- **Python 문법**을 따릅니다. (`and`, `or`, `>`, `<`, `==`, `!=`, `( )` 등 사용 가능)
-- **배열 데이터 접근**: 시계열 데이터(가격, 지표 등)는 배열로 제공됩니다.
-  - `[-1]`: 현재 봉 (가장 최근 데이터)
-  - `[-2]`: 1봉 전 (직전 데이터)
-  - `[-3]`: 2봉 전
-  - 예: `tic_close[-1] > tic_MA20[-1]` (현재가가 20이동평균선보다 큰 경우)
+이 문서는 `.env` 파일 및 실시간 웹 대시보드의 초단타 매매 / 스윙 매매 수식(`content`) 작성 시 사용할 수 있는 모든 변수와 지표를 설명합니다.
 
 ---
 
-## 2. 데이터 접두사 (Prefix)
-지표 변수명 앞에 붙는 접두사로 데이터의 종류(타임프레임)를 구분합니다.
+## 1. 기본 저장 구조 및 JSON 규격
 
+- **JSON 배열 규격 통일**: 매수 및 매도 조건식은 단일 행 JSON 배열 구조(`[ { "name": "...", "content": "..." }, ... ]`)로 표기됩니다.
+- **Python 조건식 문법**: `content` 내부에는 파이썬 비교 연산자(`and`, `or`, `>`, `<`, `>=`, `<=`, `==`, `!=`, `not`)를 자유롭게 조합할 수 있습니다.
+- **분할 매도 지원**: 매도 룰 객체에 `"partial_sell_ratio": 0.5`를 지정하면 보유 물량의 50%만 1차 분할 익절할 수 있습니다. (기본값: `1.0` - 전량 매도)
+
+---
+
+## 2. 초단타 매매 (Scalping) 사용 가능 변수
+
+### 지표 변수 및 접두사 (Prefix)
 - **`tic_`**: **틱 차트** 기반 데이터 (예: `tic_close`, `tic_RSI`)
 - **`min3_`**: **3분봉 차트** 기반 데이터 (예: `min3_close`, `min3_MA20`)
 
----
-
-## 3. 사용 가능한 기술적 지표 (Technical Indicators)
-모든 지표는 `tic_` 또는 `min3_` 접두사와 함께 사용해야 합니다. (예: `tic_MA5`, `min3_RSI`)
-
-| 지표 변수명 | 설명 | 계산식 / 비고 |
+| 변수명 / 지표 | 설명 | 비고 / 예시 |
 | :--- | :--- | :--- |
-| **MA5**, **MA10**, **MA20**, **MA60**, **MA120** | 단순 이동평균 | `talib.SMA(close, period)` |
-| **RSI** | 상대강도지수 (14기간) | `talib.RSI(close, 14)` |
-| **RSI_SIGNAL** | RSI의 시그널선 | `talib.SMA(RSI, 9)` |
-| **MACD** | MACD선 | `talib.MACD(close, 12, 26, 9)` (Fast 12, Slow 26, Signal 9) |
-| **MACD_SIGNAL** | MACD 시그널선 | `MACD`의 9기간 SMA |
-| **MACD_HIST** | MACD 히스토그램 | `MACD - MACD_SIGNAL` |
-| **STOCH_K** | 스토캐스틱 Slow %K | `talib.STOCH(high, low, close, 5, 3, 0, 3, 0)`의 SlowK |
-| **STOCH_D** | 스토캐스틱 Slow %D | `talib.STOCH`의 SlowD |
-| **BB_UPPER**, **BB_MIDDLE**, **BB_LOWER** | 볼린저 밴드 | `talib.BBANDS(close, 20, 2)` (기간 20, 승수 2) |
-| **RELATIVE_POSITION** | 이격도 (20선 기준) | `(close - MA20) / MA20` |
-| **tic_velocity** | 틱 생성 속도 (ms) | `최신시간 - 10틱전시간` (값이 작을수록 빠름), **`[-1]` 필수** |
-| **tic_order_book_imbalance** | 호가 불균형 (-1.0 ~ 1.0) | `(매수총잔량-매도총잔량)/(매수총잔량+매도총잔량)`, **`[-1]` 필수** |
-| **LAST_TIC_CNT** | 현재 봉의 누적 틱 수 | 60틱 봉이 완성되기 전까지 누적된 틱 개수, **`[-1]` 필수** |
-| **strength** | 체결강도 (%) | `(매수체결량/매도체결량) * 100` |
-| **tic_volume_spike** | 순간 거래량 급증 | `현재볼륨 / (최근 10틱 평균볼륨)`, **단일 값** |
-| **AI_SCORE** | AI 모델 예측 점수 | 0.0 ~ 1.0, **단일 값** |
-
-### 기본 가격/거래량 데이터
-| 변수명 | 설명 |
-| :--- | :--- |
-| **close** | 종가 (현재가) |
-| **open** | 시가 |
-| **high** | 고가 |
-| **low** | 저가 |
-| **volume** | 거래량 |
+| **AI_SCORE** | LightGBM AI 모델 예측 확률 | 0.0 ~ 1.0 점수 (예: `AI_SCORE >= 0.7`) |
+| **tick_strength** | 실시간 체결강도 (%) | 예: `tick_strength[-1] >= 110.0` |
+| **feature_time** | 장중 시간대 인덱스 | 장 개시 후 경과 분 |
+| **market_kosdaq_roc** | 코스닥 지수 변동률 | 시장 폭락장 감지용 (예: `< -0.01`) |
+| **MA5**, **MA10**, **MA20**, **MA60** | 이동평균선 | `tic_MA20`, `min3_MA5` |
+| **RSI** | 상대강도지수 (14기간) | `tic_RSI[-1]` |
+| **MACD**, **MACD_HIST** | MACD 지표 및 히스토그램 | `tic_MACD_HIST` |
+| **volume_ratio** | 평균 대비 현재 거래량 비율 | `volume_ratio > 2.0` |
+| **tic_velocity** | 틱 생성 속도 (ms) | 값이 작을수록 거래 체결 속도 빠름 |
+| **current_profit_pct** | 현재 수익률 (%) | 매도 조건 전용 (예: `current_profit_pct < -2.2`) |
+| **highest_price**, **from_peak_pct** | 최고가 및 고점 대비 하락률 | 트레일링 스탑용 (`from_peak_pct <= -1.0`) |
 
 ---
 
-## 4. 매수/매도 공통 변수
-| 변수명 | 설명 | 타입 |
+## 3. 스윙 매매 (Swing) 전용 변수
+
+스윙 매매 엔진(`SwingManager`)에서매 영업일 장 마감 직전(15:20 ~ 15:30) 종가 매수 및 틱/일봉 실시간 매도 평가 시 제공되는 기술적 변수 목록입니다.
+
+### 📈 매수 수식 전용 변수 (`SETTINGS_SWING_BUY_STRATEGY`)
+| 변수명 | 설명 | 비고 / 사용 예시 |
 | :--- | :--- | :--- |
-| **code** | 종목 코드 | 문자열 |
-| **current_time** | 현재 시간 | datetime 객체 |
-| **is_pullback** | 눌림목 여부 (최근 30봉 고점 대비 하락) | True/False |
-| **ROC_recent** | 최근 30개 ROC 값 리스트 | List |
+| **time_int** | 정수형 HHMMSS 시간 | **장 마감 통제 필수**: `152000 <= time_int <= 153000` |
+| **disparity20** | 20일 이동평균선 이격도 (%) | `98.0 <= disparity20 <= 105.0` (눌림목 구간) |
+| **rsi14** | 14일 RSI 지표값 | `rsi14 < 70.0` (과매수 상태 제외) |
+| **volume_ratio** | 평소 대비 거래량 비율 | `volume_ratio >= 1.2` (거래량 수급 유입) |
+| **price_roc1** | 전일 대비 주가 변동률 (%) | `price_roc1 > -2.0` (과도한 당일 폭락 제외) |
 
----
-
-## 5. 매수 로직 전용 변수 (`buy_stg_`)
-| 변수명 | 설명 | 예시 |
+### 📉 매도 수식 전용 변수 (`SETTINGS_SWING_SELL_STRATEGY`)
+| 변수명 | 설명 | 비고 / 사용 예시 |
 | :--- | :--- | :--- |
-| **avg_volume** | 틱 차트 전체 평균 거래량 | `tic_volume[-1] > avg_volume * 2` |
-| **volume_ratio** | 평균 대비 현재 거래량 비율 | `volume_ratio > 3.0` (3배 터짐) |
-| **tic_avg_volume_10** | 최근 10틱 평균 거래량 | |
+| **current_profit_pct** | 현재 수익률 (%) | `current_profit_pct >= 5.0` (1차 5% 익절) |
+| **partially_sold** | 1차 분할 익절 완료 여부 | `partially_sold and current_profit_pct <= 0.5` (본전 방어) |
+| **rsi14**, **prev_rsi14** | 금일 및 전일 RSI 14 | `rsi14 < 70.0 and prev_rsi14 >= 70.0` (과매수 이탈 탈출) |
+| **ma5**, **ma10**, **ma20** | 5일, 10일, 20일 이동평균선 | `current_price < ma20` (20일선 이탈 손절) |
+| **prev_ma5**, **prev_ma10** | 전일 5일, 10일 이동평균선 | `ma5 < ma10 and prev_ma5 >= prev_ma10` (데드크로스) |
+| **base_candle_low** | 매수일 저가/기준봉 하단 라인 | `current_price < base_candle_low` (세력 방어선 붕괴 손절) |
 
 ---
 
-## 6. 매도 로직 전용 변수 (`sell_stg_`)
-보유 중인 종목을 평가할 때만 사용할 수 있는 변수들입니다.
+## 4. 실제 수식 작성 예시
 
-| 변수명 | 설명 | 단위/타입 |
-| :--- | :--- | :--- |
-| **current_price** | 현재가 (실시간) | 원 |
-| **buy_price** | 매입가 (평단가) | 원 |
-| **current_profit_pct** | **현재 수익률** (수수료/세금 포함) | % (예: -1.5, 3.2) |
-| **highest_price** | 보유 중 기록한 최고가 | 원 |
-| **from_peak_pct** | **고점 대비 하락률** | % (음수값, 예: -2.5) |
-| **hold_minutes** | 보유 경과 시간 (분) | 분 |
-| **hold_hours** | 보유 경과 시간 (시간) | 시간 |
-| **bars_since_entry** | 매수 후 경과한 틱(봉) 개수 | 개수 |
-| **market_open** | 장 운영 시간 여부 (09:00~15:30) | True/False |
-| **after_market_close** | 장 마감 후 여부 (15:00~) | True/False |
-
----
-
-## 7. 전략 작성 예시
-
-### 예시 1: 급등주 매수
-**조건:**
-1. 현재가가 20이동평균선 위에 있고 (`tic_close[-1] > tic_MA20[-1]`)
-2. RSI가 55 이상이며 (`tic_RSI[-1] > 55`)
-3. 3분봉상 정배열 (`min3_MA5[-1] > min3_MA20[-1]`)
-
-```ini
-content = tic_close[-1] > tic_MA20[-1] and tic_RSI[-1] > 55 and min3_MA5[-1] > min3_MA20[-1]
+### 초단타 매매 (Scalping) 수식 예시
+```json
+[
+  {
+    "name": "AI 정밀 매수",
+    "content": "AI_SCORE >= 0.7 and tick_strength[-1] >= 110.0 and feature_time >= 10"
+  },
+  {
+    "name": "1차 분할 익절 (50% 매도)",
+    "content": "current_profit_pct >= 0.3",
+    "partial_sell_ratio": 0.5
+  },
+  {
+    "name": "기계적 손절",
+    "content": "current_profit_pct < -2.2",
+    "partial_sell_ratio": 1.0
+  }
+]
 ```
 
-### 예시 2: 이익 실현 및 트레일링 스탑 (매도)
-**조건:**
-1. 수익률이 3% 이상이거나 (`current_profit_pct >= 3.0`)
-2. 최고가 대비 1.5% 이상 하락했을 때 (`from_peak_pct <= -1.5`)
-
-```ini
-content = current_profit_pct >= 3.0 or from_peak_pct <= -1.5
-```
-
-### 예시 3: 칼손절 (매도)
-**조건:**
-1. 수익률이 -2% 이하로 떨어지면 무조건 매도
-
-```ini
-content = current_profit_pct <= -2.0
+### 스윙 매매 (Swing Trading) 수식 예시
+```json
+[
+  {
+    "name": "스윙_저가매수_눌림목",
+    "content": "98.0 <= disparity20 <= 105.0 and rsi14 < 70.0 and volume_ratio >= 1.2 and price_roc1 > -2.0 and 152000 <= time_int <= 153000"
+  },
+  {
+    "name": "스윙_1차익절_50%매도",
+    "content": "current_profit_pct >= 5.0 and not partially_sold",
+    "partial_sell_ratio": 0.5
+  },
+  {
+    "name": "스윙_본전방어_전량매도",
+    "content": "partially_sold and current_profit_pct <= 0.5",
+    "partial_sell_ratio": 1.0
+  },
+  {
+    "name": "스윙_추세종료_과매수이탈_전량매도",
+    "content": "rsi14 < 70.0 and prev_rsi14 >= 70.0",
+    "partial_sell_ratio": 1.0
+  },
+  {
+    "name": "스윙_세력방어선붕괴_기준봉손절",
+    "content": "current_price < base_candle_low or current_profit_pct <= -10.0",
+    "partial_sell_ratio": 1.0
+  }
+]
 ```

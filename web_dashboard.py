@@ -3063,13 +3063,22 @@ HTML_CONTENT = """
             if(document.getElementById('cfgMockAppKey')) document.getElementById('cfgMockAppKey').value = settings.mock_appkey || '';
             if(document.getElementById('cfgMockSecret')) document.getElementById('cfgMockSecret').value = settings.mock_secretkey || '';
             
-            // 스윙 매매 설정값 바인딩
+            // 스윙 매매 설정값 바인딩 (JSON 가독성을 위한 들여쓰기 자동 적용)
+            function formatJsonPretty(raw) {
+                if (!raw) return '';
+                try {
+                    const obj = typeof raw === 'string' ? JSON.parse(raw) : raw;
+                    return JSON.stringify(obj, null, 4);
+                } catch(e) {
+                    return raw;
+                }
+            }
             if(document.getElementById('swingCfgCondName')) document.getElementById('swingCfgCondName').value = settings.swing_condition_name || '스윙_저가매수';
             if(document.getElementById('swingCfgAccount')) document.getElementById('swingCfgAccount').value = settings.swing_account_no || '';
             if(document.getElementById('swingCfgInvestAmt')) document.getElementById('swingCfgInvestAmt').value = settings.swing_invest_amount || '2000000';
             if(document.getElementById('swingCfgMaxHold')) document.getElementById('swingCfgMaxHold').value = settings.swing_max_holdings || '3';
-            if(document.getElementById('swingCfgBuyStrategy')) document.getElementById('swingCfgBuyStrategy').value = settings.swing_buy_strategy || '';
-            if(document.getElementById('swingCfgSellStrategy')) document.getElementById('swingCfgSellStrategy').value = settings.swing_sell_strategy || '';
+            if(document.getElementById('swingCfgBuyStrategy')) document.getElementById('swingCfgBuyStrategy').value = formatJsonPretty(settings.swing_buy_strategy);
+            if(document.getElementById('swingCfgSellStrategy')) document.getElementById('swingCfgSellStrategy').value = formatJsonPretty(settings.swing_sell_strategy);
             
             const selectEl = document.getElementById('cfgStrategy');
             // 기본 옵션 목록 초기화
@@ -4495,8 +4504,8 @@ HTML_CONTENT = """
                 const tr = document.createElement('tr');
                 const tsFormatted = m.timestamp.replace(/(\\d{4})(\\d{2})(\\d{2})_(\\d{2})(\\d{2})(\\d{2})/, '$1-$2-$3 $4:$5:$6');
                 const dateRange = (m.start_date || '전체') + ' ~ ' + (m.end_date || '전체');
-                const auc = m.metrics && m.metrics.auc ? m.metrics.auc.toFixed(4) : '-';
-                const trainAuc = m.metrics && m.metrics.train_auc ? m.metrics.train_auc.toFixed(4) : '-';
+                const auc = (m.metrics && typeof m.metrics.auc === 'number' && m.metrics.auc > 0) ? m.metrics.auc.toFixed(4) : '-';
+                const trainAuc = (m.metrics && typeof m.metrics.train_auc === 'number' && m.metrics.train_auc > 0) ? m.metrics.train_auc.toFixed(4) : '-';
                 const rows = m.metrics && m.metrics.data_rows ? m.metrics.data_rows.toLocaleString() : '-';
                 const params = m.params ? `LR:${m.params.learning_rate}, MD:${m.params.max_depth}, NL:${m.params.num_leaves}, MDL:${m.params.min_data_in_leaf}, MT:${m.params.num_boost_round || '-'}, L1:${m.params.lambda_l1 || '-'}, L2:${m.params.lambda_l2 || '-'}` : '-';
                 

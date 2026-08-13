@@ -403,7 +403,14 @@ class MLTrainingWorker(threading.Thread):
             except Exception:
                 best_score = model.best_score.get('valid_1', {}).get('auc', 0.60) if hasattr(model, 'best_score') else 0.60
                 
-            best_train_score = model.best_score.get('training', {}).get('auc', 0.0) if hasattr(model, 'best_score') else 0.0
+            # 학습 성능(train_auc) 정밀 계산 (X_train에 대해 직접 추론하여 AUC 계산)
+            best_train_score = 0.0
+            try:
+                from sklearn.metrics import roc_auc_score
+                train_preds = model.predict(X_train)
+                best_train_score = float(roc_auc_score(y_train, train_preds))
+            except Exception:
+                best_train_score = model.best_score.get('valid_0', {}).get('auc', 0.0) if hasattr(model, 'best_score') else 0.0
             
             # Feature Importance 로깅 (split 방식 대신 gain 방식으로 변경하여 실질적 기여도 측정)
             raw_importance = model.feature_importance(importance_type='gain')
@@ -491,7 +498,9 @@ class MLTrainingWorker(threading.Thread):
                             except:
                                 pass
                             
-                            self.finished_signal.emit(True, f"성공적으로 단일 학습 모델 자동 배포 완료 (AUC: {best_score:.4f})", metrics)
+                            deploy_summary = f"✅ 단일 학습 모델 자동 배포 완료! (Data: {len(df_train):,}, 검증 AUC: {best_score:.4f}, 학습 AUC: {best_train_score:.4f}, Top: {top_features})"
+                            self.progress_signal.emit(deploy_summary)
+                            self.finished_signal.emit(True, deploy_summary, metrics)
                             return
                     except Exception as e:
                         self.logger.error(f"자동 배포 중 오류: {e}")
@@ -499,8 +508,8 @@ class MLTrainingWorker(threading.Thread):
                     self.progress_signal.emit(f"🛡 신규 모델의 성능이 기존 모델보다 우수하지 않아 배포를 취소하고 백업만 유지합니다.")
                 # ------------------- 런타임 자동 배포 로직 끝 -------------------
             
-            success_msg = f"✅ 모델 학습 완료! (Data: {len(df_train)}, 검증 AUC: {best_score:.4f}, Top: {top_features})"
-            self.logger.debug(success_msg)
+            success_msg = f"✅ 모델 학습 완료! (Data: {len(df_train):,}, 검증 AUC: {best_score:.4f}, 학습 AUC: {best_train_score:.4f}, Top: {top_features})"
+            self.logger.info(success_msg)
             self.finished_signal.emit(True, success_msg, metrics)
         except Exception as ex:
             self.logger.error(f"모델 학습 중 치명적 오류: {ex}", exc_info=True)
