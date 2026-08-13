@@ -4139,16 +4139,7 @@ HTML_CONTENT = """
             }
         }
 
-        // 스윙 조건검색 수동 수신 실행
-        function triggerSwingConditionSearch() {
-            if (confirm("스윙 조건검색식을 키움증권 서버로 수동 조회하시겠습니까?")) {
-                if (ws && ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify({ type: 'trigger_swing_condition_search' }));
-                } else {
-                    alert("서버와 연결되어 있지 않습니다.");
-                }
-            }
-        }
+
 
         // --- TradingView 차트 그리기 ---
         function initTradingViewChart() {
