@@ -47,15 +47,8 @@ class EnvConfigParser:
         self._sync_from_env()
 
     def _sync_from_env(self):
-        """환경 변수 및 파일에서 캐시로 데이터 동기화 (관리 대상 키만)"""
-        from dotenv import dotenv_values
+        """환경 변수 및 파일에서 캐시로 데이터 동기화 (한글 키 UTF-8 완벽 보장)"""
         file_env = {}
-        try:
-            file_env = dotenv_values(self.env_path, encoding='utf-8-sig')
-        except Exception:
-            pass
-
-        # dotenv_values가 실패하거나 누락된 경우를 대비한 수동 파싱 (fallback)
         if os.path.exists(self.env_path):
             try:
                 with open(self.env_path, 'r', encoding='utf-8-sig') as f:
@@ -63,12 +56,14 @@ class EnvConfigParser:
                         line = line.strip()
                         if line and not line.startswith('#') and '=' in line:
                             k, v = line.split('=', 1)
-                            k = k.strip()
-                            v = v.strip().strip('"').strip("'")
-                            if k not in file_env:
-                                file_env[k] = v
-            except Exception:
-                pass
+                            k = k.strip().lstrip('\ufeff')
+                            v = v.strip()
+                            # 값 앞뒤 따옴표 1쌍 제거
+                            if (v.startswith('"') and v.endswith('"')) or (v.startswith("'") and v.endswith("'")):
+                                v = v[1:-1]
+                            file_env[k] = v
+            except Exception as e:
+                self.logger.error(f"❌ .env UTF-8 로드 실패: {e}")
         
         # 1. 파일에서 읽은 값을 우선적으로 딕셔너리에 저장 (한글 키 깨짐 방지 및 BOM 제거)
         for k, v in file_env.items():
