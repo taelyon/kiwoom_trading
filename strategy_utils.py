@@ -23,7 +23,11 @@ try:
     import lightgbm as lgb
     if os.path.exists('lgbm_model.txt'):
         LGBM_MODEL = lgb.Booster(model_file='lgbm_model.txt')
-        logging.getLogger(__name__).info("🤖전략 평가용 LightGBM 모델 로드 완료 (lgbm_model.txt)")
+        num_t = LGBM_MODEL.num_trees()
+        if num_t <= 2:
+            logging.getLogger(__name__).warning(f"⚠️ [경고] 로드된 LightGBM 모델(lgbm_model.txt)의 트리가 단 {num_t}개뿐인 미완성 모델입니다! (점수가 0.39 부근으로 고정됨) 대시보드에서 'AI 모델 재학습'을 실행해주세요.")
+        else:
+            logging.getLogger(__name__).info(f"🤖 전략 평가용 LightGBM 모델 로드 완료 (lgbm_model.txt, 트리 수: {num_t}개)")
 except Exception as e:
     logging.getLogger(__name__).warning(f"⚠️ LightGBM 모델 로드 실패 또는 미설치: {e}")
 
@@ -34,7 +38,8 @@ def reload_model():
         import lightgbm as lgb
         if os.path.exists('lgbm_model.txt'):
             LGBM_MODEL = lgb.Booster(model_file='lgbm_model.txt')
-            logging.getLogger(__name__).info("🤖전략 평가용 LightGBM 모델 런타임 리로드 완료 (lgbm_model.txt)")
+            num_t = LGBM_MODEL.num_trees()
+            logging.getLogger(__name__).info(f"🤖 전략 평가용 LightGBM 모델 런타임 리로드 완료 (lgbm_model.txt, 트리 수: {num_t}개)")
             return True
     except Exception as e:
         logging.getLogger(__name__).warning(f"⚠️ LightGBM 모델 런타임 리로드 실패: {e}")
