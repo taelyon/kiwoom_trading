@@ -5897,11 +5897,6 @@ async def websocket_handler(websocket):
                                 compact_s = raw_s.replace('\r\n', ' ').replace('\n', ' ')
                             config.set('SETTINGS', 'swing_sell_strategy', compact_s)
 
-                        # 스윙 매니저 런타임 리로드
-                        if hasattr(app, 'swing_manager') and app.swing_manager:
-                            app.swing_manager.reload_config()
-                            logging.info("📈 [스윙 매매] 스윙 매수/매도 로직 및 파라미터 실시간 리로드 완료")
-                            
                         # 새로운 API 키 저장 (빈 값으로 기존 키 덮어쓰기 방지)
                         if new_settings.get('real_appkey'):
                             config.set('KIWOOM_API', 'real_appkey', str(new_settings['real_appkey']).strip())
@@ -5969,6 +5964,11 @@ async def websocket_handler(websocket):
                             
                         # .env 디스크 파일 저장 및 메모리 로드
                         config.save_config()
+
+                        # 스윙 매매 설정인 경우 파일 저장 완료 후 스윙 매니저 런타임 리로드
+                        if hasattr(app, 'swing_manager') and app.swing_manager:
+                            app.swing_manager.reload_config()
+                            logging.info("📈 [스윙 매매] 스윙 매수/매도 로직 및 파라미터 실시간 리로드 완료")
                         
                         if simulation_changed:
                             logging.info(f"🔄 투자 모드가 변경되었습니다 ({'모의투자' if old_sim_bool else '실전투자'} -> {'모의투자' if new_sim_bool else '실전투자'}). API 연결을 재시작합니다.")
