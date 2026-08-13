@@ -193,11 +193,14 @@ class SwingManager:
                     break
 
             if target_index is not None:
-                # 조건검색 요청 전송
+                # 조건검색 요청 전송 (키움 Open API 표준 패킷)
                 await ws_client.send_message({
                     'trnm': 'CNSRREQ',
-                    'seq': target_index,
-                    'search_type': '0' # 일반조회
+                    'seq': str(target_index),
+                    'search_type': '0',
+                    'stex_tp': 'K',
+                    'cont_yn': 'N',
+                    'next_key': ''
                 })
                 self.logger.info(f"✅ [스윙 수동/자동] '{self.condition_name}' (Seq: {target_index}) 검색 요청 완료")
             else:

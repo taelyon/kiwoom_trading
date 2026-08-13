@@ -540,7 +540,7 @@ class KiwoomWebSocketClient:
             codes = []
             for item in data_list:
                 if isinstance(item, dict):
-                    code = item.get('code') or item.get('item') or item.get('stk_cd') or item.get('stk_code') or ''
+                    code = item.get('9001') or item.get('code') or item.get('item') or item.get('stk_cd') or item.get('stk_code') or ''
                 elif isinstance(item, str):
                     code = item
                 else:
