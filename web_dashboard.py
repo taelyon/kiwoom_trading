@@ -1800,7 +1800,7 @@ HTML_CONTENT = """
                             <label for="swingCfgSellStrategy">스윙 매도 로직 (JSON)</label>
                             <textarea id="swingCfgSellStrategy" placeholder="스윙 매도 로직 조건식 목록 (JSON)" style="font-family: monospace; font-size:11px; width: 100%; min-height: 120px; box-sizing: border-box; background: rgba(0,0,0,0.3); color: #ff5252; border: 1px solid rgba(255,82,82,0.3); border-radius: 4px; padding: 8px; resize: vertical;"></textarea>
                         </div>
-                        <button id="btnSaveSwingSettings" class="btn-primary" onclick="saveSettings()" style="background: linear-gradient(135deg, #00f2fe 0%, #4facfe 100%);">스윙 파라미터 및 로직 적용</button>
+                        <button id="btnSaveSwingSettings" class="btn-primary" onclick="saveSwingSettings()" style="background: linear-gradient(135deg, #00f2fe 0%, #4facfe 100%);">스윙 파라미터 및 로직 적용</button>
                     </div>
                 </div>
 
@@ -2388,13 +2388,13 @@ HTML_CONTENT = """
                     handleStrategyDetail(data);
                 } else if (data.type === 'save_settings_result') {
                     const btn = document.getElementById('btnSaveSettings');
-                    if (btn) {
+                    const swingBtn = document.getElementById('btnSaveSwingSettings');
+                    if (btn && btn.disabled) {
                         if (data.success) {
                             btn.innerText = "적용 완료! ✅";
                             btn.style.background = "#2e7d32";
                             btn.style.borderColor = "#2e7d32";
                             btn.style.opacity = "1";
-                            // 최신 설정 정보를 재요청하여 헤더 배지와 UI 즉시 동기화
                             ws.send(jsonStr({ type: "get_settings" }));
                             setTimeout(() => {
                                 btn.disabled = false;
@@ -2415,11 +2415,34 @@ HTML_CONTENT = """
                                 btn.style.borderColor = "";
                             }, 2000);
                         }
-                    } else {
+                    }
+                    if (swingBtn && swingBtn.disabled) {
                         if (data.success) {
-                            alert(data.message || "설정이 저장 및 적용되었습니다.");
+                            swingBtn.innerText = "스윙 적용 완료! ✅";
+                            swingBtn.style.background = "#2e7d32";
+                            swingBtn.style.borderColor = "#2e7d32";
+                            swingBtn.style.opacity = "1";
+                            ws.send(jsonStr({ type: "get_settings" }));
+                            setTimeout(() => {
+                                swingBtn.disabled = false;
+                                swingBtn.innerText = "스윙 파라미터 및 로직 적용";
+                                swingBtn.style.background = "linear-gradient(135deg, #00f2fe 0%, #4facfe 100%)";
+                                swingBtn.style.borderColor = "";
+                                swingBtn.style.opacity = "1";
+                            }, 2000);
                         } else {
-                            alert("설정 저장 실패: " + data.message);
+                            swingBtn.innerText = "스윙 적용 실패! ❌";
+                            swingBtn.style.background = "#c62828";
+                            swingBtn.style.borderColor = "#c62828";
+                            swingBtn.style.opacity = "1";
+                            alert("스윙 설정 저장 실패: " + data.message);
+                            setTimeout(() => {
+                                swingBtn.disabled = false;
+                                swingBtn.innerText = "스윙 파라미터 및 로직 적용";
+                                swingBtn.style.background = "linear-gradient(135deg, #00f2fe 0%, #4facfe 100%)";
+                                swingBtn.style.borderColor = "";
+                                swingBtn.style.opacity = "1";
+                            }, 2000);
                         }
                     }
                 } else if (data.type === 'chart_history') {
@@ -3169,7 +3192,7 @@ HTML_CONTENT = """
             }
         }
 
-        // 설정 저장 요청
+        // 설정 저장 요청 (초단타 매매 설정 전용)
         function saveSettings() {
             const buycount = document.getElementById('cfgBuyCount').value;
             const primeCashInput = document.getElementById('cfgPrimeCash');
@@ -3180,6 +3203,7 @@ HTML_CONTENT = """
             
             const req = {
                 type: "save_settings",
+                target_type: "scalp",
                 settings: {
                     buycount: buycount,
                     prime_cash: primeCashVal,
@@ -3188,15 +3212,7 @@ HTML_CONTENT = """
                     real_appkey: document.getElementById('cfgRealAppKey') ? document.getElementById('cfgRealAppKey').value : '',
                     real_secretkey: document.getElementById('cfgRealSecret') ? document.getElementById('cfgRealSecret').value : '',
                     mock_appkey: document.getElementById('cfgMockAppKey') ? document.getElementById('cfgMockAppKey').value : '',
-                    mock_secretkey: document.getElementById('cfgMockSecret') ? document.getElementById('cfgMockSecret').value : '',
-
-                    // 스윙 파라미터 및 로직
-                    swing_condition_name: document.getElementById('swingCfgCondName') ? document.getElementById('swingCfgCondName').value : '스윙_저가매수',
-                    swing_account_no: document.getElementById('swingCfgAccount') ? document.getElementById('swingCfgAccount').value : '',
-                    swing_invest_amount: document.getElementById('swingCfgInvestAmt') ? document.getElementById('swingCfgInvestAmt').value : '2000000',
-                    swing_max_holdings: document.getElementById('swingCfgMaxHold') ? document.getElementById('swingCfgMaxHold').value : '3',
-                    swing_buy_strategy: document.getElementById('swingCfgBuyStrategy') ? document.getElementById('swingCfgBuyStrategy').value : '',
-                    swing_sell_strategy: document.getElementById('swingCfgSellStrategy') ? document.getElementById('swingCfgSellStrategy').value : ''
+                    mock_secretkey: document.getElementById('cfgMockSecret') ? document.getElementById('cfgMockSecret').value : ''
                 }
             };
             
@@ -3223,6 +3239,51 @@ HTML_CONTENT = """
             if (btn) {
                 btn.disabled = true;
                 btn.innerText = "적용 중... 🔄";
+                btn.style.opacity = "0.7";
+            }
+            ws.send(jsonStr(req));
+        }
+
+        // 스윙 매매 설정 단독 저장 요청 함수
+        function saveSwingSettings() {
+            const buyTextarea = document.getElementById('swingCfgBuyStrategy');
+            const sellTextarea = document.getElementById('swingCfgSellStrategy');
+            
+            if (buyTextarea && buyTextarea.value.trim()) {
+                try {
+                    JSON.parse(buyTextarea.value);
+                } catch (e) {
+                    alert("스윙 매수 로직이 올바른 JSON 포맷이 아닙니다.\\n대괄호 [ ]로 감싸진 JSON 리스트 형식이어야 합니다.\\n오류: " + e.message);
+                    return;
+                }
+            }
+            if (sellTextarea && sellTextarea.value.trim()) {
+                try {
+                    JSON.parse(sellTextarea.value);
+                } catch (e) {
+                    alert("스윙 매도 로직이 올바른 JSON 포맷이 아닙니다.\\n대괄호 [ ]로 감싸진 JSON 리스트 형식이어야 합니다.\\n오류: " + e.message);
+                    return;
+                }
+            }
+
+            const req = {
+                type: "save_settings",
+                target_type: "swing",
+                settings: {
+                    target_type: "swing",
+                    swing_condition_name: document.getElementById('swingCfgCondName') ? document.getElementById('swingCfgCondName').value : '스윙_저가매수',
+                    swing_account_no: document.getElementById('swingCfgAccount') ? document.getElementById('swingCfgAccount').value : '',
+                    swing_invest_amount: document.getElementById('swingCfgInvestAmt') ? document.getElementById('swingCfgInvestAmt').value : '2000000',
+                    swing_max_holdings: document.getElementById('swingCfgMaxHold') ? document.getElementById('swingCfgMaxHold').value : '3',
+                    swing_buy_strategy: buyTextarea ? buyTextarea.value : '',
+                    swing_sell_strategy: sellTextarea ? sellTextarea.value : ''
+                }
+            };
+
+            const btn = document.getElementById('btnSaveSwingSettings');
+            if (btn) {
+                btn.disabled = true;
+                btn.innerText = "스윙 적용 중... 🔄";
                 btn.style.opacity = "0.7";
             }
             ws.send(jsonStr(req));
@@ -5721,7 +5782,7 @@ async def websocket_handler(websocket):
                         # 스윙 전용 파라미터 및 로직
                         "swing_condition_name": config.get('SETTINGS', 'swing_condition_name', fallback='스윙_저가매수'),
                         "swing_account_no": config.get('SETTINGS', 'swing_account_no', fallback=''),
-                        "swing_invest_amount": str(config.getfloat('SETTINGS', 'swing_invest_amount', fallback=2000000.0)),
+                        "swing_invest_amount": str(int(config.getfloat('SETTINGS', 'swing_invest_amount', fallback=2000000.0))),
                         "swing_max_holdings": str(config.getint('SETTINGS', 'swing_max_holdings', fallback=3)),
                         "swing_target_profit": str(config.getfloat('SETTINGS', 'swing_target_profit', fallback=5.0)),
                         "swing_stop_loss": str(config.getfloat('SETTINGS', 'swing_stop_loss', fallback=-10.0)),
@@ -5811,7 +5872,12 @@ async def websocket_handler(websocket):
                         # 스윙 관련 설정 저장
                         if 'swing_condition_name' in new_settings: config.set('SETTINGS', 'swing_condition_name', str(new_settings['swing_condition_name']))
                         if 'swing_account_no' in new_settings: config.set('SETTINGS', 'swing_account_no', str(new_settings['swing_account_no']))
-                        if 'swing_invest_amount' in new_settings: config.set('SETTINGS', 'swing_invest_amount', str(new_settings['swing_invest_amount']))
+                        if 'swing_invest_amount' in new_settings:
+                            try:
+                                inv_amt = str(int(float(new_settings['swing_invest_amount'])))
+                            except Exception:
+                                inv_amt = str(new_settings['swing_invest_amount'])
+                            config.set('SETTINGS', 'swing_invest_amount', inv_amt)
                         if 'swing_max_holdings' in new_settings: config.set('SETTINGS', 'swing_max_holdings', str(new_settings['swing_max_holdings']))
                         if 'swing_target_profit' in new_settings: config.set('SETTINGS', 'swing_target_profit', str(new_settings['swing_target_profit']))
                         if 'swing_stop_loss' in new_settings: config.set('SETTINGS', 'swing_stop_loss', str(new_settings['swing_stop_loss']))
@@ -5957,12 +6023,16 @@ async def websocket_handler(websocket):
                                 # strategy.py 설정 재조정
                                 app.objstg.load_strategy_config()
                             
-                        # 대표 매매 전략 변경에 맞춰 감시 대상 조건검색식과 실시간 감시 종목을 전환합니다.
-                        target_stg = new_settings.get('last_strategy')
-                        if target_stg and hasattr(app, 'strategy_manager') and app.strategy_manager:
-                            from utils import create_fire_and_forget_task
-                            create_fire_and_forget_task(app.strategy_manager.stg_changed(target_stg))
-                            logging.info(f"🔄 대시보드 제어: 실시간 감시 대상을 '{target_stg}' 전략으로 전환 개시")
+                        # 대표 매매 전략 변경에 맞춰 감시 대상 조건검색식과 실시간 감시 종목을 전환합니다. (스윙 단독 저장 시 제외)
+                        is_swing_only = (data.get('target_type') == 'swing' or new_settings.get('target_type') == 'swing')
+                        if not is_swing_only:
+                            target_stg = new_settings.get('last_strategy')
+                            if target_stg and hasattr(app, 'strategy_manager') and app.strategy_manager:
+                                from utils import create_fire_and_forget_task
+                                create_fire_and_forget_task(app.strategy_manager.stg_changed(target_stg))
+                                logging.info(f"🔄 대시보드 제어: 실시간 감시 대상을 '{target_stg}' 전략으로 전환 개시")
+                        else:
+                            logging.info("📈 [스윙 매매] 스윙 파라미터 및 로직 단독 저장 완료 (초단타 감시종목 유지)")
                             
                         logging.info("💾 대시보드 제어: .env 설정 수정 및 적용 완료")
                         

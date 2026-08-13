@@ -246,19 +246,26 @@ class EnvConfigParser:
                     
                 if '=' in stripped:
                     k = stripped.split('=', 1)[0].strip()
-                    is_managed = any(k.startswith(p) for p in _MANAGED_PREFIXES)
+                    is_managed = any(k.upper().startswith(p) for p in _MANAGED_PREFIXES)
                     if is_managed:
-                        if k in self._data:
-                            val = str(self._data[k]).replace('\r\n', ' ').replace('\n', ' ')
+                        matching_key = None
+                        k_upper = k.upper()
+                        for d_k in self._data:
+                            if d_k.upper() == k_upper:
+                                matching_key = d_k
+                                break
+                        if matching_key:
+                            val = str(self._data[matching_key]).replace('\r\n', ' ').replace('\n', ' ')
                             new_lines.append(f"{k}={val}\n")
-                            updated_keys.add(k)
+                            updated_keys.add(matching_key)
                         else:
-                            pass
+                            # self._data에 변경이 없는 키는 기존 .env 라인을 유지하여 보존
+                            new_lines.append(line)
                     else:
                         new_lines.append(line)
             
             for k, v in self._data.items():
-                if any(k.startswith(p) for p in _MANAGED_PREFIXES) and k not in updated_keys:
+                if any(k.upper().startswith(p) for p in _MANAGED_PREFIXES) and k not in updated_keys:
                     val = str(v).replace('\r\n', ' ').replace('\n', ' ')
                     new_lines.append(f"{k}={val}\n")
                     
@@ -273,7 +280,7 @@ class EnvConfigParser:
         """파일 객체에 설정 내용을 쓰기 (ConfigParser 호환용, 가급적 save() 사용 권장)"""
         lines = []
         for k in sorted(self._data.keys()):
-            if any(k.startswith(p) for p in _MANAGED_PREFIXES):
+            if any(k.upper().startswith(p) for p in _MANAGED_PREFIXES):
                 v = self._data[k]
                 lines.append(f"{k}={v}\n")
         
@@ -291,7 +298,8 @@ class EnvConfigParser:
 
     def reload(self):
         """강제로 .env를 다시 로드 (설정이 외부에서 변경된 경우)"""
-        load_dotenv(self.env_path, override=True)
+        self.sanitize_env_file()
+        load_dotenv(self.env_path, override=True, encoding='utf-8-sig')
         self._data.clear()
         self._sync_from_env()
 
