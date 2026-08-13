@@ -325,17 +325,25 @@ class SwingManager:
                 self.logger.warning(f"⚠️ [스윙] 파싱 가능한 일봉 데이터 없음 ({code})")
                 return None
 
-            # 💾 DB (daily_candles) 전용 테이블에 자동 영구 저장
-            if hasattr(self, 'db_manager') and self.db_manager:
-                try:
-                    await self.db_manager.save_daily_candles(rows)
-                except Exception as db_err:
-                    self.logger.error(f"❌ [스윙 DB] daily_candles 저장 실패 ({code}): {db_err}")
-
             df = pd.DataFrame(rows)
             df.sort_values(by='datetime', ascending=True, inplace=True)
             df.reset_index(drop=True, inplace=True)
-            self.logger.debug(f"✅ [스윙] 일봉 데이터 조회 및 DB 저장 완료: {code} ({len(df)}일)")
+
+            # ⚙️ 기술적 지표 자동 계산 (ma5, ma10, ma20, ma60, disparity20, rsi14, volume_ratio, macd 등)
+            try:
+                df = calc_daily_indicators(df)
+            except Exception as ind_err:
+                self.logger.warning(f"⚠️ [스윙] 기술적 지표 계산 중 경고 ({code}): {ind_err}")
+
+            # 💾 DB (daily_candles) 전용 테이블에 기술적 지표 포함 자동 영구 저장
+            if hasattr(self, 'db_manager') and self.db_manager:
+                try:
+                    candles_to_save = df.to_dict('records')
+                    await self.db_manager.save_daily_candles(candles_to_save)
+                except Exception as db_err:
+                    self.logger.error(f"❌ [스윙 DB] daily_candles 저장 실패 ({code}): {db_err}")
+
+            self.logger.debug(f"✅ [스윙] 일봉 데이터 조회, 지표 계산 및 DB 저장 완료: {code} ({len(df)}일)")
             return df
         except Exception as e:
             self.logger.error(f"❌ 일봉 데이터 조회 에러 ({code}): {e}")

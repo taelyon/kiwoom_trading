@@ -135,7 +135,7 @@ class AsyncDatabaseManager:
                         )
                     ''')
 
-                    # 스윙 매매 및 일봉 백테스트 전용 일봉 차트 테이블
+                    # 스윙 매매 및 일봉 백테스트 전용 일봉 차트 테이블 (기술적 지표 포함)
                     await cursor.execute('''
                         CREATE TABLE IF NOT EXISTS daily_candles (
                             code TEXT,
@@ -146,10 +146,32 @@ class AsyncDatabaseManager:
                             close REAL,
                             volume INTEGER,
                             amount REAL,
+                            ma5 REAL,
+                            ma10 REAL,
+                            ma20 REAL,
+                            ma60 REAL,
+                            disparity20 REAL,
+                            rsi14 REAL,
+                            volume_ratio REAL,
+                            macd REAL,
+                            macd_signal REAL,
+                            bb_upper REAL,
+                            bb_lower REAL,
                             created_at TEXT,
                             PRIMARY KEY (code, datetime)
                         )
                     ''')
+
+                    # daily_candles 기술적 지표 컬럼 자동 마이그레이션
+                    indicator_cols = ['ma5', 'ma10', 'ma20', 'ma60', 'disparity20', 'rsi14', 'volume_ratio', 'macd', 'macd_signal', 'bb_upper', 'bb_lower']
+                    await cursor.execute("PRAGMA table_info(daily_candles)")
+                    existing_cols = [row[1] for row in await cursor.fetchall()]
+                    for col in indicator_cols:
+                        if col not in existing_cols:
+                            try:
+                                await cursor.execute(f"ALTER TABLE daily_candles ADD COLUMN {col} REAL")
+                            except Exception:
+                                pass
 
                     # 스윙 매매 체결/손익 기록 테이블
                     await cursor.execute('''
@@ -995,12 +1017,21 @@ class AsyncDatabaseManager:
                         })
 
                     await cursor.execute('''
-                        SELECT code, datetime, open, high, low, close, volume FROM daily_candles ORDER BY datetime DESC LIMIT 10
+                        SELECT * FROM daily_candles ORDER BY datetime DESC LIMIT 10
                     ''')
                     sw_columns = [desc[0] for desc in cursor.description]
                     sw_recent = await cursor.fetchall()
                     for row in sw_recent:
-                        result["swing"]["recent_records"].append(dict(zip(sw_columns, row)))
+                        rec_dict = dict(zip(sw_columns, row))
+                        def sw_sort_key(k):
+                            base_order = ['code', 'datetime', 'open', 'high', 'low', 'close', 'volume', 'amount',
+                                          'ma5', 'ma10', 'ma20', 'ma60', 'disparity20', 'rsi14', 'volume_ratio',
+                                          'macd', 'macd_signal', 'bb_upper', 'bb_lower', 'created_at']
+                            if k in base_order:
+                                return (0, base_order.index(k))
+                            return (1, k)
+                        sorted_rec = {k: rec_dict[k] for k in sorted(rec_dict.keys(), key=sw_sort_key) if rec_dict[k] is not None}
+                        result["swing"]["recent_records"].append(sorted_rec)
 
                 await cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='swing_holdings'")
                 if await cursor.fetchone():
@@ -1185,7 +1216,7 @@ class AsyncDatabaseManager:
         return records
 
     async def save_daily_candles(self, candles: list):
-        """스윙 전용 daily_candles 일봉 데이터 다량 저장/갱신"""
+        """스윙 전용 daily_candles 일봉 데이터 및 기술적 지표 다량 저장/갱신"""
         try:
             if self._conn is None:
                 await self.init_database()
@@ -1195,15 +1226,21 @@ class AsyncDatabaseManager:
                 for c in candles:
                     await cursor.execute('''
                         INSERT OR REPLACE INTO daily_candles
-                        (code, datetime, open, high, low, close, volume, amount, created_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        (code, datetime, open, high, low, close, volume, amount,
+                         ma5, ma10, ma20, ma60, disparity20, rsi14, volume_ratio,
+                         macd, macd_signal, bb_upper, bb_lower, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ''', (
                         c.get('code'), c.get('datetime'),
                         c.get('open', 0), c.get('high', 0), c.get('low', 0), c.get('close', 0),
-                        c.get('volume', 0), c.get('amount', 0), created_at
+                        c.get('volume', 0), c.get('amount', 0),
+                        c.get('ma5'), c.get('ma10'), c.get('ma20'), c.get('ma60'),
+                        c.get('disparity20'), c.get('rsi14'), c.get('volume_ratio'),
+                        c.get('macd'), c.get('macd_signal'), c.get('bb_upper'), c.get('bb_lower'),
+                        created_at
                     ))
                 await self._conn.commit()
-                self.logger.info(f"💾 [스윙 DB] daily_candles {len(candles)}건 일봉 저장 완료")
+                self.logger.info(f"💾 [스윙 DB] daily_candles {len(candles)}건 일봉 및 기술적 지표 저장 완료")
         except Exception as e:
             self.logger.error(f"❌ daily_candles 일봉 데이터 저장 실패: {e}")
 

@@ -4736,11 +4736,27 @@ HTML_CONTENT = """
             const btnScalp = document.getElementById('btnDbTabScalp');
             const btnSwing = document.getElementById('btnDbTabSwing');
             if (type === 'scalp') {
-                if (btnScalp) btnScalp.classList.add('active');
-                if (btnSwing) btnSwing.classList.remove('active');
+                if (btnScalp) {
+                    btnScalp.style.color = '#ffffff';
+                    btnScalp.style.background = 'rgba(0, 242, 254, 0.2)';
+                    btnScalp.style.borderColor = 'var(--accent-cyan)';
+                }
+                if (btnSwing) {
+                    btnSwing.style.color = 'var(--text-secondary)';
+                    btnSwing.style.background = 'rgba(255, 255, 255, 0.05)';
+                    btnSwing.style.borderColor = 'var(--border-color)';
+                }
             } else {
-                if (btnSwing) btnSwing.classList.add('active');
-                if (btnScalp) btnScalp.classList.remove('active');
+                if (btnSwing) {
+                    btnSwing.style.color = '#ffffff';
+                    btnSwing.style.background = 'rgba(100, 255, 218, 0.2)';
+                    btnSwing.style.borderColor = '#64ffda';
+                }
+                if (btnScalp) {
+                    btnScalp.style.color = 'var(--text-secondary)';
+                    btnScalp.style.background = 'rgba(255, 255, 255, 0.05)';
+                    btnScalp.style.borderColor = 'var(--border-color)';
+                }
             }
             if (lastDbSummaryData) {
                 renderDbSummaryContent(lastDbSummaryData, type);
@@ -4846,10 +4862,10 @@ HTML_CONTENT = """
                             
                             let val = item[col];
                             if (val !== null && typeof val === 'number') {
-                                if (col === 'tick_tail_ratio') {
+                                if (['disparity20', 'rsi14', 'volume_ratio', 'macd', 'macd_signal', 'tick_tail_ratio'].includes(col)) {
                                     val = val.toFixed(2);
                                 } else if (val % 1 !== 0) {
-                                    if (col === 'market_kosdaq_roc' || col === 'tick_impulse' || col === 'tick_price_roc') {
+                                    if (['market_kosdaq_roc', 'tick_impulse', 'tick_price_roc'].includes(col)) {
                                         val = val.toFixed(4);
                                     } else {
                                         val = val.toFixed(2);
@@ -5306,11 +5322,11 @@ HTML_CONTENT = """
 
             <!-- 매매 유형 구분 탭 (초단타 vs 스윙) -->
             <div style="display: flex; gap: 8px; padding: 12px 20px 0 20px; border-bottom: 1px solid var(--border-color); background: rgba(255,255,255,0.02);">
-                <button id="btnDbTabScalp" class="chart-tab active" onclick="switchDbSummaryTab('scalp')" style="padding: 8px 16px; font-weight: bold; display: flex; align-items: center; gap: 6px;">
+                <button id="btnDbTabScalp" onclick="switchDbSummaryTab('scalp')" style="padding: 8px 16px; font-weight: bold; display: flex; align-items: center; gap: 6px; color: #ffffff; background: rgba(0, 242, 254, 0.2); border: 1px solid var(--accent-cyan); border-radius: 6px 6px 0 0; cursor: pointer;">
                     ⚡ 초단타매매 DB (틱/3분봉)
-                    <span id="badgeDbScalp" style="font-size: 11px; background: rgba(0, 242, 254, 0.2); color: var(--accent-cyan); padding: 2px 6px; border-radius: 10px;">0개</span>
+                    <span id="badgeDbScalp" style="font-size: 11px; background: rgba(0, 242, 254, 0.3); color: var(--accent-cyan); padding: 2px 6px; border-radius: 10px;">0개</span>
                 </button>
-                <button id="btnDbTabSwing" class="chart-tab" onclick="switchDbSummaryTab('swing')" style="padding: 8px 16px; font-weight: bold; display: flex; align-items: center; gap: 6px;">
+                <button id="btnDbTabSwing" onclick="switchDbSummaryTab('swing')" style="padding: 8px 16px; font-weight: bold; display: flex; align-items: center; gap: 6px; color: var(--text-secondary); background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border-color); border-radius: 6px 6px 0 0; cursor: pointer;">
                     📈 스윙매매 DB (일봉)
                     <span id="badgeDbSwing" style="font-size: 11px; background: rgba(100, 255, 218, 0.2); color: #64ffda; padding: 2px 6px; border-radius: 10px;">0개</span>
                 </button>
