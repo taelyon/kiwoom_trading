@@ -2523,6 +2523,8 @@ HTML_CONTENT = """
                     }
                 } else if (data.type === 'chart_history') {
                     renderChartHistory(data);
+                } else if (data.type === 'swing_chart_history') {
+                    renderSwingChartHistory(data);
                 } else if (data.type === 'chart_tick') {
                     renderChartTick(data);
                 } else if (data.type === 'backtest_progress') {
@@ -2977,7 +2979,7 @@ HTML_CONTENT = """
                     swingBadges.innerHTML = `<div class="no-data">매일 15:15 자동 수신 또는 수동 조회를 실행하세요.</div>`;
                 } else {
                     swingBadges.innerHTML = candidates.map(cand => `
-                        <div class="stock-badge" style="background: rgba(100, 255, 218, 0.1); border-color: rgba(100, 255, 218, 0.3);" onclick="subscribeStockChart('${cand.code}', '${cand.name}')">
+                        <div class="stock-badge" style="background: rgba(100, 255, 218, 0.1); border-color: rgba(100, 255, 218, 0.3);" onclick="subscribeSwingStockChart('${cand.code}', '${cand.name}')">
                             <span style="color:#64ffda;">●</span>
                             <strong>${cand.name} (${cand.code})</strong>
                         </div>
@@ -3019,7 +3021,7 @@ HTML_CONTENT = """
                         const profitClass = stock.profit_loss >= 0 ? 'up' : 'down';
                         const sign = stock.profit_loss >= 0 ? '+' : '';
                         return `
-                            <tr onclick="subscribeStockChart('${stock.code}', '${stock.name}')">
+                            <tr onclick="subscribeSwingStockChart('${stock.code}', '${stock.name}')">
                                 <td>
                                     <div class="stock-name-info">
                                         <strong>${stock.name}</strong>
@@ -4305,6 +4307,128 @@ HTML_CONTENT = """
             }
         }
 
+        // ==========================================
+        // 스윙 매매 전용 차트 객체 및 구독 함수
+        // ==========================================
+        let swingChart = null;
+        let swingCandleSeries = null;
+        let swingVolumeSeries = null;
+        let currentSwingCode = '';
+        let currentSwingName = '';
+
+        function initSwingChart() {
+            const swingDiv = document.getElementById('swingChartCanvas');
+            if (!swingDiv) return;
+            if (swingChart) return;
+
+            try {
+                console.log("📊 스윙 전용 차트 객체 생성...");
+                swingChart = LightweightCharts.createChart(swingDiv, {
+                    layout: {
+                        background: { type: 'solid', color: '#0c0b1e' },
+                        textColor: '#d1d4dc',
+                    },
+                    grid: {
+                        vertLines: { color: 'rgba(70, 130, 180, 0.1)' },
+                        horzLines: { color: 'rgba(70, 130, 180, 0.1)' },
+                    },
+                    rightPriceScale: {
+                        borderColor: 'rgba(197, 203, 206, 0.4)',
+                        scaleMargins: { top: 0.05, bottom: 0.25 },
+                    },
+                    timeScale: {
+                        borderColor: 'rgba(197, 203, 206, 0.4)',
+                        timeVisible: false,
+                    },
+                });
+
+                swingCandleSeries = swingChart.addCandlestickSeries({
+                    upColor: '#ef5350', downColor: '#26a69a',
+                    borderDownColor: '#26a69a', borderUpColor: '#ef5350',
+                    wickDownColor: '#26a69a', wickUpColor: '#ef5350',
+                });
+
+                swingVolumeSeries = swingChart.addHistogramSeries({
+                    color: 'rgba(38, 166, 154, 0.5)',
+                    priceFormat: { type: 'volume' },
+                    priceScaleId: 'volume_scale',
+                });
+
+                swingChart.priceScale('volume_scale').applyOptions({
+                    scaleMargins: { top: 0.7, bottom: 0 },
+                });
+
+                new ResizeObserver(entries => {
+                    if (entries.length === 0 || !swingChart) return;
+                    const { width, height } = entries[0].contentRect;
+                    if (width > 0 && height > 0) {
+                        swingChart.resize(width, height);
+                    }
+                }).observe(swingDiv);
+            } catch (e) {
+                console.error("❌ 스윙 차트 초기화 오류:", e);
+            }
+        }
+
+        function subscribeSwingStockChart(code, name) {
+            currentSwingCode = code;
+            currentSwingName = name;
+
+            const titleEl = document.getElementById('swingChartTitle');
+            if (titleEl) {
+                titleEl.innerHTML = `📈 스윙 차트 - <span style="color:#64ffda;">${name} (${code})</span>`;
+            }
+
+            if (!swingChart) {
+                initSwingChart();
+            }
+
+            if (swingCandleSeries) swingCandleSeries.setData([]);
+            if (swingVolumeSeries) swingVolumeSeries.setData([]);
+
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(jsonStr({
+                    type: "subscribe_swing_chart",
+                    code: code
+                }));
+            }
+        }
+
+        function renderSwingChartHistory(data) {
+            if (!swingChart) initSwingChart();
+            if (!data || !data.daily_history) return;
+
+            const candleData = [];
+            const volumeData = [];
+
+            data.daily_history.forEach(item => {
+                let rawTime = String(item.time).trim();
+                let formattedTime = rawTime;
+                if (rawTime.length === 8 && !rawTime.includes('-')) {
+                    formattedTime = `${rawTime.substring(0,4)}-${rawTime.substring(4,6)}-${rawTime.substring(6,8)}`;
+                }
+                
+                candleData.push({
+                    time: formattedTime,
+                    open: parseFloat(item.open),
+                    high: parseFloat(item.high),
+                    low: parseFloat(item.low),
+                    close: parseFloat(item.close),
+                });
+
+                const isUp = parseFloat(item.close) >= parseFloat(item.open);
+                volumeData.push({
+                    time: formattedTime,
+                    value: parseInt(item.volume),
+                    color: isUp ? 'rgba(239, 83, 80, 0.5)' : 'rgba(38, 166, 154, 0.5)'
+                });
+            });
+
+            if (swingCandleSeries) swingCandleSeries.setData(candleData);
+            if (swingVolumeSeries) swingVolumeSeries.setData(volumeData);
+            if (swingChart) swingChart.timeScale().fitContent();
+        }
+
         function subscribeStockChart(code, name) {
             lastChartTimestamp = 0;
             currentChartCode = code;
@@ -5452,23 +5576,76 @@ async def _send_chart_history_to_ws(ws, code, chart_cache):
                 except Exception: pass
             min_history = min_history[-120:]
         
+        # 틱/분봉 데이터 전송 (데이터가 0건이어도 프론트엔드 로딩 스피너 해제를 위해 메시지 전송)
+        await safe_send(ws, json.dumps({
+            "type": "chart_history",
+            "code": code,
+            "tick_history": tick_history,
+            "min_history": min_history
+        }))
+        if not hasattr(ws, 'sent_chart_history'):
+            ws.sent_chart_history = {}
+        ws.sent_chart_history[code] = True
+        
         if tick_history or min_history:
-            await safe_send(ws, json.dumps({
-                "type": "chart_history",
-                "code": code,
-                "tick_history": tick_history,
-                "min_history": min_history
-            }))
-            if not hasattr(ws, 'sent_chart_history'):
-                ws.sent_chart_history = {}
-            ws.sent_chart_history[code] = True
             logging.debug(f"✅ [차트전송] {code} 차트 히스토리 전송 성공 (틱:{len(tick_history)}개, 분봉:{len(min_history)}개)")
-            return True
         else:
-            logging.warning(f"⚠️ [차트전송] {code} 캐시에서 읽었지만 가공 결과가 빈 배열입니다! (tick_data close건수: {len(tick_data.get('close', []) if tick_data else [])}, min_data close건수: {len(min_data.get('close', []) if min_data else [])}) → 프론트엔드에 아무것도 전송하지 않음 (로딩 오버레이 무한대기 발생!)")
-            return False
+            logging.info(f"ℹ️ [차트전송] {code} 데이터 0건 - 프론트엔드 로딩 해제용 빈 차트 응답 전송 완료")
+        return True
     except Exception as e:
         logging.error(f"❌ 차트 역사 데이터 전송 실패 ({code}): {e}", exc_info=True)
+async def _send_swing_chart_to_ws(ws, code, app):
+    """스윙 전용 일봉 차트 데이터를 조회하여 웹소켓 클라이언트에 전송"""
+    try:
+        daily_history = []
+        
+        # 1. DB (daily_candles)에서 먼저 조회
+        if hasattr(app, 'db_manager') and app.db_manager:
+            try:
+                db_candles = await app.db_manager.get_daily_candles(code, limit=120)
+                if db_candles:
+                    for row in db_candles:
+                        # row structure: (datetime, open, high, low, close, volume, ...)
+                        dt_str = str(row.get('datetime', '') or row.get('dt', ''))
+                        if dt_str:
+                            daily_history.append({
+                                'time': dt_str,
+                                'open': float(row.get('open', 0)),
+                                'high': float(row.get('high', 0)),
+                                'low': float(row.get('low', 0)),
+                                'close': float(row.get('close', 0)),
+                                'volume': int(row.get('volume', 0))
+                            })
+            except Exception as db_e:
+                logging.debug(f"DB 일봉 조회 패스: {db_e}")
+
+        # 2. DB에 데이터가 부족하거나 없을 경우 SwingManager 또는 REST API로 실시간 수집
+        if len(daily_history) < 10 and hasattr(app, 'swing_manager') and app.swing_manager:
+            try:
+                df_daily = await app.swing_manager._fetch_daily_candles(code)
+                if df_daily is not None and not df_daily.empty:
+                    daily_history = []
+                    for _, r in df_daily.iterrows():
+                        daily_history.append({
+                            'time': str(r['datetime']),
+                            'open': float(r['open']),
+                            'high': float(r['high']),
+                            'low': float(r['low']),
+                            'close': float(r['close']),
+                            'volume': int(r['volume'])
+                        })
+            except Exception as api_e:
+                logging.error(f"❌ 스윙 API 일봉 수집 오류 ({code}): {api_e}")
+
+        await safe_send(ws, json.dumps({
+            "type": "swing_chart_history",
+            "code": code,
+            "daily_history": daily_history
+        }))
+        logging.info(f"📈 [스윙 차트전송] {code} 일봉 차트 데이터 {len(daily_history)}건 전송 완료")
+        return True
+    except Exception as e:
+        logging.error(f"❌ 스윙 차트 데이터 전송 실패 ({code}): {e}", exc_info=True)
         return False
 
 active_backtests = {}
@@ -6485,7 +6662,7 @@ async def websocket_handler(websocket):
                                 # 캐시에 데이터가 없으면 비동기 수집 후 자동 전송
                                 async def _fetch_and_send(ws, chart_code, chart_cache):
                                     try:
-                                        logging.warning(f"⚠️ [캐시 미스] {chart_code} 종목이 캐시에 없거나 데이터가 비어있습니다! API로 새로 수집을 강제합니다.")
+                                        logging.info(f"ℹ️ [차트 데이터 요청] {chart_code} 캐시 미스 - 키움 API로 차트 데이터 수집을 시작합니다.")
                                         # ★ pending_stocks에 미리 등록해야 _on_chart_data_ready가 캐시 저장을 허용함
                                         if chart_code not in chart_cache.pending_stocks:
                                             chart_cache.pending_stocks[chart_code] = chart_code
@@ -6518,6 +6695,13 @@ async def websocket_handler(websocket):
                                 
                                 from utils import create_fire_and_forget_task
                                 create_fire_and_forget_task(_fetch_and_send(websocket, code, app.chart_cache))
+
+                elif msg_type == 'subscribe_swing_chart':
+                    code = data.get('code')
+                    logging.info(f"📈 [스윙 차트구독] 프론트엔드로부터 'subscribe_swing_chart' 요청 받음: {code}")
+                    if code:
+                        from utils import create_fire_and_forget_task
+                        create_fire_and_forget_task(_send_swing_chart_to_ws(websocket, code, app))
                                 
                 elif msg_type == 'frontend_log':
                     msg = data.get('message', '')
