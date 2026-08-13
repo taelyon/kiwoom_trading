@@ -310,6 +310,7 @@ class SwingManager:
                     vol = int(float(item.get('trde_qty') or 0))
                     if dt and close_p > 0:
                         rows.append({
+                            'code': code,
                             'datetime': dt,
                             'open': open_p,
                             'high': high_p,
@@ -324,10 +325,17 @@ class SwingManager:
                 self.logger.warning(f"⚠️ [스윙] 파싱 가능한 일봉 데이터 없음 ({code})")
                 return None
 
+            # 💾 DB (daily_candles) 전용 테이블에 자동 영구 저장
+            if hasattr(self, 'db_manager') and self.db_manager:
+                try:
+                    await self.db_manager.save_daily_candles(rows)
+                except Exception as db_err:
+                    self.logger.error(f"❌ [스윙 DB] daily_candles 저장 실패 ({code}): {db_err}")
+
             df = pd.DataFrame(rows)
             df.sort_values(by='datetime', ascending=True, inplace=True)
             df.reset_index(drop=True, inplace=True)
-            self.logger.debug(f"✅ [스윙] 일봉 데이터 조회 완료: {code} ({len(df)}일)")
+            self.logger.debug(f"✅ [스윙] 일봉 데이터 조회 및 DB 저장 완료: {code} ({len(df)}일)")
             return df
         except Exception as e:
             self.logger.error(f"❌ 일봉 데이터 조회 에러 ({code}): {e}")
