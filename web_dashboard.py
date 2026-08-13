@@ -5471,6 +5471,12 @@ async def websocket_handler(websocket):
                             src_model = f"models/lgbm_model_{ts}.txt"
                             if os.path.exists(src_model):
                                 shutil.copy2(src_model, 'lgbm_model.txt')
+                                try:
+                                    with open('lgbm_model.txt', 'rb') as f:
+                                        c = f.read().replace(b'\r\n', b'\n')
+                                    with open('lgbm_model.txt', 'wb') as f:
+                                        f.write(c)
+                                except Exception: pass
                                 src_json = f"models/lgbm_model_{ts}.json"
                                 if os.path.exists(src_json):
                                     shutil.copy2(src_json, 'lgbm_model.json')

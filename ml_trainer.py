@@ -339,16 +339,12 @@ class MLTrainingWorker(threading.Thread):
             
             # 동적 파라미터 조정 (데이터가 적을 때 LightGBM 에러 방지)
             train_len = len(X_train)
-            if 'min_data_in_leaf' in self.params:
-                if train_len < self.params['min_data_in_leaf'] * 2:
-                    new_min_data = max(1, int(train_len / 4))
-                    self.logger.warning(f"학습 데이터({train_len}개)가 적어 min_data_in_leaf를 {self.params['min_data_in_leaf']}에서 {new_min_data}(으)로 임시 조정합니다.")
-                    self.params['min_data_in_leaf'] = new_min_data
-                    
+            if 'min_data_in_leaf' not in self.params or self.params['min_data_in_leaf'] > 50:
+                self.params['min_data_in_leaf'] = 30  # 트리가 정상적으로 깊게 형성되도록 30으로 최적화
+
             if 'num_leaves' in self.params:
-                max_leaves = max(2, int(train_len / 5))
+                max_leaves = max(4, int(train_len / 10))
                 if self.params['num_leaves'] > max_leaves:
-                    self.logger.warning(f"학습 데이터({train_len}개)가 적어 num_leaves를 {self.params['num_leaves']}에서 {max_leaves}(으)로 임시 조정합니다.")
                     self.params['num_leaves'] = max_leaves
             
             # LightGBM 데이터셋 생성
@@ -357,14 +353,14 @@ class MLTrainingWorker(threading.Thread):
             
             self.progress_signal.emit("🤖 [ML] LightGBM 모델 학습 시작...")
             
-            # 모델 학습
+            # 모델 학습 (최소 트리가 형성되도록 조기 종료 보정)
             model = lgb.train(
                 self.params,
                 train_data,
-                num_boost_round=self.num_boost_round,        # UI 또는 기본값에 의존
+                num_boost_round=self.num_boost_round,
                 valid_sets=[train_data, val_data],
                 callbacks=[
-                    lgb.early_stopping(stopping_rounds=100), # 과적합 방지: 100번 동안 성능 향상 없으면 중단
+                    lgb.early_stopping(stopping_rounds=50, min_delta=0.0001, verbose=False),
                     lgb.log_evaluation(period=100) 
                 ]
             )
