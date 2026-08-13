@@ -1711,7 +1711,6 @@ HTML_CONTENT = """
                                 <span style="color:#FF1493; font-weight: bold;">● 10일</span>
                                 <span style="color:#00FFFF; font-weight: bold;">● 20일</span>
                                 <span style="color:#32CD32; font-weight: bold;">● 60일</span>
-                                <span style="color:#FF4500; font-weight: bold;">● 120일</span>
                             </span>
                             <div class="chart-tab active" onclick="switchChartScope('daily', this)">일봉</div>
                             <div class="chart-tab" onclick="switchChartScope('minute', this)">60분봉</div>
@@ -4356,16 +4355,15 @@ HTML_CONTENT = """
                     wickDownColor: '#26a69a', wickUpColor: '#ef5350',
                 });
 
-                // 이동평균선(MA) 시리즈 추가 (5, 10, 20, 60, 120일)
+                // 이동평균선(MA) 시리즈 추가 (5, 10, 20, 60일)
                 swingMaSeries = {};
                 const maColors = {
                     5: '#FFD700',   // 5일선: Gold (노랑)
                     10: '#FF1493',  // 10일선: DeepPink (분홍)
                     20: '#00FFFF',  // 20일선: Cyan (하늘)
-                    60: '#32CD32',  // 60일선: LimeGreen (연두)
-                    120: '#FF4500' // 120일선: OrangeRed (주황)
+                    60: '#32CD32'   // 60일선: LimeGreen (연두)
                 };
-                [5, 10, 20, 60, 120].forEach(period => {
+                [5, 10, 20, 60].forEach(period => {
                     swingMaSeries[period] = swingChart.addLineSeries({
                         color: maColors[period],
                         lineWidth: 1.5,
@@ -4412,7 +4410,7 @@ HTML_CONTENT = """
 
             if (swingCandleSeries) swingCandleSeries.setData([]);
             if (swingVolumeSeries) swingVolumeSeries.setData([]);
-            [5, 10, 20, 60, 120].forEach(p => {
+            [5, 10, 20, 60].forEach(p => {
                 if (swingMaSeries[p]) swingMaSeries[p].setData([]);
             });
 
@@ -4474,8 +4472,8 @@ HTML_CONTENT = """
             if (swingCandleSeries) swingCandleSeries.setData(candleData);
             if (swingVolumeSeries) swingVolumeSeries.setData(volumeData);
 
-            // 5일, 10일, 20일, 60일, 120일 이동평균선 계산 및 차트 바인딩
-            [5, 10, 20, 60, 120].forEach(period => {
+            // 5일, 10일, 20일, 60일 이동평균선 계산 및 차트 바인딩
+            [5, 10, 20, 60].forEach(period => {
                 if (swingMaSeries[period]) {
                     const maData = calculateSwingSMA(candleData, period);
                     swingMaSeries[period].setData(maData);
@@ -5658,7 +5656,7 @@ async def _send_swing_chart_to_ws(ws, code, app):
         # 1. DB (daily_candles)에서 먼저 조회
         if hasattr(app, 'db_manager') and app.db_manager:
             try:
-                db_candles = await app.db_manager.get_daily_candles(code, limit=120)
+                db_candles = await app.db_manager.get_daily_candles(code, limit=200)
                 if db_candles:
                     for row in db_candles:
                         # row structure: (datetime, open, high, low, close, volume, ...)

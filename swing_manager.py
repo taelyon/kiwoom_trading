@@ -298,7 +298,7 @@ class SwingManager:
                 return None
 
             rows = []
-            for item in items[:60]:  # 최근 60일
+            for item in items[:200]:  # 최근 200일 (이동평균선이 차트 시작부터 끊김없이 그려지도록 충분한 데이터 확보)
                 # ka10081 공식 응답 필드명: dt(일자), open_pric(시가), high_pric(고가), low_pric(저가), cur_prc(현재가/종가), trde_qty(거래량)
                 try:
                     dt = item.get('dt', '')
