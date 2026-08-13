@@ -41,6 +41,7 @@ class EnvConfigParser:
             with open(self.env_path, 'w', encoding='utf-8') as f:
                 f.write("# Generated .env file\n")
         
+        self.sanitize_env_file()
         load_dotenv(self.env_path, override=True, encoding='utf-8-sig')
         self._data = {}
         self._sync_from_env()
@@ -202,9 +203,40 @@ class EnvConfigParser:
             removed = True
         return removed
 
+    def sanitize_env_file(self):
+        """기존 .env 파일 내의 '='가 없는 유효하지 않은 잔재 라인(Lines without '=') 자동 청소 및 단일 행 변환"""
+        try:
+            if not os.path.exists(self.env_path):
+                return
+            with open(self.env_path, 'r', encoding='utf-8-sig') as f:
+                lines = f.readlines()
+            
+            clean_lines = []
+            has_invalid = False
+            for line in lines:
+                stripped = line.strip()
+                if not stripped or stripped.startswith('#'):
+                    clean_lines.append(line)
+                elif '=' in stripped:
+                    k, v = stripped.split('=', 1)
+                    k = k.strip()
+                    v = v.strip().replace('\r\n', ' ').replace('\n', ' ')
+                    clean_lines.append(f"{k}={v}\n")
+                else:
+                    has_invalid = True
+                    
+            if has_invalid:
+                with open(self.env_path, 'w', encoding='utf-8') as f:
+                    f.writelines(clean_lines)
+                self.logger.info("🧹 .env 파일 내 손상된 다중 행 잔재 라인을 자동으로 청소 정문화했습니다.")
+        except Exception as e:
+            self.logger.error(f"❌ .env 자동 청소 실패: {e}")
+
     def save(self):
         """현재 변경된 설정을 .env 파일에 안전하게 저장 (코멘트 보존, Docker mount 안전)"""
         try:
+            self.sanitize_env_file()
+            
             with open(self.env_path, 'r', encoding='utf-8-sig') as f:
                 lines = f.readlines()
             
@@ -222,19 +254,18 @@ class EnvConfigParser:
                     is_managed = any(k.startswith(p) for p in _MANAGED_PREFIXES)
                     if is_managed:
                         if k in self._data:
-                            new_lines.append(f"{k}={self._data[k]}\n")
+                            val = str(self._data[k]).replace('\r\n', ' ').replace('\n', ' ')
+                            new_lines.append(f"{k}={val}\n")
                             updated_keys.add(k)
                         else:
-                            # self._data에 없는 관리 대상 키는 .env 파일에서 삭제 처리
                             pass
                     else:
                         new_lines.append(line)
-                else:
-                    new_lines.append(line)
             
             for k, v in self._data.items():
                 if any(k.startswith(p) for p in _MANAGED_PREFIXES) and k not in updated_keys:
-                    new_lines.append(f"{k}={v}\n")
+                    val = str(v).replace('\r\n', ' ').replace('\n', ' ')
+                    new_lines.append(f"{k}={val}\n")
                     
             # os.replace 대신 동일 파일 핸들에 직접 덮어쓰기 (Docker Volume 에러 방지)
             with open(self.env_path, 'w', encoding='utf-8') as f:
