@@ -3697,7 +3697,7 @@ HTML_CONTENT = """
 
         // 앱 재시작 기능 함수
         function restartSystem() {
-            if (confirm("주식 자동매매 시스템을 재시작하시겠습니까?\n재시작 요청 후 3초 뒤 대시보드가 자동으로 새로고침됩니다.")) {
+            if (confirm("주식 자동매매 시스템을 재시작하시겠습니까?\\n재시작 요청 후 3초 뒤 대시보드가 자동으로 새로고침됩니다.")) {
                 if (ws && ws.readyState === WebSocket.OPEN) {
                     ws.send(jsonStr({ type: "restart_system" }));
                 }
