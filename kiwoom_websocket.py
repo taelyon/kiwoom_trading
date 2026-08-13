@@ -490,13 +490,8 @@ class KiwoomWebSocketClient:
                         
                         # 응답 타입에 따라 분기 처리
                         search_type = response.get('search_type', '0')
-
-                        if search_type == '1':  # 실시간 요청 응답
-                            self.logger.debug("조건검색 실시간 요청에 대한 초기 응답 처리")
-                            self.process_condition_realtime_response(response)
-                        else:
-                            self.logger.debug(f"조건검색 일반 요청 응답 처리 (search_type: {search_type})")
-                            self.process_condition_realtime_response(response)  # 일반 요청도 동일하게 처리
+                        self.logger.debug(f"조건검색 응답 수신 및 처리 (seq: {response.get('seq')}, search_type: {search_type})")
+                        self.process_condition_search_response(response)
                     except Exception as condition_err:
                         self.logger.error(f"조건검색 응답 처리 실패: {condition_err}", exc_info=True)
                         
@@ -532,6 +527,49 @@ class KiwoomWebSocketClient:
                     self.logger.error(f"대기 중 오류: {sleep_err}", exc_info=True)
                 
                 continue
+
+    def process_condition_search_response(self, response):
+        """키움 웹소켓 조건검색 응답(CNSRREQ) 파싱 및 스윙/초단타 후보 종목 반영"""
+        try:
+            if not response or not isinstance(response, dict):
+                return
+                
+            seq = str(response.get('seq', ''))
+            data_list = response.get('data', []) or []
+            
+            codes = []
+            for item in data_list:
+                if isinstance(item, dict):
+                    code = item.get('code') or item.get('item') or item.get('stk_cd') or item.get('stk_code') or ''
+                elif isinstance(item, str):
+                    code = item
+                else:
+                    code = ''
+                
+                # A005930 -> 005930 코드 정규화
+                if code:
+                    if hasattr(self, 'parent') and hasattr(self.parent, 'data_manager') and self.parent.data_manager:
+                        code = self.parent.data_manager.normalize_stock_code(code)
+                    else:
+                        code = code.lstrip('A')
+                    if code and code not in codes:
+                        codes.append(code)
+                        
+            self.logger.info(f"🔍 [조건검색 수신 (CNSRREQ)] Seq: {seq}, 편입 종목 수: {len(codes)}개 (종목: {codes})")
+            
+            # 1. 스윙 매니저 후보 목록 업데이트
+            if hasattr(self, 'parent') and self.parent:
+                if hasattr(self.parent, 'swing_manager') and self.parent.swing_manager:
+                    from utils import create_fire_and_forget_task
+                    create_fire_and_forget_task(self.parent.swing_manager.set_candidate_codes(codes))
+                    self.logger.info(f"📈 [스윙 매매] 조건검색 결과 {len(codes)}개 종목이 스윙 후보 리스트에 등록되었습니다.")
+
+                # 2. 웹 대시보드 상태 동기화 트리거
+                if hasattr(self.parent, 'update_stock_table'):
+                    self.parent.update_stock_table()
+                    
+        except Exception as e:
+            self.logger.error(f"❌ 조건검색 응답 처리 실패: {e}", exc_info=True)
     
     async def subscribe_stock_execution_data(self, codes=None, subscription_type='monitoring'):
         """실시간 주식체결 데이터 구독 (0B)"""

@@ -1076,6 +1076,37 @@ class AsyncDatabaseManager:
         except Exception as e:
             self.logger.error(f"❌ 스윙 매매 이력 저장 실패 ({code}): {e}")
 
+    async def get_trade_records(self, limit: int = 50) -> list:
+        """초단타 매매 이력 목록 조회"""
+        records = []
+        try:
+            if self._conn is None:
+                await self.init_database()
+            async with self._db_lock:
+                cursor = await self._conn.cursor()
+                await cursor.execute('''
+                    SELECT id, code, datetime, order_type, quantity, price, amount, strategy, profit_loss
+                    FROM trade_records
+                    ORDER BY id DESC
+                    LIMIT ?
+                ''', (limit,))
+                rows = await cursor.fetchall()
+                for row in rows:
+                    records.append({
+                        'id': row[0],
+                        'code': row[1],
+                        'datetime': row[2],
+                        'order_type': row[3],
+                        'quantity': row[4],
+                        'price': row[5],
+                        'amount': row[6],
+                        'strategy': row[7],
+                        'profit_loss': row[8]
+                    })
+        except Exception as e:
+            self.logger.error(f"❌ 초단타 매매 이력 조회 실패: {e}")
+        return records
+
     async def get_swing_trade_records(self, limit: int = 50) -> list:
         """스윙 최근 매매 이력 목록 조회"""
         records = []

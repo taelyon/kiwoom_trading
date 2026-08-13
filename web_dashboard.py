@@ -2191,16 +2191,86 @@ HTML_CONTENT = """
                                 <th style="text-align: center;">데이터 수</th>
                                 <th style="text-align: center;">액션</th>
                                 <th style="text-align: center;">다운로드</th>
+                                <th style="text-align: center;">삭제</th>
                             </tr>
                         </thead>
                         <tbody id="mlModelRegistryBody">
-                            <tr><td colspan="8" class="text-center">등록된 모델이 없습니다. 학습을 진행하거나 목록을 갱신하세요.</td></tr>
+                            <tr><td colspan="9" class="text-center">등록된 모델이 없습니다. 학습을 진행하거나 목록을 갱신하세요.</td></tr>
                         </tbody>
                     </table>
                 </div>
             </div>
         </div>
     </div> <!-- // dashboardContainer 종료 -->
+
+    <!-- 스윙 매매 내역 모달 -->
+    <div id="swingTradeHistoryModal" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.75); z-index: 9999; backdrop-filter: blur(6px); justify-content: center; align-items: center;">
+        <div class="glass-card" style="width: 950px; max-width: 95vw; max-height: 85vh; display: flex; flex-direction: column; padding: 24px; border: 1px solid rgba(100, 255, 218, 0.4); background: #0e1117; box-shadow: 0 8px 32px rgba(0,0,0,0.8); border-radius: 12px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid var(--border-color); padding-bottom: 12px;">
+                <div style="font-size: 18px; font-weight: bold; color: #64ffda; display: flex; align-items: center; gap: 8px;">
+                    📈 실시간 스윙 매매 체결 내역
+                </div>
+                <button onclick="closeSwingTradeHistoryModal()" style="background: transparent; border: none; color: #fff; font-size: 22px; cursor: pointer; opacity: 0.8;">✖</button>
+            </div>
+            <div style="flex-grow: 1; overflow-y: auto; max-height: 60vh;">
+                <table class="portfolio-table" style="width: 100%;">
+                    <thead>
+                        <tr style="text-align: center;">
+                            <th style="text-align: center;">종목 (코드)</th>
+                            <th style="text-align: center;">매수가</th>
+                            <th style="text-align: center;">매도가</th>
+                            <th style="text-align: center;">수량</th>
+                            <th style="text-align: center;">손익금액</th>
+                            <th style="text-align: center;">수익률</th>
+                            <th style="text-align: center;">매수일</th>
+                            <th style="text-align: center;">매도일</th>
+                            <th style="text-align: center;">전략</th>
+                        </tr>
+                    </thead>
+                    <tbody id="swingTradeHistoryBody">
+                        <tr><td colspan="9" class="no-data">저장된 스윙 매매 이력이 없습니다.</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div style="margin-top: 16px; text-align: right;">
+                <button class="btn-secondary" onclick="closeSwingTradeHistoryModal()" style="padding: 8px 20px; font-weight: bold; border-radius: 6px;">닫기</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 초단타 매매 내역 모달 -->
+    <div id="scalpTradeHistoryModal" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.75); z-index: 9999; backdrop-filter: blur(6px); justify-content: center; align-items: center;">
+        <div class="glass-card" style="width: 950px; max-width: 95vw; max-height: 85vh; display: flex; flex-direction: column; padding: 24px; border: 1px solid rgba(0, 242, 254, 0.4); background: #0e1117; box-shadow: 0 8px 32px rgba(0,0,0,0.8); border-radius: 12px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid var(--border-color); padding-bottom: 12px;">
+                <div style="font-size: 18px; font-weight: bold; color: #00f2fe; display: flex; align-items: center; gap: 8px;">
+                    ⚡ 실시간 초단타 매매 체결 내역
+                </div>
+                <button onclick="closeScalpTradeHistoryModal()" style="background: transparent; border: none; color: #fff; font-size: 22px; cursor: pointer; opacity: 0.8;">✖</button>
+            </div>
+            <div style="flex-grow: 1; overflow-y: auto; max-height: 60vh;">
+                <table class="portfolio-table" style="width: 100%;">
+                    <thead>
+                        <tr style="text-align: center;">
+                            <th style="text-align: center;">체결일시</th>
+                            <th style="text-align: center;">종목코드</th>
+                            <th style="text-align: center;">주문유형</th>
+                            <th style="text-align: center;">수량</th>
+                            <th style="text-align: center;">체결가</th>
+                            <th style="text-align: center;">체결금액</th>
+                            <th style="text-align: center;">손익금액</th>
+                            <th style="text-align: center;">전략</th>
+                        </tr>
+                    </thead>
+                    <tbody id="scalpTradeHistoryBody">
+                        <tr><td colspan="8" class="no-data">저장된 매매 이력이 없습니다.</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div style="margin-top: 16px; text-align: right;">
+                <button class="btn-secondary" onclick="closeScalpTradeHistoryModal()" style="padding: 8px 20px; font-weight: bold; border-radius: 6px;">닫기</button>
+            </div>
+        </div>
+    </div>
 
     <script>
         let ws;
@@ -2567,6 +2637,22 @@ HTML_CONTENT = """
                         term.scrollTop = term.scrollHeight;
                     }
                     
+                } else if (data.type === 'delete_model_result') {
+                    const term = document.getElementById('mlTerminal');
+                    if (term) {
+                        if (data.success) {
+                            fetchModelHistory();
+                            term.innerText += "\\n🗑️ [Delete] 모델 삭제 성공: " + data.msg + "\\n";
+                        } else {
+                            term.innerText += "\\n❌ [Delete] 모델 삭제 실패: " + data.msg + "\\n";
+                        }
+                        term.scrollTop = term.scrollHeight;
+                    }
+                    
+                } else if (data.type === 'swing_trade_history') {
+                    renderSwingTradeHistory(data.records);
+                } else if (data.type === 'trade_history') {
+                    renderScalpTradeHistory(data.records);
                 } else if (data.type === 'trade_history_data') {
                     const thead = document.getElementById('tradeHistoryHead');
                     if (thead) {
@@ -2955,6 +3041,121 @@ HTML_CONTENT = """
                     }).join('');
                 }
             }
+
+            // 스윙 조건검색 후보 종목 배지 업데이트
+            const swingBadges = document.getElementById('swingCandidateBadges');
+            if (swingBadges) {
+                const candidates = data.swing_candidates || [];
+                if (candidates.length === 0) {
+                    swingBadges.innerHTML = `<div class="no-data">매일 15:15 조건검색 수신 또는 수동 조회를 실행하세요.</div>`;
+                } else {
+                    swingBadges.innerHTML = candidates.map(stock => {
+                        return `
+                            <div class="monitoring-badge" onclick="subscribeStockChart('${stock.code}', '${stock.name}')" style="cursor: pointer; border-color: rgba(100, 255, 218, 0.4); background: rgba(100, 255, 218, 0.1);">
+                                <span style="font-size: 13px; font-weight: bold; color: #64ffda;">${stock.name}</span>
+                                <span style="font-size: 11px; color: var(--text-secondary);">(${stock.code})</span>
+                            </div>
+                        `;
+                    }).join('');
+                }
+            }
+        }
+
+        // 수동 스윙 조건검색 요청 함수
+        function triggerSwingConditionSearch() {
+            const swingCondName = document.getElementById('swingCfgCondName') ? document.getElementById('swingCfgCondName').value : '스윙_저가매수';
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(jsonStr({
+                    type: "trigger_swing_condition_search",
+                    condition_name: swingCondName
+                }));
+                const badgesContainer = document.getElementById('swingCandidateBadges');
+                if (badgesContainer) {
+                    badgesContainer.innerHTML = `<div class="no-data" style="color: #64ffda;">🔍 키움증권 조건검색식 조회를 요청 중입니다...</div>`;
+                }
+            } else {
+                alert("서버 연결(WebSocket)이 원활하지 않습니다.");
+            }
+        }
+
+        // 스윙 매매 내역 모달 제어 함수
+        function openSwingTradeHistoryModal() {
+            const modal = document.getElementById('swingTradeHistoryModal');
+            if (modal) modal.style.display = 'flex';
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(jsonStr({ type: "get_swing_trade_history" }));
+            }
+        }
+
+        function closeSwingTradeHistoryModal() {
+            const modal = document.getElementById('swingTradeHistoryModal');
+            if (modal) modal.style.display = 'none';
+        }
+
+        function renderSwingTradeHistory(records) {
+            const tbody = document.getElementById('swingTradeHistoryBody');
+            if (!tbody) return;
+            if (!records || records.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="9" class="no-data">저장된 스윙 매매 이력이 없습니다.</td></tr>`;
+                return;
+            }
+            tbody.innerHTML = records.map(r => {
+                const profitClass = (r.profit_loss || 0) >= 0 ? 'up' : 'down';
+                const sign = (r.profit_loss || 0) >= 0 ? '+' : '';
+                return `
+                    <tr style="text-align: center;">
+                        <td style="vertical-align: middle;"><strong>${r.name || r.code}</strong> <span style="font-size: 11px; color: var(--text-secondary);">(${r.code})</span></td>
+                        <td style="vertical-align: middle;">${Number(r.buy_price || 0).toLocaleString()}원</td>
+                        <td style="vertical-align: middle;">${Number(r.sell_price || 0).toLocaleString()}원</td>
+                        <td style="vertical-align: middle;">${Number(r.qty || 0).toLocaleString()}주</td>
+                        <td style="vertical-align: middle;"><span class="profit-pill ${profitClass}">${sign}${Math.round(Number(r.profit_loss || 0)).toLocaleString()}원</span></td>
+                        <td style="vertical-align: middle;"><span class="profit-pill ${profitClass}">${sign}${Number(r.profit_pct || 0).toFixed(2)}%</span></td>
+                        <td style="vertical-align: middle;">${r.buy_date || '-'}</td>
+                        <td style="vertical-align: middle;">${r.sell_date || '-'}</td>
+                        <td style="vertical-align: middle;"><span style="color: #64ffda; font-weight: bold;">${r.strategy || '스윙_종가매수'}</span></td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        // 초단타 매매 내역 모달 제어 함수
+        function openTradeHistoryModal() {
+            const modal = document.getElementById('scalpTradeHistoryModal');
+            if (modal) modal.style.display = 'flex';
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(jsonStr({ type: "get_trade_history" }));
+            }
+        }
+        function openTradeHistory() { openTradeHistoryModal(); }
+
+        function closeScalpTradeHistoryModal() {
+            const modal = document.getElementById('scalpTradeHistoryModal');
+            if (modal) modal.style.display = 'none';
+        }
+
+        function renderScalpTradeHistory(records) {
+            const tbody = document.getElementById('scalpTradeHistoryBody');
+            if (!tbody) return;
+            if (!records || records.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="8" class="no-data">저장된 초단타 매매 이력이 없습니다.</td></tr>`;
+                return;
+            }
+            tbody.innerHTML = records.map(r => {
+                const profitClass = (r.profit_loss || 0) >= 0 ? 'up' : 'down';
+                const sign = (r.profit_loss || 0) >= 0 ? '+' : '';
+                return `
+                    <tr style="text-align: center;">
+                        <td style="vertical-align: middle; color: var(--accent-cyan); font-size: 12px; font-weight: bold;">${r.datetime || '-'}</td>
+                        <td style="vertical-align: middle;"><strong>${r.code}</strong></td>
+                        <td style="vertical-align: middle;"><span style="color: ${r.order_type === 'BUY' ? '#ff5252' : '#448aff'}; font-weight: bold;">${r.order_type === 'BUY' ? '매수' : '매도'}</span></td>
+                        <td style="vertical-align: middle;">${Number(r.quantity || 0).toLocaleString()}주</td>
+                        <td style="vertical-align: middle;">${Number(r.price || 0).toLocaleString()}원</td>
+                        <td style="vertical-align: middle;">${Number(r.amount || 0).toLocaleString()}원</td>
+                        <td style="vertical-align: middle;"><span class="profit-pill ${profitClass}">${sign}${Math.round(Number(r.profit_loss || 0)).toLocaleString()}원</span></td>
+                        <td style="vertical-align: middle;"><span style="font-size: 12px; background: rgba(0, 242, 254, 0.1); padding: 2px 6px; border-radius: 4px; color: var(--accent-cyan);">${r.strategy || '-'}</span></td>
+                    </tr>
+                `;
+            }).join('');
         }
 
         let currentLogFilter = 'all';
@@ -4651,6 +4852,12 @@ HTML_CONTENT = """
         function downloadModel(timestamp) {
             window.location.href = '/api/download_model?timestamp=' + timestamp;
         }
+
+        function deleteModel(timestamp) {
+            if (confirm(`정말 ${timestamp} 버전 모델을 삭제하시겠습니까?\n삭제된 모델 데이터 및 파일은 복구할 수 없습니다.`)) {
+                ws.send(JSON.stringify({ type: 'delete_model', timestamp: timestamp }));
+            }
+        }
         
         let mlFeatureChartObj = null;
         function renderFeatureChart(importanceData) {
@@ -4697,7 +4904,7 @@ HTML_CONTENT = """
             const tbody = document.getElementById('mlModelRegistryBody');
             tbody.innerHTML = '';
             if (!models || models.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="7" class="text-center">저장된 모델 히스토리가 없습니다.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="9" class="text-center">저장된 모델 히스토리가 없습니다.</td></tr>';
                 return;
             }
             
@@ -4731,6 +4938,7 @@ HTML_CONTENT = """
                         ? `<button disabled style="background: transparent; border: 1px solid transparent; padding: 4px 10px; font-size: 12px; font-weight: bold; color: #00ff88; cursor: default;">✅ 적용됨</button>` 
                         : `<button class="btn-primary" style="padding: 4px 10px; font-size: 11px;" onclick="deployModel('${m.timestamp}')">Deploy</button>`}</td>
                     <td style="vertical-align: middle; text-align: center;"><button class="btn-primary" style="padding: 4px 10px; font-size: 11px; background: rgba(0,200,100,0.2); border-color: rgba(0,200,100,0.5);" onclick="downloadModel('${m.timestamp}')">⬇️ 다운로드</button></td>
+                    <td style="vertical-align: middle; text-align: center;"><button class="btn-danger" style="padding: 4px 10px; font-size: 11px; background: rgba(255,82,82,0.2); border-color: rgba(255,82,82,0.5);" onclick="deleteModel('${m.timestamp}')">🗑️ 삭제</button></td>
                 `;
                 tbody.appendChild(tr);
             });
@@ -5726,6 +5934,39 @@ async def websocket_handler(websocket):
                             "msg": str(e)
                         }))
 
+                elif msg_type == 'delete_model':
+                    try:
+                        ts = data.get('timestamp')
+                        if ts:
+                            deleted_files = []
+                            json_file = f"models/lgbm_model_{ts}.json"
+                            txt_file = f"models/lgbm_model_{ts}.txt"
+                            if os.path.exists(json_file):
+                                os.remove(json_file)
+                                deleted_files.append(json_file)
+                            if os.path.exists(txt_file):
+                                os.remove(txt_file)
+                                deleted_files.append(txt_file)
+                            
+                            logging.info(f"🗑️ [모델 삭제] {ts} 버전 모델 파일 삭제 완료 ({deleted_files})")
+                            await safe_send(websocket, json.dumps({
+                                "type": "delete_model_result",
+                                "success": True,
+                                "msg": f"{ts} 버전 모델이 성공적으로 삭제되었습니다."
+                            }))
+                        else:
+                            await safe_send(websocket, json.dumps({
+                                "type": "delete_model_result",
+                                "success": False,
+                                "msg": "삭제할 모델 타임스탬프가 지정되지 않았습니다."
+                            }))
+                    except Exception as e:
+                        logging.error(f"❌ 모델 삭제 중 에러: {e}")
+                        await safe_send(websocket, json.dumps({
+                            "type": "delete_model_result",
+                            "success": False,
+                            "msg": f"모델 삭제 실패: {str(e)}"
+                        }))
 
                 elif msg_type == 'run_backtest':
                     start_date = data.get('start_date')
@@ -5947,6 +6188,33 @@ async def websocket_handler(websocket):
                     logging.info("🔄 [앱 재시작] 사용자 요청으로 파이썬 프로세스를 재시작합니다...")
                     await safe_send(websocket, json.dumps({"type": "restart_system_result", "success": True}))
                     os.execv(sys.executable, [sys.executable] + sys.argv)
+                elif msg_type == 'trigger_swing_condition_search':
+                    cond_name = data.get('condition_name') or '스윙_저가매수'
+                    logging.info(f"🔍 [스윙 수동 조작] 수동 조건검색 요청 수신: '{cond_name}'")
+                    if hasattr(app, 'swing_manager') and app.swing_manager:
+                        from utils import create_fire_and_forget_task
+                        create_fire_and_forget_task(app.swing_manager._fetch_swing_candidates())
+                        await safe_send(websocket, json.dumps({
+                            "type": "trigger_swing_condition_search_result",
+                            "success": True,
+                            "msg": f"'{cond_name}' 조건검색 조회를 요청했습니다."
+                        }))
+                elif msg_type == 'get_swing_trade_history':
+                    records = []
+                    if hasattr(app, 'db_manager') and app.db_manager:
+                        records = await app.db_manager.get_swing_trade_records(limit=100)
+                    await safe_send(websocket, json.dumps({
+                        "type": "swing_trade_history",
+                        "records": records
+                    }))
+                elif msg_type == 'get_trade_history':
+                    records = []
+                    if hasattr(app, 'db_manager') and app.db_manager:
+                        records = await app.db_manager.get_trade_records(limit=100)
+                    await safe_send(websocket, json.dumps({
+                        "type": "trade_history",
+                        "records": records
+                    }))
                 elif msg_type == 'get_strategy_detail':
                     strategy_name = data.get('strategy', '').strip()
                     from config_manager import EnvConfigParser
