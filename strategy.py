@@ -390,18 +390,30 @@ class KiwoomStrategy:
 
                 strategy_name_in_config = strategy_name
 
-                # 개별 전략 섹션에서 매수 조건 가져오기
+                # 개별 전략 섹션에서 매수 조건 가져오기 (JSON 배열 구조 1순위 파싱 후 레거시 fallback)
                 if strategy_name_in_config in self.strategy_config:
                     strategy_conf = self.strategy_config[strategy_name_in_config]
-                    items = sorted([item for item in strategy_conf.items() if item[0].startswith('buy_stg_')], key=lambda x: int(x[0].split('_')[-1]))
-                    items.sort(key=lambda x: int(x[0].split('_')[-1]) if x[0].split('_')[-1].isdigit() else 999)
-                    for key, value in items:
+                    
+                    # 1순위: 단일 JSON 배열 키 (buy_strategy 또는 buy_strategies)
+                    raw_buy = strategy_conf.get('buy_strategy', strategy_conf.get('buy_strategies', ''))
+                    if raw_buy and isinstance(raw_buy, str) and raw_buy.strip().startswith('['):
                         try:
-                            strategy_data = json.loads(value)
-                            buy_strategies.append(strategy_data)
+                            buy_strategies = json.loads(raw_buy)
                         except json.JSONDecodeError:
-                            if is_first_check: # type: ignore
-                                self.logger.warning(f"⚠️ [{code}] 매수 로직 파싱 실패: {key}")
+                            if is_first_check:
+                                self.logger.warning(f"⚠️ [{code}] 매수 로직 JSON 배열 파싱 실패")
+
+                    # 2순위: 레거시 buy_stg_1, buy_stg_2 파싱 fallback
+                    if not buy_strategies:
+                        items = sorted([item for item in strategy_conf.items() if item[0].startswith('buy_stg_')], key=lambda x: int(x[0].split('_')[-1]) if x[0].split('_')[-1].isdigit() else 999)
+                        for key, value in items:
+                            try:
+                                strategy_data = json.loads(value)
+                                buy_strategies.append(strategy_data)
+                            except json.JSONDecodeError:
+                                if is_first_check:
+                                    self.logger.warning(f"⚠️ [{code}] 매수 로직 파싱 실패: {key}")
+
                     if buy_strategies and is_first_check:
                         self.logger.debug(f"✅ [{code}] strategy_config에서 매수 로직 {len(buy_strategies)}개 로드됨: {strategy_name_in_config}")
 
@@ -605,25 +617,37 @@ class KiwoomStrategy:
 
             strategy_name_in_config = strategy_name
             
-            # strategy_config에서 현재 전략의 매도 조건 가져오기
+            # strategy_config에서 현재 전략의 매도 조건 가져오기 (JSON 배열 구조 1순위 파싱 후 레거시 fallback)
             if strategy_name_in_config in self.strategy_config:
                 strategy_conf = self.strategy_config[strategy_name_in_config]
-                # sell_stg_로 시작하는 키들을 찾아서 파싱 (숫자 순서로 정렬)
-                sell_stg_items = [(key, value) for key, value in strategy_conf.items() if key.startswith('sell_stg_')]
-                # 숫자 순서로 정렬 (sell_stg_1, sell_stg_2, ... 순서)
-                sell_stg_items.sort(key=lambda x: int(x[0].split('_')[-1]) if x[0].split('_')[-1].isdigit() else 999)
                 executed_rules = self.trader.executed_sell_rules.get(code, set())
                 
-                for key, value in sell_stg_items:
+                # 1순위: 단일 JSON 배열 키 (sell_strategy 또는 sell_strategies)
+                raw_sell = strategy_conf.get('sell_strategy', strategy_conf.get('sell_strategies', ''))
+                if raw_sell and isinstance(raw_sell, str) and raw_sell.strip().startswith('['):
                     try:
-                        strategy_data = json.loads(value)
-                        rule_name = strategy_data.get('name', '')
-                        # 이미 발동된 이력이 있는 매도 룰은 전략 리스트에서 제외 (중복 방지)
-                        if rule_name and rule_name in executed_rules:
-                            continue
-                        sell_strategies.append(strategy_data)
+                        sell_list = json.loads(raw_sell)
+                        for stg_data in sell_list:
+                            rule_name = stg_data.get('name', '')
+                            if rule_name and rule_name in executed_rules:
+                                continue
+                            sell_strategies.append(stg_data)
                     except json.JSONDecodeError:
-                        self.logger.debug(f"매도 로직 파싱 실패 ({code}): {key}", exc_info=True)
+                        self.logger.debug(f"매도 로직 JSON 배열 파싱 실패 ({code})", exc_info=True)
+
+                # 2순위: 레거시 sell_stg_1, sell_stg_2 파싱 fallback
+                if not sell_strategies:
+                    sell_stg_items = [(key, value) for key, value in strategy_conf.items() if key.startswith('sell_stg_')]
+                    sell_stg_items.sort(key=lambda x: int(x[0].split('_')[-1]) if x[0].split('_')[-1].isdigit() else 999)
+                    for key, value in sell_stg_items:
+                        try:
+                            strategy_data = json.loads(value)
+                            rule_name = strategy_data.get('name', '')
+                            if rule_name and rule_name in executed_rules:
+                                continue
+                            sell_strategies.append(strategy_data)
+                        except json.JSONDecodeError:
+                            self.logger.debug(f"매도 로직 파싱 실패 ({code}): {key}", exc_info=True)
             
             # 현재 수익률 계산 (전략 평가 전에)
             current_price = market_data.get('current_price', 0)

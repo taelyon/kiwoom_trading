@@ -5733,22 +5733,30 @@ async def websocket_handler(websocket):
                     
                     if actual_section:
                         if config.has_section(actual_section):
-                            # .env에 전략이 존재하는 경우: 정상 파싱
-                            buy_items = [(k, v) for k, v in config.items(actual_section) if k.startswith('buy_stg_')]
-                            buy_items.sort(key=lambda x: int(x[0].split('_')[-1]) if x[0].split('_')[-1].isdigit() else 999)
-                            for k, v in buy_items:
-                                try:
-                                    buy_stgs.append(json.loads(v))
-                                except Exception as e:
-                                    logging.error(f"❌ JSON 파싱 에러 (매수 {k}): {e}")
-                                
-                            sell_items = [(k, v) for k, v in config.items(actual_section) if k.startswith('sell_stg_')]
-                            sell_items.sort(key=lambda x: int(x[0].split('_')[-1]) if x[0].split('_')[-1].isdigit() else 999)
-                            for k, v in sell_items:
-                                try:
-                                    sell_stgs.append(json.loads(v))
-                                except Exception as e:
-                                    logging.error(f"❌ JSON 파싱 에러 (매도 {k}): {e}")
+                            # 1순위: 단일 JSON 배열 키 조회 (통합 표준)
+                            raw_b = config.get(actual_section, 'buy_strategy', fallback='')
+                            raw_s = config.get(actual_section, 'sell_strategy', fallback='')
+                            if raw_b and raw_b.strip().startswith('['):
+                                try: buy_stgs = json.loads(raw_b)
+                                except Exception: pass
+                            if raw_s and raw_s.strip().startswith('['):
+                                try: sell_stgs = json.loads(raw_s)
+                                except Exception: pass
+
+                            # 2순위: 레거시 buy_stg_ / sell_stg_ 파싱 fallback
+                            if not buy_stgs:
+                                buy_items = [(k, v) for k, v in config.items(actual_section) if k.startswith('buy_stg_')]
+                                buy_items.sort(key=lambda x: int(x[0].split('_')[-1]) if x[0].split('_')[-1].isdigit() else 999)
+                                for k, v in buy_items:
+                                    try: buy_stgs.append(json.loads(v))
+                                    except Exception: pass
+
+                            if not sell_stgs:
+                                sell_items = [(k, v) for k, v in config.items(actual_section) if k.startswith('sell_stg_')]
+                                sell_items.sort(key=lambda x: int(x[0].split('_')[-1]) if x[0].split('_')[-1].isdigit() else 999)
+                                for k, v in sell_items:
+                                    try: sell_stgs.append(json.loads(v))
+                                    except Exception: pass
                         else:
                             # .env에 전략이 없는 경우: 섹션만 생성 후 저장
                             logging.info(f"📝 [{strategy_name}] 전략 섹션이 없어 생성합니다.")
@@ -5855,7 +5863,11 @@ async def websocket_handler(websocket):
                                 sell_data = json.loads(sell_json) if sell_json else []
                                 
                                 if isinstance(buy_data, list) and isinstance(sell_data, list):
-                                    # 기존 stg 옵션들 전체 제거
+                                    # 1순위: 단일 콤팩트 JSON 배열 키도 저장 (스윙 매매와 규격 100% 통합)
+                                    config.set(actual_section, 'buy_strategy', json.dumps(buy_data, ensure_ascii=False))
+                                    config.set(actual_section, 'sell_strategy', json.dumps(sell_data, ensure_ascii=False))
+
+                                    # 2순위: 레거시 buy_stg_ / sell_stg_ 옵션도 하위 호환 갱신
                                     options_to_del = [opt for opt in config.options(actual_section) 
                                                       if opt.startswith('buy_stg_') or opt.startswith('sell_stg_')]
                                     for opt in options_to_del:
