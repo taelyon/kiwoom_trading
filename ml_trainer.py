@@ -52,7 +52,7 @@ class MLTrainingWorker(threading.Thread):
             'bagging_fraction': 0.7,
             'bagging_freq': 5,
             'verbose': -1,
-            'min_data_in_leaf': 200,
+            'min_data_in_leaf': 50,
             'lambda_l1': 0.1,
             'lambda_l2': 1.0,
             'is_unbalance': True,
@@ -347,16 +347,21 @@ class MLTrainingWorker(threading.Thread):
                 if self.params['num_leaves'] > max_leaves:
                     self.params['num_leaves'] = max_leaves
             
+            # LightGBM 데이터셋 생성
+            train_data = lgb.Dataset(X_train, label=y_train)
+            val_data = lgb.Dataset(X_val, label=y_val, reference=train_data)
+            
             # 주요 파라미터 요약 출력
             param_summary = (
-                f"⚙️ [ML 주요 파라미터] "
-                f"부스팅 라운드: {self.num_boost_round}회 | "
-                f"학습률(LR): {self.params.get('learning_rate', 0.02)} | "
-                f"최대 리프 수: {self.params.get('num_leaves', 16)} | "
-                f"리프 당 최소 데이터: {self.params.get('min_data_in_leaf', 30)} | "
-                f"피처 샘플링: {self.params.get('feature_fraction', 0.7)} | "
-                f"배깅 샘플링: {self.params.get('bagging_fraction', 0.7)} | "
-                f"클래스 불균형 보정: {self.params.get('is_unbalance', True)}"
+                f"⚙️ [ML 주요 파라미터 적용] "
+                f"Max Trees: {self.num_boost_round} | "
+                f"Learning Rate: {self.params.get('learning_rate', 0.02)} | "
+                f"Max Depth: {self.params.get('max_depth', 4)} | "
+                f"Num Leaves: {self.params.get('num_leaves', 16)} | "
+                f"Min Data In Leaf: {self.params.get('min_data_in_leaf', 50)} | "
+                f"L1 Penalty: {self.params.get('lambda_l1', 0.1)} | "
+                f"L2 Penalty: {self.params.get('lambda_l2', 1.0)} | "
+                f"불균형 보정: {self.params.get('is_unbalance', True)}"
             )
             self.progress_signal.emit(param_summary)
             self.logger.info(param_summary)
