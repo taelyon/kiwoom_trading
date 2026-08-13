@@ -3041,24 +3041,6 @@ HTML_CONTENT = """
                     }).join('');
                 }
             }
-
-            // 스윙 조건검색 후보 종목 배지 업데이트
-            const swingBadges = document.getElementById('swingCandidateBadges');
-            if (swingBadges) {
-                const candidates = data.swing_candidates || [];
-                if (candidates.length === 0) {
-                    swingBadges.innerHTML = `<div class="no-data">매일 15:15 조건검색 수신 또는 수동 조회를 실행하세요.</div>`;
-                } else {
-                    swingBadges.innerHTML = candidates.map(stock => {
-                        return `
-                            <div class="monitoring-badge" onclick="subscribeStockChart('${stock.code}', '${stock.name}')" style="cursor: pointer; border-color: rgba(100, 255, 218, 0.4); background: rgba(100, 255, 218, 0.1);">
-                                <span style="font-size: 13px; font-weight: bold; color: #64ffda;">${stock.name}</span>
-                                <span style="font-size: 11px; color: var(--text-secondary);">(${stock.code})</span>
-                            </div>
-                        `;
-                    }).join('');
-                }
-            }
         }
 
         // 수동 스윙 조건검색 요청 함수
