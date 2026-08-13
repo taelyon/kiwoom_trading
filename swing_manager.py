@@ -193,7 +193,7 @@ class SwingManager:
                     break
 
             if target_index is not None:
-                # 조건검색 요청 전송 (키움 Open API 표준 패킷)
+                # 조건검색 요청 전송 (search_type: 0 = 일반조회, 실시간 등록 안 함)
                 await ws_client.send_message({
                     'trnm': 'CNSRREQ',
                     'seq': str(target_index),
@@ -203,6 +203,18 @@ class SwingManager:
                     'next_key': ''
                 })
                 self.logger.info(f"✅ [스윙 수동/자동] '{self.condition_name}' (Seq: {target_index}) 검색 요청 완료")
+
+                # 혹시 이전에 실시간 등록이 되어 있을 경우 즉시 해제
+                # (CNSRREQ search_type:1 이 이미 등록된 경우를 대비한 안전 해제)
+                await asyncio.sleep(1.0)
+                try:
+                    await ws_client.send_message({
+                        'trnm': 'CNSRCLR',
+                        'seq': str(target_index)
+                    })
+                    self.logger.info(f"🔕 [스윙] 조건검색 실시간 구독 해제 완료 (Seq: {target_index})")
+                except Exception as clr_err:
+                    self.logger.warning(f"⚠️ 조건검색 실시간 해제 실패 (무시): {clr_err}")
             else:
                 self.logger.warning(f"⚠️ [스윙 수동/자동] 조건검색식 '{self.condition_name}'을 찾을 수 없습니다. (현재 수신된 키움 조건식: {len(cond_list)}개)")
 
@@ -273,36 +285,62 @@ class SwingManager:
         self.final_buy_targets = selected_targets[:available_slots]
 
     async def _fetch_daily_candles(self, code: str) -> pd.DataFrame:
-        """키움 REST API opt10081 (주식일봉차트조회) 호출"""
+        """키움 REST API ka10081 (주식일봉차트조회) 호출"""
         try:
-            client = getattr(self.parent.trader, 'client', None)
-            if not client:
+            # KiwoomRestClient 참조 확보 (trader.client 또는 login_handler.kiwoom_client)
+            client = None
+            if hasattr(self.parent, 'trader') and self.parent.trader:
+                client = getattr(self.parent.trader, 'client', None)
+            if client is None and hasattr(self.parent, 'login_handler') and self.parent.login_handler:
+                client = getattr(self.parent.login_handler, 'kiwoom_client', None)
+            if client is None:
+                self.logger.warning(f"⚠️ [스윙] 일봉 조회 불가: REST 클라이언트 없음 ({code})")
                 return None
 
-            resp = await client.request_opt10081_async(code, date="", orig_type="1")
-            if not resp or 'output' not in resp:
+            resp = await client.get_stock_daily_chart(code, base_dt='', cont_yn='N', next_key='')
+            if not resp or resp.get('return_code', -1) != 0:
+                self.logger.warning(f"⚠️ [스윙] 일봉 응답 에러 ({code}): {resp.get('return_msg', 'N/A')}")
                 return None
 
-            items = resp['output']
+            # ka10081 응답 필드: output 리스트 내 stk_bsic_info(기본) 또는 stk_dt_pole_chart_qry(일봉) 키
+            items = resp.get('output', resp.get('stk_dt_pole_chart_qry', []))
             if not items:
+                self.logger.warning(f"⚠️ [스윙] 일봉 데이터 없음 ({code})")
                 return None
 
             rows = []
-            for item in items[:60]: # 최근 60일
-                rows.append({
-                    'datetime': item.get('일자'),
-                    'open': float(item.get('시가', 0)),
-                    'high': float(item.get('고가', 0)),
-                    'low': float(item.get('저가', 0)),
-                    'close': float(item.get('현재가', 0)),
-                    'volume': int(item.get('거래량', 0))
-                })
+            for item in items[:60]:  # 최근 60일
+                # ka10081 응답 필드명: bass_dt(일자), opn_pric(시가), hgst_pric(고가), lwst_pric(저가), cur_prc(현재가/종가), trde_qty(거래량)
+                try:
+                    dt = item.get('bass_dt') or item.get('일자') or item.get('dt') or ''
+                    open_p = abs(float(item.get('opn_pric') or item.get('시가') or 0))
+                    high_p = abs(float(item.get('hgst_pric') or item.get('고가') or 0))
+                    low_p = abs(float(item.get('lwst_pric') or item.get('저가') or 0))
+                    close_p = abs(float(item.get('cur_prc') or item.get('현재가') or 0))
+                    vol = int(float(item.get('trde_qty') or item.get('거래량') or 0))
+                    if dt and close_p > 0:
+                        rows.append({
+                            'datetime': dt,
+                            'open': open_p,
+                            'high': high_p,
+                            'low': low_p,
+                            'close': close_p,
+                            'volume': vol
+                        })
+                except (ValueError, TypeError):
+                    continue
+
+            if not rows:
+                self.logger.warning(f"⚠️ [스윙] 파싱 가능한 일봉 데이터 없음 ({code})")
+                return None
+
             df = pd.DataFrame(rows)
             df.sort_values(by='datetime', ascending=True, inplace=True)
+            df.reset_index(drop=True, inplace=True)
+            self.logger.info(f"✅ [스윙] 일봉 데이터 조회 완료: {code} ({len(df)}일)")
             return df
         except Exception as e:
             self.logger.error(f"❌ 일봉 데이터 조회 에러 ({code}): {e}")
-            return None
 
     async def _execute_swing_buy_orders(self):
         """15:28:00 확정 종목 옵션 A (15:28 시장가 주문 제출) 실행"""

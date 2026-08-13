@@ -559,10 +559,37 @@ class KiwoomWebSocketClient:
             
             # 1. 스윙 매니저 후보 목록 업데이트
             if hasattr(self, 'parent') and self.parent:
+                swing_seq = None
                 if hasattr(self.parent, 'swing_manager') and self.parent.swing_manager:
                     from utils import create_fire_and_forget_task
-                    create_fire_and_forget_task(self.parent.swing_manager.set_candidate_codes(codes))
-                    self.logger.info(f"📈 [스윙 매매] 조건검색 결과 {len(codes)}개 종목이 스윙 후보 리스트에 등록되었습니다.")
+
+                    # 스윙 조건검색식의 seq 확인
+                    swing_cond_name = getattr(self.parent.swing_manager, 'condition_name', None)
+                    cond_list = getattr(self.parent, 'condition_search_list', []) or []
+                    for cond in cond_list:
+                        title = str(cond.get('title', '')).strip()
+                        if swing_cond_name and (title == swing_cond_name or swing_cond_name in title or title in swing_cond_name):
+                            swing_seq = str(cond.get('seq', ''))
+                            break
+
+                    if swing_seq and seq.strip() == swing_seq.strip():
+                        # 스윙 조건검색 응답임 → 후보 등록 및 실시간 구독 즉시 해제
+                        create_fire_and_forget_task(self.parent.swing_manager.set_candidate_codes(codes))
+                        self.logger.info(f"📈 [스윙 매매] 조건검색 결과 {len(codes)}개 종목이 스윙 후보 리스트에 등록되었습니다.")
+
+                        # 실시간 조건검색이 등록되어 있을 경우 즉시 해제 (반복 수신 방지)
+                        async def _cancel_swing_realtime(s):
+                            try:
+                                ws_cli = getattr(self.parent.login_handler, 'websocket_client', None)
+                                if ws_cli and ws_cli.connected:
+                                    await ws_cli.send_message({'trnm': 'CNSRCLR', 'seq': str(s)})
+                                    self.logger.info(f"🔕 [스윙] 실시간 조건검색 구독 해제 완료 (Seq: {s})")
+                            except Exception as clr_err:
+                                self.logger.warning(f"⚠️ 스윙 실시간 해제 실패 (무시): {clr_err}")
+                        create_fire_and_forget_task(_cancel_swing_realtime(swing_seq))
+                    else:
+                        # 초단타 조건검색 응답 → 기존 처리
+                        pass
 
                 # 2. 웹 대시보드 상태 동기화 트리거
                 if hasattr(self.parent, 'update_stock_table'):
