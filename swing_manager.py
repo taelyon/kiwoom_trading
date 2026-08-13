@@ -181,12 +181,15 @@ class SwingManager:
                 self.logger.warning("⚠️ 웹소켓 미연결로 조건검색 수신 불가")
                 return
 
-            # 조건검색 목록에서 지정된 조건식 index 찾기
-            cond_list = getattr(self.parent, 'condition_search_list', [])
+            # 조건검색 목록에서 지정된 조건식 seq 찾기
+            cond_list = getattr(self.parent, 'condition_search_list', []) or []
             target_index = None
             for cond in cond_list:
-                if cond.get('title') == self.condition_name:
-                    target_index = cond.get('index')
+                title = str(cond.get('title', '')).strip()
+                target_cond = str(self.condition_name).strip()
+                if title == target_cond or target_cond in title or title in target_cond:
+                    target_index = cond.get('seq') if cond.get('seq') is not None else cond.get('index')
+                    self.logger.info(f"✅ 스윙 조건검색식 매칭 성공: '{title}' (Seq: {target_index})")
                     break
 
             if target_index is not None:
@@ -196,9 +199,9 @@ class SwingManager:
                     'seq': target_index,
                     'search_type': '0' # 일반조회
                 })
-                self.logger.info(f"✅ [스윙 15:15] '{self.condition_name}' (Seq: {target_index}) 검색 요청 완료")
+                self.logger.info(f"✅ [스윙 수동/자동] '{self.condition_name}' (Seq: {target_index}) 검색 요청 완료")
             else:
-                self.logger.warning(f"⚠️ [스윙 15:15] 조건검색식 '{self.condition_name}'을 찾을 수 없습니다. (전체 보유종목 기반 평가 진행)")
+                self.logger.warning(f"⚠️ [스윙 수동/자동] 조건검색식 '{self.condition_name}'을 찾을 수 없습니다. (현재 수신된 키움 조건식: {len(cond_list)}개)")
 
         except Exception as e:
             self.logger.error(f"❌ 스윙 조건검색 수신 오류: {e}")
