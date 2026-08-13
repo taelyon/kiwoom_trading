@@ -353,17 +353,29 @@ class MLTrainingWorker(threading.Thread):
             
             self.progress_signal.emit("🤖 [ML] LightGBM 모델 학습 시작...")
             
-            # 모델 학습 (최소 트리가 형성되도록 조기 종료 보정)
+            # 모델 학습 (조기 종료 및 1~3개 트리 조기 멈춤 방지)
             model = lgb.train(
                 self.params,
                 train_data,
                 num_boost_round=self.num_boost_round,
                 valid_sets=[train_data, val_data],
                 callbacks=[
-                    lgb.early_stopping(stopping_rounds=50, min_delta=0.0001, verbose=False),
+                    lgb.early_stopping(stopping_rounds=80, verbose=False),
                     lgb.log_evaluation(period=100) 
                 ]
             )
+            
+            # [방어 로직] Validation 데이터 변동성으로 트리가 10개 미만으로 일찍 멈춘 경우, 풀 데이터셋 100회 라운드로 자동 변환 학습
+            if model.num_trees() < 10:
+                self.logger.info("⚠️ Validation Early-stopping이 3회 이하 조기 발동하여, 전체 데이터셋으로 100회 라운드 풀 학습을 재실행합니다.")
+                self.progress_signal.emit("🤖 [ML] 다중 트리 형성을 위한 풀 데이터셋 100회 라운드 재학습 진행 중...")
+                full_dataset = lgb.Dataset(X, label=y)
+                model = lgb.train(
+                    self.params,
+                    full_dataset,
+                    num_boost_round=100,
+                    callbacks=[lgb.log_evaluation(period=100)]
+                )
             
             self.progress_signal.emit("💾 [ML] 모델 히스토리 파일 저장 중...")
             # 검증 성능(AUC) 가져오기
