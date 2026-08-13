@@ -308,6 +308,10 @@ class SwingManager:
                     low_p = abs(float(item.get('low_pric') or 0))
                     close_p = abs(float(item.get('cur_prc') or 0))
                     vol = int(float(item.get('trde_qty') or 0))
+                    amt = abs(float(item.get('trde_prica') or 0))
+                    if amt == 0 and close_p > 0 and vol > 0:
+                        amt = float(close_p * vol)
+
                     if dt and close_p > 0:
                         rows.append({
                             'code': code,
@@ -316,7 +320,8 @@ class SwingManager:
                             'high': high_p,
                             'low': low_p,
                             'close': close_p,
-                            'volume': vol
+                            'volume': vol,
+                            'amount': amt
                         })
                 except (ValueError, TypeError):
                     continue
@@ -382,14 +387,20 @@ class SwingManager:
                     low_p = abs(float(item.get('low_pric') or 0))
                     close_p = abs(float(item.get('cur_prc') or 0))
                     vol = int(float(item.get('trde_qty') or 0))
+                    amt = abs(float(item.get('trde_prica') or 0))
+                    if amt == 0 and close_p > 0 and vol > 0:
+                        amt = float(close_p * vol)
+
                     if dt and close_p > 0:
                         rows.append({
+                            'code': code,
                             'datetime': dt,
                             'open': open_p,
                             'high': high_p,
                             'low': low_p,
                             'close': close_p,
-                            'volume': vol
+                            'volume': vol,
+                            'amount': amt
                         })
                 except (ValueError, TypeError):
                     continue
