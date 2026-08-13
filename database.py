@@ -909,67 +909,111 @@ class AsyncDatabaseManager:
         return executed_strategies
 
     async def get_db_summary(self):
-        """웹 대시보드 표시용 데이터베이스 요약 정보 조회"""
-        result = {"summary": [], "recent_records": []}
+        """웹 대시보드 표시용 데이터베이스 요약 정보 조회 (초단타 vs 스윙 분리)"""
+        result = {
+            "scalp": {"summary": [], "recent_records": [], "trade_count": 0},
+            "swing": {"summary": [], "recent_records": [], "trade_count": 0, "holdings_count": 0},
+            "summary": [],
+            "recent_records": []
+        }
         try:
             if self._conn is None:
                 await self.init_database()
             async with self._db_lock:
                 cursor = await self._conn.cursor()
-                # 테이블 존재 여부 확인
+
+                # --- 1. 초단타매매 (stock_data) 정보 ---
                 await cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='stock_data'")
-                if not await cursor.fetchone():
-                    return result
-                
-                await cursor.execute('''
-                    SELECT code, COUNT(*) as row_count, MIN(datetime) as min_dt, MAX(datetime) as max_dt
-                    FROM stock_data
-                    GROUP BY code
-                    ORDER BY max_dt DESC
-                ''')
-                rows = await cursor.fetchall()
-                for row in rows:
-                    result["summary"].append({
-                        "code": row[0],
-                        "row_count": row[1],
-                        "start_date": row[2],
-                        "end_date": row[3]
-                    })
-                
-                # 최근 10개 레코드 조회 (모든 컬럼 포함하되 레거시는 제외)
-                await cursor.execute('''
-                    SELECT *
-                    FROM stock_data
-                    ORDER BY datetime DESC
-                    LIMIT 10
-                ''')
-                columns = [desc[0] for desc in cursor.description]
-                recent_rows = await cursor.fetchall()
-                for row in recent_rows:
-                    record_dict = dict(zip(columns, row))
-                    # 레거시 tic_ 컬럼들은 결과에서 제거 (tick_ 로 대체됨), 폐기된 tick_rsi 제외
-                    filtered_dict = {k: v for k, v in record_dict.items() if not (k.startswith('tic_') and not k.startswith('tick_')) and k != 'tick_rsi'}
-                    
-                    # UI에 보여질 컬럼 순서 재정렬 (가독성 향상)
-                    def sort_key(k):
-                        if k == 'code': return (0, 0)
-                        if k == 'datetime': return (0, 1)
-                        if k.startswith('tick_'):
-                            base = ['open', 'high', 'low', 'close', 'volume', 'buy_volume', 'sell_volume', 'strength', 'velocity', 'last_tic_cnt']
-                            for i, b in enumerate(base):
-                                if k == f'tick_{b}': return (1, i)
-                            return (2, k)  # 나머지 tick_ 지표들
-                        if k.startswith('min3_'):
-                            base = ['open', 'high', 'low', 'close', 'volume']
-                            for i, b in enumerate(base):
-                                if k == f'min3_{b}': return (3, i)
-                            return (4, k)  # 나머지 min3_ 지표들
-                        if k == 'created_at': return (9, 0)
-                        return (8, k)
-                    
-                    sorted_dict = {k: filtered_dict[k] for k in sorted(filtered_dict.keys(), key=sort_key)}
-                    result["recent_records"].append(sorted_dict)
-                    
+                if await cursor.fetchone():
+                    await cursor.execute('''
+                        SELECT code, COUNT(*) as row_count, MIN(datetime) as min_dt, MAX(datetime) as max_dt
+                        FROM stock_data
+                        GROUP BY code
+                        ORDER BY max_dt DESC
+                    ''')
+                    rows = await cursor.fetchall()
+                    for row in rows:
+                        item = {
+                            "code": row[0],
+                            "row_count": row[1],
+                            "start_date": row[2],
+                            "end_date": row[3]
+                        }
+                        result["scalp"]["summary"].append(item)
+                        result["summary"].append(item)
+
+                    await cursor.execute('''
+                        SELECT * FROM stock_data ORDER BY datetime DESC LIMIT 10
+                    ''')
+                    columns = [desc[0] for desc in cursor.description]
+                    recent_rows = await cursor.fetchall()
+                    for row in recent_rows:
+                        record_dict = dict(zip(columns, row))
+                        filtered_dict = {k: v for k, v in record_dict.items() if not (k.startswith('tic_') and not k.startswith('tick_')) and k != 'tick_rsi'}
+                        def sort_key(k):
+                            if k == 'code': return (0, 0)
+                            if k == 'datetime': return (0, 1)
+                            if k.startswith('tick_'):
+                                base = ['open', 'high', 'low', 'close', 'volume', 'buy_volume', 'sell_volume', 'strength', 'velocity', 'last_tic_cnt']
+                                for i, b in enumerate(base):
+                                    if k == f'tick_{b}': return (1, i)
+                                return (2, k)
+                            if k.startswith('min3_'):
+                                base = ['open', 'high', 'low', 'close', 'volume']
+                                for i, b in enumerate(base):
+                                    if k == f'min3_{b}': return (3, i)
+                                return (4, k)
+                            if k == 'created_at': return (9, 0)
+                            return (8, k)
+                        sorted_dict = {k: filtered_dict[k] for k in sorted(filtered_dict.keys(), key=sort_key)}
+                        result["scalp"]["recent_records"].append(sorted_dict)
+                        result["recent_records"].append(sorted_dict)
+
+                # 초단타 매매 이력 건수
+                await cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='trade_records'")
+                if await cursor.fetchone():
+                    await cursor.execute("SELECT COUNT(*) FROM trade_records")
+                    cnt = await cursor.fetchone()
+                    result["scalp"]["trade_count"] = cnt[0] if cnt else 0
+
+                # --- 2. 스윙매매 (daily_candles, swing_holdings, swing_trade_records) 정보 ---
+                await cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='daily_candles'")
+                if await cursor.fetchone():
+                    await cursor.execute('''
+                        SELECT code, COUNT(*) as row_count, MIN(datetime) as min_dt, MAX(datetime) as max_dt
+                        FROM daily_candles
+                        GROUP BY code
+                        ORDER BY max_dt DESC
+                    ''')
+                    sw_rows = await cursor.fetchall()
+                    for row in sw_rows:
+                        result["swing"]["summary"].append({
+                            "code": row[0],
+                            "row_count": row[1],
+                            "start_date": row[2],
+                            "end_date": row[3]
+                        })
+
+                    await cursor.execute('''
+                        SELECT code, datetime, open, high, low, close, volume FROM daily_candles ORDER BY datetime DESC LIMIT 10
+                    ''')
+                    sw_columns = [desc[0] for desc in cursor.description]
+                    sw_recent = await cursor.fetchall()
+                    for row in sw_recent:
+                        result["swing"]["recent_records"].append(dict(zip(sw_columns, row)))
+
+                await cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='swing_holdings'")
+                if await cursor.fetchone():
+                    await cursor.execute("SELECT COUNT(*) FROM swing_holdings")
+                    sh_cnt = await cursor.fetchone()
+                    result["swing"]["holdings_count"] = sh_cnt[0] if sh_cnt else 0
+
+                await cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='swing_trade_records'")
+                if await cursor.fetchone():
+                    await cursor.execute("SELECT COUNT(*) FROM swing_trade_records")
+                    st_cnt = await cursor.fetchone()
+                    result["swing"]["trade_count"] = st_cnt[0] if st_cnt else 0
+
         except Exception as e:
             self.logger.error(f"DB 요약 조회 실패: {e}")
         return result

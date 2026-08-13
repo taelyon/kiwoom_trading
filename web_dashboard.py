@@ -2703,87 +2703,22 @@ HTML_CONTENT = """
                         tbody.appendChild(row);
                     });
                 } else if (data.type === 'db_summary_result') {
-                    const tbody = document.getElementById('dbSummaryTbody');
-                    const recentTbody = document.getElementById('dbRecentTbody');
-                    if (tbody) {
-                        tbody.innerHTML = '';
-                        if (!data.summary || !data.summary.summary || data.summary.summary.length === 0) {
-                            tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 20px;">저장된 데이터가 없습니다.</td></tr>';
-                        } else {
-                            data.summary.summary.forEach(item => {
-                                const row = document.createElement('tr');
-                                row.innerHTML = `
-                                    <td style="text-align: center; font-weight: bold; color: var(--accent-cyan);">${item.code}</td>
-                                    <td style="text-align: right; font-weight: bold;">${Number(item.row_count).toLocaleString()}개</td>
-                                    <td style="text-align: center; color: var(--text-secondary);">${item.start_date}</td>
-                                    <td style="text-align: center; color: var(--text-secondary);">${item.end_date}</td>
-                                `;
-                                tbody.appendChild(row);
-                            });
-                        }
+                    lastDbSummaryData = data;
+                    
+                    // 탭 상단 배지 갱신
+                    const badgeScalp = document.getElementById('badgeDbScalp');
+                    const badgeSwing = document.getElementById('badgeDbSwing');
+                    
+                    if (data.summary && data.summary.scalp) {
+                        const scalpCnt = (data.summary.scalp.summary || []).length;
+                        if (badgeScalp) badgeScalp.innerText = `${scalpCnt}개`;
                     }
-                    const recentThead = document.getElementById('dbRecentThead');
-                    if (recentTbody && recentThead) {
-                        recentTbody.innerHTML = '';
-                        recentThead.innerHTML = '';
-                        if (!data.summary || !data.summary.recent_records || data.summary.recent_records.length === 0) {
-                            recentTbody.innerHTML = '<tr><td style="text-align: center; padding: 20px;">저장된 데이터가 없습니다.</td></tr>';
-                        } else {
-                            const records = data.summary.recent_records;
-                            const columns = Object.keys(records[0]);
-                            
-                            // 1. thead 생성
-                            const trHead = document.createElement('tr');
-                            columns.forEach(col => {
-                                const th = document.createElement('th');
-                                th.style.textAlign = "center";
-                                th.style.color = "var(--accent-cyan)";
-                                th.style.whiteSpace = "nowrap";
-                                th.style.padding = "10px";
-                                th.innerText = col;
-                                trHead.appendChild(th);
-                            });
-                            recentThead.appendChild(trHead);
-                            
-                            // 2. tbody 생성
-                            records.forEach(item => {
-                                const trBody = document.createElement('tr');
-                                columns.forEach(col => {
-                                    const td = document.createElement('td');
-                                    td.style.whiteSpace = "nowrap";
-                                    td.style.padding = "10px";
-                                    if (col === 'code') {
-                                        td.style.textAlign = 'center';
-                                        td.style.fontWeight = 'bold';
-                                        td.style.color = 'var(--accent-cyan)';
-                                    } else if (col === 'datetime') {
-                                        td.style.textAlign = 'center';
-                                        td.style.color = 'var(--text-secondary)';
-                                    } else {
-                                        td.style.textAlign = 'right';
-                                    }
-                                    
-                                    let val = item[col];
-                                    if (val !== null && typeof val === 'number') {
-                                        if (col === 'tick_tail_ratio') {
-                                            val = val.toFixed(2);
-                                        } else if (val % 1 !== 0) {
-                                            if (col === 'market_kosdaq_roc' || col === 'tick_impulse' || col === 'tick_price_roc') {
-                                                val = val.toFixed(4);
-                                            } else {
-                                                val = val.toFixed(2);
-                                            }
-                                        } else {
-                                            val = val.toLocaleString();
-                                        }
-                                    }
-                                    td.innerText = val !== null ? val : '-';
-                                    trBody.appendChild(td);
-                                });
-                                recentTbody.appendChild(trBody);
-                            });
-                        }
+                    if (data.summary && data.summary.swing) {
+                        const swingCnt = (data.summary.swing.summary || []).length;
+                        if (badgeSwing) badgeSwing.innerText = `${swingCnt}개`;
                     }
+                    
+                    renderDbSummaryContent(data, currentDbSummaryTab);
                 } else if (data.type === 'kiwoom_history_data') {
                     const thead = document.getElementById('tradeHistoryHead');
                     if (thead) {
@@ -4786,11 +4721,150 @@ HTML_CONTENT = """
             }
         }
 
-        // 주식 데이터(stock_data) 초기화 확인창
+        let lastDbSummaryData = null;
+        let currentDbSummaryTab = 'scalp';
+
         function showDbSummaryModal() {
             document.getElementById('dbSummaryModal').style.display = 'flex';
             document.getElementById('dbSummaryTbody').innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 20px;">불러오는 중...</td></tr>';
+            document.getElementById('dbRecentTbody').innerHTML = '<tr><td style="text-align: center; padding: 20px;">불러오는 중...</td></tr>';
             ws.send(JSON.stringify({ type: 'get_db_summary' }));
+        }
+
+        function switchDbSummaryTab(type) {
+            currentDbSummaryTab = type;
+            const btnScalp = document.getElementById('btnDbTabScalp');
+            const btnSwing = document.getElementById('btnDbTabSwing');
+            if (type === 'scalp') {
+                if (btnScalp) btnScalp.classList.add('active');
+                if (btnSwing) btnSwing.classList.remove('active');
+            } else {
+                if (btnSwing) btnSwing.classList.add('active');
+                if (btnScalp) btnScalp.classList.remove('active');
+            }
+            if (lastDbSummaryData) {
+                renderDbSummaryContent(lastDbSummaryData, type);
+            }
+        }
+
+        function renderDbSummaryContent(data, type) {
+            const tbody = document.getElementById('dbSummaryTbody');
+            const recentTbody = document.getElementById('dbRecentTbody');
+            const recentThead = document.getElementById('dbRecentThead');
+            const metaInfo = document.getElementById('dbSummaryMetaInfo');
+            const titleEl = document.getElementById('dbSummaryTitle');
+
+            let summaryObj = null;
+            if (data && data.summary) {
+                if (type === 'swing' && data.summary.swing) {
+                    summaryObj = data.summary.swing;
+                } else if (type === 'scalp' && data.summary.scalp) {
+                    summaryObj = data.summary.scalp;
+                } else if (data.summary.summary) {
+                    summaryObj = data.summary;
+                }
+            }
+
+            if (!summaryObj) {
+                if (tbody) tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 20px;">데이터가 없습니다.</td></tr>';
+                return;
+            }
+
+            if (metaInfo) {
+                if (type === 'swing') {
+                    const rowCnt = (summaryObj.summary || []).length;
+                    const tradeCnt = summaryObj.trade_count || 0;
+                    const holdCnt = summaryObj.holdings_count || 0;
+                    metaInfo.innerHTML = `📈 <b>스윙매매 DB 현황:</b> 일봉 수집 종목 <b style="color:#64ffda;">${rowCnt}개</b> | 보유 현황 <b style="color:#FFD700;">${holdCnt}개</b> | 완료된 스윙 매매이력 <b style="color:#00FFFF;">${tradeCnt}건</b>`;
+                } else {
+                    const rowCnt = (summaryObj.summary || []).length;
+                    const tradeCnt = summaryObj.trade_count || 0;
+                    metaInfo.innerHTML = `⚡ <b>초단타매매 DB 현황:</b> 실시간 틱/3분봉 보유 <b style="color:var(--accent-cyan);">${rowCnt}개 종목</b> | 실시간 매매이력 <b style="color:#FF1493;">${tradeCnt}건</b>`;
+                }
+            }
+
+            if (titleEl) {
+                titleEl.innerText = type === 'swing' ? '📋 스윙 종목별 일봉 데이터 요약' : '📋 초단타 종목별 데이터 요약';
+            }
+
+            if (tbody) {
+                tbody.innerHTML = '';
+                const list = summaryObj.summary || [];
+                if (list.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 20px;">저장된 데이터가 없습니다.</td></tr>';
+                } else {
+                    list.forEach(item => {
+                        const row = document.createElement('tr');
+                        row.innerHTML = `
+                            <td style="text-align: center; font-weight: bold; color: ${type==='swing'?'#64ffda':'var(--accent-cyan)'};">${item.code}</td>
+                            <td style="text-align: right; font-weight: bold;">${Number(item.row_count).toLocaleString()}개</td>
+                            <td style="text-align: center; color: var(--text-secondary);">${item.start_date}</td>
+                            <td style="text-align: center; color: var(--text-secondary);">${item.end_date}</td>
+                        `;
+                        tbody.appendChild(row);
+                    });
+                }
+            }
+
+            if (recentTbody && recentThead) {
+                recentTbody.innerHTML = '';
+                recentThead.innerHTML = '';
+                const records = summaryObj.recent_records || [];
+                if (records.length === 0) {
+                    recentTbody.innerHTML = '<tr><td style="text-align: center; padding: 20px;">저장된 데이터가 없습니다.</td></tr>';
+                } else {
+                    const columns = Object.keys(records[0]);
+                    
+                    const trHead = document.createElement('tr');
+                    columns.forEach(col => {
+                        const th = document.createElement('th');
+                        th.style.textAlign = "center";
+                        th.style.color = type==='swing'?'#64ffda':"var(--accent-cyan)";
+                        th.style.whiteSpace = "nowrap";
+                        th.style.padding = "10px";
+                        th.innerText = col;
+                        trHead.appendChild(th);
+                    });
+                    recentThead.appendChild(trHead);
+                    
+                    records.forEach(item => {
+                        const trBody = document.createElement('tr');
+                        columns.forEach(col => {
+                            const td = document.createElement('td');
+                            td.style.whiteSpace = "nowrap";
+                            td.style.padding = "10px";
+                            if (col === 'code') {
+                                td.style.textAlign = 'center';
+                                td.style.fontWeight = 'bold';
+                                td.style.color = type==='swing'?'#64ffda':'var(--accent-cyan)';
+                            } else if (col === 'datetime') {
+                                td.style.textAlign = 'center';
+                                td.style.color = 'var(--text-secondary)';
+                            } else {
+                                td.style.textAlign = 'right';
+                            }
+                            
+                            let val = item[col];
+                            if (val !== null && typeof val === 'number') {
+                                if (col === 'tick_tail_ratio') {
+                                    val = val.toFixed(2);
+                                } else if (val % 1 !== 0) {
+                                    if (col === 'market_kosdaq_roc' || col === 'tick_impulse' || col === 'tick_price_roc') {
+                                        val = val.toFixed(4);
+                                    } else {
+                                        val = val.toFixed(2);
+                                    }
+                                } else {
+                                    val = val.toLocaleString();
+                                }
+                            }
+                            td.innerText = (val !== undefined && val !== null) ? val : '-';
+                            trBody.appendChild(td);
+                        });
+                        recentTbody.appendChild(trBody);
+                    });
+                }
+            }
         }
 
         function confirmClearStockData() {
@@ -5224,13 +5298,33 @@ HTML_CONTENT = """
     
     <!-- 데이터베이스 보기 모달 -->
     <div id="dbSummaryModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 10000; align-items: flex-start; justify-content: center; padding-top: 5vh; backdrop-filter: blur(5px);">
-        <div style="background: var(--bg-dark); border: 1px solid var(--border-color); border-radius: 12px; width: 80%; max-width: 800px; max-height: 85vh; display: flex; flex-direction: column; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+        <div style="background: var(--bg-dark); border: 1px solid var(--border-color); border-radius: 12px; width: 85%; max-width: 900px; max-height: 85vh; display: flex; flex-direction: column; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
             <div style="padding: 16px 20px; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center;">
-                <h3 style="margin: 0; color: var(--text-primary); font-size: 16px;">📊 데이터베이스 (stock_data.db) 요약</h3>
+                <h3 style="margin: 0; color: var(--text-primary); font-size: 16px;">📊 데이터베이스 (stock_data.db) 요약 정보</h3>
                 <button onclick="document.getElementById('dbSummaryModal').style.display='none'" style="background: none; border: none; color: var(--text-secondary); font-size: 20px; cursor: pointer;">&times;</button>
             </div>
+
+            <!-- 매매 유형 구분 탭 (초단타 vs 스윙) -->
+            <div style="display: flex; gap: 8px; padding: 12px 20px 0 20px; border-bottom: 1px solid var(--border-color); background: rgba(255,255,255,0.02);">
+                <button id="btnDbTabScalp" class="chart-tab active" onclick="switchDbSummaryTab('scalp')" style="padding: 8px 16px; font-weight: bold; display: flex; align-items: center; gap: 6px;">
+                    ⚡ 초단타매매 DB (틱/3분봉)
+                    <span id="badgeDbScalp" style="font-size: 11px; background: rgba(0, 242, 254, 0.2); color: var(--accent-cyan); padding: 2px 6px; border-radius: 10px;">0개</span>
+                </button>
+                <button id="btnDbTabSwing" class="chart-tab" onclick="switchDbSummaryTab('swing')" style="padding: 8px 16px; font-weight: bold; display: flex; align-items: center; gap: 6px;">
+                    📈 스윙매매 DB (일봉)
+                    <span id="badgeDbSwing" style="font-size: 11px; background: rgba(100, 255, 218, 0.2); color: #64ffda; padding: 2px 6px; border-radius: 10px;">0개</span>
+                </button>
+            </div>
+
             <div style="padding: 0 20px 20px 20px; overflow-y: auto; flex: 1;">
-                <h4 style="margin: 20px 0 10px 0; color: var(--text-primary); font-size: 14px;">📋 종목별 데이터 요약</h4>
+                <!-- 부가 정보 요약 태그 -->
+                <div id="dbSummaryMetaInfo" style="margin-top: 12px; font-size: 13px; color: var(--text-secondary); background: rgba(255,255,255,0.03); padding: 10px 14px; border-radius: 8px;">
+                    초단타매매 데이터 불러오는 중...
+                </div>
+
+                <h4 style="margin: 16px 0 10px 0; color: var(--text-primary); font-size: 14px; display: flex; align-items: center; justify-content: space-between;">
+                    <span id="dbSummaryTitle">📋 종목별 데이터 요약</span>
+                </h4>
                 <table class="bt-trade-table" style="width: 100%; margin-bottom: 20px;">
                     <thead>
                         <tr>
