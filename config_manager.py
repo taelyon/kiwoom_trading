@@ -98,16 +98,16 @@ class EnvConfigParser:
         key = self._get_key(section, option)
         # 1. Exact match
         val = self._data.get(key, os.environ.get(key))
-        if val is not None:
+        if val is not None and str(val).strip() != '':
             return val
             
         # 2. Case-insensitive match (for manual .env edits like SETTINGS_prime_cash)
         key_upper = key.upper()
         for k, v in self._data.items():
-            if k.upper() == key_upper:
+            if k.upper() == key_upper and v is not None and str(v).strip() != '':
                 return v
         for k, v in os.environ.items():
-            if k.upper() == key_upper:
+            if k.upper() == key_upper and v is not None and str(v).strip() != '':
                 return v
                 
         return fallback

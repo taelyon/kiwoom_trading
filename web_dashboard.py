@@ -1759,6 +1759,11 @@ HTML_CONTENT = """
                 <div class="glass-card terminal-box">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
                         <div class="section-title" style="margin-bottom:0; color: #64ffda;">📈 실시간 스윙 매매 로그</div>
+                        <div class="log-filter-group" style="display: flex; gap: 6px;">
+                            <button id="btnSwingLogFilterAll" class="btn-primary log-filter-btn" style="padding: 3px 8px; font-size: 11px; background: rgba(100, 255, 218, 0.4); border-color: rgba(100, 255, 218, 0.8);" onclick="setSwingLogFilter('all')">전체</button>
+                            <button id="btnSwingLogFilterTrade" class="btn-primary log-filter-btn" style="padding: 3px 8px; font-size: 11px; background: rgba(255, 255, 255, 0.1); border-color: rgba(255, 255, 255, 0.2);" onclick="setSwingLogFilter('trade')">📈 매매이력</button>
+                            <button id="btnSwingLogFilterError" class="btn-primary log-filter-btn" style="padding: 3px 8px; font-size: 11px; background: rgba(255, 255, 255, 0.1); border-color: rgba(255, 255, 255, 0.2);" onclick="setSwingLogFilter('error')">⚠️ 경고/에러</button>
+                        </div>
                     </div>
                     <div id="swingTerminalBody" class="terminal-logs">
                         <div class="log-line"><span class="log-time">[00:00:00]</span> <span class="log-lvl-info">SWING</span> <span>스윙 매매 스케줄러 동작 중 (15:28 종가 매수 대기)</span></div>
@@ -2350,20 +2355,20 @@ HTML_CONTENT = """
                     console.log(`📥 [WS PROFILE] Dashboard UI 업데이트 완료 (소요: ${(statusRecvTime - statusRecvTime).toFixed(1)} ms)`);
                 } else if (data.type === 'log') {
                     appendLog(data);
-                    const container = document.getElementById('terminalBody');
-                    if (container) container.scrollTop = container.scrollHeight;
                 } else if (data.type === 'log_batch') {
                     if (data.logs && data.logs.length > 0) {
                         try {
                             const container = document.getElementById('terminalBody');
-                            if (container) container.innerHTML = ''; // 이전 DOM 초기화
+                            const swingContainer = document.getElementById('swingTerminalBody');
+                            if (container) container.innerHTML = ''; // 초단타 로그 DOM 초기화
+                            if (swingContainer) swingContainer.innerHTML = ''; // 스윙 로그 DOM 초기화
                             
                             data.logs.forEach(log => {
                                 appendLog(log, true);
                             });
                             
-                            // 배치 DOM 추가 완료 후 딱 1번만 스크롤 갱신
                             if (container) container.scrollTop = container.scrollHeight;
+                            if (swingContainer) swingContainer.scrollTop = swingContainer.scrollHeight;
                         } catch (e) {
                             console.error("배치 렌더링 실패:", e);
                         }
@@ -2983,19 +2988,62 @@ HTML_CONTENT = """
             }
         }
 
-        // 개별 로그 렌더링 함수
-        function renderLog(log) {
-            const container = document.getElementById('terminalBody');
+        let currentSwingLogFilter = 'all';
+
+        function setSwingLogFilter(filterType) {
+            currentSwingLogFilter = filterType;
+            const btnAll = document.getElementById('btnSwingLogFilterAll');
+            const btnTrade = document.getElementById('btnSwingLogFilterTrade');
+            const btnError = document.getElementById('btnSwingLogFilterError');
             
-            // 동일 ID를 가진 로그가 이미 화면에 출력되었는지 확인 (중복 출력 방지)
-            if (log.id && document.getElementById(`log-item-${log.id}`)) {
+            if (btnAll) btnAll.style.background = filterType === 'all' ? 'rgba(100, 255, 218, 0.4)' : 'rgba(255, 255, 255, 0.1)';
+            if (btnTrade) btnTrade.style.background = filterType === 'trade' ? 'rgba(100, 255, 218, 0.4)' : 'rgba(255, 255, 255, 0.1)';
+            if (btnError) btnError.style.background = filterType === 'error' ? 'rgba(100, 255, 218, 0.4)' : 'rgba(255, 255, 255, 0.1)';
+
+            const container = document.getElementById('swingTerminalBody');
+            if (container) {
+                const rows = container.getElementsByClassName('log-line');
+                for (let row of rows) {
+                    const txt = row.innerText || '';
+                    const isTrade = txt.includes('[BUY_SIGNAL]') || txt.includes('[SELL_SIGNAL]') || txt.includes('[ORDER_EXEC]') || txt.includes('매수') || txt.includes('매도');
+                    const isError = txt.includes('WARNING') || txt.includes('ERROR') || txt.includes('CRITICAL') || txt.includes('⚠️') || txt.includes('❌');
+
+                    if (filterType === 'all') {
+                        row.style.display = 'flex';
+                    } else if (filterType === 'trade') {
+                        row.style.display = isTrade ? 'flex' : 'none';
+                    } else if (filterType === 'error') {
+                        row.style.display = isError ? 'flex' : 'none';
+                    }
+                }
+                container.scrollTop = container.scrollHeight;
+            }
+        }
+
+        // 개별 로그 렌더링 함수 (초단타 매매 vs 스윙 매매 로그 자동 분리)
+        function renderLog(log) {
+            const txt = (log.message || '') + (log.name || '') + (log.level || '');
+            const isSwingLog = txt.includes('[스윙]') || 
+                               txt.includes('[스윙매매]') || 
+                               txt.includes('[스윙 매매]') || 
+                               txt.includes('[SWING]') || 
+                               txt.includes('스윙_') || 
+                               txt.includes('SwingManager') ||
+                               txt.includes('스윙');
+
+            const targetContainerId = isSwingLog ? 'swingTerminalBody' : 'terminalBody';
+            const container = document.getElementById(targetContainerId);
+            if (!container) return;
+
+            const elemId = log.id ? `log-item-${isSwingLog ? 'swing' : 'scalp'}-${log.id}` : null;
+            if (elemId && document.getElementById(elemId)) {
                 return;
             }
 
             const row = document.createElement('div');
             row.className = 'log-line';
-            if (log.id) {
-                row.id = `log-item-${log.id}`;
+            if (elemId) {
+                row.id = elemId;
             }
 
             let lvlClass = "log-lvl-info";
@@ -3003,13 +3051,14 @@ HTML_CONTENT = """
             else if (log.level === 'ERROR' || log.level === 'CRITICAL') lvlClass = "log-lvl-err";
             else if (log.level === 'DEBUG') lvlClass = "log-lvl-dbg";
 
-            const txt = (log.message || '') + (log.level || '');
             const isTrade = txt.includes('[BUY_SIGNAL]') || txt.includes('[SELL_SIGNAL]') || txt.includes('[ORDER_EXEC]') || txt.includes('매수') || txt.includes('매도');
             const isError = log.level === 'WARNING' || log.level === 'ERROR' || log.level === 'CRITICAL' || txt.includes('⚠️') || txt.includes('❌');
 
-            if (currentLogFilter === 'trade' && !isTrade) {
+            const activeFilter = isSwingLog ? currentSwingLogFilter : currentLogFilter;
+
+            if (activeFilter === 'trade' && !isTrade) {
                 row.style.display = 'none';
-            } else if (currentLogFilter === 'error' && !isError) {
+            } else if (activeFilter === 'error' && !isError) {
                 row.style.display = 'none';
             } else {
                 row.style.display = 'flex';
@@ -3022,8 +3071,7 @@ HTML_CONTENT = """
             `;
 
             container.appendChild(row);
-            
-            // 로그 개수 제한 없이 모든 실시간 매매 로그를 터미널 화면에 누적 표시합니다.
+            container.scrollTop = container.scrollHeight;
         }
 
         // 로컬 스토리지에 저장된 로그 불러와 출력 (현재 사용 안함)
@@ -3630,12 +3678,32 @@ HTML_CONTENT = """
             } else if (tabId === 'swing') {
                 if (document.getElementById('tabSwing')) document.getElementById('tabSwing').classList.add('active');
                 if (document.getElementById('swingView')) document.getElementById('swingView').classList.remove('view-hidden');
+                // 스윙 탭 전환 시 텍스트영역이 비어있으면 서버에서 설정정보 즉시 재동기화
+                const sBuy = document.getElementById('swingCfgBuyStrategy');
+                const sSell = document.getElementById('swingCfgSellStrategy');
+                if (!sBuy || !sBuy.value.trim() || !sSell || !sSell.value.trim()) {
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(jsonStr({ type: "get_settings" }));
+                    }
+                }
             } else if (tabId === 'backtest') {
                 document.getElementById('tabBacktest').classList.add('active');
                 document.getElementById('backtestView').classList.remove('view-hidden');
             } else if (tabId === 'mlTrain') {
                 document.getElementById('tabMlTrain').classList.add('active');
                 document.getElementById('mlTrainView').classList.remove('view-hidden');
+            }
+        }
+
+        // 앱 재시작 기능 함수
+        function restartSystem() {
+            if (confirm("주식 자동매매 시스템을 재시작하시겠습니까?\n재시작 요청 후 3초 뒤 대시보드가 자동으로 새로고침됩니다.")) {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(jsonStr({ type: "restart_system" }));
+                }
+                setTimeout(() => {
+                    location.reload();
+                }, 3000);
             }
         }
 
@@ -5793,6 +5861,11 @@ async def websocket_handler(websocket):
                         "type": "settings",
                         "settings": settings
                     }))
+                elif msg_type == 'restart_system':
+                    logging.info("🔄 [앱 재시작] 사용자 요청으로 파이썬 프로세스를 재시작합니다...")
+                    await safe_send(websocket, json.dumps({"type": "restart_system_result", "success": True}))
+                    import sys, os
+                    os.execv(sys.executable, [sys.executable] + sys.argv)
                 elif msg_type == 'get_strategy_detail':
                     strategy_name = data.get('strategy', '').strip()
                     from config_manager import EnvConfigParser
