@@ -1701,9 +1701,9 @@ HTML_CONTENT = """
                     </div>
                 </div>
 
-                <!-- 스윙 실시간 차트 -->
+                <!-- 스윙 실시간 차트 (메인 캔들 + RSI + MACD) -->
                 <div class="glass-card chart-container-box" style="position: relative; border: 1px solid rgba(100, 255, 218, 0.25);">
-                    <div class="chart-header">
+                    <div class="chart-header" style="margin-bottom: 8px;">
                         <div class="section-title" id="swingChartTitle" style="color: #64ffda;">📈 스윙 차트 (스윙 종목을 선택하세요)</div>
                         <div class="chart-tabs" style="display: flex; align-items: center; gap: 8px;">
                             <span style="font-size: 11px; display: inline-flex; gap: 6px; margin-right: 6px;">
@@ -1716,7 +1716,34 @@ HTML_CONTENT = """
                             <div class="swing-chart-tab chart-tab" onclick="switchSwingChartTimeframe('weekly', this)">주봉</div>
                         </div>
                     </div>
-                    <div id="swingChartCanvas" class="chart-canvas"></div>
+                    
+                    <!-- 1. 메인 캔들/거래량 차트 (높이 280px) -->
+                    <div id="swingChartCanvas" class="chart-canvas" style="height: 280px;"></div>
+
+                    <!-- 2. RSI (14) 서브 차트 패널 (높이 110px) -->
+                    <div style="border-top: 1px solid rgba(255, 255, 255, 0.08); margin-top: 6px; padding-top: 6px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0 6px 2px 6px; font-size: 11px;">
+                            <span style="color: #e040fb; font-weight: bold;">📊 RSI (14)</span>
+                            <span style="color: var(--text-secondary); font-size: 10px;">
+                                <span style="color: #ef5350; font-weight: bold;">● 70 과매수</span> | 
+                                <span style="color: #26a69a; font-weight: bold;">● 30 과매도</span>
+                            </span>
+                        </div>
+                        <div id="swingRsiCanvas" style="height: 110px; width: 100%;"></div>
+                    </div>
+
+                    <!-- 3. MACD (12, 26, 9) 서브 차트 패널 (높이 120px) -->
+                    <div style="border-top: 1px solid rgba(255, 255, 255, 0.08); margin-top: 6px; padding-top: 6px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0 6px 2px 6px; font-size: 11px;">
+                            <span style="color: #00e5ff; font-weight: bold;">📉 MACD (12, 26, 9)</span>
+                            <span style="color: var(--text-secondary); font-size: 10px;">
+                                <span style="color: #00e5ff; font-weight: bold;">━ MACD</span> | 
+                                <span style="color: #ff9100; font-weight: bold;">━ Signal</span> | 
+                                <span style="color: #ef5350; font-weight: bold;">█ Hist</span>
+                            </span>
+                        </div>
+                        <div id="swingMacdCanvas" style="height: 120px; width: 100%;"></div>
+                    </div>
                 </div>
 
                 <!-- 스윙 조건검색 대상 후보 종목 -->
@@ -4255,9 +4282,16 @@ HTML_CONTENT = """
         let swingCandleSeries = null;
         let swingVolumeSeries = null;
         let swingMaSeries = {};
+        let swingRsiChart = null;
+        let swingRsiSeries = null;
+        let swingMacdChart = null;
+        let swingMacdLineSeries = null;
+        let swingMacdSignalSeries = null;
+        let swingMacdHistSeries = null;
         let currentSwingCode = '';
         let currentSwingName = '';
         let currentSwingTimeframe = 'daily';
+        let isSyncingSwingTime = false;
 
         function switchSwingChartTimeframe(tf, element) {
             currentSwingTimeframe = tf;
@@ -4272,28 +4306,20 @@ HTML_CONTENT = """
 
         function initSwingChart() {
             const swingDiv = document.getElementById('swingChartCanvas');
-            if (!swingDiv) return;
+            const rsiDiv = document.getElementById('swingRsiCanvas');
+            const macdDiv = document.getElementById('swingMacdCanvas');
+            if (!swingDiv || !rsiDiv || !macdDiv) return;
             if (swingChart) return;
 
             try {
-                console.log("📊 스윙 전용 차트 객체 생성...");
+                console.log("📊 스윙 전용 차트 객체(메인+RSI+MACD) 생성...");
+                
+                // 1. 메인 캔들/거래량 차트
                 swingChart = LightweightCharts.createChart(swingDiv, {
-                    layout: {
-                        background: { type: 'solid', color: '#0c0b1e' },
-                        textColor: '#d1d4dc',
-                    },
-                    grid: {
-                        vertLines: { color: 'rgba(70, 130, 180, 0.1)' },
-                        horzLines: { color: 'rgba(70, 130, 180, 0.1)' },
-                    },
-                    rightPriceScale: {
-                        borderColor: 'rgba(197, 203, 206, 0.4)',
-                        scaleMargins: { top: 0.05, bottom: 0.25 },
-                    },
-                    timeScale: {
-                        borderColor: 'rgba(197, 203, 206, 0.4)',
-                        timeVisible: false,
-                    },
+                    layout: { background: { type: 'solid', color: '#0c0b1e' }, textColor: '#d1d4dc' },
+                    grid: { vertLines: { color: 'rgba(70, 130, 180, 0.1)' }, horzLines: { color: 'rgba(70, 130, 180, 0.1)' } },
+                    rightPriceScale: { borderColor: 'rgba(197, 203, 206, 0.4)', scaleMargins: { top: 0.05, bottom: 0.25 } },
+                    timeScale: { borderColor: 'rgba(197, 203, 206, 0.4)', timeVisible: false },
                 });
 
                 swingCandleSeries = swingChart.addCandlestickSeries({
@@ -4302,14 +4328,8 @@ HTML_CONTENT = """
                     wickDownColor: '#26a69a', wickUpColor: '#ef5350',
                 });
 
-                // 이동평균선(MA) 시리즈 추가 (5, 10, 20, 60일)
                 swingMaSeries = {};
-                const maColors = {
-                    5: '#FFD700',   // 5일선: Gold (노랑)
-                    10: '#FF1493',  // 10일선: DeepPink (분홍)
-                    20: '#00FFFF',  // 20일선: Cyan (하늘)
-                    60: '#32CD32'   // 60일선: LimeGreen (연두)
-                };
+                const maColors = { 5: '#FFD700', 10: '#FF1493', 20: '#00FFFF', 60: '#32CD32' };
                 [5, 10, 20, 60].forEach(period => {
                     swingMaSeries[period] = swingChart.addLineSeries({
                         color: maColors[period],
@@ -4330,12 +4350,56 @@ HTML_CONTENT = """
                     scaleMargins: { top: 0.7, bottom: 0 },
                 });
 
+                // 2. RSI (14) 서브 차트
+                swingRsiChart = LightweightCharts.createChart(rsiDiv, {
+                    layout: { background: { type: 'solid', color: '#0c0b1e' }, textColor: '#d1d4dc' },
+                    grid: { vertLines: { color: 'rgba(70, 130, 180, 0.1)' }, horzLines: { color: 'rgba(70, 130, 180, 0.1)' } },
+                    rightPriceScale: { borderColor: 'rgba(197, 203, 206, 0.4)', scaleMargins: { top: 0.1, bottom: 0.1 } },
+                    timeScale: { borderColor: 'rgba(197, 203, 206, 0.4)', timeVisible: false },
+                });
+
+                swingRsiSeries = swingRsiChart.addLineSeries({
+                    color: '#e040fb',
+                    lineWidth: 1.5,
+                    priceFormat: { type: 'custom', formatter: v => v.toFixed(1) },
+                });
+
+                swingRsiSeries.createPriceLine({ price: 70, color: '#ef5350', lineWidth: 1, lineStyle: 2, title: '과매수 (70)' });
+                swingRsiSeries.createPriceLine({ price: 30, color: '#26a69a', lineWidth: 1, lineStyle: 2, title: '과매도 (30)' });
+
+                // 3. MACD (12, 26, 9) 서브 차트
+                swingMacdChart = LightweightCharts.createChart(macdDiv, {
+                    layout: { background: { type: 'solid', color: '#0c0b1e' }, textColor: '#d1d4dc' },
+                    grid: { vertLines: { color: 'rgba(70, 130, 180, 0.1)' }, horzLines: { color: 'rgba(70, 130, 180, 0.1)' } },
+                    rightPriceScale: { borderColor: 'rgba(197, 203, 206, 0.4)', scaleMargins: { top: 0.1, bottom: 0.1 } },
+                    timeScale: { borderColor: 'rgba(197, 203, 206, 0.4)', timeVisible: false },
+                });
+
+                swingMacdLineSeries = swingMacdChart.addLineSeries({ color: '#00e5ff', lineWidth: 1.5 });
+                swingMacdSignalSeries = swingMacdChart.addLineSeries({ color: '#ff9100', lineWidth: 1.5 });
+                swingMacdHistSeries = swingMacdChart.addHistogramSeries({ color: '#ef5350' });
+
+                // 시간 축 동기화 (Time Scale Sync)
+                function bindTimeScaleSync(src, dst1, dst2) {
+                    src.timeScale().subscribeVisibleTimeRangeChange(range => {
+                        if (isSyncingSwingTime || !range) return;
+                        isSyncingSwingTime = true;
+                        try {
+                            if (dst1) dst1.timeScale().setVisibleRange(range);
+                            if (dst2) dst2.timeScale().setVisibleRange(range);
+                        } catch(e) {}
+                        isSyncingSwingTime = false;
+                    });
+                }
+                bindTimeScaleSync(swingChart, swingRsiChart, swingMacdChart);
+                bindTimeScaleSync(swingRsiChart, swingChart, swingMacdChart);
+                bindTimeScaleSync(swingMacdChart, swingChart, swingRsiChart);
+
                 new ResizeObserver(entries => {
-                    if (entries.length === 0 || !swingChart) return;
-                    const { width, height } = entries[0].contentRect;
-                    if (width > 0 && height > 0) {
-                        swingChart.resize(width, height);
-                    }
+                    if (entries.length === 0) return;
+                    if (swingChart && swingDiv.clientWidth > 0) swingChart.resize(swingDiv.clientWidth, 280);
+                    if (swingRsiChart && rsiDiv.clientWidth > 0) swingRsiChart.resize(rsiDiv.clientWidth, 110);
+                    if (swingMacdChart && macdDiv.clientWidth > 0) swingMacdChart.resize(macdDiv.clientWidth, 120);
                 }).observe(swingDiv);
             } catch (e) {
                 console.error("❌ 스윙 차트 초기화 오류:", e);
@@ -4358,6 +4422,10 @@ HTML_CONTENT = """
 
             if (swingCandleSeries) swingCandleSeries.setData([]);
             if (swingVolumeSeries) swingVolumeSeries.setData([]);
+            if (swingRsiSeries) swingRsiSeries.setData([]);
+            if (swingMacdLineSeries) swingMacdLineSeries.setData([]);
+            if (swingMacdSignalSeries) swingMacdSignalSeries.setData([]);
+            if (swingMacdHistSeries) swingMacdHistSeries.setData([]);
             [5, 10, 20, 60].forEach(p => {
                 if (swingMaSeries[p]) swingMaSeries[p].setData([]);
             });
@@ -4386,6 +4454,66 @@ HTML_CONTENT = """
                 });
             }
             return result;
+        }
+
+        // RSI (14) 계산 헬퍼 함수
+        function calculateSwingRSI(candleData, period = 14) {
+            const rsiData = [];
+            if (!candleData || candleData.length <= period) return rsiData;
+            let gains = 0, losses = 0;
+            for (let i = 1; i <= period; i++) {
+                const diff = candleData[i].close - candleData[i - 1].close;
+                if (diff >= 0) gains += diff; else losses -= diff;
+            }
+            let avgGain = gains / period;
+            let avgLoss = losses / period;
+            let rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
+            let rsi = 100 - (100 / (1 + rs));
+            rsiData.push({ time: candleData[period].time, value: rsi });
+
+            for (let i = period + 1; i < candleData.length; i++) {
+                const diff = candleData[i].close - candleData[i - 1].close;
+                const gain = diff >= 0 ? diff : 0;
+                const loss = diff < 0 ? -diff : 0;
+                avgGain = (avgGain * (period - 1) + gain) / period;
+                avgLoss = (avgLoss * (period - 1) + loss) / period;
+                rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
+                rsi = 100 - (100 / (1 + rs));
+                rsiData.push({ time: candleData[i].time, value: rsi });
+            }
+            return rsiData;
+        }
+
+        // MACD (12, 26, 9) 계산 헬퍼 함수
+        function calculateSwingMACD(candleData, fastP = 12, slowP = 26, signalP = 9) {
+            const macdLine = [], signalLine = [], histData = [];
+            if (!candleData || candleData.length < slowP) return { macdLine, signalLine, histData };
+
+            const kFast = 2 / (fastP + 1), kSlow = 2 / (slowP + 1), kSignal = 2 / (signalP + 1);
+            let emaFast = candleData[0].close, emaSlow = candleData[0].close;
+            const macdVals = [];
+
+            for (let i = 0; i < candleData.length; i++) {
+                const p = candleData[i].close;
+                emaFast = p * kFast + emaFast * (1 - kFast);
+                emaSlow = p * kSlow + emaSlow * (1 - kSlow);
+                if (i >= slowP - 1) {
+                    macdVals.push({ time: candleData[i].time, macd: emaFast - emaSlow });
+                }
+            }
+            if (macdVals.length < signalP) return { macdLine, signalLine, histData };
+
+            let emaSignal = macdVals[0].macd;
+            for (let i = 0; i < macdVals.length; i++) {
+                const t = macdVals[i].time;
+                const m = macdVals[i].macd;
+                emaSignal = (i === 0) ? m : (m * kSignal + emaSignal * (1 - kSignal));
+                const h = m - emaSignal;
+                macdLine.push({ time: t, value: m });
+                signalLine.push({ time: t, value: emaSignal });
+                histData.push({ time: t, value: h, color: h >= 0 ? 'rgba(239, 83, 80, 0.7)' : 'rgba(38, 166, 154, 0.7)' });
+            }
+            return { macdLine, signalLine, histData };
         }
 
         function renderSwingChartHistory(data) {
@@ -4421,7 +4549,7 @@ HTML_CONTENT = """
             if (swingCandleSeries) swingCandleSeries.setData(candleData);
             if (swingVolumeSeries) swingVolumeSeries.setData(volumeData);
 
-            // 5일, 10일, 20일, 60일 이동평균선 계산 및 차트 바인딩
+            // 1. 5일, 10일, 20일, 60일 이동평균선 계산 및 차트 바인딩
             let ma60FirstTime = null;
             [5, 10, 20, 60].forEach(period => {
                 if (swingMaSeries[period]) {
@@ -4433,18 +4561,39 @@ HTML_CONTENT = """
                 }
             });
 
+            // 2. RSI (14) 지표 렌더링
+            if (swingRsiSeries) {
+                const rsiData = calculateSwingRSI(candleData, 14);
+                swingRsiSeries.setData(rsiData);
+            }
+
+            // 3. MACD (12, 26, 9) 지표 렌더링
+            if (swingMacdLineSeries && swingMacdSignalSeries && swingMacdHistSeries) {
+                const macdRes = calculateSwingMACD(candleData, 12, 26, 9);
+                swingMacdLineSeries.setData(macdRes.macdLine);
+                swingMacdSignalSeries.setData(macdRes.signalLine);
+                swingMacdHistSeries.setData(macdRes.histData);
+            }
+
             if (swingChart) {
                 if (ma60FirstTime && candleData.length > 0) {
                     try {
-                        swingChart.timeScale().setVisibleRange({
+                        const targetRange = {
                             from: ma60FirstTime,
                             to: candleData[candleData.length - 1].time
-                        });
+                        };
+                        swingChart.timeScale().setVisibleRange(targetRange);
+                        if (swingRsiChart) swingRsiChart.timeScale().setVisibleRange(targetRange);
+                        if (swingMacdChart) swingMacdChart.timeScale().setVisibleRange(targetRange);
                     } catch (e) {
                         swingChart.timeScale().fitContent();
+                        if (swingRsiChart) swingRsiChart.timeScale().fitContent();
+                        if (swingMacdChart) swingMacdChart.timeScale().fitContent();
                     }
                 } else {
                     swingChart.timeScale().fitContent();
+                    if (swingRsiChart) swingRsiChart.timeScale().fitContent();
+                    if (swingMacdChart) swingMacdChart.timeScale().fitContent();
                 }
             }
         }
