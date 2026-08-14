@@ -1170,6 +1170,7 @@ HTML_CONTENT = """
         .terminal-logs {
             flex-grow: 1;
             background: #04030a;
+            color: #d1d4dc;
             border: 1px solid var(--border-color);
             border-radius: 16px;
             padding: 16px;
@@ -1185,13 +1186,47 @@ HTML_CONTENT = """
             display: flex;
             gap: 10px;
             word-break: break-all;
+            color: inherit;
         }
 
-        .log-time { color: #555273; }
-        .log-lvl-info { color: #3b82f6; }
-        .log-lvl-warn { color: #eab308; }
-        .log-lvl-err { color: #ef4444; }
-        .log-lvl-dbg { color: #8b5cf6; }
+        .log-line span:last-child {
+            color: inherit;
+        }
+
+        .log-time { color: #8884a8; }
+        .log-lvl-info { color: #38bdf8; font-weight: bold; }
+        .log-lvl-warn { color: #facc15; font-weight: bold; }
+        .log-lvl-err { color: #f87171; font-weight: bold; }
+        .log-lvl-dbg { color: #c084fc; font-weight: bold; }
+
+        /* ☀️ 라이트 모드 전용 로그창 스타일 */
+        body.light-theme .terminal-logs {
+            background: #ffffff !important;
+            color: #0f172a !important;
+            border-color: rgba(0, 0, 0, 0.12) !important;
+            box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.03) !important;
+        }
+        body.light-theme .log-time {
+            color: #64748b !important;
+        }
+        body.light-theme .log-lvl-info {
+            color: #0284c7 !important;
+        }
+        body.light-theme .log-lvl-warn {
+            color: #d97706 !important;
+        }
+        body.light-theme .log-lvl-err {
+            color: #dc2626 !important;
+        }
+        body.light-theme .log-lvl-dbg {
+            color: #7c3aed !important;
+        }
+        body.light-theme #mlTerminal {
+            background-color: #ffffff !important;
+            color: #0f172a !important;
+            border-color: rgba(0, 0, 0, 0.12) !important;
+            box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.03) !important;
+        }
 
         @keyframes fadeIn {
             from { opacity: 0; transform: translateY(10px); }
@@ -2476,6 +2511,10 @@ HTML_CONTENT = """
                 body.classList.remove('light-theme');
                 updateChartTheme('dark');
             }
+
+            // 로그 필터 버튼 색상도 테마에 맞춰 갱신
+            if (typeof setLogFilter === 'function') setLogFilter(currentLogFilter);
+            if (typeof setSwingLogFilter === 'function') setSwingLogFilter(currentSwingLogFilter);
         }
 
         function updateChartTheme(theme) {
@@ -3303,9 +3342,17 @@ HTML_CONTENT = """
             const btnTrade = document.getElementById('btnLogFilterTrade');
             const btnError = document.getElementById('btnLogFilterError');
 
-            if (btnAll) btnAll.style.background = filterType === 'all' ? 'rgba(0, 242, 254, 0.4)' : 'rgba(255, 255, 255, 0.1)';
-            if (btnTrade) btnTrade.style.background = filterType === 'trade' ? 'rgba(0, 242, 254, 0.4)' : 'rgba(255, 255, 255, 0.1)';
-            if (btnError) btnError.style.background = filterType === 'error' ? 'rgba(255, 75, 75, 0.4)' : 'rgba(255, 255, 255, 0.1)';
+            if (btnAll) btnAll.classList.toggle('active', filterType === 'all');
+            if (btnTrade) btnTrade.classList.toggle('active', filterType === 'trade');
+            if (btnError) btnError.classList.toggle('active', filterType === 'error');
+
+            const isLight = document.body.classList.contains('light-theme');
+            if (btnAll) btnAll.style.background = filterType === 'all' ? (isLight ? '#0284c7' : 'rgba(0, 242, 254, 0.4)') : (isLight ? '#e2e8f0' : 'rgba(255, 255, 255, 0.1)');
+            if (btnAll) btnAll.style.color = filterType === 'all' ? '#ffffff' : (isLight ? '#334155' : '#ffffff');
+            if (btnTrade) btnTrade.style.background = filterType === 'trade' ? (isLight ? '#0284c7' : 'rgba(0, 242, 254, 0.4)') : (isLight ? '#e2e8f0' : 'rgba(255, 255, 255, 0.1)');
+            if (btnTrade) btnTrade.style.color = filterType === 'trade' ? '#ffffff' : (isLight ? '#334155' : '#ffffff');
+            if (btnError) btnError.style.background = filterType === 'error' ? (isLight ? '#dc2626' : 'rgba(255, 75, 75, 0.4)') : (isLight ? '#e2e8f0' : 'rgba(255, 255, 255, 0.1)');
+            if (btnError) btnError.style.color = filterType === 'error' ? '#ffffff' : (isLight ? '#334155' : '#ffffff');
 
             const container = document.getElementById('terminalBody');
             if (container) {
@@ -3335,9 +3382,17 @@ HTML_CONTENT = """
             const btnTrade = document.getElementById('btnSwingLogFilterTrade');
             const btnError = document.getElementById('btnSwingLogFilterError');
             
-            if (btnAll) btnAll.style.background = filterType === 'all' ? 'rgba(100, 255, 218, 0.4)' : 'rgba(255, 255, 255, 0.1)';
-            if (btnTrade) btnTrade.style.background = filterType === 'trade' ? 'rgba(100, 255, 218, 0.4)' : 'rgba(255, 255, 255, 0.1)';
-            if (btnError) btnError.style.background = filterType === 'error' ? 'rgba(100, 255, 218, 0.4)' : 'rgba(255, 255, 255, 0.1)';
+            if (btnAll) btnAll.classList.toggle('active', filterType === 'all');
+            if (btnTrade) btnTrade.classList.toggle('active', filterType === 'trade');
+            if (btnError) btnError.classList.toggle('active', filterType === 'error');
+
+            const isLight = document.body.classList.contains('light-theme');
+            if (btnAll) btnAll.style.background = filterType === 'all' ? (isLight ? '#0d9488' : 'rgba(100, 255, 218, 0.4)') : (isLight ? '#e2e8f0' : 'rgba(255, 255, 255, 0.1)');
+            if (btnAll) btnAll.style.color = filterType === 'all' ? '#ffffff' : (isLight ? '#334155' : '#ffffff');
+            if (btnTrade) btnTrade.style.background = filterType === 'trade' ? (isLight ? '#0d9488' : 'rgba(100, 255, 218, 0.4)') : (isLight ? '#e2e8f0' : 'rgba(255, 255, 255, 0.1)');
+            if (btnTrade) btnTrade.style.color = filterType === 'trade' ? '#ffffff' : (isLight ? '#334155' : '#ffffff');
+            if (btnError) btnError.style.background = filterType === 'error' ? (isLight ? '#dc2626' : 'rgba(255, 75, 75, 0.4)') : (isLight ? '#e2e8f0' : 'rgba(255, 255, 255, 0.1)');
+            if (btnError) btnError.style.color = filterType === 'error' ? '#ffffff' : (isLight ? '#334155' : '#ffffff');
 
             const container = document.getElementById('swingTerminalBody');
             if (container) {
