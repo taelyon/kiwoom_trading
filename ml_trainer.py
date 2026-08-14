@@ -337,14 +337,16 @@ class MLTrainingWorker(threading.Thread):
             X_train, X_val = X.iloc[:split_idx], X.iloc[split_idx + gap_size:]
             y_train, y_val = y.iloc[:split_idx], y.iloc[split_idx + gap_size:]
             
-            # 동적 파라미터 조정 (데이터가 적을 때 LightGBM 에러 방지)
             train_len = len(X_train)
-            if 'min_data_in_leaf' not in self.params or self.params['min_data_in_leaf'] > 50:
-                self.params['min_data_in_leaf'] = 30  # 트리가 정상적으로 깊게 형성되도록 30으로 최적화
+            # 사용자가 설정한 min_data_in_leaf 하이퍼파라미터 존중 (데이터가 극히 적을 때만 에러 방지용 안전 범위 조율)
+            if 'min_data_in_leaf' not in self.params or not self.params['min_data_in_leaf']:
+                self.params['min_data_in_leaf'] = 50
+            elif train_len > 0 and self.params['min_data_in_leaf'] >= train_len:
+                self.params['min_data_in_leaf'] = max(2, int(train_len / 2))
 
             if 'num_leaves' in self.params:
                 max_leaves = max(4, int(train_len / 10))
-                if self.params['num_leaves'] > max_leaves:
+                if self.params['num_leaves'] > max_leaves and train_len < 100:
                     self.params['num_leaves'] = max_leaves
             
             # LightGBM 데이터셋 생성
