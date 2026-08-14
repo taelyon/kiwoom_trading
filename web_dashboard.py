@@ -331,12 +331,120 @@ HTML_CONTENT = """
             --success: #00e676;
             --danger: #ff1744;
             --warning: #ffb300;
+            --card-glass-bg: rgba(255, 255, 255, 0.03);
+            --header-bg: rgba(255, 255, 255, 0.03);
+            --table-header-bg: rgba(255, 255, 255, 0.05);
+            --modal-bg: #14132b;
+            --theme-transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
+        }
+
+        /* ☀️ 라이트 모드 테마 토큰 */
+        body.light-theme {
+            --bg-color: #f1f5f9;
+            --panel-bg: rgba(255, 255, 255, 0.95);
+            --border-color: rgba(0, 0, 0, 0.09);
+            --primary-glow: #7c3aed;
+            --accent-cyan: #0284c7;
+            --accent-pink: #e11d48;
+            --text-primary: #0f172a;
+            --text-secondary: #64748b;
+            --success: #16a34a;
+            --danger: #dc2626;
+            --warning: #d97706;
+            --card-glass-bg: rgba(255, 255, 255, 0.92);
+            --header-bg: rgba(255, 255, 255, 0.96);
+            --table-header-bg: #e2e8f0;
+            --modal-bg: #ffffff;
+            background-color: var(--bg-color);
+            background-image: 
+                radial-gradient(at 10% 20%, rgba(124, 58, 237, 0.07) 0px, transparent 50%),
+                radial-gradient(at 90% 80%, rgba(2, 132, 199, 0.07) 0px, transparent 50%);
+        }
+
+        body.light-theme .glass-card {
+            background: var(--card-glass-bg);
+            border-color: var(--border-color);
+            box-shadow: 0 4px 20px 0 rgba(0, 0, 0, 0.05);
+        }
+        body.light-theme header {
+            background: var(--header-bg);
+            border-color: var(--border-color);
+            box-shadow: 0 4px 20px 0 rgba(0, 0, 0, 0.05);
+        }
+        body.light-theme .input-field,
+        body.light-theme input[type="text"],
+        body.light-theme input[type="number"],
+        body.light-theme input[type="password"],
+        body.light-theme select,
+        body.light-theme textarea {
+            background: #ffffff !important;
+            color: #0f172a !important;
+            border-color: rgba(0, 0, 0, 0.15) !important;
+        }
+        body.light-theme input[type="date"] {
+            color-scheme: light;
+            background: #ffffff !important;
+            color: #0f172a !important;
+            border-color: rgba(0, 0, 0, 0.15) !important;
+        }
+        body.light-theme .portfolio-table,
+        body.light-theme .stock-table,
+        body.light-theme table {
+            background: #ffffff;
+            color: #0f172a;
+        }
+        body.light-theme .portfolio-table th,
+        body.light-theme .stock-table th,
+        body.light-theme thead th {
+            background: var(--table-header-bg);
+            color: #334155;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+        }
+        body.light-theme .portfolio-table td,
+        body.light-theme .stock-table td,
+        body.light-theme tbody td {
+            border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+        }
+        body.light-theme .chart-canvas {
+            background: #ffffff;
+            border-color: rgba(0, 0, 0, 0.08);
+        }
+        body.light-theme .header-pw-container {
+            background: rgba(0, 0, 0, 0.04);
+            border-color: rgba(0, 0, 0, 0.1);
+        }
+        body.light-theme .header-pw-input {
+            color: #0f172a;
+        }
+        body.light-theme .header-pw-input::placeholder {
+            color: rgba(0, 0, 0, 0.4);
+        }
+        body.light-theme .nav-tab {
+            color: #64748b;
+        }
+        body.light-theme .nav-tab:hover {
+            color: #0f172a;
+        }
+        body.light-theme .nav-tab.active {
+            color: var(--primary-glow);
+            border-bottom-color: var(--primary-glow);
+        }
+        body.light-theme #dbSummaryModal > div,
+        body.light-theme #batchResultModal > div,
+        body.light-theme #tradeHistoryModal > div,
+        body.light-theme #orderModal > div,
+        body.light-theme #settingsModal > div {
+            background: var(--modal-bg) !important;
+            border-color: rgba(0, 0, 0, 0.1) !important;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15) !important;
+            color: #0f172a !important;
         }
 
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
+            transition: var(--theme-transition);
         }
 
         /* 달력 아이콘 설정 (흰색 테마 강제 적용) */
@@ -1454,6 +1562,12 @@ HTML_CONTENT = """
                         <span class="slider mode-slider"></span>
                     </label>
                 </div>
+                <!-- 테마 전환 (다크 / 라이트 / 자동) 토글러 -->
+                <div class="theme-switch-container" style="display: flex; align-items: center; background: rgba(255,255,255,0.06); border: 1px solid var(--border-color); border-radius: 20px; padding: 2px 4px; gap: 2px;">
+                    <button id="btnThemeDark" onclick="setAppTheme('dark')" title="다크 모드 강제 적용" style="border:none; background:transparent; padding: 4px 8px; border-radius: 14px; cursor:pointer; font-size: 13px; transition: all 0.2s ease;">🌙</button>
+                    <button id="btnThemeLight" onclick="setAppTheme('light')" title="라이트 모드 강제 적용" style="border:none; background:transparent; padding: 4px 8px; border-radius: 14px; cursor:pointer; font-size: 13px; transition: all 0.2s ease;">☀️</button>
+                    <button id="btnThemeAuto" onclick="setAppTheme('auto')" title="시간에 따른 자동 전환 (07:00~18:00 라이트, 18:00~07:00 다크)" style="border:none; background:transparent; padding: 4px 8px; border-radius: 14px; cursor:pointer; font-size: 11px; font-weight: bold; color: var(--text-secondary); transition: all 0.2s ease;">⏰ Auto</button>
+                </div>
                 <!-- 시스템 재시작 버튼 -->
                 <button class="btn-primary" onclick="restartSystem()" style="background-color: var(--accent-pink); padding: 4px 10px; font-size: 11px; margin-right: 8px; border-radius: 6px; box-shadow: 0 0 8px rgba(255, 64, 129, 0.3); border: none; cursor: pointer; color: white; white-space: nowrap;">🔄 앱 재시작</button>
                 <!-- 연결 상태 표시 -->
@@ -2308,8 +2422,103 @@ HTML_CONTENT = """
         let loginStartTime = 0;
         let wsConnectStartTime = 0;
 
-        // 페이지 로드 시 로컬 스토리지 확인 및 엔터 키 바인딩
+        // ==========================================
+        // 🌓 테마(라이트 / 다크 / 시간 기반 자동) 관리 엔진
+        // ==========================================
+        let currentThemeMode = localStorage.getItem('kiwoom_app_theme') || 'dark';
+        let themeAutoInterval = null;
+
+        function setAppTheme(mode) {
+            currentThemeMode = mode;
+            localStorage.setItem('kiwoom_app_theme', mode);
+            applyAppTheme();
+        }
+
+        function checkIsDayTime() {
+            const now = new Date();
+            const hours = now.getHours();
+            // 주간 (07:00 ~ 18:00): 라이트 모드, 야간: 다크 모드
+            return hours >= 7 && hours < 18;
+        }
+
+        function applyAppTheme() {
+            let effectiveTheme = currentThemeMode;
+            if (currentThemeMode === 'auto') {
+                effectiveTheme = checkIsDayTime() ? 'light' : 'dark';
+            }
+
+            const body = document.body;
+            const btnDark = document.getElementById('btnThemeDark');
+            const btnLight = document.getElementById('btnThemeLight');
+            const btnAuto = document.getElementById('btnThemeAuto');
+
+            // 버튼 활성 스타일 리셋
+            if (btnDark) { btnDark.style.background = 'transparent'; btnDark.style.boxShadow = 'none'; }
+            if (btnLight) { btnLight.style.background = 'transparent'; btnLight.style.boxShadow = 'none'; }
+            if (btnAuto) { btnAuto.style.background = 'transparent'; btnAuto.style.color = 'var(--text-secondary)'; btnAuto.style.boxShadow = 'none'; }
+
+            if (currentThemeMode === 'dark' && btnDark) {
+                btnDark.style.background = 'rgba(138, 43, 226, 0.45)';
+                btnDark.style.boxShadow = '0 0 8px rgba(138, 43, 226, 0.4)';
+            } else if (currentThemeMode === 'light' && btnLight) {
+                btnLight.style.background = 'rgba(255, 193, 7, 0.45)';
+                btnLight.style.boxShadow = '0 0 8px rgba(255, 193, 7, 0.4)';
+            } else if (currentThemeMode === 'auto' && btnAuto) {
+                btnAuto.style.background = 'rgba(0, 242, 254, 0.3)';
+                btnAuto.style.color = 'var(--accent-cyan)';
+                btnAuto.style.boxShadow = '0 0 8px rgba(0, 242, 254, 0.3)';
+            }
+
+            if (effectiveTheme === 'light') {
+                body.classList.add('light-theme');
+                updateChartTheme('light');
+            } else {
+                body.classList.remove('light-theme');
+                updateChartTheme('dark');
+            }
+        }
+
+        function updateChartTheme(theme) {
+            const isLight = theme === 'light';
+            const chartOptions = {
+                layout: {
+                    background: { type: 'solid', color: isLight ? '#ffffff' : '#0c0b1e' },
+                    textColor: isLight ? '#334155' : '#d1d4dc',
+                },
+                grid: {
+                    vertLines: { color: isLight ? 'rgba(0, 0, 0, 0.05)' : 'rgba(70, 130, 180, 0.1)' },
+                    horzLines: { color: isLight ? 'rgba(0, 0, 0, 0.05)' : 'rgba(70, 130, 180, 0.1)' },
+                },
+                rightPriceScale: {
+                    borderColor: isLight ? 'rgba(0, 0, 0, 0.1)' : 'rgba(197, 203, 206, 0.4)',
+                },
+                timeScale: {
+                    borderColor: isLight ? 'rgba(0, 0, 0, 0.1)' : 'rgba(197, 203, 206, 0.4)',
+                }
+            };
+
+            if (typeof chart !== 'undefined' && chart) {
+                try { chart.applyOptions(chartOptions); } catch(e){}
+            }
+            if (typeof swingChart !== 'undefined' && swingChart) {
+                try { swingChart.applyOptions(chartOptions); } catch(e){}
+            }
+        }
+
+        // 1분 주기 자동 테마 감지
+        if (!themeAutoInterval) {
+            themeAutoInterval = setInterval(() => {
+                if (currentThemeMode === 'auto') {
+                    applyAppTheme();
+                }
+            }, 60000);
+        }
+
+        // 페이지 로드 시 로컬 스토리지 확인 및 테마 적용
         window.onload = () => {
+            // 테마 즉시 적용
+            applyAppTheme();
+
             const passField = document.getElementById('passwordField');
             if (passField) {
                 passField.addEventListener('keydown', (event) => {
@@ -4245,6 +4454,9 @@ HTML_CONTENT = """
                     }
                 }).observe(chartDiv);
 
+                // 현재 테마 즉시 차트에 반영
+                updateChartTheme(document.body.classList.contains('light-theme') ? 'light' : 'dark');
+
                 console.log("📊 TradingView 차트 초기화 성공!");
             } catch (e) {
                 console.error("❌ 차트 라이브러리 초기화 실패:", e);
@@ -4395,6 +4607,9 @@ HTML_CONTENT = """
                         swingChart.resize(width, height);
                     }
                 }).observe(swingDiv);
+
+                // 현재 테마 즉시 스윙 차트에 반영
+                updateChartTheme(document.body.classList.contains('light-theme') ? 'light' : 'dark');
             } catch (e) {
                 console.error("❌ 스윙 차트 초기화 오류:", e);
             }
