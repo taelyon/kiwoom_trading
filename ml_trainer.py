@@ -501,7 +501,6 @@ class MLTrainingWorker(threading.Thread):
                                 pass
                             
                             deploy_summary = f"✅ 단일 학습 모델 자동 배포 완료! (Data: {len(df_train):,}, 검증 AUC: {best_score:.4f}, 학습 AUC: {best_train_score:.4f}, Top: {top_features})"
-                            self.progress_signal.emit(deploy_summary)
                             self.finished_signal.emit(True, deploy_summary, metrics)
                             return
                     except Exception as e:
@@ -511,7 +510,6 @@ class MLTrainingWorker(threading.Thread):
                 # ------------------- 런타임 자동 배포 로직 끝 -------------------
             
             success_msg = f"✅ 모델 학습 완료! (Data: {len(df_train):,}, 검증 AUC: {best_score:.4f}, 학습 AUC: {best_train_score:.4f}, Top: {top_features})"
-            self.logger.info(success_msg)
             self.finished_signal.emit(True, success_msg, metrics)
         except Exception as ex:
             self.logger.error(f"모델 학습 중 치명적 오류: {ex}", exc_info=True)
