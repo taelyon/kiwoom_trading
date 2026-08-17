@@ -28,10 +28,12 @@ class SwingManager:
         self.stop_loss_pct = self.config.getfloat('SETTINGS', 'swing_stop_loss', fallback=-3.0) # -3% 손절
 
         # 메모리 보관 상태
-        self.swing_holdings = {}       # {code: holding_dict}
-        self.swing_stock_codes = set() # 초단타 모듈 침범 방지용 4중 격리 세트
-        self.candidate_stocks = []     # 15:15~15:25 검색된 후보 종목
-        self.executed_today = False    # 당일 15:28 매수 수행 여부
+        self.swing_holdings = {}           # {code: holding_dict}
+        self.swing_stock_codes = set()     # 초단타 모듈 침범 방지용 4중 격리 세트
+        self.candidate_stocks = []         # 15:15 검색된 후보 종목
+        self.candidate_fetched_today = False  # 15:15 조건검색 수신 1회 완료 여부
+        self.evaluated_today = False          # 15:20 기술지표 평가 1회 완료 여부
+        self.executed_today = False           # 15:28 매수 주문 1회 수행 여부
 
         # 백그라운드 태스크
         self.scheduler_task = None
@@ -146,24 +148,32 @@ class SwingManager:
 
                 curr_time = now.time()
 
-                # 날짜가 바뀌면 당일 실행 플래그 리셋
+                # 날짜가 바뀌거나 장 시작 전 플래그 리셋
                 if curr_time < time(9, 0):
+                    self.candidate_fetched_today = False
+                    self.evaluated_today = False
                     self.executed_today = False
 
                 if self.is_enabled:
-                    # 1. 15:15 ~ 15:20: 스윙 전용 조건검색식 후보 수신
-                    if time(15, 15) <= curr_time < time(15, 20) and not self.executed_today:
-                        await self._fetch_swing_candidates()
+                    # 1. 15:15 ~ 15:20: 스윙 전용 조건검색식 후보 1회 자동 수신
+                    if time(15, 15) <= curr_time < time(15, 20):
+                        if not self.candidate_fetched_today:
+                            self.candidate_fetched_today = True
+                            await self._fetch_swing_candidates()
 
-                    # 2. 15:20 ~ 15:27: 후보 종목 일봉 기술분석 및 스윙 매수 평가
-                    elif time(15, 20) <= curr_time < time(15, 28) and not self.executed_today:
-                        await self._evaluate_and_select_buy_targets()
+                    # 2. 15:20 ~ 15:28: 후보 종목 일봉 기술분석 및 스윙 매수 평가 1회만 수행 (중복 API/DB 조회 방지)
+                    elif time(15, 20) <= curr_time < time(15, 28):
+                        if not self.evaluated_today:
+                            self.evaluated_today = True
+                            await self._evaluate_and_select_buy_targets()
 
-                    # 3. 15:28:00: 확정 종목 옵션 A (15:28 시장가) 주문 송신
-                    elif time(15, 28) <= curr_time < time(15, 29) and not self.executed_today:
-                        await self._execute_swing_buy_orders()
+                    # 3. 15:28:00: 확정 종목 15:28 시장가 주문 1회만 송신
+                    elif time(15, 28) <= curr_time < time(15, 29):
+                        if not self.executed_today:
+                            self.executed_today = True
+                            await self._execute_swing_buy_orders()
 
-                    # 4. 장중 및 장마감 시점 보유 스윙 종목 매도 룰 감시
+                    # 4. 장중 및 장마감 시점 보유 스윙 종목 매도 룰 감시 (장중 실시간)
                     if time(9, 0) <= curr_time <= time(15, 30):
                         await self._check_swing_exit_rules()
 
@@ -272,6 +282,11 @@ class SwingManager:
         # 점수 높은 순 정렬 후 슬롯만큼 최종 선정
         selected_targets.sort(key=lambda x: x['score'], reverse=True)
         self.final_buy_targets = selected_targets[:available_slots]
+        if self.final_buy_targets:
+            target_codes = [t['code'] for t in self.final_buy_targets]
+            self.logger.info(f"📊 [스윙 15:20 지표평가 완료] 최종 매수 선정 종목 {len(self.final_buy_targets)}개: {target_codes} (15:28 시장가 매수 대기)")
+        else:
+            self.logger.info(f"📊 [스윙 15:20 지표평가 완료] 후보 {len(self.candidate_stocks)}개 중 매수 조건을 충족한 종목 없음")
 
     async def _fetch_daily_candles(self, code: str) -> pd.DataFrame:
         """키움 REST API ka10081 (주식일봉차트조회) 호출"""
