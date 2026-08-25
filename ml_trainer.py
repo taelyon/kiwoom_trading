@@ -48,7 +48,7 @@ class MLTrainingWorker(threading.Thread):
             'num_leaves': 16,
             'max_depth': 4,
             'learning_rate': 0.02,
-            'feature_fraction': 0.7,
+            'feature_fraction': 0.55,
             'bagging_fraction': 0.7,
             'bagging_freq': 5,
             'verbose': -1,
@@ -418,7 +418,8 @@ class MLTrainingWorker(threading.Thread):
             raw_importance = model.feature_importance(importance_type='gain')
             importance = list(zip(features, raw_importance))
             importance.sort(key=lambda x: x[1], reverse=True)
-            top_features = ", ".join([f"{f}:{int(score)}" for f, score in importance])
+            total_gain = sum(raw_importance) if sum(raw_importance) > 0 else 1.0
+            top_features = ", ".join([f"{f}:{int(score)}({score/total_gain*100:.1f}%)" for f, score in importance])
             
             import json
             metrics = {
