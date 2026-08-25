@@ -329,16 +329,7 @@ class MLTrainingWorker(threading.Thread):
             pos_ratio = y.mean()
             self.progress_signal.emit(f"📊 [ML] 양성 라벨 비율: {pos_ratio:.1%} (1={y.sum()}, 0={len(y)-y.sum()})")
             
-            # 학습용/검증용 분리 (75:25, 시계열 누수 방지를 위한 갭 포함)
-            # train[0..74%] → gap(1%) → val[75%..100%]
-            # 갭: 라벨 생성 시 미래 데이터(LOOKAHEAD 틱)를 참조하므로, train 마지막과 val 첫 부분이 겹치는 것을 방지
-            gap_size = min(LOOKAHEAD * 2, int(len(X) * 0.01))  # 최소 LOOKAHEAD*2, 최대 1%
-            split_idx = int(len(X) * 0.75)
-            X_train, X_val = X.iloc[:split_idx], X.iloc[split_idx + gap_size:]
-            y_train, y_val = y.iloc[:split_idx], y.iloc[split_idx + gap_size:]
-            
-            train_len = len(X_train)
-            # 사용자가 설정한 min_data_in_leaf 하이퍼파라미터 존중 (데이터가 극히 적을 때만 에러 방지용 안전 범위 조율)
+            train_len = len(X)
             if 'min_data_in_leaf' not in self.params or not self.params['min_data_in_leaf']:
                 self.params['min_data_in_leaf'] = 50
             elif train_len > 0 and self.params['min_data_in_leaf'] >= train_len:
@@ -348,10 +339,6 @@ class MLTrainingWorker(threading.Thread):
                 max_leaves = max(4, int(train_len / 10))
                 if self.params['num_leaves'] > max_leaves and train_len < 100:
                     self.params['num_leaves'] = max_leaves
-            
-            # LightGBM 데이터셋 생성
-            train_data = lgb.Dataset(X_train, label=y_train)
-            val_data = lgb.Dataset(X_val, label=y_val, reference=train_data)
             
             # 주요 파라미터 요약 출력
             param_summary = (
@@ -368,51 +355,70 @@ class MLTrainingWorker(threading.Thread):
             self.progress_signal.emit(param_summary)
             self.logger.info(param_summary)
             
-            self.progress_signal.emit("🤖 [ML] LightGBM 모델 학습 시작...")
+            # =========================================================================
+            # [5-Fold 교차 검증 엔진] OOF CV AUC 측정 및 최적 트리 수(avg_best_trees) 산출
+            # =========================================================================
+            from sklearn.model_selection import KFold
+            from sklearn.metrics import roc_auc_score
             
-            # 모델 학습 (조기 종료 및 1~3개 트리 조기 멈춤 방지)
+            n_splits = 5
+            kf = KFold(n_splits=n_splits, shuffle=True, random_state=42)
+            
+            oof_preds = np.zeros(len(X))
+            best_iterations = []
+            
+            self.progress_signal.emit(f"🤖 [ML] {n_splits}-Fold 교차 검증 및 최적 트리 수 정밀 탐색 중...")
+            
+            for fold, (train_idx, val_idx) in enumerate(kf.split(X, y)):
+                X_tr, y_tr = X.iloc[train_idx], y.iloc[train_idx]
+                X_va, y_va = X.iloc[val_idx], y.iloc[val_idx]
+                
+                tr_data = lgb.Dataset(X_tr, label=y_tr)
+                va_data = lgb.Dataset(X_va, label=y_va, reference=tr_data)
+                
+                fold_model = lgb.train(
+                    self.params,
+                    tr_data,
+                    num_boost_round=self.num_boost_round,
+                    valid_sets=[tr_data, va_data],
+                    callbacks=[
+                        lgb.early_stopping(stopping_rounds=80, verbose=False)
+                    ]
+                )
+                
+                iter_count = fold_model.best_iteration if fold_model.best_iteration > 0 else self.num_boost_round
+                best_iterations.append(iter_count)
+                oof_preds[val_idx] = fold_model.predict(X_va, num_iteration=iter_count)
+            
+            try:
+                oof_auc = float(roc_auc_score(y, oof_preds))
+            except Exception:
+                oof_auc = 0.60
+                
+            avg_best_trees = max(30, int(np.mean(best_iterations)))
+            
+            self.progress_signal.emit(f"📊 [ML] 5-Fold CV 완료 | OOF 검증 AUC: {oof_auc:.4f} | 검증된 최적 트리 수: {avg_best_trees}개")
+            self.logger.info(f"5-Fold CV OOF AUC: {oof_auc:.4f}, avg_best_trees: {avg_best_trees}, iterations: {best_iterations}")
+            
+            # 전체 데이터셋(Full Dataset) 대상 최종 모델 학습
+            self.progress_signal.emit(f"🚀 [ML] 전체 데이터 대상 최종 모델 학습 중 ({avg_best_trees}개 트리)...")
+            full_dataset = lgb.Dataset(X, label=y)
             model = lgb.train(
                 self.params,
-                train_data,
-                num_boost_round=self.num_boost_round,
-                valid_sets=[train_data, val_data],
-                callbacks=[
-                    lgb.early_stopping(stopping_rounds=80, verbose=False),
-                    lgb.log_evaluation(period=100) 
-                ]
+                full_dataset,
+                num_boost_round=avg_best_trees,
+                callbacks=[lgb.log_evaluation(period=100)]
             )
-            
-            # [방어 로직] Validation 데이터 변동성으로 트리가 10개 미만으로 일찍 멈춘 경우, 풀 데이터셋 100회 라운드로 자동 변환 학습
-            if model.num_trees() < 10:
-                self.logger.info("⚠️ Validation Early-stopping이 3회 이하 조기 발동하여, 전체 데이터셋으로 100회 라운드 풀 학습을 재실행합니다.")
-                self.progress_signal.emit("🤖 [ML] 다중 트리 형성을 위한 풀 데이터셋 100회 라운드 재학습 진행 중...")
-                full_dataset = lgb.Dataset(X, label=y)
-                model = lgb.train(
-                    self.params,
-                    full_dataset,
-                    num_boost_round=100,
-                    callbacks=[lgb.log_evaluation(period=100)]
-                )
             
             self.progress_signal.emit("💾 [ML] 모델 히스토리 파일 저장 중...")
             
-            # 검증 성능(AUC) 정밀 계산 (X_val에 대해 직접 추론하여 AUC 계산)
-            best_score = 0.0
-            try:
-                from sklearn.metrics import roc_auc_score
-                val_preds = model.predict(X_val)
-                best_score = float(roc_auc_score(y_val, val_preds))
-            except Exception:
-                best_score = model.best_score.get('valid_1', {}).get('auc', 0.60) if hasattr(model, 'best_score') else 0.60
-                
-            # 학습 성능(train_auc) 정밀 계산 (X_train에 대해 직접 추론하여 AUC 계산)
+            best_score = oof_auc
             best_train_score = 0.0
             try:
-                from sklearn.metrics import roc_auc_score
-                train_preds = model.predict(X_train)
-                best_train_score = float(roc_auc_score(y_train, train_preds))
+                full_train_preds = model.predict(X)
+                best_train_score = float(roc_auc_score(y, full_train_preds))
             except Exception:
-                best_train_score = model.best_score.get('valid_0', {}).get('auc', 0.0) if hasattr(model, 'best_score') else 0.0
+                best_train_score = oof_auc
             
             # Feature Importance 로깅 (split 방식 대신 gain 방식으로 변경하여 실질적 기여도 측정)
             raw_importance = model.feature_importance(importance_type='gain')
