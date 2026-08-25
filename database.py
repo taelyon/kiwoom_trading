@@ -213,16 +213,32 @@ class AsyncDatabaseManager:
                     legacy_cols.extend([row[1] for row in columns_info if row[1] in unwanted_cols])
                     
                     if legacy_cols:
-                        self.logger.info(f"🧹 불필요한 DB 컬럼 발견, 정리를 시도합니다: {legacy_cols}")
-                        for col in legacy_cols:
-                            try:
-                                await cursor.execute(f"ALTER TABLE stock_data DROP COLUMN {col}")
-                                self.logger.info(f"🗑️ 컬럼 삭제 완료: {col}")
-                            except Exception as e:
-                                self.logger.warning(f"⚠️ 컬럼 {col} 삭제 실패 (SQLite 구버전일 수 있음): {e}")
+                        # 삭제 전 현재 테이블 컬럼 상태 재조회 (동시성 초기화로 이미 삭제되었을 경우 대비)
+                        await cursor.execute("PRAGMA table_info(stock_data)")
+                        current_cols = {row[1] for row in await cursor.fetchall()}
+                        actual_cols_to_drop = [c for c in legacy_cols if c in current_cols]
+                        
+                        if actual_cols_to_drop:
+                            self.logger.info(f"🧹 불필요한 DB 컬럼 발견, 정리를 시도합니다: {actual_cols_to_drop}")
+                            for col in actual_cols_to_drop:
+                                try:
+                                    # 삭제 직전 해당 컬럼 존재 여부 실시간 확인
+                                    await cursor.execute("PRAGMA table_info(stock_data)")
+                                    live_cols = {row[1] for row in await cursor.fetchall()}
+                                    if col not in live_cols:
+                                        continue
+                                    await cursor.execute(f"ALTER TABLE stock_data DROP COLUMN {col}")
+                                    self.logger.info(f"🗑️ 컬럼 삭제 완료: {col}")
+                                except Exception as e:
+                                    err_str = str(e).lower()
+                                    if "no such column" in err_str:
+                                        self.logger.debug(f"ℹ️ 컬럼 {col}이(가) 이미 존재하지 않습니다.")
+                                    else:
+                                        self.logger.warning(f"⚠️ 컬럼 {col} 삭제 실패 (SQLite 구버전일 수 있음): {e}")
 
                     # 3. 신규 직결 틱 지표 컬럼 자동 추가 마이그레이션
-                    existing_col_names = {row[1] for row in columns_info}
+                    await cursor.execute("PRAGMA table_info(stock_data)")
+                    existing_col_names = {row[1] for row in await cursor.fetchall()}
                     new_required_cols = [
                         'tick_price_roc', 'tick_impulse', 'tick_atr_ratio',
                         'tick_ma_spread', 'tick_disparity20', 'tick_bb_position', 'tick_tail_ratio'
@@ -233,7 +249,11 @@ class AsyncDatabaseManager:
                                 await cursor.execute(f"ALTER TABLE stock_data ADD COLUMN {new_col} REAL")
                                 self.logger.info(f"✨ 신규 DB 컬럼 동적 추가 완료: {new_col}")
                             except Exception as add_err:
-                                self.logger.warning(f"⚠️ 신규 컬럼 {new_col} 추가 중 예외: {add_err}")
+                                err_str = str(add_err).lower()
+                                if "duplicate column" in err_str:
+                                    self.logger.debug(f"ℹ️ 신규 컬럼 {new_col}이(가) 이미 존재합니다.")
+                                else:
+                                    self.logger.warning(f"⚠️ 신규 컬럼 {new_col} 추가 중 예외: {add_err}")
 
                     # commit은 isolation_level=None이면 자동으로 처리됨
                     self.logger.debug("✅ 데이터베이스 초기화 완료 (불필요한 테이블/컬럼 정리 포함)")

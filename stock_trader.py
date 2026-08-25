@@ -210,7 +210,7 @@ class TradingApp:
             # 6. ML 매니저 스케줄러 기동
             try:
                 self.ml_manager.start_scheduler()
-                self.logger.info("🤖 ML 매니저 초기화 완료 (asyncio 스케줄러 동작 중)")
+                self.logger.debug("🤖 ML 매니저 스케줄러 기동 상태 확인 완료")
             except Exception as ml_ex:
                 self.logger.error(f"❌ ML 매니저 스케줄러 기동 실패: {ml_ex}", exc_info=True)
 
