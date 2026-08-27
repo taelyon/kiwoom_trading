@@ -5944,15 +5944,26 @@ def get_current_status_data():
         if hasattr(app, 'swing_manager') and app.swing_manager:
             for c_code, s_info in app.swing_manager.swing_holdings.items():
                 curr_p = s_info.get('buy_price', 0)
-                if code in ws_balance:
-                    curr_p = ws_balance[code].get('current_price', curr_p)
+                if c_code in ws_balance:
+                    curr_p = ws_balance[c_code].get('current_price', curr_p)
                 buy_p = s_info.get('buy_price', 1)
                 qty = s_info.get('qty', 0)
                 p_loss = (curr_p - buy_p) * qty
                 p_rate = ((curr_p - buy_p) / buy_p * 100.0) - 0.3
+                
+                # 종목명 실시간 보정
+                s_name = s_info.get('name', '')
+                if not s_name or s_name == c_code or s_name.startswith('종목'):
+                    if hasattr(app, 'data_manager') and app.data_manager:
+                        resolved = app.data_manager.get_stock_name_by_code(c_code)
+                        if resolved and resolved != f"종목{c_code}" and resolved != c_code and resolved != "알수없음":
+                            s_name = resolved
+                    if (not s_name or s_name == c_code or s_name.startswith('종목')) and hasattr(app.swing_manager, 'get_stock_name'):
+                        s_name = app.swing_manager.get_stock_name(c_code)
+
                 swing_holdings[c_code] = {
                     "code": c_code,
-                    "name": s_info.get('name', c_code),
+                    "name": s_name or c_code,
                     "quantity": qty,
                     "purchase_price": buy_p,
                     "current_price": curr_p,

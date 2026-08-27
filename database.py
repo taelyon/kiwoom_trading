@@ -1070,7 +1070,7 @@ class AsyncDatabaseManager:
         return result
 
     # ==================== 스윙 매매 전용 CRUD ====================
-    async def save_swing_holding(self, code: str, name: str, buy_price: float, qty: int, buy_date: str, highest_price: float = 0.0, strategy: str = ""):
+    async def save_swing_holding(self, code: str, name: str, buy_price: float, qty: int, buy_date: str, highest_price: float = 0.0, strategy: str = "", partially_sold: bool = False):
         """스윙 매수 보유 종목 저장/갱신"""
         try:
             if self._conn is None:
@@ -1082,9 +1082,9 @@ class AsyncDatabaseManager:
                 cursor = await self._conn.cursor()
                 await cursor.execute('''
                     INSERT OR REPLACE INTO swing_holdings
-                    (code, name, buy_price, qty, buy_date, highest_price, strategy, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (code, name, buy_price, qty, buy_date, highest_price, strategy, created_at))
+                    (code, name, buy_price, qty, buy_date, highest_price, strategy, partially_sold, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (code, name, buy_price, qty, buy_date, highest_price, strategy, 1 if partially_sold else 0, created_at))
                 await self._conn.commit()
                 self.logger.info(f"💾 [스윙 DB] 보유 종목 저장: {code} ({name}) - {qty}주 @ {buy_price:,.0f}원")
         except Exception as e:
