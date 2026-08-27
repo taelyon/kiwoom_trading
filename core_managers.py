@@ -480,6 +480,14 @@ class MonitoringManager:
     async def add_stock_to_monitoring(self, code, name=None):
         """모니터링 종목 추가"""
         try:
+            if not code:
+                return False
+
+            # [스윙 격리] 스윙 매니저가 관리 중인 종목은 초단타 감시 목록에 추가하지 않음
+            if hasattr(self.parent, 'swing_manager') and self.parent.swing_manager and self.parent.swing_manager.is_swing_stock(code):
+                self.logger.debug(f"🛡️ {code} 종목은 스윙 보유/후보 종목이므로 초단타 감시 목록 추가를 스킵합니다.")
+                return False
+
             if code in self.monitored_stocks:
                 self.logger.debug(f"종목이 이미 모니터링 목록에 있습니다: {code}")
                 return True
@@ -534,6 +542,14 @@ class MonitoringManager:
     async def add_stock_to_monitoring_async(self, code):
         """모니터링 종목 추가 (비동기 버전)"""
         try:
+            if not code:
+                return False
+
+            # [스윙 격리] 스윙 매니저가 관리 중인 종목은 초단타 감시 목록에 추가하지 않음
+            if hasattr(self.parent, 'swing_manager') and self.parent.swing_manager and self.parent.swing_manager.is_swing_stock(code):
+                self.logger.debug(f"🛡️ {code} 종목은 스윙 보유/후보 종목이므로 초단타 감시 목록 추가를 스킵합니다.")
+                return False
+
             if code in self.monitored_stocks:
                 self.logger.debug(f"종목이 이미 모니터링 목록에 있습니다: {code}")
                 return True
@@ -1040,6 +1056,11 @@ class TradingManager:
                 
                 success_count = 0
                 for code in sell_items:
+                    # 스윙 보유 종목은 초단타 전체 매도에서 제외
+                    if hasattr(self.parent, 'swing_manager') and self.parent.swing_manager and self.parent.swing_manager.is_swing_stock(code):
+                        self.logger.info(f"🛡️ [전체 매도] {code} 종목은 스윙 보유 종목이므로 일괄 매도 대상에서 제외합니다.")
+                        continue
+
                     try:
                         quantity = 0
                         

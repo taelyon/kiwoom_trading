@@ -5852,9 +5852,22 @@ def get_current_status_data():
         t2 = time.perf_counter()
         # logging.debug(f"📊 [성능측정] 계좌정보 로드: {t2 - t1:.4f}s")
 
-        # 2. 자산 현황 요약 계산
-        total_purchase = sum(data.get('purchase_amount', 0) for data in ws_balance.values() if isinstance(data, dict))
-        total_valuation = sum(data.get('evaluation_amount', 0) for data in ws_balance.values() if isinstance(data, dict))
+        # 스윙 종목 코드 세트 추출 (초단타-스윙 4중 격리)
+        swing_codes = set()
+        if hasattr(app, 'swing_manager') and app.swing_manager:
+            swing_codes = getattr(app.swing_manager, 'swing_stock_codes', set()) or set()
+            if not swing_codes and hasattr(app.swing_manager, 'swing_holdings'):
+                swing_codes = set(app.swing_manager.swing_holdings.keys())
+
+        # 초단타 전용 순수 잔고 (스윙 종목 제외)
+        scalp_ws_balance = {
+            c: d for c, d in ws_balance.items()
+            if c != 'available_cash' and c not in swing_codes and isinstance(d, dict)
+        }
+
+        # 2. 자산 현황 요약 계산 (초단타 순수 기준)
+        total_purchase = sum(data.get('purchase_amount', 0) for data in scalp_ws_balance.values())
+        total_valuation = sum(data.get('evaluation_amount', 0) for data in scalp_ws_balance.values())
         
         # available_cash 추출
         available_cash = 0
@@ -5867,8 +5880,8 @@ def get_current_status_data():
             
         total_assets = available_cash + total_valuation
         
-        # 계좌 누적 평가손익 계산 (초기 투자 원금 대비)
-        evaluation_profit = sum(data.get('profit_loss', 0) for data in ws_balance.values() if isinstance(data, dict))
+        # 계좌 누적 평가손익 계산 (초단타 순수 잔고 기준)
+        evaluation_profit = sum(data.get('profit_loss', 0) for data in scalp_ws_balance.values())
         
         prime_cash = getattr(app.trader, 'prime_cash', 0) if app.trader else 0
         if prime_cash > 0:
@@ -5882,12 +5895,9 @@ def get_current_status_data():
             realized_profit = 0
         t4 = time.perf_counter()
 
-        # 3. 보유 종목 리스트 변환
+        # 3. 보유 종목 리스트 변환 (초단타 전용)
         holdings = {}
-        for code, data in ws_balance.items():
-            if not isinstance(data, dict):
-                continue
-                
+        for code, data in scalp_ws_balance.items():
             ai_score = 0.0
             if hasattr(app, 'chart_cache'):
                 cache_data = app.chart_cache.cache.get(code)
@@ -5916,6 +5926,8 @@ def get_current_status_data():
                 key=lambda c: app.monitoring_manager.stock_added_time.get(c, datetime.min)
             )
             for code in sorted_codes:
+                if code in swing_codes:
+                    continue
                 name = "분석 대기"
                 if hasattr(app, 'data_manager') and app.data_manager:
                     name = app.data_manager.get_stock_name_by_code(code)

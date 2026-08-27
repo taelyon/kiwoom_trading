@@ -173,6 +173,13 @@ class SwingManager:
 
             self.swing_holdings = stored_holdings
             self.swing_stock_codes = set(stored_holdings.keys())
+            
+            # 초단타 감시 목록에 스윙 보유 종목이 남아있지 않도록 정리
+            if hasattr(self.parent, 'monitoring_manager') and self.parent.monitoring_manager:
+                for sc in self.swing_stock_codes:
+                    if sc in self.parent.monitoring_manager.monitored_stocks:
+                        asyncio.create_task(self.parent.monitoring_manager.remove_stock_from_monitoring(sc))
+
             self.logger.info(f"🚀 SwingManager 초기화 완료 (보유 종목: {len(self.swing_holdings)}개 - {list(self.swing_stock_codes)})")
         except Exception as e:
             self.logger.error(f"❌ SwingManager 초기화 중 DB 로드 오류: {e}")
@@ -276,9 +283,12 @@ class SwingManager:
     async def set_candidate_codes(self, codes: list):
         """웹소켓 수신 조건검색 종목 리스트 갱신"""
         self.candidate_stocks = codes
-        # 초단타 침범 방지를 위해 스윙 후보 세트에도 등록
+        # 초단타 침범 방지를 위해 스윙 후보 세트에도 등록 및 초단타 감시 목록에서 정리
         for c in codes:
             self.swing_stock_codes.add(c)
+            if hasattr(self.parent, 'monitoring_manager') and self.parent.monitoring_manager:
+                if c in self.parent.monitoring_manager.monitored_stocks:
+                    asyncio.create_task(self.parent.monitoring_manager.remove_stock_from_monitoring(c))
         self.logger.info(f"📋 [스윙 후보 등록] 총 {len(codes)}개 종목: {codes[:5]}...")
 
     async def _evaluate_and_select_buy_targets(self):

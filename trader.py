@@ -561,6 +561,12 @@ class KiwoomTrader:
                 if code == 'available_cash':
                     continue
                 
+                # [스윙 종목 격리] 스윙 매니저가 관리 중인 종목은 초단타 holdings에 등록하지 않음
+                if hasattr(self.parent, 'swing_manager') and self.parent.swing_manager and self.parent.swing_manager.is_swing_stock(code):
+                    if code in self.holdings:
+                        del self.holdings[code]
+                    continue
+
                 # [잔상 버그 픽스] 방금 매도한 종목이 웹소켓 지연으로 인해 다시 부활하는 것 차단
                 if self.is_recently_sold(code):
                     continue
