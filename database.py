@@ -847,7 +847,7 @@ class AsyncDatabaseManager:
         except Exception as ex:
             self.logger.error(f"매매 기록 초기화 실패: {ex}", exc_info=True)
 
-    async def get_trade_history(self, limit=500, start_date=None, end_date=None):
+    async def get_trade_history(self, limit=500, start_date=None, end_date=None, is_scalp_only=False):
         """저장된 매매 기록을 가져옴 (최신순, 날짜 필터 적용 가능)"""
         try:
             if self._conn is None:
@@ -862,6 +862,9 @@ class AsyncDatabaseManager:
                     WHERE 1=1
                 '''
                 params = []
+                
+                if is_scalp_only:
+                    query += " AND (strategy IS NULL OR strategy NOT LIKE '스윙%')"
                 
                 if start_date:
                     query += " AND datetime >= ?"
@@ -1172,7 +1175,7 @@ class AsyncDatabaseManager:
             self.logger.error(f"❌ 스윙 매매 이력 저장 실패 ({code}): {e}")
 
     async def get_trade_records(self, limit: int = 50) -> list:
-        """초단타 매매 이력 목록 조회"""
+        """초단타 매매 이력 목록 조회 (스윙 매매 제외)"""
         records = []
         try:
             if self._conn is None:
@@ -1182,6 +1185,7 @@ class AsyncDatabaseManager:
                 await cursor.execute('''
                     SELECT id, code, datetime, order_type, quantity, price, amount, strategy, profit_loss
                     FROM trade_records
+                    WHERE (strategy IS NULL OR strategy NOT LIKE '스윙%')
                     ORDER BY id DESC
                     LIMIT ?
                 ''', (limit,))
@@ -1203,13 +1207,15 @@ class AsyncDatabaseManager:
         return records
 
     async def get_swing_trade_records(self, limit: int = 50) -> list:
-        """스윙 최근 매매 이력 목록 조회"""
+        """스윙 최근 매매 이력 목록 조회 (완료된 스윙 매매 + 현재 진행 중인 스윙 매수 체결건 통합)"""
         records = []
         try:
             if self._conn is None:
                 await self.init_database()
             async with self._db_lock:
                 cursor = await self._conn.cursor()
+                
+                # 1. 완료된 스윙 매매 손익 기록 조회
                 await cursor.execute('''
                     SELECT code, name, buy_price, sell_price, qty, profit_loss, profit_pct, buy_date, sell_date, strategy, created_at
                     FROM swing_trade_records
@@ -1229,11 +1235,67 @@ class AsyncDatabaseManager:
                         'buy_date': row[7],
                         'sell_date': row[8],
                         'strategy': row[9],
-                        'created_at': row[10]
+                        'created_at': row[10],
+                        'status': '완료'
                     })
+
+                # 2. trade_records에 기록된 스윙 매수/체결건 중 아직 매도 완료되지 않은 건 통합
+                await cursor.execute('''
+                    SELECT code, datetime, order_type, quantity, price, amount, strategy, profit_loss
+                    FROM trade_records
+                    WHERE strategy LIKE '스윙%'
+                    ORDER BY id DESC
+                    LIMIT ?
+                ''', (limit,))
+                t_rows = await cursor.fetchall()
+                for trow in t_rows:
+                    t_code, t_dt, t_type, t_qty, t_price, t_amt, t_stg, t_pl = trow
+                    t_date = t_dt.split(' ')[0] if ' ' in t_dt else t_dt
+                    
+                    # 이미 완료된 스윙 거래에 동일 코드가 최근 날짜에 있는지 체크
+                    already_in = any(r['code'] == t_code and r.get('buy_date') == t_date for r in records)
+                    if not already_in:
+                        records.append({
+                            'code': t_code,
+                            'name': t_code,
+                            'buy_price': t_price if str(t_type).upper() == 'BUY' else 0,
+                            'sell_price': t_price if str(t_type).upper() == 'SELL' else 0,
+                            'qty': t_qty,
+                            'profit_loss': t_pl,
+                            'profit_pct': (t_pl / (t_price * t_qty) * 100.0) if (t_price * t_qty) > 0 else 0.0,
+                            'buy_date': t_date if str(t_type).upper() == 'BUY' else '-',
+                            'sell_date': t_date if str(t_type).upper() == 'SELL' else '-',
+                            'strategy': t_stg or '스윙_체결',
+                            'created_at': t_dt,
+                            'status': '보유중' if str(t_type).upper() == 'BUY' else '체결'
+                        })
         except Exception as e:
             self.logger.error(f"❌ 스윙 매매 이력 조회 실패: {e}")
         return records
+
+    async def get_all_swing_stock_codes(self) -> set:
+        """스윙 매매와 관련된 모든 종목 코드 집합 반환 (보유, 매매이력, 체결기록 전체)"""
+        codes = set()
+        try:
+            if self._conn is None:
+                await self.init_database()
+            async with self._db_lock:
+                cursor = await self._conn.cursor()
+                # 1. swing_holdings
+                await cursor.execute("SELECT code FROM swing_holdings")
+                for r in await cursor.fetchall():
+                    if r[0]: codes.add(str(r[0]).strip().zfill(6))
+                # 2. swing_trade_records
+                await cursor.execute("SELECT code FROM swing_trade_records")
+                for r in await cursor.fetchall():
+                    if r[0]: codes.add(str(r[0]).strip().zfill(6))
+                # 3. trade_records WHERE strategy LIKE '스윙%'
+                await cursor.execute("SELECT code FROM trade_records WHERE strategy LIKE '스윙%'")
+                for r in await cursor.fetchall():
+                    if r[0]: codes.add(str(r[0]).strip().zfill(6))
+        except Exception as e:
+            self.logger.error(f"❌ 스윙 종목 코드 목록 조회 실패: {e}")
+        return codes
 
     async def save_daily_candles(self, candles: list):
         """스윙 전용 daily_candles 일봉 데이터 및 기술적 지표 다량 저장/갱신"""

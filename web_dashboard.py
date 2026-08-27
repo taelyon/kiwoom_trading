@@ -1625,7 +1625,7 @@ HTML_CONTENT = """
                         <div class="card-title">총 자산</div>
                         <div id="totalAssets" class="card-value">0원</div>
                         <div id="primeCashText" class="card-subtext" style="margin-top: 6px; font-size: 12px; color: var(--text-secondary);">투자원금: 조회 중...</div>
-                        <button class="btn-primary" style="position: absolute; top: 15px; right: 15px; padding: 6px 10px; font-size: 11px; border-radius: 6px;" onclick="openTradeHistory()">📜 매매내역</button>
+                        <button class="btn-primary" style="position: absolute; top: 15px; right: 15px; padding: 6px 10px; font-size: 11px; border-radius: 6px;" onclick="openTradeHistory()">📜 초단타 매매내역</button>
                     </div>
                     <div class="glass-card">
                         <div class="card-title">총손익</div>
@@ -2174,7 +2174,7 @@ HTML_CONTENT = """
         <div class="modal-container">
             <div class="modal-header" style="flex-direction: column; align-items: stretch; gap: 12px;">
                 <div style="display:flex; justify-content: space-between; align-items: center;">
-                    <h2>📜 주식 매매내역</h2>
+                    <h2>⚡ 초단타 매매내역</h2>
                     <button class="close-btn" onclick="closeTradeHistory()">&times;</button>
                 </div>
                 <div style="display:flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
@@ -2185,7 +2185,7 @@ HTML_CONTENT = """
                         <button class="btn-primary" style="padding: 4px 10px; font-size: 12px; border-radius: 4px; margin-left: 4px;" onclick="fetchTradeHistoryWithDates()">조회</button>
                         <button class="btn-danger" style="padding: 4px 10px; font-size: 12px; border-radius: 4px; margin-left: 4px;" onclick="confirmClearTradeHistory()">초기화</button>
                     </div>
-                    <button class="btn-primary" style="padding: 6px 12px; font-size: 12px; border-radius: 6px; background: rgba(59, 130, 246, 0.2); border: 1px solid var(--primary);" onclick="fetchKiwoomHistory()">🔄 키움 거래내역</button>
+                    <button class="btn-primary" style="padding: 6px 12px; font-size: 12px; border-radius: 6px; background: rgba(59, 130, 246, 0.2); border: 1px solid var(--primary);" onclick="fetchKiwoomHistory()">🔄 키움 초단타 거래내역</button>
                 </div>
             </div>
             <div class="modal-body" style="max-height: 60vh; overflow-y: auto;">
@@ -2363,16 +2363,26 @@ HTML_CONTENT = """
 
     <!-- 스윙 매매 내역 모달 -->
     <div id="swingTradeHistoryModal" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.75); z-index: 9999; backdrop-filter: blur(6px); justify-content: center; align-items: center;">
-        <div class="glass-card" style="width: 950px; max-width: 95vw; max-height: 85vh; display: flex; flex-direction: column; padding: 24px; border: 1px solid rgba(100, 255, 218, 0.4); background: #0e1117; box-shadow: 0 8px 32px rgba(0,0,0,0.8); border-radius: 12px;">
+        <div class="glass-card" style="width: 1000px; max-width: 95vw; max-height: 85vh; display: flex; flex-direction: column; padding: 24px; border: 1px solid rgba(100, 255, 218, 0.4); background: #0e1117; box-shadow: 0 8px 32px rgba(0,0,0,0.8); border-radius: 12px;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid var(--border-color); padding-bottom: 12px;">
                 <div style="font-size: 18px; font-weight: bold; color: #64ffda; display: flex; align-items: center; gap: 8px;">
                     📈 실시간 스윙 매매 체결 내역
                 </div>
                 <button onclick="closeSwingTradeHistoryModal()" style="background: transparent; border: none; color: #fff; font-size: 22px; cursor: pointer; opacity: 0.8;">✖</button>
             </div>
+            <!-- 스윙 날짜 필터 및 키움 스윙 거래내역 동기화 툴바 -->
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 14px;">
+                <div style="display:flex; align-items: center; gap: 6px; background: rgba(255,255,255,0.05); padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border-color);">
+                    <input type="date" id="swingTradeStartDate" style="background: transparent; border: none; color: white; font-size: 12px; outline: none; cursor: pointer;">
+                    <span style="color: var(--text-secondary); font-size: 12px;">~</span>
+                    <input type="date" id="swingTradeEndDate" style="background: transparent; border: none; color: white; font-size: 12px; outline: none; cursor: pointer;">
+                    <button class="btn-primary" style="padding: 4px 10px; font-size: 12px; border-radius: 4px; margin-left: 4px; background: rgba(100,255,218,0.2); border-color: rgba(100,255,218,0.4);" onclick="openSwingTradeHistoryModal()">조회</button>
+                </div>
+                <button class="btn-primary" style="padding: 6px 12px; font-size: 12px; border-radius: 6px; background: rgba(100, 255, 218, 0.2); border: 1px solid rgba(100, 255, 218, 0.5); color: #64ffda; font-weight: bold;" onclick="fetchKiwoomSwingHistory()">🔄 키움 스윙 거래내역</button>
+            </div>
             <div style="flex-grow: 1; overflow-y: auto; max-height: 60vh;">
                 <table class="portfolio-table" style="width: 100%;">
-                    <thead>
+                    <thead id="swingTradeHistoryHead">
                         <tr style="text-align: center;">
                             <th style="text-align: center;">종목 (코드)</th>
                             <th style="text-align: center;">매수가</th>
@@ -2971,7 +2981,11 @@ HTML_CONTENT = """
                     
                     renderDbSummaryContent(data, currentDbSummaryTab);
                 } else if (data.type === 'kiwoom_history_data') {
-                    const thead = document.getElementById('tradeHistoryHead');
+                    const isSwing = data.target === 'swing';
+                    const theadId = isSwing ? 'swingTradeHistoryHead' : 'tradeHistoryHead';
+                    const tbodyId = isSwing ? 'swingTradeHistoryBody' : 'tradeHistoryBody';
+                    
+                    const thead = document.getElementById(theadId);
                     if (thead) {
                         thead.innerHTML = `
                             <tr>
@@ -2987,7 +3001,7 @@ HTML_CONTENT = """
                             </tr>
                         `;
                     }
-                    const tbody = document.getElementById('tradeHistoryBody');
+                    const tbody = document.getElementById(tbodyId);
                     
                     // 로딩 row 제거
                     const loadingRow = document.getElementById('kiwoomLoading');
@@ -2996,44 +3010,43 @@ HTML_CONTENT = """
                     }
                     
                     if (data.error) {
-                        alert("키움증권 거래내역 동기화 중 서버 에러가 발생했습니다:\\n" + data.error);
+                        alert("키움증권 거래내역 동기화 중 서버 에러가 발생했습니다:\n" + data.error);
                         return;
                     }
                     
                     if (!data.data || data.data.length === 0) {
-                        alert("키움증권으로부터 가져올 기간 내 매매 내역이 없습니다.");
+                        const targetName = isSwing ? "스윙" : "초단타";
+                        if (tbody) tbody.innerHTML = `<tr><td colspan="9" class="no-data" style="padding:20px; text-align:center;">키움증권에서 조회된 ${targetName} 매매 내역이 없습니다.</td></tr>`;
                         return;
                     }
                     
-                    // 빈 상태 텍스트(예: 내역이 없습니다)가 있다면 삭제
-                    // 키움 데이터는 필드가 다르므로 기존 데이터를 덮어씌움
-                    tbody.innerHTML = '';
+                    if (tbody) {
+                        tbody.innerHTML = '';
+                        data.data.forEach(record => {
+                            const row = document.createElement('tr');
+                            
+                            const plAmt = parseInt(record.pl_amt) || 0;
+                            const plColor = plAmt > 0 ? 'var(--danger)' : (plAmt < 0 ? 'var(--primary)' : 'var(--text-secondary)');
+                            const prftRt = parseFloat(record.prft_rt) || 0;
+                            const prftColor = prftRt > 0 ? 'var(--danger)' : (prftRt < 0 ? 'var(--primary)' : 'var(--text-secondary)');
 
-                    // 키움 API 데이터 테이블 상단에 추가
-                    data.data.forEach(record => {
-                        const row = document.createElement('tr');
-                        
-                        const plAmt = parseInt(record.pl_amt) || 0;
-                        const plColor = plAmt > 0 ? 'var(--danger)' : (plAmt < 0 ? 'var(--primary)' : 'var(--text-secondary)');
-                        const prftRt = parseFloat(record.prft_rt) || 0;
-                        const prftColor = prftRt > 0 ? 'var(--danger)' : (prftRt < 0 ? 'var(--primary)' : 'var(--text-secondary)');
-
-                        row.innerHTML = `
-                            <td style="font-size: 12px; color: var(--accent-cyan); font-weight: bold;">${record.ord_dt}</td>
-                            <td>
-                                <span style="font-weight: bold; font-size: 14px;">${record.stk_nm || '-'}</span>
-                                <span style="font-size: 12px; color: var(--text-secondary);">(${record.stk_cd})</span>
-                            </td>
-                            <td style="color: var(--danger); font-weight: bold;">${(parseInt(record.buy_qty)||0).toLocaleString()}주</td>
-                            <td style="color: var(--primary); font-weight: bold;">${(parseInt(record.sell_qty)||0).toLocaleString()}주</td>
-                            <td class="text-right">${(parseInt(record.buy_avg_pric)||0).toLocaleString()}원</td>
-                            <td class="text-right">${(parseInt(record.sel_avg_pric)||0).toLocaleString()}원</td>
-                            <td class="text-right" style="color: ${plColor}; font-weight: bold;">${plAmt > 0 ? '+' : ''}${plAmt.toLocaleString()}원</td>
-                            <td class="text-right" style="color: ${prftColor}; font-weight: bold;">${(prftRt > 0 && !String(record.prft_rt).startsWith('+')) ? '+' : ''}${record.prft_rt}%</td>
-                            <td class="text-right">${(parseInt(record.cmsn_alm_tax)||0).toLocaleString()}원</td>
-                        `;
-                        tbody.appendChild(row);
-                    });
+                            row.innerHTML = `
+                                <td style="font-size: 12px; color: var(--accent-cyan); font-weight: bold; text-align: center;">${record.ord_dt}</td>
+                                <td style="text-align: center;">
+                                    <span style="font-weight: bold; font-size: 14px;">${record.stk_nm || '-'}</span>
+                                    <span style="font-size: 12px; color: var(--text-secondary);">(${record.stk_cd})</span>
+                                </td>
+                                <td style="color: var(--danger); font-weight: bold; text-align: center;">${(parseInt(record.buy_qty)||0).toLocaleString()}주</td>
+                                <td style="color: var(--primary); font-weight: bold; text-align: center;">${(parseInt(record.sell_qty)||0).toLocaleString()}주</td>
+                                <td class="text-right">${(parseInt(record.buy_avg_pric)||0).toLocaleString()}원</td>
+                                <td class="text-right">${(parseInt(record.sel_avg_pric)||0).toLocaleString()}원</td>
+                                <td class="text-right" style="color: ${plColor}; font-weight: bold;">${plAmt > 0 ? '+' : ''}${plAmt.toLocaleString()}원</td>
+                                <td class="text-right" style="color: ${prftColor}; font-weight: bold;">${(prftRt > 0 && !String(record.prft_rt).startsWith('+')) ? '+' : ''}${record.prft_rt}%</td>
+                                <td class="text-right">${(parseInt(record.cmsn_alm_tax)||0).toLocaleString()}원</td>
+                            `;
+                            tbody.appendChild(row);
+                        });
+                    }
                 }
             };
 
@@ -3276,16 +3289,26 @@ HTML_CONTENT = """
                 return;
             }
             tbody.innerHTML = records.map(r => {
+                const isHolding = !r.sell_price || Number(r.sell_price) === 0;
                 const profitClass = (r.profit_loss || 0) >= 0 ? 'up' : 'down';
                 const sign = (r.profit_loss || 0) >= 0 ? '+' : '';
+                
+                const sellPriceText = isHolding ? '<span style="color: #64ffda; font-size: 11px; font-weight: bold;">보유 진행중</span>' : `${Number(r.sell_price).toLocaleString()}원`;
+                const profitLossText = isHolding ? '<span style="color: var(--text-secondary); font-size: 11px;">매도 시 확정</span>' : `<span class="profit-pill ${profitClass}">${sign}${Math.round(Number(r.profit_loss || 0)).toLocaleString()}원</span>`;
+                const profitPctText = isHolding ? '<span style="color: var(--text-secondary); font-size: 11px;">-</span>' : `<span class="profit-pill ${profitClass}">${sign}${Number(r.profit_pct || 0).toFixed(2)}%</span>`;
+                const statusBadge = isHolding ? '<span style="color: #64ffda; background: rgba(100,255,218,0.1); padding: 2px 6px; border-radius: 4px; font-size: 11px;">보유중</span>' : '<span style="color: #a78bfa; background: rgba(167,139,250,0.1); padding: 2px 6px; border-radius: 4px; font-size: 11px;">완료</span>';
+
                 return `
                     <tr style="text-align: center;">
-                        <td style="vertical-align: middle;"><strong>${r.name || r.code}</strong> <span style="font-size: 11px; color: var(--text-secondary);">(${r.code})</span></td>
+                        <td style="vertical-align: middle;">
+                            <strong>${r.name || r.code}</strong> <span style="font-size: 11px; color: var(--text-secondary);">(${r.code})</span>
+                            <span style="margin-left: 4px;">${statusBadge}</span>
+                        </td>
                         <td style="vertical-align: middle;">${Number(r.buy_price || 0).toLocaleString()}원</td>
-                        <td style="vertical-align: middle;">${Number(r.sell_price || 0).toLocaleString()}원</td>
+                        <td style="vertical-align: middle;">${sellPriceText}</td>
                         <td style="vertical-align: middle;">${Number(r.qty || 0).toLocaleString()}주</td>
-                        <td style="vertical-align: middle;"><span class="profit-pill ${profitClass}">${sign}${Math.round(Number(r.profit_loss || 0)).toLocaleString()}원</span></td>
-                        <td style="vertical-align: middle;"><span class="profit-pill ${profitClass}">${sign}${Number(r.profit_pct || 0).toFixed(2)}%</span></td>
+                        <td style="vertical-align: middle;">${profitLossText}</td>
+                        <td style="vertical-align: middle;">${profitPctText}</td>
                         <td style="vertical-align: middle;">${r.buy_date || '-'}</td>
                         <td style="vertical-align: middle;">${r.sell_date || '-'}</td>
                         <td style="vertical-align: middle;"><span style="color: #64ffda; font-weight: bold;">${r.strategy || '스윙_종가매수'}</span></td>
@@ -5396,7 +5419,7 @@ HTML_CONTENT = """
             document.getElementById('tradeHistoryModal').style.display = 'none';
         }
         
-        // 키움증권 매매일지 동기화
+        // 초단타 키움증권 매매일지 동기화
         function fetchKiwoomHistory() {
             let startStr = document.getElementById('tradeStartDate').value;
             let endStr = document.getElementById('tradeEndDate').value;
@@ -5406,29 +5429,55 @@ HTML_CONTENT = """
                 return;
             }
             
-            // 키움증권 API는 YYYYMMDD 형식을 요구하므로 하이픈(-) 제거
             startStr = startStr.replace(/-/g, '');
             endStr = endStr.replace(/-/g, '');
             
             const tbody = document.getElementById('tradeHistoryBody');
-            
-            // 기존 데이터를 즉시 비움
             tbody.innerHTML = '';
             
-            // 로딩 안내 row 최상단에 삽입
             if (!document.getElementById('kiwoomLoading')) {
                 const loadingRow = document.createElement('tr');
                 loadingRow.id = 'kiwoomLoading';
-                loadingRow.innerHTML = '<td colspan="9" style="padding:20px; text-align:center; color: var(--primary);">키움증권 서버에서 기간 데이터를 불러오는 중입니다...</td>';
+                loadingRow.innerHTML = '<td colspan="9" style="padding:20px; text-align:center; color: var(--primary);">키움증권 서버에서 초단타 기간 매매내역을 불러오는 중입니다...</td>';
                 tbody.insertBefore(loadingRow, tbody.firstChild);
             }
             
             if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(jsonStr({ type: "fetch_kiwoom_history", start_date: startStr, end_date: endStr }));
+                ws.send(jsonStr({ type: "fetch_kiwoom_history", target: "scalp", start_date: startStr, end_date: endStr }));
             } else {
                 alert("서버와 연결되어 있지 않습니다.");
                 const loadingRow = document.getElementById('kiwoomLoading');
                 if (loadingRow) loadingRow.remove();
+            }
+        }
+
+        // 스윙 키움증권 매매일지 동기화
+        function fetchKiwoomSwingHistory() {
+            let startStr = document.getElementById('swingTradeStartDate') ? document.getElementById('swingTradeStartDate').value : '';
+            let endStr = document.getElementById('swingTradeEndDate') ? document.getElementById('swingTradeEndDate').value : '';
+            
+            if (!startStr || !endStr) {
+                const end = new Date();
+                const start = new Date();
+                start.setDate(end.getDate() - 30);
+                startStr = start.toISOString().split('T')[0];
+                endStr = end.toISOString().split('T')[0];
+                if (document.getElementById('swingTradeStartDate')) document.getElementById('swingTradeStartDate').value = startStr;
+                if (document.getElementById('swingTradeEndDate')) document.getElementById('swingTradeEndDate').value = endStr;
+            }
+            
+            startStr = startStr.replace(/-/g, '');
+            endStr = endStr.replace(/-/g, '');
+            
+            const tbody = document.getElementById('swingTradeHistoryBody');
+            if (tbody) {
+                tbody.innerHTML = '<tr><td colspan="9" style="padding:20px; text-align:center; color: #64ffda;">키움증권 서버에서 스윙 기간 매매내역을 불러오는 중입니다...</td></tr>';
+            }
+            
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(jsonStr({ type: "fetch_kiwoom_history", target: "swing", start_date: startStr, end_date: endStr }));
+            } else {
+                alert("서버와 연결되어 있지 않습니다.");
             }
         }
 
@@ -6564,18 +6613,25 @@ async def websocket_handler(websocket):
                 elif msg_type == 'fetch_kiwoom_history':
                     start_date = data.get('start_date')
                     end_date = data.get('end_date')
+                    target = data.get('target', 'scalp')  # 'scalp' 또는 'swing'
                     
                     kiwoom_client = getattr(getattr(app, 'login_handler', None), 'kiwoom_client', None)
                     if kiwoom_client:
                         try:
-                            logging.info(f"📡 키움증권 매매일지 조회 시작: {start_date} ~ {end_date}")
+                            logging.info(f"📡 키움증권 매매일지 조회 시작 ({target}): {start_date} ~ {end_date}")
                             if start_date and end_date:
                                 diary = await kiwoom_client.get_period_trading_diary(start_date, end_date)
                             else:
                                 diary = await kiwoom_client.get_daily_trading_diary()
-                                
 
-                            
+                            # 스윙 종목 코드 세트 획득
+                            swing_codes = set()
+                            if hasattr(app, 'swing_manager') and app.swing_manager:
+                                swing_codes = getattr(app.swing_manager, 'swing_stock_codes', set()) or set()
+                            if hasattr(app, 'db_manager') and app.db_manager:
+                                db_swing_codes = await app.db_manager.get_all_swing_stock_codes()
+                                swing_codes.update(db_swing_codes)
+
                             formatted_records = []
                             if diary:
                                 def parse_int_safe(val):
@@ -6586,8 +6642,17 @@ async def websocket_handler(websocket):
                                         return 0
                                         
                                 for d in diary:
-                                    if not d.get('stk_cd') or not d.get('stk_nm'):
+                                    stk_cd = str(d.get('stk_cd', '')).strip().zfill(6)
+                                    stk_nm = d.get('stk_nm', '')
+                                    if not stk_cd or not stk_nm:
                                         continue
+
+                                    # 대상(scalp/swing)에 따른 엄격한 필터링
+                                    is_swing = stk_cd in swing_codes
+                                    if target == 'scalp' and is_swing:
+                                        continue  # 초단타 모달에서는 스윙 종목 제외
+                                    elif target == 'swing' and not is_swing:
+                                        continue  # 스윙 모달에서는 초단타 종목 제외
                                     
                                     # 기간별 날짜 필드 (dt) 처리
                                     date_val = str(d.get('dt') or d.get('ord_dt') or "키움 동기화")
@@ -6600,8 +6665,8 @@ async def websocket_handler(websocket):
                                     if b_qty > 0 or s_qty > 0:
                                         formatted_records.append({
                                             "ord_dt": date_val,
-                                            "stk_cd": d.get('stk_cd', ''),
-                                            "stk_nm": d.get('stk_nm', ''),
+                                            "stk_cd": stk_cd,
+                                            "stk_nm": stk_nm,
                                             "buy_qty": d.get('buy_qty', '0'),
                                             "sell_qty": d.get('sell_qty', '0'),
                                             "buy_avg_pric": d.get('buy_avg_pric', '0'),
@@ -6613,12 +6678,14 @@ async def websocket_handler(websocket):
                             
                             await safe_send(websocket, json.dumps({
                                 "type": "kiwoom_history_data",
+                                "target": target,
                                 "data": formatted_records
                             }))
                         except Exception as ex:
                             logging.error(f"❌ fetch_kiwoom_history 에러: {ex}", exc_info=True)
                             await safe_send(websocket, json.dumps({
                                 "type": "kiwoom_history_data",
+                                "target": target,
                                 "data": [],
                                 "error": str(ex)
                             }))
@@ -7073,14 +7140,33 @@ async def websocket_handler(websocket):
                     records = []
                     if hasattr(app, 'db_manager') and app.db_manager:
                         records = await app.db_manager.get_swing_trade_records(limit=100)
+                        if hasattr(app, 'data_manager') and app.data_manager:
+                            for r in records:
+                                if not r.get('name') or r.get('name') == r.get('code') or str(r.get('name', '')).startswith('종목'):
+                                    r_name = app.data_manager.get_stock_name_by_code(r.get('code'))
+                                    if r_name and r_name != r.get('code') and not r_name.startswith('종목'):
+                                        r['name'] = r_name
                     await safe_send(websocket, json.dumps({
                         "type": "swing_trade_history",
                         "records": records
                     }))
                 elif msg_type == 'get_trade_history':
+                    start_date = data.get('start_date')
+                    end_date = data.get('end_date')
                     records = []
                     if hasattr(app, 'db_manager') and app.db_manager:
-                        records = await app.db_manager.get_trade_records(limit=100)
+                        records = await app.db_manager.get_trade_history(limit=500, start_date=start_date, end_date=end_date, is_scalp_only=True)
+                        if hasattr(app, 'data_manager') and app.data_manager:
+                            for r in records:
+                                if not r.get('name') or r.get('name') == r.get('code') or str(r.get('name', '')).startswith('종목'):
+                                    r_name = app.data_manager.get_stock_name_by_code(r.get('code'))
+                                    if r_name and r_name != r.get('code') and not r_name.startswith('종목'):
+                                        r['name'] = r_name
+                    # 프론트엔드 호환성을 위해 trade_history_data와 trade_history 모두 브로드캐스트
+                    await safe_send(websocket, json.dumps({
+                        "type": "trade_history_data",
+                        "data": records
+                    }))
                     await safe_send(websocket, json.dumps({
                         "type": "trade_history",
                         "records": records
