@@ -113,11 +113,64 @@ class SwingManager:
 
         self.logger.info(f"🔄 SwingManager 설정 리로드 완료 (매수룰: {len(self.buy_strategies)}개, 매도룰: {len(self.sell_strategies)}개)")
 
+    def get_stock_name(self, code: str) -> str:
+        """종목 코드로 정확한 종목명 조회 (다단계 폴백 지원)"""
+        if not code:
+            return ""
+        code_str = str(code).strip().zfill(6)
+        
+        # 1. data_manager 캐시 조회
+        if hasattr(self.parent, 'data_manager') and self.parent.data_manager:
+            name = self.parent.data_manager.get_stock_name_by_code(code_str)
+            if name and name != f"종목{code_str}" and name != code_str and name != "알수없음":
+                return name
+                
+        # 2. chart_manager 조회
+        if hasattr(self.parent, 'chart_manager') and self.parent.chart_manager:
+            name = self.parent.chart_manager.get_stock_name(code_str)
+            if name and name != code_str:
+                return name
+                
+        # 3. websocket 잔고 데이터 조회
+        ws_client = getattr(getattr(self.parent, 'login_handler', None), 'websocket_client', None)
+        if ws_client and hasattr(ws_client, 'balance_data'):
+            bal = ws_client.balance_data.get(code_str)
+            if bal and bal.get('name') and bal.get('name') != code_str:
+                return bal.get('name')
+                
+        # 4. master_code_dict 조회
+        if hasattr(self.parent, 'master_code_dict') and isinstance(self.parent.master_code_dict, dict):
+            name = self.parent.master_code_dict.get(code_str)
+            if name:
+                return name
+                
+        return code_str
+
     async def initialize(self):
-        """스윙 매니저 초기화 및 DB에서 보유 종목 로드"""
+        """스윙 매니저 초기화 및 DB에서 보유 종목 로드 (종목명 자동 보정 포함)"""
         try:
             await self.db_manager.init_database()
             stored_holdings = await self.db_manager.get_swing_holdings()
+            
+            # 종목명이 코드로 잘못 저장되어 있는 경우 올바른 종목명으로 자동 보정
+            for c, h in stored_holdings.items():
+                cur_name = h.get('name', '')
+                if not cur_name or cur_name == c or cur_name.startswith('종목'):
+                    real_name = self.get_stock_name(c)
+                    if real_name and real_name != c and not real_name.startswith('종목'):
+                        h['name'] = real_name
+                        await self.db_manager.save_swing_holding(
+                            code=c,
+                            name=real_name,
+                            buy_price=h.get('buy_price', 0),
+                            qty=h.get('qty', 0),
+                            buy_date=h.get('buy_date', ''),
+                            highest_price=h.get('highest_price', 0),
+                            strategy=h.get('strategy', '스윙_1차종가매수'),
+                            partially_sold=bool(h.get('partially_sold', False))
+                        )
+                        self.logger.info(f"✅ [스윙 종목명 자동 보정] {c} -> {real_name}")
+
             self.swing_holdings = stored_holdings
             self.swing_stock_codes = set(stored_holdings.keys())
             self.logger.info(f"🚀 SwingManager 초기화 완료 (보유 종목: {len(self.swing_holdings)}개 - {list(self.swing_stock_codes)})")
@@ -461,7 +514,7 @@ class SwingManager:
                 res = await trader.send_market_buy_order_async(code, qty, strategy="스윙_1차종가매수")
                 
                 today_str = datetime.now().strftime("%Y-%m-%d")
-                stock_name = getattr(self.parent, 'master_code_dict', {}).get(code, code)
+                stock_name = self.get_stock_name(code)
                 
                 await self.db_manager.save_swing_holding(
                     code=code,
