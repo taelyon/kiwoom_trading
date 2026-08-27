@@ -190,6 +190,21 @@ class AsyncDatabaseManager:
                             created_at TEXT
                         )
                     ''')
+
+                    # 스윙 종목 매매 체결 기록의 전략명 자동 마이그레이션 (수동/미상 -> 스윙_1차종가매수)
+                    try:
+                        await cursor.execute('''
+                            UPDATE trade_records 
+                            SET strategy = '스윙_1차종가매수' 
+                            WHERE (strategy IS NULL OR strategy = '' OR strategy = '수동/미상')
+                              AND code IN (
+                                  SELECT code FROM swing_holdings 
+                                  UNION 
+                                  SELECT code FROM swing_trade_records
+                              )
+                        ''')
+                    except Exception:
+                        pass
                     # 레거시 system_config 테이블이 남아있다면 앱 구동 시 자동 삭제
                     await cursor.execute("DROP TABLE IF EXISTS system_config")
 
@@ -853,6 +868,10 @@ class AsyncDatabaseManager:
             if self._conn is None:
                 await self.init_database()
 
+            swing_codes = set()
+            if is_scalp_only:
+                swing_codes = await self.get_all_swing_stock_codes()
+
             async with self._db_lock:
                 cursor = await self._conn.cursor()
                 
@@ -865,6 +884,10 @@ class AsyncDatabaseManager:
                 
                 if is_scalp_only:
                     query += " AND (strategy IS NULL OR strategy NOT LIKE '스윙%')"
+                    if swing_codes:
+                        placeholders = ','.join(['?'] * len(swing_codes))
+                        query += f" AND code NOT IN ({placeholders})"
+                        params.extend(list(swing_codes))
                 
                 if start_date:
                     query += " AND datetime >= ?"
@@ -1180,15 +1203,23 @@ class AsyncDatabaseManager:
         try:
             if self._conn is None:
                 await self.init_database()
+            swing_codes = await self.get_all_swing_stock_codes()
             async with self._db_lock:
                 cursor = await self._conn.cursor()
-                await cursor.execute('''
+                query = '''
                     SELECT id, code, datetime, order_type, quantity, price, amount, strategy, profit_loss
                     FROM trade_records
                     WHERE (strategy IS NULL OR strategy NOT LIKE '스윙%')
-                    ORDER BY id DESC
-                    LIMIT ?
-                ''', (limit,))
+                '''
+                params = []
+                if swing_codes:
+                    placeholders = ','.join(['?'] * len(swing_codes))
+                    query += f" AND code NOT IN ({placeholders})"
+                    params.extend(list(swing_codes))
+                query += " ORDER BY id DESC LIMIT ?"
+                params.append(limit)
+
+                await cursor.execute(query, tuple(params))
                 rows = await cursor.fetchall()
                 for row in rows:
                     records.append({
@@ -1212,6 +1243,7 @@ class AsyncDatabaseManager:
         try:
             if self._conn is None:
                 await self.init_database()
+            swing_codes = await self.get_all_swing_stock_codes()
             async with self._db_lock:
                 cursor = await self._conn.cursor()
                 
@@ -1234,19 +1266,26 @@ class AsyncDatabaseManager:
                         'profit_pct': row[6],
                         'buy_date': row[7],
                         'sell_date': row[8],
-                        'strategy': row[9],
+                        'strategy': row[9] or '스윙_종가매수',
                         'created_at': row[10],
                         'status': '완료'
                     })
 
                 # 2. trade_records에 기록된 스윙 매수/체결건 중 아직 매도 완료되지 않은 건 통합
-                await cursor.execute('''
+                query = '''
                     SELECT code, datetime, order_type, quantity, price, amount, strategy, profit_loss
                     FROM trade_records
-                    WHERE strategy LIKE '스윙%'
-                    ORDER BY id DESC
-                    LIMIT ?
-                ''', (limit,))
+                    WHERE (strategy LIKE '스윙%'
+                '''
+                params = []
+                if swing_codes:
+                    placeholders = ','.join(['?'] * len(swing_codes))
+                    query += f" OR code IN ({placeholders})"
+                    params.extend(list(swing_codes))
+                query += ") ORDER BY id DESC LIMIT ?"
+                params.append(limit)
+
+                await cursor.execute(query, tuple(params))
                 t_rows = await cursor.fetchall()
                 for trow in t_rows:
                     t_code, t_dt, t_type, t_qty, t_price, t_amt, t_stg, t_pl = trow
@@ -1255,6 +1294,11 @@ class AsyncDatabaseManager:
                     # 이미 완료된 스윙 거래에 동일 코드가 최근 날짜에 있는지 체크
                     already_in = any(r['code'] == t_code and r.get('buy_date') == t_date for r in records)
                     if not already_in:
+                        # 전략명이 '수동/미상'이거나 비어있으면 '스윙_1차종가매수'로 자동 보정
+                        resolved_strategy = t_stg
+                        if not resolved_strategy or resolved_strategy in ('수동/미상', '수동', '미상'):
+                            resolved_strategy = '스윙_1차종가매수' if str(t_type).upper() == 'BUY' else '스윙_매도'
+
                         records.append({
                             'code': t_code,
                             'name': t_code,
@@ -1265,7 +1309,7 @@ class AsyncDatabaseManager:
                             'profit_pct': (t_pl / (t_price * t_qty) * 100.0) if (t_price * t_qty) > 0 else 0.0,
                             'buy_date': t_date if str(t_type).upper() == 'BUY' else '-',
                             'sell_date': t_date if str(t_type).upper() == 'SELL' else '-',
-                            'strategy': t_stg or '스윙_체결',
+                            'strategy': resolved_strategy,
                             'created_at': t_dt,
                             'status': '보유중' if str(t_type).upper() == 'BUY' else '체결'
                         })

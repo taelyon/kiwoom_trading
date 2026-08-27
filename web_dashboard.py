@@ -7055,28 +7055,7 @@ async def websocket_handler(websocket):
                     else:
                         asyncio.create_task(monitor_batch_backtest_process())
 
-                elif msg_type == 'get_trade_history':
-                    start_date = data.get('start_date')
-                    end_date = data.get('end_date')
-                    
-                    records = []
-                    try:
-                        if hasattr(app, 'trader') and app.trader and hasattr(app.trader, 'db_manager') and app.trader.db_manager:
-                            records = await app.trader.db_manager.get_trade_history(limit=500, start_date=start_date, end_date=end_date)
-                            # 종목명 매핑
-                            for r in records:
-                                code = r.get('code', '')
-                                name = ""
-                                if hasattr(app, 'data_manager') and app.data_manager:
-                                    name = app.data_manager.get_stock_name_by_code(code)
-                                r['name'] = name or code
-                    except Exception as e:
-                        logging.error(f"DB 매매내역 조회 중 오류: {e}")
-                        
-                    await safe_send(websocket, json.dumps({
-                        "type": "trade_history_data",
-                        "data": records
-                    }))
+
                         
                 elif msg_type == 'get_settings':
                     from config_manager import EnvConfigParser
