@@ -99,7 +99,18 @@ def prepare_swing_locals(code: str, df_daily: pd.DataFrame, current_price: float
     if df_daily is None or df_daily.empty:
         return {}
 
-    df_calc = calc_daily_indicators(df_daily)
+    df_copy = df_daily.copy()
+    if current_price > 0 and len(df_copy) > 0:
+        # 🌟 당일 일봉 캔들 종가 및 고가/저가에 실시간 현재가를 즉시 반영
+        last_idx = df_copy.index[-1]
+        df_copy.loc[last_idx, 'close'] = float(current_price)
+        if 'high' in df_copy:
+            df_copy.loc[last_idx, 'high'] = max(float(df_copy.loc[last_idx, 'high']), float(current_price))
+        if 'low' in df_copy:
+            cur_low = float(df_copy.loc[last_idx, 'low'])
+            df_copy.loc[last_idx, 'low'] = min(cur_low if cur_low > 0 else float(current_price), float(current_price))
+
+    df_calc = calc_daily_indicators(df_copy)
     last_row = df_calc.iloc[-1]
     prev_row = df_calc.iloc[-2] if len(df_calc) >= 2 else last_row
 

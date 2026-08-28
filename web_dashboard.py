@@ -6003,14 +6003,26 @@ def get_current_status_data():
         # 6. 스윙 보유 종목 리스트 추출
         swing_holdings = {}
         if hasattr(app, 'swing_manager') and app.swing_manager:
-            for c_code, s_info in app.swing_manager.swing_holdings.items():
-                curr_p = s_info.get('buy_price', 0)
-                if c_code in ws_balance:
-                    curr_p = ws_balance[c_code].get('current_price', curr_p)
-                buy_p = s_info.get('buy_price', 1)
-                qty = s_info.get('qty', 0)
+            sm = app.swing_manager
+            for c_code, s_info in sm.swing_holdings.items():
+                buy_p = float(s_info.get('buy_price', 1))
+                qty = int(s_info.get('qty', 0))
+
+                # 🌟 다단계 실시간 현재가 조회 체인 (다음날에도 실시간 주가 즉시 갱신)
+                curr_p = 0.0
+                if hasattr(sm, 'get_current_price'):
+                    curr_p = float(sm.get_current_price(c_code))
+                if curr_p <= 0 and hasattr(app, 'data_manager') and app.data_manager:
+                    curr_p = float(app.data_manager.get_current_price(c_code) or 0.0)
+                if curr_p <= 0 and hasattr(app, 'chart_manager') and app.chart_manager:
+                    curr_p = float(app.chart_manager.get_current_price(c_code) or 0.0)
+                if curr_p <= 0 and c_code in ws_balance:
+                    curr_p = float(ws_balance[c_code].get('current_price', 0.0))
+                if curr_p <= 0:
+                    curr_p = buy_p
+
                 p_loss = (curr_p - buy_p) * qty
-                p_rate = ((curr_p - buy_p) / buy_p * 100.0) - 0.3
+                p_rate = ((curr_p - buy_p) / buy_p * 100.0) - 0.3 if buy_p > 0 else 0.0
                 
                 # 종목명 실시간 보정
                 s_name = s_info.get('name', '')
@@ -6019,8 +6031,8 @@ def get_current_status_data():
                         resolved = app.data_manager.get_stock_name_by_code(c_code)
                         if resolved and resolved != f"종목{c_code}" and resolved != c_code and resolved != "알수없음":
                             s_name = resolved
-                    if (not s_name or s_name == c_code or s_name.startswith('종목')) and hasattr(app.swing_manager, 'get_stock_name'):
-                        s_name = app.swing_manager.get_stock_name(c_code)
+                    if (not s_name or s_name == c_code or s_name.startswith('종목')) and hasattr(sm, 'get_stock_name'):
+                        s_name = sm.get_stock_name(c_code)
 
                 swing_holdings[c_code] = {
                     "code": c_code,

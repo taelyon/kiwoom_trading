@@ -38,6 +38,10 @@ class SwingManager:
         # 백그라운드 태스크
         self.scheduler_task = None
         
+        # 💾 일봉 데이터 캐시 (10초 주기 매도 감시 시 반복 API 호출 및 DB 쓰기 방지)
+        # 구조: {code: {'df': DataFrame, 'time': float}}
+        self._daily_candles_cache = {}
+        
         self.reload_config()
 
     def reload_config(self):
@@ -146,8 +150,68 @@ class SwingManager:
                 
         return code_str
 
+    def get_current_price(self, code: str) -> float:
+        """스윙 보유 종목의 실시간 현재가 동기 조회 (다단계 폴백 체인)"""
+        if not code:
+            return 0.0
+        code_str = str(code).strip().zfill(6)
+
+        # 1. data_manager 최신 실시간 체결가
+        if hasattr(self.parent, 'data_manager') and self.parent.data_manager:
+            p = self.parent.data_manager.get_current_price(code_str)
+            if p and p > 0:
+                return float(p)
+
+        # 2. chart_manager 최신 틱/분봉 종가
+        if hasattr(self.parent, 'chart_manager') and self.parent.chart_manager:
+            p = self.parent.chart_manager.get_current_price(code_str)
+            if p and p > 0:
+                return float(p)
+
+        # 3. trader.balance_data 실시간 현재가
+        if hasattr(self.parent, 'trader') and self.parent.trader and hasattr(self.parent.trader, 'balance_data'):
+            p = float(self.parent.trader.balance_data.get(code_str, {}).get('current_price', 0.0))
+            if p > 0:
+                return p
+
+        # 4. kiwoom_websocket 잔고 데이터 현재가
+        ws_client = getattr(getattr(self.parent, 'login_handler', None), 'websocket_client', None)
+        if ws_client and hasattr(ws_client, 'balance_data'):
+            p = float(ws_client.balance_data.get(code_str, {}).get('current_price', 0.0))
+            if p > 0:
+                return p
+
+        # 5. swing_holdings 캐시 또는 매수가
+        holding = self.swing_holdings.get(code_str, {})
+        return float(holding.get('current_price') or holding.get('buy_price', 0.0))
+
+    async def get_current_price_async(self, code: str) -> float:
+        """스윙 보유 종목의 실시간 현재가 비동기 조회 (REST API 포함 완전체)"""
+        p = self.get_current_price(code)
+        if p > 0:
+            return p
+
+        code_str = str(code).strip().zfill(6)
+        # 6. kiwoom_client REST API 실시간 시세 단건 조회
+        kiwoom_client = getattr(getattr(self.parent, 'login_handler', None), 'kiwoom_client', None)
+        if kiwoom_client:
+            try:
+                res = await kiwoom_client.get_current_price(code_str)
+                if res and isinstance(res, (int, float)) and res > 0:
+                    # 캐시 갱신
+                    if code_str in self.swing_holdings:
+                        self.swing_holdings[code_str]['current_price'] = float(res)
+                    if hasattr(self.parent, 'data_manager') and self.parent.data_manager:
+                        self.parent.data_manager.update_current_price(code_str, float(res))
+                    return float(res)
+            except Exception as e:
+                self.logger.debug(f"get_current_price_async REST API 호출 실패 ({code_str}): {e}")
+
+        holding = self.swing_holdings.get(code_str, {})
+        return float(holding.get('buy_price', 0.0))
+
     async def initialize(self):
-        """스윙 매니저 초기화 및 DB에서 보유 종목 로드 (종목명 자동 보정 포함)"""
+        """스윙 매니저 초기화 및 DB에서 보유 종목 로드 (종목명 자동 보정 및 실시간 체결 등록 포함)"""
         try:
             await self.db_manager.init_database()
             stored_holdings = await self.db_manager.get_swing_holdings()
@@ -179,6 +243,24 @@ class SwingManager:
                 for sc in self.swing_stock_codes:
                     if sc in self.parent.monitoring_manager.monitored_stocks:
                         asyncio.create_task(self.parent.monitoring_manager.remove_stock_from_monitoring(sc))
+
+            # 🌟 [중요] 스윙 보유 종목 실시간 체결(0B) 구독 등록 (다음날에도 현재가 실시간 수신)
+            ws_client = getattr(getattr(self.parent, 'login_handler', None), 'websocket_client', None)
+            if ws_client and self.swing_stock_codes:
+                try:
+                    await ws_client.subscribe_stock_execution_data(list(self.swing_stock_codes), subscription_type='swing')
+                    self.logger.info(f"📡 [스윙 실시간 체결 구독] {len(self.swing_stock_codes)}개 종목 웹소켓 등록 완료: {list(self.swing_stock_codes)}")
+                except Exception as ex:
+                    self.logger.warning(f"⚠️ 스윙 실시간 체결 구독 등록 실패: {ex}")
+
+            # 초기 1회 현재가 동기화
+            for c in list(self.swing_stock_codes):
+                try:
+                    cur_p = await self.get_current_price_async(c)
+                    if cur_p > 0 and c in self.swing_holdings:
+                        self.swing_holdings[c]['current_price'] = cur_p
+                except Exception:
+                    pass
 
             self.logger.info(f"🚀 SwingManager 초기화 완료 (보유 종목: {len(self.swing_holdings)}개 - {list(self.swing_stock_codes)})")
         except Exception as e:
@@ -351,9 +433,18 @@ class SwingManager:
         else:
             self.logger.info(f"📊 [스윙 15:20 지표평가 완료] 후보 {len(self.candidate_stocks)}개 중 매수 조건을 충족한 종목 없음")
 
-    async def _fetch_daily_candles(self, code: str) -> pd.DataFrame:
-        """키움 REST API ka10081 (주식일봉차트조회) 호출"""
+    async def _fetch_daily_candles(self, code: str, max_age_seconds: int = 600, force_refresh: bool = False) -> Optional[pd.DataFrame]:
+        """키움 REST API ka10081 (주식일봉차트조회) 호출 (메모리 캐싱 지원)"""
         try:
+            code_str = str(code).strip().zfill(6)
+            cur_time = time.time()
+
+            # 1. 유효한 캐시가 존재하는 경우 즉시 반환 (API 호출 및 DB 중복 저장 방지)
+            if not force_refresh and code_str in self._daily_candles_cache:
+                cached = self._daily_candles_cache[code_str]
+                if cur_time - cached.get('time', 0) < max_age_seconds:
+                    return cached.get('df')
+
             # KiwoomRestClient 참조 확보 (trader.client 또는 login_handler.kiwoom_client)
             client = None
             if hasattr(self.parent, 'trader') and self.parent.trader:
@@ -361,19 +452,19 @@ class SwingManager:
             if client is None and hasattr(self.parent, 'login_handler') and self.parent.login_handler:
                 client = getattr(self.parent.login_handler, 'kiwoom_client', None)
             if client is None:
-                self.logger.warning(f"⚠️ [스윙] 일봉 조회 불가: REST 클라이언트 없음 ({code})")
+                self.logger.warning(f"⚠️ [스윙] 일봉 조회 불가: REST 클라이언트 없음 ({code_str})")
                 return None
 
             today_str = datetime.now().strftime('%Y%m%d')
-            resp = await client.get_stock_daily_chart(code, base_dt=today_str, cont_yn='N', next_key='')
+            resp = await client.get_stock_daily_chart(code_str, base_dt=today_str, cont_yn='N', next_key='')
             if not resp or resp.get('return_code', -1) != 0:
-                self.logger.warning(f"⚠️ [스윙] 일봉 응답 에러 ({code}): {resp.get('return_msg', 'N/A')}")
+                self.logger.warning(f"⚠️ [스윙] 일봉 응답 에러 ({code_str}): {resp.get('return_msg', 'N/A')}")
                 return None
 
             # ka10081 응답 필드: stk_dt_pole_chart_qry 리스트
             items = resp.get('stk_dt_pole_chart_qry', [])
             if not items:
-                self.logger.warning(f"⚠️ [스윙] 일봉 데이터 없음 ({code})")
+                self.logger.warning(f"⚠️ [스윙] 일봉 데이터 없음 ({code_str})")
                 return None
 
             rows = []
@@ -392,7 +483,7 @@ class SwingManager:
 
                     if dt and close_p > 0:
                         rows.append({
-                            'code': code,
+                            'code': code_str,
                             'datetime': dt,
                             'open': open_p,
                             'high': high_p,
@@ -405,7 +496,7 @@ class SwingManager:
                     continue
 
             if not rows:
-                self.logger.warning(f"⚠️ [스윙] 파싱 가능한 일봉 데이터 없음 ({code})")
+                self.logger.warning(f"⚠️ [스윙] 파싱 가능한 일봉 데이터 없음 ({code_str})")
                 return None
 
             df = pd.DataFrame(rows)
@@ -416,7 +507,7 @@ class SwingManager:
             try:
                 df = calc_daily_indicators(df)
             except Exception as ind_err:
-                self.logger.warning(f"⚠️ [스윙] 기술적 지표 계산 중 경고 ({code}): {ind_err}")
+                self.logger.warning(f"⚠️ [스윙] 기술적 지표 계산 중 경고 ({code_str}): {ind_err}")
 
             # 💾 DB (daily_candles) 전용 테이블에 기술적 지표 포함 자동 영구 저장
             if hasattr(self, 'db_manager') and self.db_manager:
@@ -424,9 +515,15 @@ class SwingManager:
                     candles_to_save = df.to_dict('records')
                     await self.db_manager.save_daily_candles(candles_to_save)
                 except Exception as db_err:
-                    self.logger.error(f"❌ [스윙 DB] daily_candles 저장 실패 ({code}): {db_err}")
+                    self.logger.error(f"❌ [스윙 DB] daily_candles 저장 실패 ({code_str}): {db_err}")
 
-            self.logger.debug(f"✅ [스윙] 일봉 데이터 조회, 지표 계산 및 DB 저장 완료: {code} ({len(df)}일)")
+            # 💾 메모리 캐시 갱신
+            self._daily_candles_cache[code_str] = {
+                'df': df,
+                'time': cur_time
+            }
+
+            self.logger.debug(f"✅ [스윙] 일봉 데이터 조회, 지표 계산 및 DB 저장 완료: {code_str} ({len(df)}일)")
             return df
         except Exception as e:
             self.logger.error(f"❌ 일봉 데이터 조회 에러 ({code}): {e}")
@@ -548,6 +645,14 @@ class SwingManager:
                 }
                 self.swing_stock_codes.add(code)
 
+                # 🌟 신규 매수 스윙 종목 실시간 체결(0B) 웹소켓 구독 추가
+                ws_client = getattr(getattr(self.parent, 'login_handler', None), 'websocket_client', None)
+                if ws_client:
+                    try:
+                        await ws_client.subscribe_stock_execution_data([code], subscription_type='swing')
+                    except Exception as ex:
+                        self.logger.warning(f"⚠️ 신규 스윙 종목 실시간 구독 실패 ({code}): {ex}")
+
             except Exception as e:
                 self.logger.error(f"❌ 스윙 매수 주문 송신 실패 ({code}): {e}")
 
@@ -558,10 +663,10 @@ class SwingManager:
 
         for code, holding in list(self.swing_holdings.items()):
             try:
-                # 현재가 조회 (체결잔고 캐시 또는 실시간 시세)
-                curr_price = float(self.parent.trader.balance_data.get(code, {}).get('current_price', 0.0))
+                # 현재가 조회 (살아있는 다단계 실시간 시세 폴백 체인)
+                curr_price = await self.get_current_price_async(code)
                 if curr_price <= 0:
-                    curr_price = holding['buy_price']
+                    curr_price = float(holding.get('current_price') or holding.get('buy_price', 0.0))
 
                 buy_price = holding['buy_price']
                 highest_price = max(holding.get('highest_price', buy_price), curr_price)
@@ -635,12 +740,48 @@ class SwingManager:
                         'base_candle_low': buy_price * 0.90
                     }
 
-                # 스윙 동적 매도 로직 평가 (1.본전방어, 2.RSI70이탈/이평선붕괴, 3.기준봉손절 등)
+                # 스윙 동적 매도 로직 평가 (1. 1차익절50%, 2. 본전방어, 3. RSI과매수이탈, 4. 이평선마지노선붕괴, 5. 기준봉손절 등)
                 for stg in self.sell_strategies:
                     rule_content = stg.get('content', '')
+                    rule_type = stg.get('type', '')
+                    rule_name = stg.get('name', '스윙 전략 매도')
+
                     if rule_content and evaluate_swing_condition(rule_content, safe_locals):
+                        # 🟢 A. 50% 분할 익절 전략인 경우
+                        if rule_type == 'PARTIAL_PROFIT' or '50%' in rule_name or '1차익절' in rule_name:
+                            if not partially_sold:
+                                total_qty = holding['qty']
+                                sell_qty = max(1, total_qty // 2)
+                                rem_qty = total_qty - sell_qty
+
+                                self.logger.info(f"🟢 [스윙 1차 50% 분할 익절 발동] [{code}] {rule_name} ({profit_pct:+.2f}%) -> {sell_qty}주/총{total_qty}주 시장가 매도")
+                                res = await self.parent.trader.send_market_sell_order_async(code, sell_qty, strategy=rule_name)
+
+                                today_str = datetime.now().strftime("%Y-%m-%d")
+                                p_loss = (curr_price - buy_price) * sell_qty
+
+                                await self.db_manager.save_swing_trade_record(
+                                    code=code, name=holding['name'], buy_price=buy_price, sell_price=curr_price,
+                                    qty=sell_qty, profit_loss=p_loss, profit_pct=profit_pct, buy_date=holding['buy_date'],
+                                    sell_date=today_str, strategy=rule_name
+                                )
+
+                                if rem_qty > 0:
+                                    holding['qty'] = rem_qty
+                                    holding['partially_sold'] = True
+                                    await self.db_manager.update_swing_holding_qty_and_partial(code, rem_qty, True)
+                                else:
+                                    await self.db_manager.delete_swing_holding(code)
+                                    del self.swing_holdings[code]
+                                    if code in self.swing_stock_codes: self.swing_stock_codes.remove(code)
+                                is_sell_triggered = False  # 분할 매도 완료 처리 후 루프 종료
+                                break
+                            else:
+                                continue  # 이미 분할 매도된 종목은 스킵
+
+                        # 🔴 B. 전량 매도 전략인 경우
                         is_sell_triggered = True
-                        sell_reason = stg.get('name', '스윙 전략 매도')
+                        sell_reason = rule_name
                         break
 
                 if not is_sell_triggered and profit_pct <= self.stop_loss_pct:

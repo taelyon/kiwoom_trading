@@ -1366,7 +1366,7 @@ class AsyncDatabaseManager:
                         created_at
                     ))
                 await self._conn.commit()
-                self.logger.info(f"💾 [스윙 DB] daily_candles {len(candles)}건 일봉 및 기술적 지표 저장 완료")
+                self.logger.debug(f"💾 [스윙 DB] daily_candles {len(candles)}건 일봉 및 기술적 지표 저장 완료")
         except Exception as e:
             self.logger.error(f"❌ daily_candles 일봉 데이터 저장 실패: {e}")
 

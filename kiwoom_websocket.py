@@ -1382,6 +1382,12 @@ class KiwoomWebSocketClient:
                         if stock_code in self.balance_data:
                             self._update_holding_current_price(stock_code, current_price)
                         
+                        # 스윙 보유 종목인 경우 스윙 매니저 실시간 현재가 즉시 반영
+                        if hasattr(self, 'parent') and self.parent and hasattr(self.parent, 'swing_manager') and self.parent.swing_manager:
+                            sm = self.parent.swing_manager
+                            if hasattr(sm, 'swing_holdings') and stock_code in sm.swing_holdings:
+                                sm.swing_holdings[stock_code]['current_price'] = current_price
+                        
                         # 실시간 데이터를 차트 데이터에 추가
                         self._add_realtime_data_to_chart(stock_code, execution_info)
                         
