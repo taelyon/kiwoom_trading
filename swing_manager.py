@@ -1,6 +1,6 @@
 import logging
 import asyncio
-import time
+import time as time_mod
 from typing import Optional
 from datetime import datetime, time as dtime
 import json
@@ -298,32 +298,32 @@ class SwingManager:
                 curr_time = now.time()
 
                 # 날짜가 바뀌거나 장 시작 전 플래그 리셋
-                if curr_time < time(9, 0):
+                if curr_time < dtime(9, 0):
                     self.candidate_fetched_today = False
                     self.evaluated_today = False
                     self.executed_today = False
 
                 if self.is_enabled:
                     # 1. 15:15 ~ 15:20: 스윙 전용 조건검색식 후보 1회 자동 수신
-                    if time(15, 15) <= curr_time < time(15, 20):
+                    if dtime(15, 15) <= curr_time < dtime(15, 20):
                         if not self.candidate_fetched_today:
                             self.candidate_fetched_today = True
                             await self._fetch_swing_candidates()
 
                     # 2. 15:20 ~ 15:28: 후보 종목 일봉 기술분석 및 스윙 매수 평가 1회만 수행 (중복 API/DB 조회 방지)
-                    elif time(15, 20) <= curr_time < time(15, 28):
+                    elif dtime(15, 20) <= curr_time < dtime(15, 28):
                         if not self.evaluated_today:
                             self.evaluated_today = True
                             await self._evaluate_and_select_buy_targets()
 
                     # 3. 15:28:00: 확정 종목 15:28 시장가 주문 1회만 송신
-                    elif time(15, 28) <= curr_time < time(15, 29):
+                    elif dtime(15, 28) <= curr_time < dtime(15, 29):
                         if not self.executed_today:
                             self.executed_today = True
                             await self._execute_swing_buy_orders()
 
                     # 4. 장중 및 장마감 시점 보유 스윙 종목 매도 룰 감시 (장중 실시간)
-                    if time(9, 0) <= curr_time <= time(15, 30):
+                    if dtime(9, 0) <= curr_time <= dtime(15, 30):
                         await self._check_swing_exit_rules()
 
                 await asyncio.sleep(10) # 10초마다 루프 검사
@@ -444,7 +444,7 @@ class SwingManager:
         """키움 REST API ka10081 (주식일봉차트조회) 호출 (메모리 캐싱 지원)"""
         try:
             code_str = str(code).strip().zfill(6)
-            cur_time = time.time()
+            cur_time = time_mod.time()
 
             # 1. 유효한 캐시가 존재하는 경우 즉시 반환 (API 호출 및 DB 중복 저장 방지)
             if not force_refresh and code_str in self._daily_candles_cache:
