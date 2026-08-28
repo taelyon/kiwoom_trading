@@ -157,16 +157,22 @@ class SwingManager:
         code_str = str(code).strip().zfill(6)
 
         # 1. data_manager 최신 실시간 체결가
-        if hasattr(self.parent, 'data_manager') and self.parent.data_manager:
-            p = self.parent.data_manager.get_current_price(code_str)
-            if p and p > 0:
-                return float(p)
+        if hasattr(self.parent, 'data_manager') and self.parent.data_manager and hasattr(self.parent.data_manager, 'get_current_price'):
+            try:
+                p = self.parent.data_manager.get_current_price(code_str)
+                if p and p > 0:
+                    return float(p)
+            except Exception:
+                pass
 
         # 2. chart_manager 최신 틱/분봉 종가
-        if hasattr(self.parent, 'chart_manager') and self.parent.chart_manager:
-            p = self.parent.chart_manager.get_current_price(code_str)
-            if p and p > 0:
-                return float(p)
+        if hasattr(self.parent, 'chart_manager') and self.parent.chart_manager and hasattr(self.parent.chart_manager, 'get_current_price'):
+            try:
+                p = self.parent.chart_manager.get_current_price(code_str)
+                if p and p > 0:
+                    return float(p)
+            except Exception:
+                pass
 
         # 3. trader.balance_data 실시간 현재가
         if hasattr(self.parent, 'trader') and self.parent.trader and hasattr(self.parent.trader, 'balance_data'):

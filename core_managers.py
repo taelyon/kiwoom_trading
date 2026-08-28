@@ -233,6 +233,21 @@ class DataManager:
         self._last_cache_attempt_time = 0  # 전체 캐싱 시도 시간 기록
         self._is_caching = False  # 현재 캐싱 작업 진행 중 여부 플래그
         self.non_existent_codes = set()  # 캐시에 존재하지 않는 것으로 판명된 특수/잘못된 코드(Negative Cache)
+        self.current_prices = {}  # {code: float(price)} 실시간 현재가 캐시
+
+    def update_current_price(self, code: str, price: float):
+        """실시간 현재가 캐시 갱신"""
+        if not code or price <= 0:
+            return
+        code_str = self.normalize_stock_code(code)
+        self.current_prices[code_str] = float(price)
+
+    def get_current_price(self, code: str) -> float:
+        """종목의 실시간 현재가 조회 (캐시 기반)"""
+        if not code:
+            return 0.0
+        code_str = self.normalize_stock_code(code)
+        return float(self.current_prices.get(code_str, 0.0))
     
     def safe_int(self, value, default=0):
         """안전한 정수 변환"""

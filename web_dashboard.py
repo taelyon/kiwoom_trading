@@ -6011,13 +6011,25 @@ def get_current_status_data():
                 # 🌟 다단계 실시간 현재가 조회 체인 (다음날에도 실시간 주가 즉시 갱신)
                 curr_p = 0.0
                 if hasattr(sm, 'get_current_price'):
-                    curr_p = float(sm.get_current_price(c_code))
-                if curr_p <= 0 and hasattr(app, 'data_manager') and app.data_manager:
-                    curr_p = float(app.data_manager.get_current_price(c_code) or 0.0)
-                if curr_p <= 0 and hasattr(app, 'chart_manager') and app.chart_manager:
-                    curr_p = float(app.chart_manager.get_current_price(c_code) or 0.0)
+                    try:
+                        curr_p = float(sm.get_current_price(c_code))
+                    except Exception:
+                        pass
+                if curr_p <= 0 and hasattr(app, 'data_manager') and app.data_manager and hasattr(app.data_manager, 'get_current_price'):
+                    try:
+                        curr_p = float(app.data_manager.get_current_price(c_code) or 0.0)
+                    except Exception:
+                        pass
+                if curr_p <= 0 and hasattr(app, 'chart_manager') and app.chart_manager and hasattr(app.chart_manager, 'get_current_price'):
+                    try:
+                        curr_p = float(app.chart_manager.get_current_price(c_code) or 0.0)
+                    except Exception:
+                        pass
                 if curr_p <= 0 and c_code in ws_balance:
-                    curr_p = float(ws_balance[c_code].get('current_price', 0.0))
+                    try:
+                        curr_p = float(ws_balance[c_code].get('current_price', 0.0))
+                    except Exception:
+                        pass
                 if curr_p <= 0:
                     curr_p = buy_p
 
