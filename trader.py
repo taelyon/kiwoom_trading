@@ -131,11 +131,21 @@ class KiwoomTrader:
             config = EnvConfigParser()
             self.evaluation_interval = config.getint('TRADING', 'evaluation_interval', fallback=1)
 
-            commission_rate_str = config.get('TRADING', 'commission_rate', fallback='0.00015')
-            tax_rate_str = config.get('TRADING', 'tax_rate', fallback='0.0018')
+            # 모의투자 / 실전투자 모드 감지 및 수수료율 동적 할당
+            is_simulation = config.getboolean('KIWOOM_API', 'simulation', fallback=False)
+            raw_commission = config.get('TRADING', 'commission_rate', fallback=None)
             
-            self.commission_rate = float(commission_rate_str.split(';')[0].strip())
+            # 사용자 지정 수수료율이 존재하고 기본값(0.00015)이 아닌 경우 사용자 설정 유지, 그 외 모드별 자동 할당
+            if raw_commission and raw_commission.strip() and raw_commission.split(';')[0].strip() not in ('0.00015', '0.0035'):
+                self.commission_rate = float(raw_commission.split(';')[0].strip())
+            else:
+                self.commission_rate = 0.0035 if is_simulation else 0.00015  # 모의: 0.35%, 실전: 0.015%
+
+            tax_rate_str = config.get('TRADING', 'tax_rate', fallback='0.0018')
             self.tax_rate = float(tax_rate_str.split(';')[0].strip())
+            
+            mode_str = "모의투자 (수수료 0.35%)" if is_simulation else "실전투자 (수수료 0.015%)"
+            self.logger.info(f"⚙️ [거래 수수료 적용] 현재 모드: {mode_str} -> 수수료율: {self.commission_rate*100:.3f}%, 거래세: {self.tax_rate*100:.2f}%")
             self.min_hold_seconds = config.getint('TRADING', 'min_hold_seconds', fallback=0)
             self.data_saving_interval = config.getint('DATA_SAVING', 'interval_seconds', fallback=60)
             self.chartdata_update_interval = config.getint('CHART', 'chartdata_update_interval', fallback=300)

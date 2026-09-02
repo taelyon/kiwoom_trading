@@ -6033,8 +6033,10 @@ def get_current_status_data():
                 if curr_p <= 0:
                     curr_p = buy_p
 
+                is_sim = config.getboolean('KIWOOM_API', 'simulation', fallback=False)
+                fee_deduct = 0.88 if is_sim else 0.21
                 p_loss = (curr_p - buy_p) * qty
-                p_rate = ((curr_p - buy_p) / buy_p * 100.0) - 0.3 if buy_p > 0 else 0.0
+                p_rate = ((curr_p - buy_p) / buy_p * 100.0) - fee_deduct if buy_p > 0 else 0.0
                 
                 # 종목명 실시간 보정
                 s_name = s_info.get('name', '')

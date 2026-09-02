@@ -680,7 +680,9 @@ class SwingManager:
                 holding['highest_price'] = highest_price
                 partially_sold = holding.get('partially_sold', False)
 
-                profit_pct = ((curr_price - buy_price) / buy_price * 100.0) - 0.3 # 세금/수수료 감안
+                is_sim = self.config.getboolean('KIWOOM_API', 'simulation', fallback=False)
+                fee_deduction = 0.88 if is_sim else 0.21
+                profit_pct = ((curr_price - buy_price) / buy_price * 100.0) - fee_deduction # 세금/수수료 차감후 순수익률
 
                 # 최고가 갱신 DB 업데이트
                 if curr_price > holding.get('highest_price', 0):
