@@ -137,7 +137,7 @@ def evaluate_strategies(strategies, safe_locals, code="", strategy_type=""):
                         
                         # DB 및 전략 판단 핵심 지표 목록
                         key_indicators = [
-                            'AI_SCORE', 'current_price', 'buy_price', 'current_profit_pct',
+                            'AI_SCORE', 'current_price', 'buy_price', 'price_change_pct', 'current_profit_pct',
                             'from_peak_pct', 'highest_price', 'tick_strength', 'market_kosdaq_roc',
                             'tick_rsi21', 'tick_macd_hist', 'tick_disparity20', 'tick_bb_position',
                             'tick_velocity', 'tick_price_roc', 'tick_vol_roc'
@@ -939,7 +939,7 @@ def prepare_sell_strategy_locals(code, tick_chart_data, min_chart_data, buy_pric
         locals_dict['buy_time'] = buy_time
         locals_dict['current_price'] = current_price
         
-        # 수익률 계산
+        # 수익률 및 순수 주가 등락률 계산
         if buy_price > 0:
             buy_cost_per_share = buy_price * (1 + commission_rate)
             # 현재가가 0이면 수익률 계산 불가 (또는 -100% 처리)
@@ -947,10 +947,13 @@ def prepare_sell_strategy_locals(code, tick_chart_data, min_chart_data, buy_pric
                 sell_revenue_per_share = current_price * (1 - commission_rate - tax_rate)
                 net_profit_per_share = sell_revenue_per_share - buy_cost_per_share
                 locals_dict['current_profit_pct'] = (net_profit_per_share / buy_cost_per_share) * 100
+                locals_dict['price_change_pct'] = ((current_price - buy_price) / buy_price) * 100.0
             else:
                 locals_dict['current_profit_pct'] = 0.0
+                locals_dict['price_change_pct'] = 0.0
         else:
             locals_dict['current_profit_pct'] = 0.0
+            locals_dict['price_change_pct'] = 0.0
         
         # 보유 시간 계산
         if buy_time:

@@ -717,9 +717,11 @@ class SwingManager:
                 is_sell_triggered = False
                 sell_reason = ""
 
+                raw_price_change = ((curr_price - buy_price) / buy_price * 100.0) if buy_price > 0 else 0.0
                 safe_locals = {
                     'buy_price': buy_price,
                     'current_price': curr_price,
+                    'price_change_pct': raw_price_change,
                     'current_profit_pct': profit_pct,
                     'highest_price': highest_price,
                     'holding_days': holding.get('holding_days', 1),
@@ -735,6 +737,7 @@ class SwingManager:
                     safe_locals = {
                         'buy_price': buy_price,
                         'current_price': curr_price,
+                        'price_change_pct': raw_price_change,
                         'current_profit_pct': profit_pct,
                         'highest_price': highest_price,
                         'holding_days': holding.get('holding_days', 1),

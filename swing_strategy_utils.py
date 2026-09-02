@@ -153,12 +153,13 @@ def prepare_swing_locals(code: str, df_daily: pd.DataFrame, current_price: float
 
     if holding_info:
         buy_price = float(holding_info.get('buy_price', current_price))
-        highest_price = float(holding_info.get('highest_price', max(buy_price, current_price)))
-        profit_pct = ((current_price - buy_price) / buy_price * 100.0) - 0.3 # 수수료 감안
+        price_change_pct = ((current_price - buy_price) / buy_price * 100.0) if buy_price > 0 else 0.0
+        profit_pct = price_change_pct - 0.3 # 수수료 감안
         from_peak = ((current_price - highest_price) / highest_price * 100.0) if highest_price > 0 else 0.0
 
         safe_locals['buy_price'] = buy_price
         safe_locals['highest_price'] = highest_price
+        safe_locals['price_change_pct'] = price_change_pct
         safe_locals['current_profit_pct'] = profit_pct
         safe_locals['profit_pct'] = profit_pct
         safe_locals['from_peak_pct'] = from_peak
