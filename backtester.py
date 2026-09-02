@@ -753,6 +753,18 @@ class Backtester:
                             locals_dict['current_profit_pct'] = real_profit_pct
                             locals_dict['buy_price'] = buy_price
                             locals_dict['buy_time'] = pos['buy_time']
+                            if pos.get('buy_time'):
+                                try:
+                                    b_dt = pd.to_datetime(pos['buy_time'])
+                                    hold_sec = (dt_obj - b_dt).total_seconds()
+                                    locals_dict['hold_minutes'] = max(0.0, hold_sec / 60.0)
+                                    locals_dict['hold_hours'] = max(0.0, hold_sec / 3600.0)
+                                except Exception:
+                                    locals_dict['hold_minutes'] = 0.0
+                                    locals_dict['hold_hours'] = 0.0
+                            else:
+                                locals_dict['hold_minutes'] = 0.0
+                                locals_dict['hold_hours'] = 0.0
                             locals_dict['holding_amount'] = buy_price * pos['qty']
                             locals_dict['highest_price'] = highest_price
                             locals_dict['from_peak_pct'] = from_peak_pct
