@@ -6033,7 +6033,12 @@ def get_current_status_data():
                 if curr_p <= 0:
                     curr_p = buy_p
 
-                is_sim = config.getboolean('KIWOOM_API', 'simulation', fallback=False)
+                is_sim = False
+                if hasattr(app, 'login_handler') and getattr(app.login_handler, 'config', None):
+                    is_sim = app.login_handler.config.getboolean('KIWOOM_API', 'simulation', fallback=False)
+                else:
+                    from config_manager import EnvConfigParser
+                    is_sim = EnvConfigParser().getboolean('KIWOOM_API', 'simulation', fallback=False)
                 fee_deduct = 0.88 if is_sim else 0.21
                 p_loss = (curr_p - buy_p) * qty
                 p_rate = ((curr_p - buy_p) / buy_p * 100.0) - fee_deduct if buy_p > 0 else 0.0
