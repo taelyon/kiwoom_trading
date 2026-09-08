@@ -30,7 +30,7 @@ def format_backtest_indicator_log(code, strategy_name, strategy_type, condition,
                 pass
 
         key_indicators = [
-            'AI_SCORE', 'feature_time', 'current_price', 'buy_price', 'current_profit_pct',
+            'AI_SCORE', 'feature_time', 'current_price', 'buy_price', 'price_change_pct', 'current_profit_pct',
             'from_peak_pct', 'highest_price', 'tick_strength', 'market_kosdaq_roc',
             'tick_rsi21', 'tick_macd_hist', 'tick_disparity20', 'tick_bb_position',
             'tick_velocity', 'tick_price_roc', 'tick_vol_roc'
@@ -739,7 +739,8 @@ class Backtester:
                                 
                             highest_price = pos['highest_price']
                             from_peak_pct = (current_price - highest_price) / highest_price * 100.0 if highest_price > 0 else 0.0
-                            real_profit_pct = (current_price - buy_price) / buy_price * 100.0 - 0.8
+                            raw_price_change_pct = (current_price - buy_price) / buy_price * 100.0 if buy_price > 0 else 0.0
+                            real_profit_pct = raw_price_change_pct - 0.8
                             
                             locals_dict = base_locals_dict.copy()
                             locals_dict['code'] = current_code
@@ -747,10 +748,23 @@ class Backtester:
                             locals_dict['datetime'] = dt_obj
                             locals_dict['feature_time'] = max(0, min(390, (dt_obj.hour * 60 + dt_obj.minute) - (9 * 60)))
                             locals_dict['current_price'] = current_price
+                            locals_dict['price_change_pct'] = raw_price_change_pct
                             locals_dict['profit_pct'] = real_profit_pct
                             locals_dict['current_profit_pct'] = real_profit_pct
                             locals_dict['buy_price'] = buy_price
                             locals_dict['buy_time'] = pos['buy_time']
+                            if pos.get('buy_time'):
+                                try:
+                                    b_dt = pd.to_datetime(pos['buy_time'])
+                                    hold_sec = (dt_obj - b_dt).total_seconds()
+                                    locals_dict['hold_minutes'] = max(0.0, hold_sec / 60.0)
+                                    locals_dict['hold_hours'] = max(0.0, hold_sec / 3600.0)
+                                except Exception:
+                                    locals_dict['hold_minutes'] = 0.0
+                                    locals_dict['hold_hours'] = 0.0
+                            else:
+                                locals_dict['hold_minutes'] = 0.0
+                                locals_dict['hold_hours'] = 0.0
                             locals_dict['holding_amount'] = buy_price * pos['qty']
                             locals_dict['highest_price'] = highest_price
                             locals_dict['from_peak_pct'] = from_peak_pct

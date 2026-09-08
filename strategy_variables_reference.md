@@ -29,7 +29,8 @@
 | **MACD**, **MACD_HIST** | MACD 지표 및 히스토그램 | `tic_MACD_HIST` |
 | **volume_ratio** | 평균 대비 현재 거래량 비율 | `volume_ratio > 2.0` |
 | **tic_velocity** | 틱 생성 속도 (ms) | 값이 작을수록 거래 체결 속도 빠름 |
-| **current_profit_pct** | 현재 수익률 (%) | 매도 조건 전용 (예: `current_profit_pct < -2.2`) |
+| **price_change_pct** | 순수 주가 등락률 (%) | 수수료 미반영, `(현재가-매수가)/매수가*100` (예: `price_change_pct >= 0.3`) |
+| **current_profit_pct** | 수수료 반영 순수익률 (%) | 제반비용 차감 후 (예: `current_profit_pct < -2.2`) |
 | **highest_price**, **from_peak_pct** | 최고가 및 고점 대비 하락률 | 트레일링 스탑용 (`from_peak_pct <= -1.0`) |
 
 ---
