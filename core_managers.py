@@ -128,6 +128,55 @@ class LoginHandler:
             self.websocket_task = asyncio.create_task(self.websocket_client.run())
         except Exception as e:
             self.logger.error(f"웹소켓 클라이언트 시작 실패: {e}", exc_info=True)
+
+    async def reconnect_morning(self) -> bool:
+        """24시간 가동 환경에서 매일 아침(08:50경) 토큰 강제 갱신 및 웹소켓 재기동"""
+        try:
+            self.logger.info("🌅 [아침 재기동] 키움 API 토큰 갱신 및 웹소켓 재연결 시작...")
+            
+            # 1. 키움 REST 클라이언트가 없으면 신규 연결
+            if not self.kiwoom_client:
+                await self.handle_api_connection()
+            else:
+                # 기존 클라이언트의 토큰 강제 재발급
+                self.logger.info("🔑 키움 OAuth Access Token 신규 발급 요청 중...")
+                token_refreshed = await self.kiwoom_client.get_access_token()
+                if not token_refreshed:
+                    self.logger.warning("⚠️ 토큰 발급 실패, handle_api_connection 재시도...")
+                    await self.handle_api_connection()
+
+            if not self.kiwoom_client or not self.kiwoom_client.is_connected:
+                self.logger.error("❌ [아침 재기동] 키움 REST API 연결 실패")
+                return False
+
+            # 2. 기존 웹소켓 클라이언트 정리
+            if hasattr(self, 'websocket_client') and self.websocket_client:
+                try:
+                    self.logger.debug("🔌 기존 웹소켓 클라이언트 종료 처리...")
+                    await self.websocket_client.stop()
+                except Exception as ws_stop_ex:
+                    self.logger.debug(f"기존 웹소켓 종료 무시: {ws_stop_ex}")
+                self.websocket_client = None
+
+            if hasattr(self, 'websocket_task') and self.websocket_task and not self.websocket_task.done():
+                self.websocket_task.cancel()
+                self.websocket_task = None
+
+            # 3. 새 토큰으로 웹소켓 클라이언트 시작
+            await self.start_websocket_client()
+
+            # 4. 웹소켓 연결 완료 대기 (최대 10초)
+            for _ in range(20):
+                if hasattr(self, 'websocket_client') and self.websocket_client and self.websocket_client.connected:
+                    self.logger.info("✅ [아침 재기동] 웹소켓 재연결 성공 및 활성화 완료")
+                    return True
+                await asyncio.sleep(0.5)
+
+            self.logger.warning("⚠️ [아침 재기동] 웹소켓 연결 대기 시간 초과 (백그라운드 연결 진행 중)")
+            return True
+        except Exception as ex:
+            self.logger.error(f"❌ [아침 재기동] 실패: {ex}", exc_info=True)
+            return False
             
     async def init_kiwoom_client(self):
         """키움 REST API 클라이언트 초기화 (비동기)"""

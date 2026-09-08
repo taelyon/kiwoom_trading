@@ -257,6 +257,57 @@ class TradingApp:
         finally:
             self._is_initializing = False
 
+    async def restart_daily_systems(self) -> bool:
+        """24시간 가동 환경에서 일일 아침(08:50) 시스템 자동 재기동 시퀀스"""
+        try:
+            self.logger.info("🌅 [일일 시스템 재기동] 매매 시스템 전체 아침 초기화 시작...")
+
+            # 1. 키움 토큰 갱신 및 웹소켓 재접속
+            if hasattr(self, 'login_handler') and self.login_handler:
+                await self.login_handler.reconnect_morning()
+
+            # 2. 차트 캐시 백그라운드 태스크 재생성
+            if hasattr(self, 'chart_cache') and self.chart_cache:
+                self.chart_cache.start()
+
+            # 3. 시장 지수 관리 매니저 재시작
+            if hasattr(self, 'market_index_manager') and self.market_index_manager:
+                try:
+                    self.market_index_manager.start()
+                except Exception as mim_ex:
+                    self.logger.debug(f"시장 지수 매니저 시작 예외 무시: {mim_ex}")
+
+            # 4. 조건검색 목록 조회 및 실시간 검색 자동 재등록
+            if hasattr(self, 'condition_search_manager') and self.condition_search_manager:
+                try:
+                    await self.handle_condition_search_list_query()
+                    await self.condition_search_manager.check_and_auto_execute_saved_condition()
+                    self.logger.info("✅ 조건검색 실시간 구독 재개 완료")
+                except Exception as cond_ex:
+                    self.logger.error(f"❌ 조건검색 재등록 실패: {cond_ex}")
+
+            # 5. 계좌 잔고 최신화
+            if hasattr(self, 'account_manager') and self.account_manager:
+                try:
+                    await self.account_manager.handle_acnt_balance_query_async()
+                    self.logger.info("✅ 계좌 잔고 조회 완료")
+                except Exception as bal_ex:
+                    self.logger.error(f"❌ 계좌 잔고 조회 실패: {bal_ex}")
+
+            # 6. 스윙 매매 매니저 설정 리로드
+            if hasattr(self, 'swing_manager') and self.swing_manager:
+                try:
+                    await self.swing_manager.reload_config()
+                    self.logger.info("✅ 스윙 매매 매니저 설정 리로드 완료")
+                except Exception as swing_ex:
+                    self.logger.error(f"❌ 스윙 매니저 리로드 실패: {swing_ex}")
+
+            self.logger.info("✨ [일일 시스템 재기동] 모든 아침 초기화 작업이 성공적으로 완료되었습니다!")
+            return True
+        except Exception as ex:
+            self.logger.error(f"❌ [일일 시스템 재기동] 중 오류 발생: {ex}", exc_info=True)
+            return False
+
     # --- 실시간 상태 통보용 껍데기/대시보드 통지 메서드 ---
 
     def update_stock_table(self):

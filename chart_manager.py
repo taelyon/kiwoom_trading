@@ -1053,13 +1053,31 @@ class ChartDataCache:
         return f"종목{code}"
     
     def start(self):
-        """캐시 업데이트 및 저장 타이머 시작"""
+        """캐시 업데이트 및 저장 비동기 태스크 시작/재생성"""
         try:
+            # 1. 종료/취소되었거나 존재하지 않는 비동기 태스크 재생성
+            if not hasattr(self, 'update_task') or self.update_task is None or self.update_task.done():
+                self.update_task = create_fire_and_forget_task(self._update_loop())
+                self.logger.debug("🔄 ChartDataCache _update_loop 태스크 기동")
+                
+            if not hasattr(self, 'save_task') or self.save_task is None or self.save_task.done():
+                self.save_task = create_fire_and_forget_task(self._save_loop())
+                self.logger.debug("🔄 ChartDataCache _save_loop 태스크 기동")
+                
+            if not hasattr(self, 'queue_task') or self.queue_task is None or self.queue_task.done():
+                self.queue_task = create_fire_and_forget_task(self._queue_loop())
+                self.logger.debug("🔄 ChartDataCache _queue_loop 태스크 기동")
+
             # 모니터링 종목 수에 따라 동적으로 업데이트 주기 조절
             self.update_chart_update_interval()
-            self.logger.debug("✅ ChartDataCache 백그라운드 스케줄러 동적 설정 완료")
+            self.logger.info("✅ ChartDataCache 백그라운드 루프(업데이트/DB저장/API큐) 시작/재기동 완료")
         except Exception as ex:
             self.logger.error(f"❌ ChartDataCache 시작 실패: {ex}", exc_info=True)
+
+    def restart(self):
+        """차트 캐시 태스크 안전 재기동"""
+        self.stop()
+        self.start()
 
 
     def clear_cache(self):

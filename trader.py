@@ -778,7 +778,26 @@ class AutoTrader:
                 await self.parent.login_handler.kiwoom_client.send_slack_daily_report(total_profit, total_profit_rate)
         except Exception as ex:
             self.logger.error(f"❌ 장 마감 리포트 실행 중 오류: {ex}", exc_info=True)
-    
+
+    async def _execute_morning_restart_sequence(self):
+        """24시간 가동 환경을 위한 일일 아침(08:50) 통합 재기동 시퀀스"""
+        try:
+            self.logger.info("🌅 [08:50 장 시작 전 준비] 일일 자동 재기동 시퀀스를 시작합니다...")
+            
+            # 1. 일일 플래그 및 블랙리스트 초기화
+            self.trader.reset_blacklist()
+            self.auto_liquidation_executed = False
+            self.daily_report_sent = False
+            self.logger.debug("✅ 블랙리스트 및 일일 매매 플래그 초기화 완료")
+            
+            # 2. 메인 앱 시스템(토큰 갱신, 웹소켓 재접속, 차트 캐시 재생성, 조건검색 재구독, 잔고조회, 스윙 리로드) 재기동
+            if hasattr(self.parent, 'restart_daily_systems'):
+                await self.parent.restart_daily_systems()
+            
+            self.logger.info("✨ [08:50 장 시작 전 준비] 모든 시스템이 당일 정규장을 위해 정상 가동되었습니다.")
+        except Exception as ex:
+            self.logger.error(f"❌ [08:50 장 시작 전 준비] 실패: {ex}", exc_info=True)
+
     async def _periodic_trading_check(self):
         """주기적 매매 판단 실행"""
         try:
@@ -811,6 +830,10 @@ class AutoTrader:
                 self.daily_report_sent = False
                 logging.debug("🔄 자동 청산 플래그 리셋 완료")
             
+            # 주말(토, 일)에는 장외 대기
+            if now.weekday() >= 5:
+                return
+
             trading_start_time = (9, 0)
             trading_end_time = (15, 30)
             
@@ -818,15 +841,13 @@ class AutoTrader:
             start_time_minutes = trading_start_time[0] * 60 + trading_start_time[1]
             end_time_minutes = trading_end_time[0] * 60 + trading_end_time[1]
             
-            # 장 시작 전 블랙리스트 초기화
+            # 장 시작 전 아침 준비 (08:50 ~ 09:00)
             if current_time_minutes < start_time_minutes:
-                if current_time_str == "08:50":
-                     if not hasattr(self, '_blacklist_reset_done') or not self._blacklist_reset_done:
-                        self.trader.reset_blacklist()
-                        self._blacklist_reset_done = True
-                elif current_time_str == "08:51":
-                    if hasattr(self, '_blacklist_reset_done'):
-                        delattr(self, '_blacklist_reset_done')
+                today_str = now.strftime("%Y-%m-%d")
+                if current_time_str >= "08:50":
+                    if getattr(self, '_last_morning_setup_date', None) != today_str:
+                        self._last_morning_setup_date = today_str
+                        await self._execute_morning_restart_sequence()
                 return
             
             if current_time_minutes >= end_time_minutes:
