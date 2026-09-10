@@ -278,6 +278,7 @@ class WebDashboardLogHandler(logging.Handler):
         super().__init__()
         log_format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         self.setFormatter(logging.Formatter(log_format))
+        self.current_date = datetime.now().strftime('%Y-%m-%d')
 
     def emit(self, record):
         global log_counter
@@ -292,6 +293,15 @@ class WebDashboardLogHandler(logging.Handler):
                 return
             formatted_msg = self.format(record)
             
+            now = datetime.now()
+            today_str = now.strftime('%Y-%m-%d')
+            
+            # 날짜가 바뀌었으면 이전 날짜의 로그 큐 정리 (당일 로그만 유지)
+            if today_str != self.current_date:
+                self.current_date = today_str
+                while log_queue and log_queue[0].get('date') != today_str:
+                    log_queue.popleft()
+            
             with log_counter_lock:
                 log_counter += 1
                 entry_id = log_counter
@@ -299,7 +309,8 @@ class WebDashboardLogHandler(logging.Handler):
             log_entry = {
                 "id": entry_id,
                 "type": "log",
-                "timestamp": datetime.now().strftime('%H:%M:%S'),
+                "date": today_str,
+                "timestamp": now.strftime('%H:%M:%S'),
                 "level": record.levelname,
                 "logger": record.name,
                 "message": record.getMessage(),
@@ -2693,6 +2704,21 @@ HTML_CONTENT = """
                     console.log(`📥 [WS PROFILE] Dashboard UI 업데이트 완료 (소요: ${(statusRecvTime - statusRecvTime).toFixed(1)} ms)`);
                 } else if (data.type === 'log') {
                     appendLog(data);
+                } else if (data.type === 'clear_logs') {
+                    const container = document.getElementById('terminalBody');
+                    const swingContainer = document.getElementById('swingTerminalBody');
+                    if (container) container.innerHTML = '';
+                    if (swingContainer) swingContainer.innerHTML = '';
+                    lastLoggedTime = null;
+                    lastLoggedMsg = null;
+                    currentLogDate = data.date || null;
+                    appendLog({
+                        date: data.date,
+                        timestamp: new Date().toTimeString().split(' ')[0],
+                        level: 'INFO',
+                        logger: 'System',
+                        message: `📅 [날짜 변경] ${data.date} 새 일자 로그를 시작합니다.`
+                    });
                 } else if (data.type === 'log_batch') {
                     if (data.logs && data.logs.length > 0) {
                         try {
@@ -2700,6 +2726,9 @@ HTML_CONTENT = """
                             const swingContainer = document.getElementById('swingTerminalBody');
                             if (container) container.innerHTML = ''; // 초단타 로그 DOM 초기화
                             if (swingContainer) swingContainer.innerHTML = ''; // 스윙 로그 DOM 초기화
+                            lastLoggedTime = null;
+                            lastLoggedMsg = null;
+                            currentLogDate = data.date || (data.logs[0] ? data.logs[0].date : null);
                             
                             data.logs.forEach(log => {
                                 appendLog(log, true);
@@ -3496,8 +3525,23 @@ HTML_CONTENT = """
             // No-op
         }
 
+        let currentLogDate = null;
+
         // 로그 메시지 화면 추가 및 로컬 스토리지 영구 저장
         function appendLog(log, skipStorage = false) {
+            // 날짜 변경 감지 시 이전 일자 로그 화면 초기화 (당일 로그만 표시)
+            if (log.date) {
+                if (currentLogDate && currentLogDate !== log.date) {
+                    const container = document.getElementById('terminalBody');
+                    const swingContainer = document.getElementById('swingTerminalBody');
+                    if (container) container.innerHTML = '';
+                    if (swingContainer) swingContainer.innerHTML = '';
+                    lastLoggedTime = null;
+                    lastLoggedMsg = null;
+                }
+                currentLogDate = log.date;
+            }
+
             // 중복 메시지 방지
             if (log.timestamp === lastLoggedTime && log.message === lastLoggedMsg) {
                 return;
@@ -6479,19 +6523,26 @@ async def websocket_handler(websocket):
                         status_end = time.time()
                         # logging.debug(f"[WS PROFILE SERVER] status 데이터 수집 소요: {(status_mid - status_start)*1000:.1f}ms, 송신 소요: {(status_end - status_mid)*1000:.1f}ms")
                         
-                        # 최근 로그 스트리밍 일괄 전송 (배치) - 최대 100개로 제한
+                        # 최근 로그 스트리밍 일괄 전송 (배치) - 당일(오늘) 로그만 전송
                         log_batch_start = time.time()
+                        today_str = datetime.now().strftime('%Y-%m-%d')
+                        # 이전 날짜 로그 큐 정리
+                        while log_queue and log_queue[0].get('date', today_str) != today_str:
+                            log_queue.popleft()
+
                         current_logs = list(log_queue)
                         last_id = 0
                         batch_logs = []
                         for log_entry in current_logs:
-                            batch_logs.append(log_entry)
-                            last_id = max(last_id, log_entry.get('id', 0))
+                            if log_entry.get('date', today_str) == today_str:
+                                batch_logs.append(log_entry)
+                                last_id = max(last_id, log_entry.get('id', 0))
                             
                         if batch_logs:
                             try:
                                 await safe_send(websocket, json.dumps({
                                     "type": "log_batch",
+                                    "date": today_str,
                                     "logs": batch_logs
                                 }))
                             except Exception: pass
@@ -7674,12 +7725,28 @@ async def dashboard_data_broadcast_loop():
         await asyncio.sleep(1.0)
 
 async def dashboard_log_broadcast_loop():
-    """로그 큐에 쌓인 로그를 실시간으로 모든 인증된 클라이언트에 브로드캐스트"""
+    """로그 큐에 쌓인 로그를 실시간으로 모든 인증된 클라이언트에 브로드캐스트 (자정 날짜 변경 감지 포함)"""
+    last_broadcast_date = datetime.now().strftime('%Y-%m-%d')
     while True:
         try:
+            now_date = datetime.now().strftime('%Y-%m-%d')
+            # 자정이 지나 날짜가 변경된 경우
+            if now_date != last_broadcast_date:
+                last_broadcast_date = now_date
+                # log_queue에서 이전 날짜 로그 제거
+                while log_queue and log_queue[0].get('date') != now_date:
+                    log_queue.popleft()
+                # 접속 중인 모든 클라이언트에 로그 화면 초기화 알림
+                clear_msg = json.dumps({"type": "clear_logs", "date": now_date})
+                for client in list(connected_clients):
+                    try:
+                        await safe_send(client, clear_msg)
+                    except Exception:
+                        pass
+
             if connected_clients:
-                # 현재 큐에 있는 로그들의 스냅샷 복사
-                current_logs = list(log_queue)
+                # 현재 큐에 있는 당일 로그들의 스냅샷 복사
+                current_logs = [l for l in list(log_queue) if l.get('date', now_date) == now_date]
                 for client in list(connected_clients):
                     try:
                         last_sent = getattr(client, 'last_sent_log_id', 0)
