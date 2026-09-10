@@ -302,6 +302,21 @@ class TradingApp:
                 except Exception as swing_ex:
                     self.logger.error(f"❌ 스윙 매니저 리로드 실패: {swing_ex}")
 
+            # 7. DB 오래된 데이터(30영업일 초과) 자동 정리
+            db = None
+            if hasattr(self, 'trader') and hasattr(self.trader, 'db_manager') and self.trader.db_manager:
+                db = self.trader.db_manager
+            elif hasattr(self, 'chart_cache') and hasattr(self.chart_cache, 'db') and self.chart_cache.db:
+                db = self.chart_cache.db
+
+            if db:
+                try:
+                    from config_manager import EnvConfigParser
+                    max_days = EnvConfigParser().getint('DATA_SAVING', 'MAX_DAYS', fallback=30)
+                    await db.cleanup_old_stock_data(keep_business_days=max_days)
+                except Exception as db_clean_ex:
+                    self.logger.debug(f"DB 데이터 자동 정리 예외 무시: {db_clean_ex}")
+
             self.logger.info("✨ [일일 시스템 재기동] 모든 아침 초기화 작업이 성공적으로 완료되었습니다!")
             return True
         except Exception as ex:

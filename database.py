@@ -848,6 +848,60 @@ class AsyncDatabaseManager:
         except Exception as ex:
             self.logger.error(f"데이터베이스 초기화 실패: {ex}", exc_info=True)
 
+    async def cleanup_old_stock_data(self, keep_business_days=30):
+        """
+        최근 N영업일(기본 30영업일) 이전의 오래된 틱 차트 데이터 자동 정리 (실제 거래일 기준)
+        - 단순 달력 기준이 아니라 DB에 실제로 저장된 거래일(영업일)을 역순으로 카운트
+        - 주말/공휴일 영향 없이 정확히 최신 N영업일(약 10~20만 행)만 남기고 이전 데이터를 선별 삭제
+        """
+        try:
+            if self._conn is None:
+                await self.init_database()
+
+            async with self._db_lock:
+                cursor = await self._conn.cursor()
+                
+                # 1. DB에 존재하는 고유 거래일 목록을 최신순으로 조회
+                await cursor.execute("""
+                    SELECT DISTINCT substr(datetime, 1, 10) as dt 
+                    FROM stock_data 
+                    ORDER BY dt DESC
+                """)
+                rows = await cursor.fetchall()
+                trading_dates = [r[0] for r in rows if r[0]]
+                
+                total_days = len(trading_dates)
+                if total_days <= keep_business_days:
+                    self.logger.debug(f"📊 [DB 데이터 유지] 현재 누적 영업일({total_days}일)이 보존 기준({keep_business_days}일) 이하이므로 삭제하지 않습니다.")
+                    return 0
+
+                # 2. 보존할 N번째 최근 영업일 산출 (이 날짜 이전 데이터 삭제)
+                cutoff_date = trading_dates[keep_business_days - 1]
+                cutoff_datetime = f"{cutoff_date} 00:00:00"
+                
+                # 3. 삭제 대상 행 수 확인
+                await cursor.execute("SELECT COUNT(*) FROM stock_data WHERE datetime < ?", (cutoff_datetime,))
+                delete_count_row = await cursor.fetchone()
+                delete_count = delete_count_row[0] if delete_count_row else 0
+                
+                if delete_count > 0:
+                    # 4. 오래된 데이터 삭제
+                    await cursor.execute("DELETE FROM stock_data WHERE datetime < ?", (cutoff_datetime,))
+                    
+                    # 업종 3분봉(kosdaq_3m) 테이블도 동일 기준선 이전 데이터 정리
+                    try:
+                        await cursor.execute("DELETE FROM kosdaq_3m WHERE datetime < ?", (cutoff_datetime,))
+                    except Exception:
+                        pass
+
+                    await self._conn.commit()
+                    self.logger.info(f"🧹 [DB {keep_business_days}영업일 자동 정리] {cutoff_date} 이전의 오래된 틱 데이터 {delete_count:,}건 삭제 완료 (최근 {keep_business_days}영업일 보존)")
+                
+                return delete_count
+        except Exception as ex:
+            self.logger.error(f"❌ DB 오래된 데이터 자동 정리 실패: {ex}", exc_info=True)
+            return 0
+
     async def clear_trade_records(self):
         """매매 기록(trade_records) 테이블 초기화 (계좌 동기화 및 강제 리셋용)"""
         try:
