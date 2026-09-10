@@ -353,7 +353,6 @@ class MLTrainingWorker(threading.Thread):
                 f"불균형 보정: {self.params.get('is_unbalance', True)}"
             )
             self.progress_signal.emit(param_summary)
-            self.logger.info(param_summary)
             
             # =========================================================================
             # [5-Fold 교차 검증 엔진] OOF CV AUC 측정 및 최적 트리 수(avg_best_trees) 산출
