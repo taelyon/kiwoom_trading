@@ -786,6 +786,13 @@ class AutoTrader:
             if hasattr(self.parent, 'login_handler') and self.parent.login_handler.kiwoom_client:
                 total_profit, total_profit_rate = await self.parent.login_handler.kiwoom_client.get_daily_realized_profit()
                 await self.parent.login_handler.kiwoom_client.send_slack_daily_report(total_profit, total_profit_rate)
+
+            # 장 마감 리포트 전송 완료 후 키움 웹소켓 안전 종료 (야간 휴식 모드)
+            if hasattr(self.parent, 'login_handler') and self.parent.login_handler:
+                ws_client = getattr(self.parent.login_handler, 'websocket_client', None)
+                if ws_client and ws_client.connected:
+                    self.logger.info("🌙 [장 마감 야간 휴식] 키움 웹소켓을 안전하게 종료합니다. (익일 08:50 정규 준비 시 재가동)")
+                    await ws_client.stop()
         except Exception as ex:
             self.logger.error(f"❌ 장 마감 리포트 실행 중 오류: {ex}", exc_info=True)
 
@@ -798,6 +805,7 @@ class AutoTrader:
             self.trader.reset_blacklist()
             self.auto_liquidation_executed = False
             self.daily_report_sent = False
+            self._night_sleep_done = False
             self.logger.debug("✅ 블랙리스트 및 일일 매매 플래그 초기화 완료")
             
             # 2. 메인 앱 시스템(토큰 갱신, 웹소켓 재접속, 차트 캐시 재생성, 조건검색 재구독, 잔고조회, 스윙 리로드) 재기동
@@ -839,6 +847,15 @@ class AutoTrader:
                 self.auto_liquidation_executed = False
                 self.daily_report_sent = False
                 logging.debug("🔄 자동 청산 플래그 리셋 완료")
+
+            # 15:35 장 마감 야간 휴식 모드 안전 보장 (Fallback)
+            if current_time_str == "15:35" and not getattr(self, '_night_sleep_done', False):
+                self._night_sleep_done = True
+                if hasattr(self.parent, 'login_handler') and self.parent.login_handler:
+                    ws_client = getattr(self.parent.login_handler, 'websocket_client', None)
+                    if ws_client and ws_client.connected:
+                        self.logger.info("🌙 [15:35 장 마감] 키움 웹소켓을 안전하게 종료합니다. (익일 08:50 재가동 예정)")
+                        await ws_client.stop()
             
             # 주말(토, 일)에는 장외 대기
             if now.weekday() >= 5:

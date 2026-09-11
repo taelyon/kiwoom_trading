@@ -101,7 +101,7 @@ class LoginHandler:
         except Exception as ex:
             self.logger.error(f"설정 저장 중 오류 발생: {ex}", exc_info=True)
     
-    async def start_websocket_client(self):
+    async def start_websocket_client(self, force: bool = False):
         """웹소켓 클라이언트 시작"""
         try:           
             if self.kiwoom_client is None:
@@ -110,6 +110,19 @@ class LoginHandler:
             
             if hasattr(self, 'websocket_client') and self.websocket_client and self.websocket_client.connected:
                 self.logger.debug("✅ 웹소켓 클라이언트가 이미 연결되어 있습니다 (재사용)")
+                return
+            
+            # 장외/야간/점검 시간대(08:30 이전, 15:35 이후, 주말) 자동 연결 방지 (수동 연결 또는 아침 재기동 시 force=True 허용)
+            now = datetime.now()
+            is_weekend = now.weekday() >= 5
+            cur_time = now.time()
+            is_operating_hours = (not is_weekend) and (dt_time(8, 30) <= cur_time < dt_time(15, 35))
+
+            if not force and not is_operating_hours:
+                self.logger.info(
+                    f"🌙 [장 운영 시간 외] 현재({now.strftime('%H:%M:%S')})는 장외/야간/점검 시간대입니다. "
+                    f"키움 웹소켓은 매일 아침 08:50 장 시작 전 준비 시점에 자동으로 가동됩니다."
+                )
                 return
             
             existing_balance_data = {}
@@ -163,7 +176,7 @@ class LoginHandler:
                 self.websocket_task = None
 
             # 3. 새 토큰으로 웹소켓 클라이언트 시작
-            await self.start_websocket_client()
+            await self.start_websocket_client(force=True)
 
             # 4. 웹소켓 연결 완료 대기 (최대 10초)
             for _ in range(20):
@@ -263,7 +276,7 @@ class LoginHandler:
             else:
                 self.logger.info("🔌 API 연결을 시도합니다...")
                 await self.handle_api_connection()
-                await self.start_websocket_client()
+                await self.start_websocket_client(force=True)
                 self.parent.update_connection_status(True)
         except Exception as ex:
             self.logger.error(f"연결/해제 처리 중 오류: {ex}", exc_info=True)

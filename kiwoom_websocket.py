@@ -189,20 +189,31 @@ class KiwoomWebSocketClient:
                 # 연결이 끊겼으므로 정리
                 await self.disconnect()
                 
-                # 장 마감 시간(15:30) 이후에는 재연결 시도 중지
-                now = datetime.now()
-                market_close_time = now.replace(hour=15, minute=30, second=0, microsecond=0)
+            # 장 마감 시간(15:30) 이후, 장 시작 전(08:30 이전), 또는 주말에는 재연결 시도 중지
+            now = datetime.now()
+            is_weekend = now.weekday() >= 5
+            market_prep_time = dt_time(8, 30)
+            market_close_time = dt_time(15, 30)
+            cur_time = now.time()
+            
+            is_operating_hours = (not is_weekend) and (market_prep_time <= cur_time < market_close_time)
+            
+            if not is_operating_hours:
+                if is_weekend:
+                    reason = "주말(휴장)"
+                elif cur_time < market_prep_time:
+                    reason = "장 시작 전(08:30 이전, 키움 서버 일일 점검/리셋 시간대)"
+                else:
+                    reason = "장 마감(15:30) 이후 야간 시간대"
                 
-                # 현재 시간이 장 마감 시간을 지났다면 종료
-                if now >= market_close_time:
-                    self.logger.info(f"⏰ 장 마감 시간({market_close_time.strftime('%H:%M:%S')})이 지났으므로 재연결을 시도하지 않습니다.")
-                    self.keep_running = False
-                    break
+                self.logger.info(f"⏰ {reason}이므로 웹소켓 재연결을 시도하지 않고 대기 모드로 전환합니다. (현재: {now.strftime('%H:%M:%S')})")
+                self.keep_running = False
+                break
 
-                # 프로그램 종료가 아니라면 재연결을 위해 대기
-                if self.keep_running:
-                    await asyncio.sleep(reconnect_delay)
-                    self.logger.debug(f"🔄 웹소켓 재연결 시도 중... ({reconnect_delay}초 대기 완료)")
+            # 프로그램 종료가 아니라면 재연결을 위해 대기
+            if self.keep_running:
+                await asyncio.sleep(reconnect_delay)
+                self.logger.debug(f"🔄 웹소켓 재연결 시도 중... ({reconnect_delay}초 대기 완료)")
         
         self.logger.info("✅ 웹소켓 클라이언트 실행이 완전히 종료되었습니다.")
 
