@@ -55,6 +55,10 @@ class KiwoomWebSocketClient:
             if self.parent and hasattr(self.parent, 'login_handler') and hasattr(self.parent.login_handler, 'kiwoom_client'):
                 kiwoom_client = self.parent.login_handler.kiwoom_client
                 if kiwoom_client:
+                    # REST 클라이언트에 최신 발급된 토큰이 있다면 항상 동기화 (구 토큰 사용 및 8005 오류 방지)
+                    if getattr(kiwoom_client, 'access_token', None):
+                        self.token = kiwoom_client.access_token
+
                     # 토큰 만료 시간이 지났거나 임박(1분 이내)했는지 확인
                     # [주의] is_token_expired 메서드가 KiwoomRestClient에 구현되어 있어야 함
                     # 만약 메서드가 없다면, access_token_expired 속성을 직접 비교 (fallback)
