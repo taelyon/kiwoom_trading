@@ -17,6 +17,7 @@ import queue
 import traceback
 import itertools
 import re
+from utils import create_fire_and_forget_task
 
 def run_batch_backtest_process_worker(q, s_date, e_date, c, buy_stg=None, sell_stg=None, initial_capital=10000000, buycount=3):
     """일괄 백테스트를 수행하는 워커. 가능한 모든 매수 조건 조합을 생성하여 테스트합니다."""
@@ -6565,14 +6566,12 @@ async def websocket_handler(websocket):
                                         await app.chart_cache._collect_chart_data_internal(m_code, force=True)
                                         await asyncio.sleep(1.2) # 과부하 방지 안전 마진 딜레이
                                         
-                            from utils import create_fire_and_forget_task
                             create_fire_and_forget_task(_prefetch_charts_async())
 
                         # 로그인 감지 시 종목 마스터 캐시 맵이 비어 있다면 즉각 비동기 충전 기동
                         if app and hasattr(app, 'data_manager') and app.data_manager:
                             if not app.data_manager.stock_code_map:
                                 logging.debug("📡 대시보드 로그인 감지: 종목 마스터 캐시가 비어 있어 비동기 로딩을 개시합니다.")
-                                from utils import create_fire_and_forget_task
                                 create_fire_and_forget_task(app.data_manager._cache_all_stock_codes_async())
                     else:
                         logging.warning("⚠️ 대시보드 로그인 실패: 비밀번호 불일치")
@@ -7190,7 +7189,6 @@ async def websocket_handler(websocket):
                     cond_name = data.get('condition_name') or '스윙_저가매수'
                     logging.info(f"🔍 [스윙 수동 조작] 수동 조건검색 요청 수신: '{cond_name}'")
                     if hasattr(app, 'swing_manager') and app.swing_manager:
-                        from utils import create_fire_and_forget_task
                         create_fire_and_forget_task(app.swing_manager._fetch_swing_candidates())
                         await safe_send(websocket, json.dumps({
                             "type": "trigger_swing_condition_search_result",
@@ -7288,7 +7286,6 @@ async def websocket_handler(websocket):
                 elif msg_type == 'save_settings':
                     try:
                         new_settings = data.get('settings', {})
-                        from config_manager import EnvConfigParser
                         config = EnvConfigParser()
                         config.reload()  # 사용자가 NAS 쉘에서 직접 수정한 .env 값을 먼저 캐시에 반영
                         
@@ -7467,7 +7464,6 @@ async def websocket_handler(websocket):
                         if not is_swing_only:
                             target_stg = new_settings.get('last_strategy')
                             if target_stg and hasattr(app, 'strategy_manager') and app.strategy_manager:
-                                from utils import create_fire_and_forget_task
                                 create_fire_and_forget_task(app.strategy_manager.stg_changed(target_stg))
                                 logging.info(f"🔄 대시보드 제어: 실시간 감시 대상을 '{target_stg}' 전략으로 전환 개시")
                         else:
@@ -7560,7 +7556,6 @@ async def websocket_handler(websocket):
                                             except Exception:
                                                 pass
                                 
-                                from utils import create_fire_and_forget_task
                                 create_fire_and_forget_task(_fetch_and_send(websocket, code, app.chart_cache))
 
                 elif msg_type == 'subscribe_swing_chart':
@@ -7568,7 +7563,6 @@ async def websocket_handler(websocket):
                     timeframe = data.get('timeframe', 'daily')
                     logging.debug(f"📈 [스윙 차트구독] 프론트엔드로부터 'subscribe_swing_chart' 요청 받음: {code} (timeframe: {timeframe})")
                     if code:
-                        from utils import create_fire_and_forget_task
                         create_fire_and_forget_task(_send_swing_chart_to_ws(websocket, code, app, timeframe=timeframe))
                                 
                 elif msg_type == 'frontend_log':
@@ -7621,7 +7615,6 @@ def on_chart_data_updated(code):
         # 아직 지연 전송 태스크가 예약되지 않았다면 예약 (가장 마지막 상태 보장)
         if code not in main_window_ref.pending_ws_ticks:
             delay = 0.1 - (now - last_sent)
-            from utils import create_fire_and_forget_task
             
             async def delayed_send():
                 await asyncio.sleep(delay)
@@ -7685,7 +7678,6 @@ def on_chart_data_updated(code):
         if 'MACD_SIGNAL' in min_data and min_data['MACD_SIGNAL'] and not math.isnan(float(min_data['MACD_SIGNAL'][-1])): min_candle['macd_sig'] = float(min_data['MACD_SIGNAL'][-1])
         if 'MACD_HIST' in min_data and min_data['MACD_HIST'] and not math.isnan(float(min_data['MACD_HIST'][-1])): min_candle['macd_hist'] = float(min_data['MACD_HIST'][-1])
 
-    from utils import create_fire_and_forget_task
     async def send_to_subscribed_clients():
         for ws, sc_code in list(subscribed_charts.items()):
             if sc_code == code:
