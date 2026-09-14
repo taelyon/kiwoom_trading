@@ -3683,62 +3683,83 @@ HTML_CONTENT = """
             const btSelectEl = document.getElementById('btStrategy');
             if (btSelectEl) btSelectEl.innerHTML = '';
             
-            // 전달받은 조건식 목록이 있으면 옵션에 동적 추가 (초단타 전용 콤보박스에는 스윙 조건식 제외)
+            const swingCondName = settings.swing_condition_name || '스윙_저가매수';
+
+            // 모든 가용한 전략 이름 목록 구성 (.env STRATEGIES + .env last_strategy + HTS 조건검색식 목록)
+            const availableStrategies = new Set();
+            
+            // 1. .env에 정의된 전략 목록 추가
+            if (settings.env_strategies && Array.isArray(settings.env_strategies)) {
+                settings.env_strategies.forEach(stg => {
+                    if (stg && typeof stg === 'string' && stg.trim()) availableStrategies.add(stg.trim());
+                });
+            }
+            
+            // 2. .env의 last_strategy 추가
+            if (settings.last_strategy && typeof settings.last_strategy === 'string' && settings.last_strategy.trim()) {
+                availableStrategies.add(settings.last_strategy.trim());
+            }
+
+            // 3. 키움 HTS 실시간 조건검색식 목록 추가
             if (settings.condition_list && settings.condition_list.length > 0) {
-                const swingCondName = settings.swing_condition_name || '스윙_저가매수';
-                
                 settings.condition_list.forEach(cond => {
-                    const isSwingCond = cond.title.includes('스윙') || 
-                                       cond.title.toLowerCase().includes('swing') || 
-                                       cond.title === swingCondName;
+                    if (cond && cond.title && cond.title.trim()) {
+                        availableStrategies.add(cond.title.trim());
+                    }
+                });
+            }
+
+            // 4. select 엘리먼트에 옵션 추가
+            if (availableStrategies.size > 0) {
+                availableStrategies.forEach(stgName => {
+                    const isSwingCond = stgName.includes('스윙') || 
+                                       stgName.toLowerCase().includes('swing') || 
+                                       stgName === swingCondName;
 
                     // 초단타 대표 매매 전략 콤보박스에는 스윙 전용 조건식 제외
                     if (!isSwingCond) {
                         const option = document.createElement('option');
-                        option.value = cond.title;
-                        option.textContent = cond.title;
+                        option.value = stgName;
+                        option.textContent = stgName;
                         selectEl.appendChild(option);
                     }
                     
                     if (btSelectEl) {
                         const btOption = document.createElement('option');
-                        btOption.value = cond.title;
-                        btOption.textContent = isSwingCond ? `📈 [스윙] ${cond.title}` : cond.title;
+                        btOption.value = stgName;
+                        btOption.textContent = isSwingCond ? `📈 [스윙] ${stgName}` : stgName;
                         btSelectEl.appendChild(btOption);
                     }
                 });
+            }
 
-                if (selectEl.options.length === 0) {
-                    const option = document.createElement('option');
-                    option.value = "";
-                    option.textContent = "(등록된 초단타 조건검색식 없음)";
-                    selectEl.appendChild(option);
-                }
-            } else {
+            if (selectEl.options.length === 0) {
                 const option = document.createElement('option');
                 option.value = "";
-                option.textContent = "(등록된 조건검색식 없음)";
+                option.textContent = "(등록된 매매전략 없음)";
                 selectEl.appendChild(option);
-                if (btSelectEl) {
-                    const btOption = document.createElement('option');
-                    btOption.value = "";
-                    btOption.textContent = "(등록된 조건검색식 없음)";
-                    btSelectEl.appendChild(btOption);
-                }
+            }
+            if (btSelectEl && btSelectEl.options.length === 0) {
+                const btOption = document.createElement('option');
+                btOption.value = "";
+                btOption.textContent = "(등록된 매매전략 없음)";
+                btSelectEl.appendChild(btOption);
             }
             
             let lastStrategy = settings.last_strategy;
             // 현재 select 엘리먼트 내에 lastStrategy 값이 존재하는지 확인
             const hasLastStrategy = Array.from(selectEl.options).some(opt => opt.value === lastStrategy);
-            if (!hasLastStrategy && selectEl.options.length > 0) {
-                // 기존 설정이 목록에 없거나 유효하지 않은 경우 첫 번째 조건식을 기본 선택
+            if (!hasLastStrategy && selectEl.options.length > 0 && selectEl.options[0].value) {
+                // 기존 설정이 목록에 없거나 유효하지 않은 경우 첫 번째 유효 전략을 기본 선택
                 lastStrategy = selectEl.options[0].value;
             }
             selectEl.value = lastStrategy || "";
             if (btSelectEl) btSelectEl.value = lastStrategy || "";
             
             // 전략별 매수/매도 리스트 가져오기 호출
-            onStrategyChange(selectEl.value);
+            if (selectEl.value) {
+                onStrategyChange(selectEl.value);
+            }
 
             // 투자 모드 및 뱃지 업데이트
             const simulation = settings.simulation;
@@ -7165,10 +7186,17 @@ async def websocket_handler(websocket):
                         {"name": "스윙_세력방어선붕괴_기준봉손절", "type": "STOP_LOSS", "content": "current_price < base_candle_low or current_profit_pct <= -10.0"}
                     ], ensure_ascii=False)
 
+                    env_strategies = []
+                    if config.has_section('STRATEGIES'):
+                        items = config.items('STRATEGIES')
+                        items.sort(key=lambda x: int(x[0].split('_')[-1]) if x[0].split('_')[-1].isdigit() else 999)
+                        env_strategies = [v for k, v in items if v]
+
                     settings = {
                         "buycount": str(config.getint('SETTINGS', 'buycount', fallback=3)),
                         "prime_cash": str(config.getint('SETTINGS', 'prime_cash', fallback=0)),
                         "last_strategy": config.get('SETTINGS', 'last_strategy', fallback=''),
+                        "env_strategies": env_strategies,
                         "simulation": config.getboolean('KIWOOM_API', 'simulation', fallback=False),
                         "condition_list": getattr(app, 'condition_search_list', []) or [],
                         "real_appkey": config.get('KIWOOM_API', 'real_appkey', fallback=config.get('KIWOOM_API', 'appkey', fallback='')),
