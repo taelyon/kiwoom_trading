@@ -6604,21 +6604,30 @@ async def websocket_handler(websocket):
                 
                 if msg_type == 'toggle_auto_trading':
                     active = data.get('active', False)
-                    if app.autotrader:
-                        # 설정 파일(.env)에 저장하여 재시작 시 유지
-                        if hasattr(app, 'login_handler') and app.login_handler and app.login_handler.config:
-                            try:
-                                app.login_handler.config.set('SYSTEM', 'AUTO_TRADING_ENABLED', 'True' if active else 'False')
-                                app.login_handler.config.save_config()
-                            except Exception as e:
-                                logging.error(f"❌ 자동매매 설정 저장 실패: {e}")
-                                
+                    # 설정 파일(.env)에 저장하여 재시작 시 유지
+                    if hasattr(app, 'login_handler') and app.login_handler and app.login_handler.config:
+                        try:
+                            app.login_handler.config.set('SYSTEM', 'AUTO_TRADING_ENABLED', 'True' if active else 'False')
+                            app.login_handler.config.save_config()
+                        except Exception as e:
+                            logging.error(f"❌ 자동매매 설정 저장 실패: {e}")
+
+                    # autotrader가 아직 생성되지 않은 경우(장외 야간 시작 등) post_login_setup 즉시 기동 유도
+                    if not getattr(app, 'autotrader', None) and hasattr(app, 'post_login_setup'):
+                        try:
+                            await app.post_login_setup()
+                        except Exception as pl_err:
+                            logging.error(f"❌ post_login_setup 실행 실패: {pl_err}")
+
+                    if getattr(app, 'autotrader', None):
                         if active:
                             app.autotrader.start_auto_trading()
                             logging.info("🤖 대시보드 제어: 자동매매 감시 시작 및 설정 저장됨")
                         else:
                             app.autotrader.stop_auto_trading()
                             logging.info("🤖 대시보드 제어: 자동매매 감시 중지 및 설정 저장됨")
+                    else:
+                        logging.warning("⚠️ AutoTrader 객체가 아직 초기화되지 않았습니다. (.env 설정만 저장됨)")
                             
                 elif msg_type == 'manual_order':
                     code = data.get('code')

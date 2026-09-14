@@ -78,8 +78,13 @@ class TradingApp:
                 if not self._post_login_setup_done:
                     self.logger.info("🔑 자동 연결 시도 중...")
                     await self.login_handler.handle_api_connection()
+                    
+                    # REST API 연결이 완료되었으면 거래 기본 시스템(AutoTrader, 캐시 등) 즉시 초기화
+                    if hasattr(self, 'trader') and self.trader:
+                        self.logger.info("⚙️ REST API 연결 성공 확인 - 핵심 거래 시스템(AutoTrader 등) 즉시 초기화")
+                        await self.post_login_setup()
+
                     await self.login_handler.start_websocket_client()
-                    # post_login_setup은 웹소켓 로그인 성공 통지(콜백) 후 시점에 자동으로 실행되도록 위임함
             else:
                 self.logger.warning("⚠️ 자동 연결 설정(autoconnect)이 비활성화되어 있습니다. 웹 대시보드에서 수동 연결이 필요합니다.")
                 

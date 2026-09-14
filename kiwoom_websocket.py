@@ -303,14 +303,18 @@ class KiwoomWebSocketClient:
                         mode_text = "모의투자" if self.is_mock else "실전투자" # type: ignore
                         self.logger.info(f'✅ 웹소켓 로그인 성공하였습니다. ({mode_text} 모드)')
                         
-                        # 웹소켓 연결 성공 시 post_login_setup 실행
+                        # 웹소켓 연결 성공 시 post_login_setup 실행 (미실행 시)
                         try:
-                            # post_login_setup을 직접 await하여 순차적으로 실행
                             if hasattr(self, 'parent') and hasattr(self.parent, 'post_login_setup'):
                                 await self.parent.post_login_setup() # type: ignore
                                 self.logger.debug("✅ post_login_setup 실행 완료")
+                                
+                            # 만약 post_login_setup이 야간에 먼저 실행되어 조건검색 목록 조회를 못 했다면 여기서 실행
+                            if hasattr(self, 'parent') and hasattr(self.parent, 'handle_condition_search_list_query'):
+                                if not getattr(self.parent, 'condition_search_list', None):
+                                    await self.parent.handle_condition_search_list_query()
                         except Exception as setup_err:
-                            self.logger.error(f"post_login_setup 실행 실패: {setup_err}", exc_info=True)
+                            self.logger.error(f"post_login_setup / 조건검색 조회 실패: {setup_err}", exc_info=True)
                         
                         # 로그인 성공 후 주문체결 실시간 구독 시작
                         try:
